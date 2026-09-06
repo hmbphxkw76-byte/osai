@@ -111,9 +111,9 @@ def test_seeds_subdirectory_structure():
 
 
 def test_burp_directory_exists():
-    """data/burp/ directory should exist (files are optional, user-supplied)."""
-    burp_dir = _PROJECT_ROOT / "data" / "burp"
-    assert burp_dir.exists(), "data/burp/ directory must exist"
+    """config/targets/burp/ directory should exist (files are optional, user-supplied)."""
+    burp_dir = _PROJECT_ROOT / "config" / "targets" / "burp"
+    assert burp_dir.exists(), "config/targets/burp/ directory must exist"
 
 
 def test_scorers_directory_exists():

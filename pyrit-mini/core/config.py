@@ -499,9 +499,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     # ── 侦察: Burp 拦截 ──
     # 用法: --burp <name> (单个) 或 --burp MM_05 --burp MM_03 (多个)
-    #   自动解析为 data/burp/<name>.txt
-    #   不指定时自动扫描 data/burp/*.txt 全部文件 (默认多端点模式)
-    #   也可直接传完整路径: --burp data/burp/deepseek.txt
+    # v61: 迁移至 config/targets/burp/
+    #   自动解析为 config/targets/burp/<name>.txt
+    #   不指定时自动扫描 config/targets/burp/*.txt 全部文件
+    #   也可直接传完整路径: --burp config/targets/burp/deepseek.txt
     #   多个 endpoint: --burp MM_05 --burp MM_03 --burp MM_08
     #   单个 endpoint 也走多端点路径, 确保统一目录结构
     #   学术依据: Greshake et al. (arXiv:2302.12173) — 逐个深度攻击 + 联合 ASR
@@ -511,8 +512,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         metavar="NAME",
         action="append",
-        help="Burp 拦截的 HTTP 请求文件名 (自动查找 data/burp/<NAME>.txt), "
-             "可重复指定多个 endpoint; 不指定时自动扫描 data/burp/*.txt 全部文件",
+        help="Burp 拦截的 HTTP 请求文件名 (自动查找 config/targets/burp/<NAME>.txt), "
+             "可重复指定多个 endpoint; 不指定时自动扫描 config/targets/burp/*.txt 全部文件",
     )
 
     # ── 种子选取 ──

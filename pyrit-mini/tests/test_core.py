@@ -38,12 +38,12 @@ class TestConfig:
         assert args.burp.endswith("test.txt")
 
     def test_parse_args_burp_default_auto_scan(self):
-        """parse_args without --burp should auto-scan data/burp/*.txt."""
+        """parse_args without --burp should auto-scan config/targets/burp/*.txt."""
         from core.config import parse_args
 
         args = parse_args([])
         assert hasattr(args, "burp")
-        # 不指定 --burp 时自动扫描 data/burp/*.txt 全部文件
+        # 不指定 --burp 时自动扫描 config/targets/burp/*.txt 全部文件
         # _burp_list 应包含所有 .txt 文件路径
         burp_list = getattr(args, "_burp_list", None)
         assert burp_list is not None
@@ -51,7 +51,7 @@ class TestConfig:
         # 每个 path 都应以 .txt 结尾
         for p in burp_list:
             assert p.endswith(".txt")
-        # data/burp/ 目录下存在 mcp05.txt, mcp09.txt, mm05.txt
+        # config/targets/burp/ 目录下存在 mcp05.txt, mcp09.txt, mm05.txt
         burp_names = [Path(p).stem for p in burp_list]
         assert "mcp05" in burp_names or "request" in burp_names
 
@@ -59,7 +59,7 @@ class TestConfig:
         """parse_args --burp with full path should keep as-is."""
         from core.config import parse_args
 
-        args = parse_args(["--burp", "data/burp/deepseek.txt"])
+        args = parse_args(["--burp", "config/targets/burp/deepseek.txt"])
         assert "deepseek.txt" in args.burp
 
     def test_parse_args_burp_multiple(self):

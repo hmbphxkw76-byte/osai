@@ -2,6 +2,9 @@
 
 包含响应路径探测, 主动能力探测, 模型族检测, 语言检测。
 
+能力评分统一委托给 ``recon.confidence_scorer`` (SSOT),
+本模块保留探测请求构造与模型族/语言检测等非评分逻辑。
+
 适配任意 LLM 应用:
     探针请求使用 parsed.body 模板 (已含 {PROMPT} 占位符),
     替换 {PROMPT} 为探针文本, 而非硬编码 body 格式,
@@ -10,8 +13,10 @@
 
 import json
 import logging
-import re
 from typing import Any
+
+# SSOT: 能力评分统一调用 confidence_scorer
+from recon.confidence_scorer import get_all_capability_names, score_capability
 
 logger = logging.getLogger(__name__)
 
@@ -265,221 +270,44 @@ async def probe_active_capabilities(parsed: Any) -> dict[str, bool]:
 
 
 def _probe_capabilities(response_text: str) -> dict[str, bool]:
-    """从探针响应中推断目标能力 (Agent/RAG/MCP/Embedding)。
+    """从探针响应中推断目标能力 — 委托给 ``confidence_scorer`` SSOT。
 
     学术依据:
         - Greshake et al. (arXiv:2302.12173) — 间接提示注入, Agent 场景
         - Zhan et al. (arXiv:2307.00929) — InjecAgent, Agent 注入攻击
         - arXiv:2402.04249 — HarmBench 能力评估
 
-    探测策略 (关键词匹配):
-        1. Agent: 响应中提及 tools, function_call, agent, assistant
-        2. RAG: 响应中提及 retrieve, knowledge_base, context, documents
-        3. MCP: 响应中提及 model_context_protocol, mcp_server, tools
-        4. Embedding: 响应中提及 embedding, vector_search, semantic_search
-        5. Multi-Agent: 响应中提及 multiple agents, collaborate, delegate
+    实现说明:
+        关键词库与正则模式统一维护在 ``confidence_scorer.py``,
+        本函数作为 SSOT 的薄包装, 返回 {capability: bool} 字典。
+        初级 7 维度 (agent/rag/mcp/embedding/multi_agent/code_execution/web_search)
+        使用基础关键词库; 深度维度 (function_calling/memory/workflow 等) 由
+        capability_probe.py 的 ``deep_probe_capabilities`` 独立处理。
 
     Args:
         response_text: 探针响应文本。
 
     Returns:
-        能力探测字典 {capability: detected}。model_family 为字符串, 其余为 bool。
+        能力探测字典。model_family 为字符串, 其余为 bool。
     """
-    capabilities: dict[str, bool | str] = {
-        "agent": False,
-        "rag": False,
-        "mcp": False,
-        "embedding": False,
-        "multi_agent": False,
-        "code_execution": False,
-        "web_search": False,
-    }
-
     if not response_text or len(response_text) < 10:
-        return capabilities
+        return {}
 
-    text_lower = response_text.lower()
+    capabilities: dict[str, bool | str] = {}
 
-    # Agent 能力探测
-    agent_keywords = [
-        "i have access to tools",
-        "i can use tools",
-        "function_call",
-        "tool_call",
-        "i am an agent",
-        "as an ai assistant",
-        "i can help you with",
-        "my capabilities include",
-        "i have access to functions",
-        "available tools",
-        "i can execute",
-    ]
-    for kw in agent_keywords:
-        if kw in text_lower:
-            capabilities["agent"] = True
-            break
+    # ── SSOT: 遍历置信度评分器的所有基础能力维度 ──
+    for cap_name in get_all_capability_names():
+        # 排除深度探测维度 (由 deep_probe_capabilities 独立处理)
+        if cap_name.startswith(("function_calling", "memory", "workflow",
+                                "multi_tenant", "session_auth",
+                                "mcp_protocol", "a2a_protocol", "embedding_rag")):
+            continue
+        result = score_capability(response_text, cap_name, source="active")
+        capabilities[cap_name] = result.detected
 
-    # RAG 能力探测
-    rag_keywords = [
-        "based on the retrieved",
-        "knowledge base",
-        "from the documents",
-        "according to the context",
-        "retrieved information",
-        "search results show",
-        "from my knowledge",
-        "based on available data",
-        "reference document",
-        "source material",
-    ]
-    for kw in rag_keywords:
-        if kw in text_lower:
-            capabilities["rag"] = True
-            break
-
-    # MCP (Model Context Protocol) 探测
-    mcp_keywords = [
-        "model context protocol",
-        "mcp server",
-        "mcp tool",
-        "protocol server",
-        "i'm connected to",
-        "connected tools",
-        "server-side tools",
-    ]
-    for kw in mcp_keywords:
-        if kw in text_lower:
-            capabilities["mcp"] = True
-            break
-
-    # Embedding/向量搜索探测
-    embedding_keywords = [
-        "embedding",
-        "vector search",
-        "semantic search",
-        "similarity search",
-        "vector database",
-        "nearest neighbor",
-    ]
-    for kw in embedding_keywords:
-        if kw in text_lower:
-            capabilities["embedding"] = True
-            break
-
-    # Multi-Agent 探测
-    multi_agent_keywords = [
-        "multiple agents",
-        "collaborate with",
-        "delegate to",
-        "i work with other",
-        "team of agents",
-        "multi-agent",
-        "coordinator",
-    ]
-    for kw in multi_agent_keywords:
-        if kw in text_lower:
-            capabilities["multi_agent"] = True
-            break
-
-    # 代码执行探测
-    code_keywords = [
-        "i can execute code",
-        "code interpreter",
-        "python execution",
-        "run code",
-        "sandbox",
-        "i can write and run",
-        "code execution",
-    ]
-    for kw in code_keywords:
-        if kw in text_lower:
-            capabilities["code_execution"] = True
-            break
-
-    # Web 搜索探测
-    search_keywords = [
-        "i can search",
-        "web search",
-        "search the web",
-        "online search",
-        "internet search",
-        "browsing",
-    ]
-    for kw in search_keywords:
-        if kw in text_lower:
-            capabilities["web_search"] = True
-            break
-
-    # MCP 工具调用结构探测 (增强)
-    # 学术依据: Anthropic MCP Specification (2024)
-    # 探测 MCP 特有的响应结果 (tool list, resource URI)
-    mcp_structural_patterns = [
-        # MCP tool list 格式
-        r'"tools"\s*:\s*\[',
-        r'"resource_uris"\s*:\s*\[',
-        # MCP server 信息
-        r'"mcp_server"',
-        r'"server_name"',
-        r'"protocol_version"',
-        # MCP tool call 响应
-        r'"tool_call_id"',
-        r'"tool_result"',
-    ]
-    for pattern in mcp_structural_patterns:
-        if re.search(pattern, response_text, re.IGNORECASE):
-            capabilities["mcp"] = True
-            break
-
-    # Agent 工具调用结构探测 (增强)
-    # 学术依据: Zhan et al. (arXiv:2307.00929) — InjecAgent
-    # 探测 function_call / tool_calls 的 JSON 结构
-    agent_structural_patterns = [
-        r'"function_call"',
-        r'"tool_calls"',
-        r'"tool_call_id"',
-        r'"function"\s*:\s*\{',
-        r'"name"\s*:\s*".*?".*?"arguments"',
-    ]
-    for pattern in agent_structural_patterns:
-        if re.search(pattern, response_text, re.IGNORECASE):
-            capabilities["agent"] = True
-            break
-
-    # RAG 结构探测 (增强)
-    # 学术依据: Shafran et al. (arXiv:2402.07967) — RAG 安全
-    # 探测检索结果的结构特征
-    rag_structural_patterns = [
-        r'"retrieved_documents"',
-        r'"source_documents"',
-        r'"context"\s*:\s*\[',
-        r'"references"',
-        r'"citations"',
-        r'"chunks"',
-        r'"similarity_score"',
-        r'"relevance_score"',
-    ]
-    for pattern in rag_structural_patterns:
-        if re.search(pattern, response_text, re.IGNORECASE):
-            capabilities["rag"] = True
-            break
-
-    # Embedding 结构探测 (增强)
-    # 探测向量数据特征
-    embedding_structural_patterns = [
-        r'"embedding"\s*:\s*\[',
-        r'"vector"\s*:\s*\[',
-        r'"scores"\s*:\s*\[',
-        r'"similarity"\s*:\s*[\d.]',
-    ]
-    for pattern in embedding_structural_patterns:
-        if re.search(pattern, response_text, re.IGNORECASE):
-            capabilities["embedding"] = True
-            break
-
-    # 模型族检测 (WILDTEAMING 适配)
+    # ── 模型族检测 (WILDTEAMING 适配, 非评分器职责) ──
     # 学术依据: Mazeika et al. (arXiv:2406.18510) — WILDTEAMING
-    # 不同模型族 (GPT/Claude/Gemini/Llama) 的安全对齐策略略不同
-    # 定制种子可提升 ASR
+    # 不同模型族 (GPT/Claude/Gemini/Llama) 的安全对齐策略不同
     model_family = _detect_model_family(response_text)
     if model_family:
         capabilities["model_family"] = model_family

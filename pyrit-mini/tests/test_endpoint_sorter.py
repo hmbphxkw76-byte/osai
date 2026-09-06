@@ -26,9 +26,9 @@ class TestCapabilityDetection:
         """mcp05.txt should detect MCP capability."""
         from recon.endpoint_sorter import _detect_capabilities_from_burp
 
-        burp_path = str(_PROJECT_ROOT / "data" / "burp" / "mcp05.txt")
+        burp_path = str(_PROJECT_ROOT / "config" / "targets" / "burp" / "mcp05.txt")
         if not Path(burp_path).exists():
-            pytest.skip("data/burp/mcp05.txt not present")
+            pytest.skip("config/targets/burp/mcp05.txt not present")
 
         caps = _detect_capabilities_from_burp(burp_path)
         assert "mcp" in caps or "function_calling" in caps
@@ -37,9 +37,9 @@ class TestCapabilityDetection:
         """mcp09.txt should detect MCP or shadow_mcp capability."""
         from recon.endpoint_sorter import _detect_capabilities_from_burp
 
-        burp_path = str(_PROJECT_ROOT / "data" / "burp" / "mcp09.txt")
+        burp_path = str(_PROJECT_ROOT / "config" / "targets" / "burp" / "mcp09.txt")
         if not Path(burp_path).exists():
-            pytest.skip("data/burp/mcp09.txt not present")
+            pytest.skip("config/targets/burp/mcp09.txt not present")
 
         caps = _detect_capabilities_from_burp(burp_path)
         assert "mcp" in caps or "function_calling" in caps
@@ -48,9 +48,9 @@ class TestCapabilityDetection:
         """mm05.txt (basic chat) should have low priority."""
         from recon.endpoint_sorter import _detect_capabilities_from_burp
 
-        burp_path = str(_PROJECT_ROOT / "data" / "burp" / "mm05.txt")
+        burp_path = str(_PROJECT_ROOT / "config" / "targets" / "burp" / "mm05.txt")
         if not Path(burp_path).exists():
-            pytest.skip("data/burp/mm05.txt not present")
+            pytest.skip("config/targets/burp/mm05.txt not present")
 
         caps = _detect_capabilities_from_burp(burp_path)
         # mm05 is a basic chat endpoint — may have some signals
@@ -131,8 +131,8 @@ class TestEndpointSorting:
         from recon.endpoint_sorter import sort_endpoints_by_priority
 
         # Use actual burp files if they exist
-        mm05 = str(_PROJECT_ROOT / "data" / "burp" / "mm05.txt")
-        mcp05 = str(_PROJECT_ROOT / "data" / "burp" / "mcp05.txt")
+        mm05 = str(_PROJECT_ROOT / "config" / "targets" / "burp" / "mm05.txt")
+        mcp05 = str(_PROJECT_ROOT / "config" / "targets" / "burp" / "mcp05.txt")
 
         if not Path(mm05).exists() or not Path(mcp05).exists():
             pytest.skip("Required burp files not present")
@@ -147,9 +147,9 @@ class TestEndpointSorting:
         """sort_endpoints_by_priority should return list of dicts."""
         from recon.endpoint_sorter import sort_endpoints_by_priority
 
-        mcp05 = str(_PROJECT_ROOT / "data" / "burp" / "mcp05.txt")
+        mcp05 = str(_PROJECT_ROOT / "config" / "targets" / "burp" / "mcp05.txt")
         if not Path(mcp05).exists():
-            pytest.skip("data/burp/mcp05.txt not present")
+            pytest.skip("config/targets/burp/mcp05.txt not present")
 
         result = sort_endpoints_by_priority([mcp05])
         assert isinstance(result, list)
@@ -163,8 +163,8 @@ class TestEndpointSorting:
         """sort_burp_list_by_priority should return list of paths."""
         from recon.endpoint_sorter import sort_burp_list_by_priority
 
-        mcp05 = str(_PROJECT_ROOT / "data" / "burp" / "mcp05.txt")
-        mm05 = str(_PROJECT_ROOT / "data" / "burp" / "mm05.txt")
+        mcp05 = str(_PROJECT_ROOT / "config" / "targets" / "burp" / "mcp05.txt")
+        mm05 = str(_PROJECT_ROOT / "config" / "targets" / "burp" / "mm05.txt")
 
         if not Path(mcp05).exists() or not Path(mm05).exists():
             pytest.skip("Required burp files not present")
@@ -181,9 +181,9 @@ class TestEndpointSorting:
         """Endpoints with same priority should be sorted by filename."""
         from recon.endpoint_sorter import sort_endpoints_by_priority
 
-        mm05 = str(_PROJECT_ROOT / "data" / "burp" / "mm05.txt")
+        mm05 = str(_PROJECT_ROOT / "config" / "targets" / "burp" / "mm05.txt")
         if not Path(mm05).exists():
-            pytest.skip("data/burp/mm05.txt not present")
+            pytest.skip("config/targets/burp/mm05.txt not present")
 
         # Same file twice — should sort by name (stable)
         result = sort_endpoints_by_priority([mm05, mm05])

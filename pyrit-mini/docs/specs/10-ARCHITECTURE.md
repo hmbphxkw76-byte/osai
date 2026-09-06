@@ -3,7 +3,7 @@
 > **文档层级**：L1 / 五层规约金字塔第二层
 > **效力**：定义系统的目标架构、模块边界、数据契约与架构不变量。任何代码变更必须能在本蓝图上"落点"——落不了点的变更需要先走 change-proposal 修改蓝图。
 > **读者**：实施任务前的 AI（必读相关章节）、评审 diff 的人工/AI。
-> **版本**：v1.2（2026-09-05 初版；同日 REV-01/REV-02 修正；版本记录见文末）
+> **版本**：v1.5（2026-09-06 REV-05：asset_index.yaml 迁至 config/；初版 2026-09-05；REV-01/REV-02/REV-03/REV-04 D-13 消除）
 
 ---
 
@@ -19,6 +19,8 @@ data/burp/*.txt    ──►     ① RECON    侦察/指纹/Target 构建    ─
  config/defaults.yaml      ⑤ ESCALATE L1→L4 升级链                    ├── native_output/
  config/asr_priors.yaml    ⑥ ASSESS   T0→J1→J2 级联评分                └── db/pyrit.db
  data/seeds/*.prompt       (REPORT    证据/多格式报告)
+config/targets/burp/*.txt  ← Burp 目标文件 (v61 从 data/burp/ 迁入)
+config/asset_index.yaml    ← 统一资产索引 (v61 从 data/asset_index.yaml 迁入)
 ```
 
 **使命映射**（见宪法第 0 条）：蓝图的每个部分都服务于"Burp 黑盒目标 ASR 最大化"。判断一个架构改动是否正当的唯一标准：它是否让 ①-⑥ 链路对 Burp 目标打出更高 ASR、或让证据链更可复现。
@@ -30,7 +32,7 @@ data/burp/*.txt    ──►     ① RECON    侦察/指纹/Target 构建    ─
 | 惯用口径 | 架构落点 | 备注 |
 |---------|---------|------|
 | recon / 侦察 | ① RECON | recon/ 模块；target_fingerprint 是对下游的唯一输出总线 |
-| 攻击面分类 / 场景路由 | ② SYNERGY | **无独立模块**：由 core/ 场景路由实现，仅产出 technique_tags（ADR-004）；禁止新建 synergy/ 包。现状违例：data/synergy_orchestrator.py + data/attack_surface_classifier.py 越层存代码（D-13） |
+| 攻击面分类 / 场景路由 | ② SYNERGY | **无独立模块**：由 core/ 场景路由实现，仅产出 technique_tags（ADR-004）；禁止新建 synergy/ 包。v61 已消除越层代码（D-13） |
 | arm / 武器化 | ③ ARM | arm/ 模块 |
 | strike / 打击 / 单轮 | ④ STRIKE | strike/ 模块 |
 | escalate / 升级链 | ⑤ ESCALATE | strike/ 模块内部逻辑，非独立模块 |
@@ -51,7 +53,7 @@ data/burp/*.txt    ──►     ① RECON    侦察/指纹/Target 构建    ─
 | 阶段层 | `recon/ arm/ strike/ assess/ report/` | 各攻击阶段的实现；彼此只通过 PipelineContext 交接 |
 | 适配层 | `targets/` | PyRIT Target 的包装（限速/认证恢复/内容过滤标记扩展/路由工厂） |
 | 支撑层 | `utils/ pipeline/` | 终端展示、缓存清理、日志、资源清理（现状违例：display.py 119KB，D-14） |
-| 数据层 | `data/` + `config/` | 种子、评分器 rubric、ASR 先验、defaults（**全部为声明式资产**；现状违例：4 个 .py 代码文件，D-13） |
+| 数据层 | `data/` + `config/` | 种子、评分器 rubric、ASR 先验、defaults（**全部为声明式资产**，D-13 已消除：代码迁至 core/ 或 recon/；burp/ → config/targets/burp/；asset_index.yaml → config/） |
 
 ### 2.2 依赖方向矩阵（允许 ↓ / 禁止 ✗）
 
@@ -69,7 +71,7 @@ data/burp/*.txt    ──►     ① RECON    侦察/指纹/Target 构建    ─
 
 \* recon/target_router 调 `assess.scorer.validate_scoring_target_capabilities` —— 已登记债务 D-04。
 \** strike → assess 仅限 `precompute_outcomes_async`（升级前预评分），不得扩大。
-\*** targets/agent_adapter 引用 recon/target_builder 的 JSONSafeHTTPTarget —— 已登记债务 D-05。
+\*** targets/agent_adapter 现引用 PyRIT 原生 HTTPTarget —— 债务 D-05 已解除 (P0-03)。
 \**** utils/display 延迟导入 arm/seed_ranking 读 ASR 历史 —— 已登记债务 D-06（展示层越界）。
 
 **图例**（v1.1）：✓ 允许；✗ 禁止；"—" = 不适用（对角线自身单元格）或禁止（本表仅一处：main.py × 数据层——main 不得直接解析 data/config 资产，一律经 core/config.py 或阶段模块。未来新出现的"—"必须随行注明语义）。
@@ -124,7 +126,7 @@ ctx 字段采用**唯一写者**原则（一个字段只准一个阶段写）：
 
 **合法输入**：`data/burp/*.txt`，Burp 保存的完整 HTTP 交互（请求 + 响应）。解析器承诺：
 
-1. `{PROMPT}` 占位符：解析器启发式注入（4 策略）；下游一切攻击注入经由 `JSONSafeHTTPTarget._inject_prompt_into_request` 替换，**任何模块不得自行拼接 prompt 进 body**。
+1. `{PROMPT}` 占位符：解析器启发式注入（4 策略）；下游一切攻击注入经由 PyRIT 原生 `HTTPTarget` 替换，**任何模块不得自行拼接 prompt 进 body**。会话状态 (chat_id) 由 `ChatIdStateManager` 外部管理，不侵入 Target。
 2. 响应提取：回调选择优先级 = 已探测 JSON 路径 → SSE → 自适应 JSON；新增提取逻辑必须挂入 `_select_callback` 优先级链，不得旁路。
 3. `target_fingerprint` 是 recon 的唯一输出总线：能力/模型族/MCP 工具/端口/OpenAPI/系统提示泄露全部写入此字典，禁止另立平行结构。
 4. 目标不可达（402/503/连接失败）→ `ConnectionError` 终止该 endpoint，禁止静默降级为"跳过"。
@@ -171,7 +173,7 @@ ctx 字段采用**唯一写者**原则（一个字段只准一个阶段写）：
 | D-02 | main/pipeline 镜像 | main.py 87KB 巨石（编排层含业务逻辑，违 2.1）；pipeline/orchestrator.py 实为薄转发（v58 重构半途，委托 main.run） | main 调用 pipeline 包，删除本地副本；业务逻辑下沉阶段层 |
 | D-03 | stub 模块 | encoded_injection.py / cair.run_cair_attack / multi_turn_attacks（Best-of-N）返回空 dict，注释自认"调用方 try/except 优雅降级"= R-H1 静默降级 | 要么实现（提 REQ），要么从升级链摘除；禁止维持"编排了但没实现"状态。**注意：Best-of-N 属 REQ-004 P0 验收项，此 stub 是现行 P0 缺口** |
 | D-04 | recon → assess 跨层依赖 | target_router 调 assess.scorer 验证函数 | 验证函数移入 core 或 targets |
-| D-05 | targets → recon 反向依赖 | agent_adapter 引用 JSONSafeHTTPTarget | JSONSafeHTTPTarget 迁至 targets/ |
+| ~~D-05~~ | ~~targets → recon 反向依赖~~ | **已消除** (P0-03)：JSONSafeHTTPTarget 已废弃，改用 PyRIT 原生 HTTPTarget；会话状态由 ChatIdStateManager 外部管理 | ✅ 已完成 (2026-09-06) |
 | D-06 | utils/display → arm 越界 | 展示层延迟导入 arm.seed_ranking 读 ASR | ASR 数据经 ctx 或独立查询模块传递 |
 | D-07 | 硬编码数据快照 | display._CONVERTER_ASR_LABEL 与 asr_priors.yaml 重复 | 展示层读 yaml |
 | D-08 | 无代码加载的配置 | config/target_profiles.yaml 26 profile 零消费 | 要么接 asset_mapper 要么删除 |
@@ -179,7 +181,7 @@ ctx 字段采用**唯一写者**原则（一个字段只准一个阶段写）：
 | D-10 | escalation 三件 | 非 9 字节孪生，实为"门面+拆分"三件（escalation.py 940行门面 / chain 1124 / attacks 1057），函数集互不重叠；实际债务：re-export 债务 + `_llm_judge_rescore` 死 re-export + `_is_success`/_retrieve_partial_results 跨文件复制 + escalation_attacks.py 全文编码损坏 | 删 escalation_attacks.py + 清 re-export + 统一跨文件复制 |
 | D-11 | arm converter 三轨 | 三文件职责互补（链构建/预设分配/候选选择），非纯粹三轨；实际债务：converter_selector.py 含 ~230 行死函数（与 _get_candidate_converters 含逐字相同的 23 项 _PRIORITY_MAP 孪生）+ 循环 re-export 尾巴 | 删死函数 + 消 _PRIORITY_MAP 孪生 + 删 re-export 尾巴 |
 | D-12 | arm 种子排序双轨 | 非孪生，实为拆分+12 符号 re-export 门面；实际债务：双向 import（seed_ranking 反查 seed_ranker）+ 调用方 import 路径分裂（main/strike 走门面、executor/display 直连） | 统一 import 路径 + 消除双向 import |
-| D-13 | data/ 层代码污染 | data/ 下 4 个 .py（asset_mapper / attack_surface_classifier / scorer_selector / synergy_orchestrator），违反 2.1"数据层=声明式资产" | 代码迁至 core/ 或对应阶段层，data/ 只留声明式资产 |
+| ~~D-13~~ | ~~data/ 层代码污染~~ | **已消除** (v61)：asset_mapper → core/；attack_surface_classifier → recon/；synergy_orchestrator → core/scenario_router；scorer_selector 已删除；burp/ → config/targets/burp/；data/__init__.py 已删除（load_asset_index 迁至 core/asset_mapper）；asset_index.yaml → config/asset_index.yaml；data/ 纯声明式资产 | ✅ 已完成 (2026-09-06) |
 | D-14 | display.py 巨石 | utils/display.py 119KB 全库最大文件（含 D-06/D-07 关联问题） | 拆分展示/数据查询职责；读 yaml 替代硬编码 |
 | D-15 | judge 文件群 | judge_manager（74KB）+ judge_utils（55KB）+ dual_judge（27KB）+ adaptive_dual_judge（24KB）四文件，D-01 的具体形态 | 并入 D-01 消除方案统一裁决（单文件 ≤500 行目标） |
 | D-16 | 工具链与资产卫生 | ① pyproject.toml ruff exclude pipeline/（门禁 Step 2 空洞）；② report/output.py 注释 mojibake（UTF-8/GBK 混写）；③ 依赖 `pyrit>=1.0.1` 未钉住（规约口径为 1.0.1）；④ data/seeds/asr_history.json 运行时产物入库 | 修 pyproject（去 exclude、钉 1.0.1）；修乱码；asr_history 迁 outputs/ 并入 .gitignore |
@@ -196,3 +198,5 @@ ctx 字段采用**唯一写者**原则（一个字段只准一个阶段写）：
 | v1.1 | 2026-09-05 | REV-01：① §1.1 阶段词汇映射表（统一 recon/arm/strike/report/evidence 口径，防凭空造阶段或模块）；② I7 明确 asr_history（运行时唯一账本）与 asr_priors（人工先验唯一源）的 SSOT 关系；③ 依赖矩阵补 arm 读取 asr_history、"—"图例；④ 版本记录机制 | 用户会话批准 |
 | v1.2 | 2026-09-05 | REV-02 源码对齐（审计 @0b8e28c）：① 新登记债务 D-10~D-16（escalation 孪生、converter 三轨、seed 排序双轨、data/ 层代码污染、display 巨石、judge 文件群、工具链卫生）；② D-02/D-03 现状更新（main.py 87KB 巨石证实；Best-of-N stub 定性为 P0 缺口）；③ §1.1/§2.1 标注现状违例。架构本体（分层/契约/不变量/ADR）无变更 | 用户会话批准 |
 | v1.3 | 2026-09-06 | REV-03 代码审计修正（remediation/audit-remediation.md）：① D-01 量化修正（合并家族实际 ~3354 行死代码）；② D-10 修正（非 9 字节孪生，实为\"门面+拆分\"三件 + 编码损坏）；③ D-11 修正（非纯粹三轨，实为死函数 + _PRIORITY_MAP 孪生）；④ D-12 修正（非孪生，实为拆分+re-export+双向 import） | — |
+| v1.4 | 2026-09-06 | REV-04 D-13 消除：① data/asset_mapper.py → core/asset_mapper.py；② data/attack_surface_classifier.py → recon/attack_surface_classifier.py；③ data/scorer_selector.py 已删除；④ data/burp/ → config/targets/burp/；⑤ 全量更新 import 路径与文档引用；⑥ 4 测试文件路径同步更新 | 用户会话批准 |
+| v1.5 | 2026-09-06 | REV-05 recon 违宪整改（按 00-CONSTITUTION 优先级全部解决）：① P0-01 能力检测三轨合一 — `_probe_capabilities` 内部委托给 `confidence_scorer.score_capability()` SSOT，关键词与正则模式从 capability_detector.py 迁移至 confidence_scorer.py（含 capability_detector 中 MCP/Agent/RAG/Embedding 的结构化模式），原 capability_detector 中 ~200 行重复关键词/正则代码删除；② P0-02 探测风暴裁剪（保留 ≤2 个核心同步探针，其余移异步）— 已完成于会话前期；③ P0-03 自定义 Target 废弃（JSONSafeHTTPTarget → PyRIT 原生 HTTPTarget + ChatIdStateManager）— 已完成于会话前期 | 用户会话批准 |

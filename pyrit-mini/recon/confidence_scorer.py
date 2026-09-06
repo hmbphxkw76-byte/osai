@@ -1,7 +1,8 @@
-"""能力检测置信度评分 + 中英文双语关键词库。
+"""能力检测置信度评分 + 中英文双语关键词库 — SSOT (Single Source of Truth).
 
-合并自原 confidence_scorer.py 和 i18n_keywords.py, 因为 i18n_keywords 仅被
-confidence_scorer 和 capability_probe 使用, 合并后减少文件碎片化。
+合并自原 confidence_scorer.py, i18n_keywords.py, capability_detector.py 的关键词
+与正则模式。现在整个 recon 模块的能力探测都通过本模块的 ``score_capability`` 和
+``match_capability_i18n`` 进行, 避免三轨并存导致的维护负担。
 
 学术依据:
     - Greshake et al. (arXiv:2302.12173) §4 — 间接注入探测依赖目标
@@ -500,16 +501,45 @@ _MULTI_AGENT_PATTERN = re.compile(
 )
 
 # 能力维度 → 结构化模式映射
+
+# MCP tool list / server 信息模式 (来源: capability_detector.py 的 mcp_structural_patterns)
+_MCP_STRUCTURAL_PATTERN = re.compile(
+    r'"(?:tools|resource_uris|mcp_server|server_name|protocol_version|tool_call_id|tool_result)"'
+    r'\s*[:=]\s*(?:\[|"|\{)',
+    re.IGNORECASE,
+)
+
+# Agent function_call / tool_calls 模式 (来源: capability_detector.py 的 agent_structural_patterns)
+_AGENT_STRUCTURAL_PATTERN = re.compile(
+    r'"(?:function_call|tool_calls|tool_call_id)"|'
+    r'"function"\s*:\s*\{|'
+    r'"name"\s*:\s*".*?"\s*,\s*"arguments"',
+    re.IGNORECASE,
+)
+
+# RAG 检索结果模式 (来源: capability_detector.py 的 rag_structural_patterns)
+_RAG_STRUCTURAL_PATTERN = re.compile(
+    r'"(?:retrieved_documents|source_documents|references|citations|chunks|similarity_score|relevance_score)"|'
+    r'"context"\s*:\s*\[',
+    re.IGNORECASE,
+)
+
+# Embedding 向量数据模式 (来源: capability_detector.py 的 embedding_structural_patterns)
+_EMBEDDING_STRUCTURAL_PATTERN = re.compile(
+    r'"(?:embedding|vector|scores)"\s*:\s*\[|"similarity"\s*:\s*[\d.]',
+    re.IGNORECASE,
+)
+
 _STRUCTURED_PATTERNS: dict[str, list[re.Pattern[str]]] = {
-    "agent": [_TOOL_JSON_PATTERN, _FUNCTION_CALL_PATTERN, _AGENT_CARD_PATTERN],
-    "rag": [_RAG_CITATION_PATTERN],
-    "mcp": [_MCP_JSONRPC_PATTERN],
-    "embedding": [_EMBEDDING_PATTERN],
+    "agent": [_TOOL_JSON_PATTERN, _FUNCTION_CALL_PATTERN, _AGENT_CARD_PATTERN, _AGENT_STRUCTURAL_PATTERN],
+    "rag": [_RAG_CITATION_PATTERN, _RAG_STRUCTURAL_PATTERN],
+    "mcp": [_MCP_JSONRPC_PATTERN, _MCP_STRUCTURAL_PATTERN],
+    "embedding": [_EMBEDDING_PATTERN, _EMBEDDING_STRUCTURAL_PATTERN],
     "multi_agent": [_MULTI_AGENT_PATTERN],
     # 深度探测维度
-    "function_calling": [_FUNCTION_CALL_PATTERN, _TOOL_JSON_PATTERN],
-    "mcp_protocol": [_MCP_JSONRPC_PATTERN],
-    "embedding_rag": [_EMBEDDING_PATTERN, _RAG_CITATION_PATTERN],
+    "function_calling": [_FUNCTION_CALL_PATTERN, _TOOL_JSON_PATTERN, _AGENT_STRUCTURAL_PATTERN],
+    "mcp_protocol": [_MCP_JSONRPC_PATTERN, _MCP_STRUCTURAL_PATTERN],
+    "embedding_rag": [_EMBEDDING_PATTERN, _RAG_CITATION_PATTERN, _EMBEDDING_STRUCTURAL_PATTERN, _RAG_STRUCTURAL_PATTERN],
     "a2a_protocol": [_AGENT_CARD_PATTERN],
 }
 

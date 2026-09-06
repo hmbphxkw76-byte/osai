@@ -472,7 +472,7 @@ def quick_classify(burp_profile_name: str, burp_dir: str | None = None) -> Class
 
     Args:
         burp_profile_name: Burp 配置文件名 (如 "mcp05")
-        burp_dir: data/burp 目录路径 (可选)
+        burp_dir: config/targets/burp 目录路径 (可选, v61 迁移)
 
     Returns:
         ClassificationResult

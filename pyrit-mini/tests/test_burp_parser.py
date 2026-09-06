@@ -360,22 +360,22 @@ class TestFullParseAllFormats:
     """Test full parse of all three Burp file formats."""
 
     @pytest.mark.skipif(
-        not Path("data/burp/request.txt").exists(),
-        reason="data/burp/request.txt not present (optional sample data)",
+        not Path("config/targets/burp/request.txt").exists(),
+        reason="config/targets/burp/request.txt not present (optional sample data)",
     )
     def test_parse_request_txt(self):
         """Parse request.txt (localhost MM_05 chat format)."""
         from recon.burp_parser import parse_burp_request
 
-        parsed = parse_burp_request("data/burp/request.txt")
+        parsed = parse_burp_request("config/targets/burp/request.txt")
         assert parsed.method == "POST"
         assert parsed.is_sse is True
         assert parsed.has_prompt_placeholder is True
         assert parsed.original_prompt_value == "hello"
 
     @pytest.mark.skipif(
-        not Path("data/burp/qwen.txt").exists(),
-        reason="data/burp/qwen.txt not present (optional sample data)",
+        not Path("config/targets/burp/qwen.txt").exists(),
+        reason="config/targets/burp/qwen.txt not present (optional sample data)",
     )
     def test_parse_qwen_txt(self):
         """Parse qwen.txt — file format may change between exports (GET/POST).
@@ -387,20 +387,20 @@ class TestFullParseAllFormats:
         """
         from recon.burp_parser import parse_burp_request
 
-        parsed = parse_burp_request("data/burp/qwen.txt")
+        parsed = parse_burp_request("config/targets/burp/qwen.txt")
         assert parsed.method in ("GET", "POST")
         # GET 请求可能无 body, 无 prompt 占位符; POST 有 body 时应有
         # 不硬编码期望值, 只要解析不崩溃即可
 
     @pytest.mark.skipif(
-        not Path("data/burp/deepseek.txt").exists(),
-        reason="data/burp/deepseek.txt not present (optional sample data)",
+        not Path("config/targets/burp/deepseek.txt").exists(),
+        reason="config/targets/burp/deepseek.txt not present (optional sample data)",
     )
     def test_parse_deepseek_txt(self):
         """Parse deepseek.txt (DeepSeek format with chat_session_id)."""
         from recon.burp_parser import parse_burp_request
 
-        parsed = parse_burp_request("data/burp/deepseek.txt")
+        parsed = parse_burp_request("config/targets/burp/deepseek.txt")
         assert parsed.method == "POST"
         assert parsed.is_sse is True  # Detected from response Content-Type
         assert parsed.has_prompt_placeholder is True
@@ -410,14 +410,14 @@ class TestFullParseAllFormats:
         assert "{CHAT_ID}" in parsed.body
 
     @pytest.mark.skipif(
-        not Path("data/burp/deepseek.txt").exists(),
-        reason="data/burp/deepseek.txt not present (optional sample data)",
+        not Path("config/targets/burp/deepseek.txt").exists(),
+        reason="config/targets/burp/deepseek.txt not present (optional sample data)",
     )
     def test_parse_deepseek_sse_response(self):
         """Parse DeepSeek SSE response and verify content extraction."""
         from recon.burp_parser import _make_sse_callback, _split_request_response
 
-        raw = Path("data/burp/deepseek.txt").read_text(encoding="utf-8", errors="replace")
+        raw = Path("config/targets/burp/deepseek.txt").read_text(encoding="utf-8", errors="replace")
         normalized = raw.replace("\r\n", "\n")
         _, response_section = _split_request_response(normalized)
 
@@ -435,14 +435,14 @@ class TestFullParseAllFormats:
         assert "DeepSeek" in result or "deep" in result.lower()
 
     @pytest.mark.skipif(
-        not Path("data/burp/baidu.txt").exists(),
-        reason="data/burp/baidu.txt not present (optional sample data)",
+        not Path("config/targets/burp/baidu.txt").exists(),
+        reason="config/targets/burp/baidu.txt not present (optional sample data)",
     )
     def test_parse_baidu_txt(self):
         """Parse baidu.txt (Baidu with deeply nested body structure)."""
         from recon.burp_parser import parse_burp_request
 
-        parsed = parse_burp_request("data/burp/baidu.txt")
+        parsed = parse_burp_request("config/targets/burp/baidu.txt")
         assert parsed.method == "POST"
         assert parsed.is_sse is True  # Accept: text/event-stream
         assert parsed.has_prompt_placeholder is True

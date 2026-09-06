@@ -146,6 +146,7 @@ priority_scheduler_epsilon: 0.1       # ε-贪心探索概率 (10% 概率提升�
 # 且 confidence >= auto_l4_confidence_threshold 时，自动跳过 L1-L3 直接执行 L4
 auto_l4_optimization_enabled: true     # 启用 Agent/MCP/RAG 目标自动 L4 优化
 auto_l4_confidence_threshold: 0.8      # 置信度阈值 (>= 此值触发自动 L4)
+auto_l4_max_seeds: 8                   # L4 专用种子数 (Agent/MCP/RAG 场景 specialty seeds only)
 auto_l4_agent_surfaces:                 # 触发自动 L4 的攻击面类型列表
   - mcp_server
   - multi_agent_system

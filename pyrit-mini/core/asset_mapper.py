@@ -18,7 +18,7 @@
   4. 最小依赖: 仅依赖 YAML 配置
 
 使用方式:
-    from core.asset_mapper import AssetMapper
+    from core.asset_mapper import AssetMapper, load_asset_index
     mapper = AssetMapper()
 
     # Burp 文件 → 种子列表
@@ -26,11 +26,15 @@
 
     # 攻击面类型 → 评分器
     scorer = mapper.get_scorer_for_attack_surface("mcp_server")
+
+    # 加载资产配置索引
+    index = load_asset_index()
 """
 
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -44,7 +48,7 @@ class AssetMapper:
         初始化资产映射器.
 
         Args:
-            asset_index: 可选的资产索引字典. 默认从 data/asset_index.yaml 加载.
+            asset_index: 可选的资产索引字典. 默认从 config/asset_index.yaml 加载 (v61).
         """
         if asset_index is not None:
             self._index = asset_index
@@ -59,12 +63,12 @@ class AssetMapper:
     @staticmethod
     def _load_default_index() -> dict[str, Any]:
         """加载默认 asset_index.yaml."""
-        # v61: 迁移到 core/, 使用绝对路径加载
+        # v61: burp 迁至 config/targets/burp, asset_index 迁至 config/
         import yaml
         from pathlib import Path
-        index_path = Path(__file__).resolve().parent.parent / "data" / "asset_index.yaml"
+        index_path = Path(__file__).resolve().parent.parent / "config" / "asset_index.yaml"
         if not index_path.exists():
-            logger.warning("asset_index.yaml not found at %s", index_path)
+            logger.warning("config/asset_index.yaml not found at %s", index_path)
             return {}
         with open(index_path, encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
@@ -276,6 +280,36 @@ def get_default_mapper() -> AssetMapper:
     if _default_mapper is None:
         _default_mapper = AssetMapper()
     return _default_mapper
+
+
+# ──────────────────────────────────────────────
+# 资产配置索引加载
+# ──────────────────────────────────────────────
+import yaml as _yaml
+
+# 项目根目录
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# v61: asset_index 迁至 config/
+ASSET_INDEX_PATH = _PROJECT_ROOT / "config" / "asset_index.yaml"
+
+
+def load_asset_index() -> dict[str, Any]:
+    """加载 asset_index.yaml 资产配置索引.
+
+    v61: 从 data/__init__.py 迁至 core/asset_mapper.py.
+    data/ 层只保留声明式资产, 无 Python 代码.
+
+    Returns:
+        资产配置字典, 加载失败返回空字典
+    """
+    if not ASSET_INDEX_PATH.exists():
+        return {}
+    try:
+        with open(ASSET_INDEX_PATH, encoding="utf-8") as f:
+            return _yaml.safe_load(f) or {}
+    except Exception as e:
+        logger.warning("Failed to load asset_index.yaml: %s", e)
+        return {}
 
 
 # 便捷函数 (直接使用全局单例)

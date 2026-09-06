@@ -265,6 +265,96 @@ def _extract_nested(obj: Any, *keys: Any) -> Any:
     return current
 
 
+# ════════════════════════════════════════════════════════════════════
+# P1-05: TargetFingerprint Schema 显式化
+# 学术依据: C3 显式优于隐式 — dict[str, str] 缺乏编译时检查,
+# 字段名 typo (如 "chat_id" vs "chatid") 和类型混乱 (str/int/bool 混存)
+# 是 2024-2025 年 Python AI 安全工具中常见报告数据损坏根因。
+# ════════════════════════════════════════════════════════════════════
+
+@dataclass
+class TargetFingerprint:
+    """目标指纹信息 — 显式 Schema, 两阶段写入隔离。
+
+    两阶段写入契约:
+        Phase 1 (parse-time): 由 ``burp_parser._parse_raw_http`` 填充
+            (HTTP 静态解析阶段, 不发送网络请求)
+        Phase 2 (probe-time): 由探测模块 (capability_detector/target_router) 填充
+            (发送探测请求后动态收集, 字段默认 None / 空 / False)
+
+    向后兼容: 提供 ``get`` / ``__getitem__`` / ``__setitem__`` 接口, 允许
+    旧式 ``fp["key"]`` 写法继续工作, 但新增字段强烈推荐 attribute 访问。
+    """
+
+    # ── Phase 1: HTTP 请求解析 (必填, _extract_fingerprint 写入) ──
+    framework: str = "Unknown"
+    api_path: str = ""
+    host: str = ""
+    auth_type: str = "None"
+    content_type: str = "unknown"
+    app_type: str = "Web Application"
+    api_category: str = "chat"
+
+    # ── Phase 1: HTTP 请求解析 (可选, _parse_raw_http 写入) ──
+    ai_framework: str | None = None
+    ai_framework_category: str | None = None
+    chat_id: str | None = None
+    burp_model_name: str | None = None
+    has_model_list: bool = False
+
+    # ── Phase 2: 主动探测 (capability_detector / target_router 写入) ──
+    language: str | None = None
+    model_family: str | None = None
+    capabilities: list[str] = field(default_factory=list)
+    probe_count: int = 0
+    probe_duration_seconds: float = 0.0
+
+    # ── Phase 2: 深度探测 (target_router 后处理写入) ──
+    mcp_tools: list[str] = field(default_factory=list)
+    mcp_resources: list[str] = field(default_factory=list)
+    mcp_prompts: list[str] = field(default_factory=list)
+    system_prompt_leaked: bool = False
+    extracted_system_prompt: str | None = None
+    system_prompt_extraction_method: str | None = None
+    openapi_spec_path: str | None = None
+    openapi_endpoints: list[str] = field(default_factory=list)
+    original_prompt: str | None = None
+    session_type: str | None = None
+
+    # ── 动态扩展 (非预期字段落地点, 运行时探测的未知键) ──
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """向后兼容 dict.get()。"""
+        if hasattr(self, key) and not key.startswith("_"):
+            val = getattr(self, key)
+            return val if val is not None else default
+        return self.extra.get(key, default)
+
+    def __getitem__(self, key: str) -> Any:
+        """向后兼容 dict[key] 读。"""
+        if hasattr(self, key) and not key.startswith("_"):
+            return getattr(self, key)
+        return self.extra[key]
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        """向后兼容 dict[key] = value 写。优先 attribute, 否则 extra。"""
+        if hasattr(self, key) and not key.startswith("_"):
+            setattr(self, key, value)
+        else:
+            self.extra[key] = value
+
+    def to_dict(self) -> dict[str, Any]:
+        """序列化为 JSON 兼容字典 (用于报告输出)。"""
+        from dataclasses import asdict
+
+        result = asdict(self)
+        extra = result.pop("extra", {})
+        result.update(extra)
+        # 过滤 None / 空 / False, 保留有意义的字段
+        return {k: v for k, v in result.items() if v not in (None, "", [], False, 0, 0.0)}
+
+
 @dataclass
 class ParsedBurpRequest:
     """解析后的 Burp 请求。"""
@@ -283,8 +373,8 @@ class ParsedBurpRequest:
     has_prompt_placeholder: bool = False
     # 探测到的 JSON 响应路径
     response_json_path: str | None = None
-    # 目标指纹信息
-    target_fingerprint: dict[str, str] = field(default_factory=dict)
+    # 目标指纹信息 — P1-05: 显式 Schema (替代 dict[str, str])
+    target_fingerprint: TargetFingerprint = field(default_factory=TargetFingerprint)
     # P2-20: 从 Burp Response 中提取的会话 ID (ChatId / Object / conversation_id 等)
     # 用于多轮攻击中保持会话连续性
     chat_id: str | None = None
@@ -1643,8 +1733,8 @@ def _extract_fingerprint(
     path: str,
     host: str,
     response_section: str | None = None,
-) -> dict[str, str]:
-    """从 HTTP 请求和响应中提取目标指纹信息。
+) -> TargetFingerprint:
+    """从 HTTP 请求和响应中提取目标指纹信息 (Phase 1 解析输出)。
 
     用于报告中的目标识别:
         - framework: 从 header 推断前端框架
@@ -1666,72 +1756,78 @@ def _extract_fingerprint(
         response_section: Burp Response 原始文本 (可选, 用于 AI 框架指纹识别)。
 
     Returns:
-        指纹信息字典。
+        TargetFingerprint 指纹信息实例。
     """
-    fp: dict[str, str] = {}
-
-    # 框架推断 (传统 Web 框架)
+    # ── Phase 1: 解析框架 / 认证 / 内容类型 ──
     server = headers.get("server", "")
     x_powered = headers.get("x-powered-by", "")
     if "next" in (server + x_powered).lower():
-        fp["framework"] = "Next.js"
+        framework = "Next.js"
     elif "express" in (server + x_powered).lower():
-        fp["framework"] = "Express.js"
+        framework = "Express.js"
     elif "fastapi" in (server + x_powered).lower():
-        fp["framework"] = "FastAPI"
+        framework = "FastAPI"
     elif "django" in (server + x_powered).lower():
-        fp["framework"] = "Django"
+        framework = "Django"
     else:
-        fp["framework"] = "Unknown"
+        framework = "Unknown"
 
-    fp["api_path"] = path
-    fp["host"] = host
-
-    # 认证方式
     if "authorization" in headers:
         auth = headers["authorization"]
         if auth.lower().startswith("bearer"):
-            fp["auth_type"] = "Bearer Token"
+            auth_type = "Bearer Token"
         elif auth.lower().startswith("basic"):
-            fp["auth_type"] = "Basic Auth"
+            auth_type = "Basic Auth"
         else:
-            fp["auth_type"] = "Custom Auth Header"
+            auth_type = "Custom Auth Header"
     elif "cookie" in headers:
-        fp["auth_type"] = "Cookie-based"
+        auth_type = "Cookie-based"
     else:
-        fp["auth_type"] = "None"
+        auth_type = "None"
 
-    fp["content_type"] = headers.get("content-type", "unknown")
+    content_type = headers.get("content-type", "unknown")
 
     # 从路径推断应用类型 (通用分类, 适配任意 LLM Agent 应用)
-    # 顺序: 最具体的路径先匹配, 避免宽泛路径拦截
-    if "/challenges/" in path or "/scenarios/" in path or "/arena/" in path:
-        fp["app_type"] = "Testing/Arena"
-    elif "/agent" in path or "/mcp" in path or "/tool" in path:
-        fp["app_type"] = "Agent Application"
-    elif "/chat" in path or "/completion" in path or "/message" in path:
-        fp["app_type"] = "Chat Application"
-    elif "/rag" in path or "/knowledge" in path or "/retriev" in path or "/embed" in path:
-        fp["app_type"] = "RAG Application"
+    path_lower = path.lower()
+    if "/challenges/" in path_lower or "/scenarios/" in path_lower or "/arena/" in path_lower:
+        app_type = "Testing/Arena"
+    elif "/agent" in path_lower or "/mcp" in path_lower or "/tool" in path_lower:
+        app_type = "Agent Application"
+    elif "/chat" in path_lower or "/completion" in path_lower or "/message" in path_lower:
+        app_type = "Chat Application"
+    elif "/rag" in path_lower or "/knowledge" in path_lower or "/retriev" in path_lower or "/embed" in path_lower:
+        app_type = "RAG Application"
     else:
-        fp["app_type"] = "Web Application"
+        app_type = "Web Application"
 
     # ════════════════════════════════════════════════════════════════
     # AI 框架/SDK 指纹识别 (从 Burp Response 静态提取, 0 额外请求)
     # 学术依据: RedAmon ai_signal_catalog.py — 三层检测
     # ════════════════════════════════════════════════════════════════
+    ai_fw: str | None = None
+    ai_fw_cat: str | None = None
     if response_section:
-        _extract_ai_framework_fingerprint(fp, response_section)
-    # 也从请求 header 中检测 AI SDK 客户端特征
-    _extract_ai_sdk_from_request_headers(fp, headers)
+        ai_fw, ai_fw_cat = _extract_ai_framework_fingerprint(response_section)
+    # 从请求 header 中检测 AI SDK 客户端特征
+    sdk_fw, sdk_fw_cat = _extract_ai_sdk_from_request_headers(headers)
+    if sdk_fw and not ai_fw:
+        ai_fw, ai_fw_cat = sdk_fw, sdk_fw_cat
 
-    return fp
+    return TargetFingerprint(
+        framework=framework,
+        api_path=path,
+        host=host,
+        auth_type=auth_type,
+        content_type=content_type,
+        app_type=app_type,
+        ai_framework=ai_fw,
+        ai_framework_category=ai_fw_cat,
+    )
 
 
 def _extract_ai_framework_fingerprint(
-    fp: dict[str, str],
     response_section: str,
-) -> None:
+) -> tuple[str | None, str | None]:
     """从 Burp Response 中提取 AI 框架指纹 (0 额外请求)。
 
     三层检测:
@@ -1739,16 +1835,14 @@ def _extract_ai_framework_fingerprint(
         2. HTML <title> 模式匹配 (Open WebUI, LibreChat, Gradio, 等)
         3. Body Wappalyzer 风格指纹 (LangChain globals, SDK import, 等)
 
-    结果就地写入 fp 字典:
-        - fp["ai_framework"]: 框架名 (如 "vllm", "langchain", "gradio")
-        - fp["ai_framework_category"]: 类别 (ai-runtime/ai-framework/ai-proxy/ai-frontend/ai-sdk-client)
-
     Args:
-        fp: 指纹字典 (就地修改)。
         response_section: Burp Response 原始文本。
+
+    Returns:
+        (framework_name, category) 元组, 未检测到返回 (None, None)。
     """
     if not response_section or not response_section.strip():
-        return
+        return None, None
 
     # 分离 Response headers 和 body
     resp_headers, resp_body = _split_response_headers_body(response_section)
@@ -1757,15 +1851,13 @@ def _extract_ai_framework_fingerprint(
     for header_name, _header_value in resp_headers:
         for pattern, fw_name, fw_category in _AI_HEADER_PATTERNS:
             if pattern.search(header_name):
-                fp["ai_framework"] = fw_name
-                fp["ai_framework_category"] = fw_category
                 logger.debug(
                     "AI framework detected from response header '%s': %s (%s)",
                     header_name,
                     fw_name,
                     fw_category,
                 )
-                return  # 取第一个匹配
+                return fw_name, fw_category
 
     # ── 层 2: HTML <title> 模式匹配 ──
     title_match = re.search(r"<title[^>]*>(.*?)</title>", resp_body, re.I | re.DOTALL)
@@ -1773,25 +1865,20 @@ def _extract_ai_framework_fingerprint(
         title_text = title_match.group(1).strip()
         for pattern, fw_name in _AI_TITLE_PATTERNS:
             if pattern.search(title_text):
-                fp["ai_framework"] = fw_name
-                fp["ai_framework_category"] = "ai-frontend"
-                logger.debug(
-                    "AI framework detected from <title>: %s",
-                    fw_name,
-                )
-                return
+                logger.debug("AI framework detected from <title>: %s", fw_name)
+                return fw_name, "ai-frontend"
 
     # ── 层 3: Body Wappalyzer 风格指纹 ──
     for pattern, fw_name, fw_category in _AI_BODY_FINGERPRINTS:
         if pattern.search(resp_body):
-            fp["ai_framework"] = fw_name
-            fp["ai_framework_category"] = fw_category
             logger.debug(
                 "AI framework detected from body fingerprint: %s (%s)",
                 fw_name,
                 fw_category,
             )
-            return
+            return fw_name, fw_category
+
+    return None, None
 
 
 def _extract_ai_sdk_from_request_headers(
@@ -1912,9 +1999,8 @@ from recon.capability_detector import (  # noqa: F401, E402
     probe_response_path,
 )
 from recon.target_builder import (  # noqa: F401, E402
-    JSONSafeHTTPTarget,
-    _make_adaptive_json_callback,
-    _select_callback,
     build_http_target,
     build_httpx_api_target,
+    RequestPreprocessor,
+    ChatIdStateManager,
 )
