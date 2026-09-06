@@ -32,7 +32,7 @@ def router() -> ScenarioRouter:
 def mock_classification():
     """创建模拟 ClassificationResult 的工厂函数"""
     def _create(attack_surface: str, confidence: float, evidence: list[str] | None = None):
-        from data.attack_surface_classifier import ClassificationResult
+        from recon.attack_surface_classifier import ClassificationResult
         return ClassificationResult(
             attack_surface=attack_surface,
             confidence=confidence,

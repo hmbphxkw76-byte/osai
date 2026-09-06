@@ -214,14 +214,14 @@ class TestSynergyOrchestrator:
 
     def test_orchestrator_initialization(self):
         """编排器应该正确初始化."""
-        from data.synergy_orchestrator import SynergyOrchestrator
+        from data.synergy_orchestrator import SynergyOrchestrator  # v61: 兼容层
 
         orch = SynergyOrchestrator()
         assert orch._data_root == _DATA_ROOT
 
     def test_build_config_for_mcp(self):
         """MCP 配置文件应该生成正确的协同配置 (v60: 仅含 technique_tags)."""
-        from data.synergy_orchestrator import SynergyOrchestrator
+        from data.synergy_orchestrator import SynergyOrchestrator  # v61: 兼容层
 
         orch = SynergyOrchestrator()
         config = orch.build_synergy_config("mcp05")
@@ -234,7 +234,7 @@ class TestSynergyOrchestrator:
 
     def test_build_config_for_standard(self):
         """标准配置文件应该生成通用协同配置 (v60: technique_tags=None)."""
-        from data.synergy_orchestrator import SynergyOrchestrator
+        from data.synergy_orchestrator import SynergyOrchestrator  # v61: 兼容层
 
         orch = SynergyOrchestrator()
         config = orch.build_synergy_config("mocka")
@@ -246,7 +246,7 @@ class TestSynergyOrchestrator:
 
     def test_build_config_with_burp_content(self):
         """提供 Burp 内容时应该使用深度分类."""
-        from data.synergy_orchestrator import SynergyOrchestrator
+        from data.synergy_orchestrator import SynergyOrchestrator  # v61: 兼容层
 
         mcp_http = """POST /mcp/v1 HTTP/1.1
 Host: target.example.com
@@ -262,7 +262,7 @@ mcp-session-id: test123
 
     def test_force_surface_override(self):
         """强制攻击面类型应该覆盖自动分类 (v60: 验证 technique_tags)."""
-        from data.synergy_orchestrator import SynergyOrchestrator
+        from data.synergy_orchestrator import SynergyOrchestrator  # v61: 兼容层
 
         orch = SynergyOrchestrator()
         config = orch.build_synergy_config(
@@ -277,7 +277,7 @@ mcp-session-id: test123
 
     def test_synergy_config_summary(self):
         """SynergyConfig.summary() 应该生成可读摘要."""
-        from data.synergy_orchestrator import SynergyOrchestrator
+        from data.synergy_orchestrator import SynergyOrchestrator  # v61: 兼容层
 
         orch = SynergyOrchestrator()
         config = orch.build_synergy_config("mcp05")
@@ -288,7 +288,7 @@ mcp-session-id: test123
 
     def test_synergy_config_to_dict(self):
         """SynergyConfig.to_dict() 应该生成完整字典."""
-        from data.synergy_orchestrator import SynergyOrchestrator
+        from data.synergy_orchestrator import SynergyOrchestrator  # v61: 兼容层
 
         orch = SynergyOrchestrator()
         config = orch.build_synergy_config("mcp05")
@@ -309,7 +309,7 @@ class TestSynergyIntegration:
 
     def test_quick_build_function(self):
         """便捷函数 quick_build 应该正常工作."""
-        from data.synergy_orchestrator import quick_build
+        from data.synergy_orchestrator import quick_build  # v61: 兼容层
 
         config = quick_build("mcp05")
         assert config.burp_profile == "mcp05"
@@ -317,7 +317,7 @@ class TestSynergyIntegration:
 
     def test_get_cli_overrides(self):
         """CLI 覆盖应该生成正确的参数格式 (v60: 仅 technique_filter)."""
-        from data.synergy_orchestrator import get_cli_overrides
+        from data.synergy_orchestrator import get_cli_overrides  # v61: 兼容层
 
         overrides = get_cli_overrides("mcp05")
 
@@ -330,7 +330,7 @@ class TestSynergyIntegration:
 
     def test_all_burp_profiles_have_valid_config(self):
         """所有现有 Burp 配置文件都应该有有效的协同配置 (v60)."""
-        from data.synergy_orchestrator import SynergyOrchestrator
+        from data.synergy_orchestrator import SynergyOrchestrator  # v61: 兼容层
 
         orch = SynergyOrchestrator()
 
@@ -352,7 +352,7 @@ class TestSynergyIntegration:
 
     def test_technique_tags_validity(self):
         """v60: technique_tags 应该引用已注册的标签."""
-        from data.synergy_orchestrator import SynergyOrchestrator
+        from data.synergy_orchestrator import SynergyOrchestrator  # v61: 兼容层
 
         orch = SynergyOrchestrator()
         config = orch.build_synergy_config("mcp05")
@@ -371,7 +371,7 @@ def test_synergy_performance():
     """协同编排器应该快速响应 (< 100ms per profile)."""
     import time
 
-    from data.synergy_orchestrator import SynergyOrchestrator
+    from data.synergy_orchestrator import SynergyOrchestrator  # v61: 兼容层
 
     orch = SynergyOrchestrator()
 
@@ -446,7 +446,7 @@ class TestSynergyPipelineIntegration:
         import argparse
 
         from core.context import PipelineContext
-        from data.synergy_orchestrator import SynergyConfig, SynergyOrchestrator
+        from data.synergy_orchestrator import SynergyConfig, SynergyOrchestrator  # v61: 兼容层
 
         config = SynergyOrchestrator().build_synergy_config("mcp05")
 
@@ -473,7 +473,7 @@ class TestSynergyPipelineIntegration:
 
     def test_synergy_data_flow_to_args_technique_filter(self):
         """v60: Synergy 应该能设置 args 的 technique_filter."""
-        from data.synergy_orchestrator import SynergyOrchestrator
+        from data.synergy_orchestrator import SynergyOrchestrator  # v61: 兼容层
 
         orch = SynergyOrchestrator()
         config = orch.build_synergy_config("mcp05")
@@ -495,7 +495,7 @@ class TestSynergyPipelineIntegration:
         import argparse
 
         from core.context import PipelineContext
-        from data.synergy_orchestrator import SynergyOrchestrator
+        from data.synergy_orchestrator import SynergyOrchestrator  # v61: 兼容层
 
         config = SynergyOrchestrator().build_synergy_config("mcp05")
 

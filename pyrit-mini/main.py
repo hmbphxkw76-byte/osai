@@ -23,7 +23,7 @@
     utils/   — 终端输出, 缓存清理
 
 使用方式:
-    # 默认配置 (自动扫描 data/burp/*.txt 全部文件 + L5 最优 Converter + 双 Judge 评分)
+    # v61: 迁移至 config/targets/burp/ (自动扫描 + L5 最优 Converter + 双 Judge 评分)
     python main.py
 
     # 全火力模式 (AI-300 考试首选 — 最高 ASR 配置)
@@ -37,9 +37,9 @@
     #   assess    → 评分: T0→J1→J2→J3 级联评分 + ASR 统计 + Wilson CI
     #   report    → 报告: 证据收集 + MD/HTML/JSON/PoC/SARIF 生成
     #
-    # --burp <NAME> 指定 Burp 请求文件 (自动查找 data/burp/<NAME>.txt):
+    # v61: --burp <NAME> 指定 Burp 请求文件 (自动查找 config/targets/burp/<NAME>.txt):
     python main.py --burp request --stage recon
-    # 不指定 --burp 时自动扫描 data/burp/*.txt 全部文件 (默认多端点模式)
+    # 不指定 --burp 时自动扫描 config/targets/burp/*.txt 全部文件 (默认多端点模式)
     # 单个 endpoint 也走多端点路径, 确保统一目录结构
     python main.py --burp deepseek --stage arm
     python main.py --burp qwen --stage strike
@@ -814,7 +814,7 @@ async def _run_single_endpoint(
     if _synergy_enabled_flag and ctx.parsed_request:
         print_phase("SYNERGY", "攻击面分类 + 技术标签映射...")
         try:
-            from data.synergy_orchestrator import SynergyOrchestrator
+            from data.synergy_orchestrator import SynergyOrchestrator  # v61: 兼容层, 内部已迁移
 
             # 读取 Burp 文件原始内容用于深度分类
             _burp_raw_content = None

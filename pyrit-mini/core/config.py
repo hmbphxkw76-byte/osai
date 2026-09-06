@@ -803,17 +803,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         args.converters = _parse_converter_global(args.converters)
 
     # ── Burp 请求路径解析 ──
-    # 不指定 --burp → 自动扫描 data/burp/*.txt 全部文件 (默认多端点模式)
-    # --burp <name> → data/burp/<name>.txt (自动补全路径, 单个 endpoint 也走多端点路径)
-    # 支持多值: --burp MM_05 --burp MM_03 → ["data/burp/MM_05.txt", "data/burp/MM_03.txt"]
-    # 单值: --burp request → "data/burp/request.txt"
+    # v61: 迁移至 config/targets/burp/ (目标对象目录)
+    # 不指定 --burp → 自动扫描 config/targets/burp/*.txt 全部文件 (默认多端点模式)
+    # --burp <name> → config/targets/burp/<name>.txt (自动补全路径)
+    # 支持多值: --burp MM_05 --burp MM_03 → ["config/targets/burp/MM_05.txt", ...]
+    # 单值: --burp request → "config/targets/burp/request.txt"
     # 多值时返回 list[str], 单值时返回 str (向后兼容)
     # 如果传入的值已包含路径分隔符或 .txt 后缀, 视为完整路径
     raw_burps = args.burp
     if raw_burps is None:
-        # 不指定 --burp → 自动扫描 data/burp/ 目录下所有 .txt 文件
+        # 不指定 --burp → 自动扫描 config/targets/burp/ 目录下所有 .txt 文件
         # 学术依据: Greshake et al. (arXiv:2302.12173) — 逐个深度攻击 (默认多端点模式)
-        burp_dir = _PROJECT_ROOT / "data" / "burp"
+        burp_dir = _PROJECT_ROOT / "config" / "targets" / "burp"
         if burp_dir.is_dir():
             raw_burps = sorted(
                 str(f) for f in burp_dir.glob("*.txt") if f.is_file()
@@ -822,7 +823,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             # 目录不存在或无 .txt 文件 → fallback 到默认 request.txt
             raw_burps = ["request"]
         logger.debug(
-            "No --burp specified: auto-discovered %d .txt file(s) in data/burp/: %s",
+            "No --burp specified: auto-discovered %d .txt file(s) in config/targets/burp/: %s",
             len(raw_burps),
             ", ".join(Path(f).name for f in raw_burps),
         )
@@ -832,8 +833,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     resolved_burps: list[str] = []
     for burp_val in raw_burps:
         if "/" not in burp_val and "\\" not in burp_val and not burp_val.endswith(".txt"):
-            # 纯文件名 → 自动补全为 data/burp/<name>.txt
-            resolved_burps.append(str(_PROJECT_ROOT / "data" / "burp" / f"{burp_val}.txt"))
+            # v61: 纯文件名 → 自动补全为 config/targets/burp/<name>.txt
+            resolved_burps.append(str(_PROJECT_ROOT / "config" / "targets" / "burp" / f"{burp_val}.txt"))
         elif not Path(burp_val).is_absolute() and ("/" in burp_val or "\\" in burp_val):
             # 相对路径 → 相对于项目根目录
             resolved_burps.append(str(_PROJECT_ROOT / burp_val))
