@@ -3,9 +3,8 @@
 测试覆盖:
   1. AssetMapper 静态映射
   2. AttackSurfaceClassifier HTTP 内容分类
-  3. ScorerSelector 动态评分器选择
-  4. SynergyOrchestrator 全链路协同
-  5. 端到端协同效果验证 (A/B 对照)
+  3. SynergyOrchestrator 全链路协同
+  4. 端到端协同效果验证 (A/B 对照)
 
 学术依据:
   - HarmBench (arXiv:2402.04249): 评分器选择验证
@@ -208,75 +207,7 @@ Content-Type: application/json
 
 
 # ──────────────────────────────────────────────
-# Phase 3: ScorerSelector 测试
-# ──────────────────────────────────────────────
-class TestScorerSelector:
-    """测试评分器选择器."""
-
-    def test_select_scorer_for_mcp(self):
-        """MCP 攻击面应该选择 web_vuln_detected."""
-        from data.scorer_selector import select_scorer_for_surface
-
-        scorer = select_scorer_for_surface("mcp_full_surface")
-        assert scorer == "web_vuln_detected"
-
-    def test_select_scorer_for_rag(self):
-        """RAG 系统应该选择 web_vuln_detected."""
-        from data.scorer_selector import select_scorer_for_surface
-
-        scorer = select_scorer_for_surface("rag_system")
-        assert scorer == "web_vuln_detected"
-
-    def test_select_scorer_for_standard(self):
-        """标准 LLM API 应该选择 blackbox_task_achieved."""
-        from data.scorer_selector import select_scorer_for_surface
-
-        scorer = select_scorer_for_surface("standard_llm_api")
-        assert scorer == "blackbox_task_achieved"
-
-    def test_select_scorer_fallback(self):
-        """未知攻击面应该回退到 blackbox_task_achieved."""
-        from data.scorer_selector import select_scorer_for_surface
-
-        scorer = select_scorer_for_surface("unknown_surface")
-        assert scorer == "blackbox_task_achieved"
-
-    def test_select_scorer_for_category(self):
-        """基于类别的评分器选择."""
-        from data.scorer_selector import select_scorer_for_category
-
-        assert select_scorer_for_category("mcp_attack") == "web_vuln_detected"
-        assert select_scorer_for_category("prompt_injection") == "blackbox_task_achieved"
-        assert select_scorer_for_category("harmful_content") == "harm_bench_harmful"
-
-    def test_get_scorer_path(self):
-        """应该返回正确的评分器文件路径."""
-        from data.scorer_selector import get_scorer_path
-
-        assert get_scorer_path("web_vuln_detected") == "scorers/web_vuln_detected.yaml"
-        assert get_scorer_path("blackbox_task_achieved") == "scorers/blackbox_task_achieved.yaml"
-
-    def test_invalid_scorer_returns_none(self):
-        """无效评分器应该返回 None."""
-        from data.scorer_selector import get_scorer_path
-
-        assert get_scorer_path("nonexistent_scorer") is None
-
-    def test_scorer_recommendation(self):
-        """评分员推荐应该返回完整配置."""
-        from data.scorer_selector import get_scorer_recommendation
-
-        result = get_scorer_recommendation("mcp_server")
-
-        assert "recommended" in result
-        assert "path" in result
-        assert "reason" in result
-        assert "fallback" in result
-        assert result["confidence"] > 0
-
-
-# ──────────────────────────────────────────────
-# Phase 4: SynergyOrchestrator 测试
+# Phase 3: SynergyOrchestrator 测试
 # ──────────────────────────────────────────────
 class TestSynergyOrchestrator:
     """测试协同编排器."""
