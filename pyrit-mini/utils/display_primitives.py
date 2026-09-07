@@ -1,12 +1,12 @@
-"""display_primitives.py —  + Banner/
+"""display_primitives.py — ANSI colors + Banner/Phase/Status cards.
 
-imports utils/display.py , :
-    - ANSI  + Windows 
-    -  + 
-    - Banner / Phase / Status / Error 
-    - ASR 
+Imports from utils/display.py, provides:
+    - ANSI color codes + Windows terminal setup
+    - Card drawing utilities (top/sep/bottom/line)
+    - Banner / Phase / Status / Error printing
+    - ASR bar and formatting
 
-: ,  Python 
+Note: No Chinese characters, pure Python strings only.
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ _INNER = _WIDTH - 4  #  ( "║ "  " ║")
 
 
 # ====================================================================
-# 
+#
 # ====================================================================
 
 #  ANSI  (\033[...m), Skip
@@ -76,7 +76,7 @@ def _visual_width(text: str) -> int:
     """ ( 2, Skip ANSI )."""
     import unicodedata
 
-    #  ANSI 
+    #  ANSI
     clean = _ANSI_RE.sub("", text)
     return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in clean)
 
@@ -85,7 +85,7 @@ def _truncate_to_width(text: str, width: int = _INNER) -> str:
     """ ( ANSI )."""
     import unicodedata
 
-    #  ANSI 
+    #  ANSI
     parts = _ANSI_RE.split(text)
     result = ""
     visual_w = 0
@@ -93,7 +93,7 @@ def _truncate_to_width(text: str, width: int = _INNER) -> str:
         if not part:
             continue
         if part.startswith("\033["):
-            result += part  # ANSI 
+            result += part  # ANSI
             continue
         # ,  2
         for ch in part:
@@ -101,7 +101,7 @@ def _truncate_to_width(text: str, width: int = _INNER) -> str:
             if visual_w + cw >= width:
                 #  ( 1  …)
                 result += f"{_C_DIM}…{_C_RESET}"
-                visual_w = width - 1  # …  1 
+                visual_w = width - 1  # …  1
                 return result
             result += ch
             visual_w += cw
@@ -181,7 +181,7 @@ def print_section(title: str, items: list[str], *, color: str = "") -> None:
 
 
 # ====================================================================
-#  + 
+#  +
 # ====================================================================
 
 
@@ -242,7 +242,7 @@ def print_status(
 
 
 def print_error(message: str) -> None:
-    """."""
+    """Print error card."""
     print()
     _print_card_top(_C_RED)
     print(_card_line(f"{_C_RED}{_C_BOLD}✗ ERROR{_C_RESET}", _C_RED))
@@ -253,11 +253,9 @@ def print_error(message: str) -> None:
 
 
 def _asr_color(asr: float) -> str:
-    """ASR  —  ( ASR = ).
+    """Return ASR color based on value (higher ASR = more critical).
 
-    :  ASR  "" (),
-    imports "" (), 
-     ASR =  (),  = /
+    Thresholds: red (>=70%), yellow (>=40%), cyan (>=15%), green (<15%).
     """
     if asr >= 70:
         return _C_RED
@@ -287,10 +285,9 @@ def _asr_bar(asr: float, width: int = 20) -> str:
 
 
 def _get_converter_chain_names(converters: list[Any], *, max_display: int = 5) -> str:
-    """ converter  ().
+    """Get converter chain names for display.
 
-    L5 v39:  converter 
-     display_stages → primitives display_params from
+    L5 v39: Extract converter names for display_stages -> primitives display_params from
 
     Args:
         converters: Converter .

@@ -1,15 +1,15 @@
-"""display_stages.py —  (RECON/ARM/STRIKE/ESCALATE/ASSESS/REPORT)
+"""display_stages.py — Phase-specific display cards (RECON/ARM/STRIKE/ESCALATE/ASSESS/REPORT).
 
-imports utils/display.py , :
-    - Recon 
-    - ARM  (//Converter)
-    - STRIKE  + 
-    - ESCALATE 
-    - ASSESS 
-    - REPORT Layer
-    -  endpoint Joint ASR 
+Imports from utils/display.py, provides:
+    - Recon card (target entry point + hand-off)
+    - ARM card (seed/converter/technique selection)
+    - STRIKE card (attack execution + results)
+    - ESCALATE card (multi-level escalation)
+    - ASSESS card (scoring + statistics)
+    - REPORT Layer (report generation)
+    - Multi-endpoint Joint ASR card
 
-: utils.display_primitives ()
+Dependencies: utils.display_primitives (card drawing)
 """
 
 from __future__ import annotations
@@ -48,24 +48,24 @@ logger = logging.getLogger(__name__)
 # ====================================================================
 #  →  ()
 # Academic basis:
-#   - Greshake et al. (arXiv:2302.12173) — 
-#   - Zhan et al. (arXiv:2307.00929) — InjecAgent 
-#   - Morris et al. (arXiv:2310.06870) — 
-#   - PyRIT (arXiv:2407.01232) — 
+#   - Greshake et al. (arXiv:2302.12173) —
+#   - Zhan et al. (arXiv:2307.00929) — InjecAgent
+#   - Morris et al. (arXiv:2310.06870) —
+#   - PyRIT (arXiv:2407.01232) —
 #   - OWASP LLM Top 10 + ASI Top 10
 # ====================================================================
 
 _CAPABILITY_STRATEGY: dict[str, dict[str, str]] = {
-    "function_calling": {"arxiv": "arXiv:2307.00929", "strategy": ":  function schema ", "seed": "function_call_exploit", "owasp": "LLM06"},
-    "memory": {"arxiv": "arXiv:2302.12173", "strategy": ":  token smuggling ", "seed": "token_smuggling", "owasp": "LLM07"},
-    "workflow": {"arxiv": "arXiv:2407.01232", "strategy": ": ", "seed": "workflow_chain_attack", "owasp": "ASI04"},
-    "multi_tenant": {"arxiv": "arXiv:2403.04206", "strategy": ":  + ", "seed": "session_auth_attack", "owasp": "LLM02"},
-    "rag": {"arxiv": "arXiv:2302.12173", "strategy": "RAG :  + ", "seed": "indirect_prompt_injection", "owasp": "LLM08"},
-    "tool_use": {"arxiv": "arXiv:2307.00929", "strategy": ":  function schema ", "seed": "tool_hijacking", "owasp": "LLM06"},
-    "code_execution": {"arxiv": "arXiv:2310.06870", "strategy": ": ", "seed": "code_execution_attack", "owasp": "ASI05"},
-    "multi_agent": {"arxiv": "arXiv:2403.04206", "strategy": " agent :  agent ", "seed": "multi_agent_injection", "owasp": "ASI06"},
-    "vector_db": {"arxiv": "arXiv:2310.06870", "strategy": ": ", "seed": "embedding_inversion", "owasp": "LLM08"},
-    "mcp_protocol": {"arxiv": "arXiv:2407.01232", "strategy": "MCP : tool schema  + RAG ", "seed": "mcp_tool_exploit", "owasp": "ASI07"},
+    "function_calling": {"arxiv": "arXiv:2307.00929", "strategy": "InjecAgent: exploit function schema", "seed": "function_call_exploit", "owasp": "LLM06"},
+    "memory": {"arxiv": "arXiv:2302.12173", "strategy": "Greshake: token smuggling", "seed": "token_smuggling", "owasp": "LLM07"},
+    "workflow": {"arxiv": "arXiv:2407.01232", "strategy": "PyRIT: workflow chain", "seed": "workflow_chain_attack", "owasp": "ASI04"},
+    "multi_tenant": {"arxiv": "arXiv:2403.04206", "strategy": "Session auth + tenant isolation", "seed": "session_auth_attack", "owasp": "LLM02"},
+    "rag": {"arxiv": "arXiv:2302.12173", "strategy": "RAG: indirect prompt injection", "seed": "indirect_prompt_injection", "owasp": "LLM08"},
+    "tool_use": {"arxiv": "arXiv:2307.00929", "strategy": "InjecAgent: exploit function schema", "seed": "tool_hijacking", "owasp": "LLM06"},
+    "code_execution": {"arxiv": "arXiv:2310.06870", "strategy": "Morris: code execution", "seed": "code_execution_attack", "owasp": "ASI05"},
+    "multi_agent": {"arxiv": "arXiv:2403.04206", "strategy": "Multi-agent: cross-agent injection", "seed": "multi_agent_injection", "owasp": "ASI06"},
+    "vector_db": {"arxiv": "arXiv:2310.06870", "strategy": "Morris: embedding inversion", "seed": "embedding_inversion", "owasp": "LLM08"},
+    "mcp_protocol": {"arxiv": "arXiv:2407.01232", "strategy": "MCP: tool schema + RAG chain", "seed": "mcp_tool_exploit", "owasp": "ASI07"},
 }
 
 
@@ -75,7 +75,7 @@ _CAPABILITY_STRATEGY: dict[str, dict[str, str]] = {
 
 
 def _get_outcome_label(result: Any) -> str:
-    """ AttackResult  outcome  ()."""
+    """Return AttackResult outcome label (colored)."""
     outcome = getattr(result, "outcome", None)
     if outcome:
         s = str(outcome).upper()
@@ -89,25 +89,25 @@ def _get_outcome_label(result: Any) -> str:
 
 
 # ====================================================================
-# RECON 
+# RECON
 # ====================================================================
 
 def print_recon_card(ctx: "PipelineContext") -> None:
-    """ ( --stage recon , ).
+    """Print recon card (for --stage recon, standalone display).
 
-     (,  ③ Hand-off  ①):
-        ① Target Entry Point + Hand-off —  +  +  + ARM 
-        ② Attack Surface —  (HIGH/MEDIUM/LOW)
+    Layout (3 rows, Hand-off style, left-to-right):
+        Row 1: Target Entry Point + Hand-off -- endpoint + model + auth + language + caps -> ARM
+        Row 2: Attack Surface -- capability strategy (HIGH/MEDIUM/LOW)
 
-     ():
-        - ③ Hand-off  (api_category, session_type, probe_count,
-          probe_duration)  ① ,  model/language/caps
-        - ② PROBE  strategy, converter(s)
+    Data flow:
+        - Row 3 Hand-off values (api_category, session_type, probe_count,
+          probe_duration) -> Row 1 consumption, then model/language/caps
+        - Row 2 PROBE capability strategy, converter(s)
     """
     if not ctx.parsed_request:
         return
     fp = ctx.parsed_request.target_fingerprint
-    # :  model  recon_report.py 
+    # :  model  recon_report.py
     #  model_family ( "claude")
     #  burp_model_name (Burp  "gpt-4o")
     model = fp.get("model_family", "") or fp.get("burp_model_name", "") or "Unknown"
@@ -196,7 +196,7 @@ def print_recon_card(ctx: "PipelineContext") -> None:
 
 
 # ====================================================================
-# ARM 
+# ARM
 # ====================================================================
 
 def _strip_common_prefix(value: str) -> str:
@@ -306,7 +306,7 @@ def print_arm_card(ctx: "PipelineContext") -> None:
         print()
         print_section("Seeds (Top 8 by ASR)", items, color=_C_CYAN)
 
-    # 
+    #
     if ctx.techniques:
         _tech_asr_hist: dict[str, float] = {}
         try:
@@ -386,18 +386,18 @@ def print_arm_highlights(ctx: "PipelineContext") -> None:
 
 
 # ====================================================================
-# STRIKE  + 
+# STRIKE  +
 # ====================================================================
 
 def _extract_success_info(result: Any, tech_name: str) -> dict[str, str]:
-    """imports AttackResult 
+    """Extract success info from AttackResult.
 
-    :
-        1.  (Seed) —  payload (objective)
-        2. Converter  —  ( fallback)
-        3.  —  + PyRIT  identifier
-        4.  (Response) — 
-        5. ASR  (ASR Prior) —  ASR 
+    Returns dict with:
+        1. Seed (Seed) — original payload (objective)
+        2. Converter — converter chain (type name fallback)
+        3. Technique — technique name + PyRIT identifier
+        4. Response (Response) — truncated response text
+        5. ASR Prior (ASR Prior) — historical ASR for technique
     """
     seed = ""
     objective = getattr(result, "objective", None)
@@ -552,7 +552,7 @@ def print_success_payload_snapshot(
 
 
 # ====================================================================
-# ESCALATE 
+# ESCALATE
 # ====================================================================
 
 def print_escalate_card(ctx: "PipelineContext") -> None:
@@ -617,7 +617,7 @@ def print_escalate_card(ctx: "PipelineContext") -> None:
         print_section("Escalation Techniques (by ASR)", items, color=_C_MAGENTA)
 
 # ====================================================================
-# ASSESS 
+# ASSESS
 # ====================================================================
 
 def print_assess_card(ctx: "PipelineContext") -> None:
@@ -668,7 +668,7 @@ def print_assess_card(ctx: "PipelineContext") -> None:
 
 
 # ====================================================================
-# REPORT 
+# REPORT
 # ====================================================================
 
 def print_report_card(
@@ -719,8 +719,8 @@ def print_report_card(
 
 
 # ====================================================================
-#  endpoint  ASR 
-# Academic basis: arXiv:2302.12173 Greshake — 
+#  endpoint  ASR
+# Academic basis: arXiv:2302.12173 Greshake —
 #           arXiv:2310.08419 Chao —  ASR = 1 - ∏(1 - ASRᵢ)
 # ====================================================================
 

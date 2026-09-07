@@ -1,16 +1,16 @@
-"""display.py —  +  ()
+"""display.py — Unified display facade + progress orchestration.
 
-: , 
-    - display_primitives:  + Banner/Phase/Status
-    - display_stages: RECON/ARM/STRIKE/ESCALATE/ASSESS/REPORT 
-    - display_native: PyRIT  output  (output_attack/scenario/technique_trail)
-    - display.py:  + 
+Architecture: single entry point, delegates to:
+    - display_primitives: ANSI colors + Banner/Phase/Status
+    - display_stages: RECON/ARM/STRIKE/ESCALATE/ASSESS/REPORT phase cards
+    - display_native: PyRIT native output adapters (output_attack/scenario/technique_trail)
+    - display.py: unified facade + progress orchestration
 
-:
-    1. : 
-    2. : PyRIT/Alembic  INFO 
-    3. : →→Converter→→ASR→payload→
-    4. : converter(s) "" 
+Responsibilities:
+    1. Unified facade: backward-compatible re-exports
+    2. Log suppression: PyRIT/Alembic INFO noise filtering
+    3. Progress orchestration: seed -> converter -> ASR -> payload -> success
+    4. Summary cards: converter(s) attack summary
 """
 
 from __future__ import annotations
@@ -52,9 +52,7 @@ from utils.display_primitives import (
     _print_card_bottom,
     _print_card_sep,
     _print_card_top,
-    print_banner,
     print_card,
-    print_phase,
     print_status,
 )
 from utils.display_stages import (
@@ -75,7 +73,7 @@ logger = logging.getLogger(__name__)
 
 
 # ====================================================================
-# 
+#
 # ====================================================================
 
 #  (,  print_status)
@@ -83,7 +81,7 @@ print_status_card = print_status
 
 
 # ====================================================================
-# 
+#
 # ====================================================================
 
 def print_summary(
@@ -161,7 +159,7 @@ async def print_attack_results_native(
         print(f"\n  {_C_RED}✗  — {_C_RESET}")
         return
 
-    #  ASR 
+    #  ASR
     sorted_techs = sorted(
         attack_results.items(),
         key=lambda kv: -(sum(1 for r in kv[1] if _is_success(r)) / max(1, len(kv[1]))),
@@ -229,12 +227,12 @@ async def print_attack_results_native(
 
 
 async def print_strike_results_native(ctx: "PipelineContext", *, max_per_tech: int = 3) -> None:
-    """STRIKE ."""
+    """Print STRIKE results (native output)."""
     await print_attack_results_native(ctx.attack_results, phase_label="STRIKE", max_per_tech=max_per_tech)
 
 
 def print_strike_card(ctx: "PipelineContext") -> None:
-    """ (/)."""
+    """Print STRIKE card (summary only)."""
     total = sum(len(results) for results in ctx.attack_results.values())
     success_count = sum(
         1 for results in ctx.attack_results.values()
@@ -281,7 +279,7 @@ async def print_strike_report_async(ctx: "PipelineContext") -> None:
 
 
 def print_strike_report(ctx: "PipelineContext") -> None:
-    """:  ()."""
+    """Sync wrapper: print STRIKE report."""
     print_strike_card(ctx)
 
 
@@ -291,7 +289,7 @@ def print_arm_report(ctx: "PipelineContext") -> None:
 
 
 async def print_escalate_report_async(ctx: "PipelineContext") -> None:
-    """ (R2 §2.1 )."""
+    """Print ESCALATE report (R2 section 2.1 compliant)."""
     escalation_techs = [
         k for k in ctx.attack_results
         if any(
@@ -623,7 +621,7 @@ def print_escalation_level_banner(
     failed_count: int,
     batch_mode: bool = False,
 ) -> None:
-    """ Level ."""
+    """Print escalation level banner."""
     level_names = {
         1: "Multi-Turn Priority Batches",
         2: "GCG + CAIR + Best-of-N + Encoded Injection",
@@ -699,7 +697,7 @@ def _get_current_technique(ctx: "PipelineContext") -> str:
 
 
 def _get_seed_category_for_idx(ctx: "PipelineContext", seed_idx: int) -> str:
-    """ category ."""
+    """Get seed category for index."""
     if seed_idx < 0 or seed_idx >= len(ctx.seeds):
         return ""
     group = ctx.seeds[seed_idx]
@@ -729,7 +727,7 @@ def print_converter_path_start(
     total_paths: int,
     seeds_remaining: int,
 ) -> None:
-    """ converter ."""
+    """Print converter path start."""
     ep_name = _get_endpoint_name(ctx)
     tech = _get_current_technique(ctx)
     cat = _get_technique_category(tech)
@@ -832,7 +830,7 @@ def print_native_sequential_progress(
     converter_count: int,
     objective_preview: str,
 ) -> None:
-    """SequentialAttack ."""
+    """Print native SequentialAttack progress."""
     ep_name = _get_endpoint_name(ctx)
     tech = _get_current_technique(ctx)
 
@@ -913,7 +911,7 @@ def print_escalation_tech_done(
     success_count: int,
     elapsed_seconds: float,
 ) -> None:
-    """."""
+    """Print escalation technique completion."""
     setattr(ctx, "_current_escalation_tech", None)
 
     ep_name = _get_endpoint_name(ctx)
@@ -947,7 +945,7 @@ def print_strike_phase_summary(
     total_success: int,
     elapsed_seconds: float,
 ) -> None:
-    """STRIKE ."""
+    """Print STRIKE phase summary."""
     ep_name = _get_endpoint_name(ctx)
     asr = (total_success / max(1, total_results) * 100) if total_results > 0 else 0.0
     asr_str = _format_asr(asr)
