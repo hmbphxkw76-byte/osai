@@ -1,21 +1,21 @@
 # arXiv:2407.01232 — PyRIT, native multi-turn attack patterns
 # arXiv:2302.12173 — Greshake et al., indirect prompt injection
 # arXiv:2402.14266 — SKELETONKEY, SkeletonKey
-"""chunked_attack — ChunkedRequestAttack 原生攻击模块。
+"""chunked_attack — ChunkedRequestAttack 
 
-使用 PyRIT 原生 ChunkedRequestAttack 执行分块提取攻击。
-该攻击通过请求特定字符范围的信息片段,
-绕过长度过滤或输出截断, 逐步重建完整值。
+ PyRIT  ChunkedRequestAttack 
+,
+, 
 
-在 CTF 红队测试中发现: 目标拒绝完整揭示秘密值,
-但会揭示特定片段, 组合后可重建完整值。
+ CTF : ,
+, 
 
-R2 (PyRIT Native First): 使用原生 ChunkedRequestAttack 类, 不自行实现
-R6 §6.4: 原生攻击策略之一
+R2 (PyRIT Native First):  ChunkedRequestAttack , 
+R6 §6.4: 
 
-学术依据:
-    - PyRIT (arXiv:2407.01232) — 原生 ChunkedRequestAttack 类
-    - Greshake et al. (arXiv:2302.12173) — 间接注入与信息提取
+Academic basis:
+    - PyRIT (arXiv:2407.01232) —  ChunkedRequestAttack 
+    - Greshake et al. (arXiv:2302.12173) — 
 """
 
 from __future__ import annotations
@@ -36,25 +36,25 @@ async def run_chunked_request_attack(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
-    """ChunkedRequestAttack 原生攻击包装.
+    """ChunkedRequestAttack .
 
-    学术依据: PyRIT (arXiv:2407.01232) — 原生 ChunkedRequestAttack
+    Academic basis: PyRIT (arXiv:2407.01232) —  ChunkedRequestAttack
 
-    使用 PyRIT 原生 ChunkedRequestAttack 执行分块提取攻击:
-        1. 将目标拆分为多个字符范围请求
-        2. 依次发送分块请求到目标
-        3. 收集所有分块响应并组合
-        4. 对组合结果评分
+     PyRIT  ChunkedRequestAttack :
+        1. converter(s)
+        2. 
+        3. all
+        4. 
 
-    R2 (PyRIT native first): 使用原生 ChunkedRequestAttack 类
-    R6 §6.4: 原生攻击策略
+    R2 (PyRIT native first):  ChunkedRequestAttack 
+    R6 §6.4: 
 
     Args:
-        ctx: 流水线上下文 (包含 multi_turn_target, objective_target, scoring_target).
-        objectives: 失败目标列表.
+        ctx:  ( multi_turn_target, objective_target, scoring_target).
+        objectives: .
 
     Returns:
-        {technique_name: [AttackResult, ...]} 格式的攻击结果。
+        {technique_name: [AttackResult, ...]} 
     """
     if not objectives:
         return {}
@@ -70,7 +70,7 @@ async def run_chunked_request_attack(
         logger.warning("ChunkedRequestAttack not available (%s), skipping", e)
         return {}
 
-    # 构建评分配置 (0-token FIRST_SUCCESS scorer)
+    #  (0-token FIRST_SUCCESS scorer)
     from strike.executor import _build_first_success_scoring_config
     first_success_scoring = _build_first_success_scoring_config(ctx)
 
@@ -83,7 +83,7 @@ async def run_chunked_request_attack(
 
     results: list[Any] = []
 
-    # 限制目标数量
+    # 
     chunked_objectives = objectives[:8]
     if len(objectives) > 8:
         logger.info("ChunkedRequest: limited to top-8 objectives")
@@ -93,18 +93,18 @@ async def run_chunked_request_attack(
             continue
 
         try:
-            # 构建 ChunkedRequestAttack
+            #  ChunkedRequestAttack
             # arXiv:2407.01232 — chunk_size and total_length from config/defaults.yaml
-            # 4 个分块请求, 逐步提取完整信息
+            # 4 , 
             attack = ChunkedRequestAttack(
                 objective_target=multi_turn_target,
                 attack_scoring_config=first_success_scoring,
-                chunk_size=_get_config_int(ctx, "chunked_request_chunk_size", 50),       # arXiv:2407.01232 — 默认 50 字符/块
-                total_length=_get_config_int(ctx, "chunked_request_total_length", 200),    # arXiv:2407.01232 — 默认 200 字符总长
+                chunk_size=_get_config_int(ctx, "chunked_request_chunk_size", 50),       # arXiv:2407.01232 —  50 /
+                total_length=_get_config_int(ctx, "chunked_request_total_length", 200),    # arXiv:2407.01232 —  200 
                 chunk_type="characters",
             )
 
-            # 通过 execute_async 执行
+            #  execute_async 
             execute_kwargs: dict[str, Any] = {"objective": objective}
             if prepended_conv:
                 execute_kwargs["prepended_conversation"] = prepended_conv

@@ -33,7 +33,7 @@ class TestConfig:
 
         args = parse_args(["--burp", "test"])
         assert hasattr(args, "burp")
-        # 单个 --burp 时 args.burp 是 str (向后兼容)
+        #  --burp  args.burp  str ()
         assert isinstance(args.burp, str)
         assert args.burp.endswith("test.txt")
 
@@ -43,15 +43,15 @@ class TestConfig:
 
         args = parse_args([])
         assert hasattr(args, "burp")
-        # 不指定 --burp 时自动扫描 config/burp/*.txt 全部文件
-        # _burp_list 应包含所有 .txt 文件路径
+        #  --burp  config/burp/*.txt 
+        # _burp_list  .txt 
         burp_list = getattr(args, "_burp_list", None)
         assert burp_list is not None
         assert len(burp_list) >= 1
-        # 每个 path 都应以 .txt 结尾
+        #  path  .txt 
         for p in burp_list:
             assert p.endswith(".txt")
-        # config/burp/ 目录下存在 mcp05.txt, mcp09.txt, mm05.txt
+        # config/burp/  mcp05.txt, mcp09.txt, mm05.txt
         burp_names = [Path(p).stem for p in burp_list]
         assert "mcp05" in burp_names or "request" in burp_names
 
@@ -68,10 +68,10 @@ class TestConfig:
 
         args = parse_args(["--burp", "mcp05", "--burp", "mm05"])
         assert hasattr(args, "burp")
-        # 多个 --burp 时 args.burp 是 list[str]
+        #  --burp  args.burp  list[str]
         assert isinstance(args.burp, list)
         assert len(args.burp) == 2
-        # _burp_list 也应包含两个路径
+        # _burp_list 
         burp_list = getattr(args, "_burp_list", None)
         assert burp_list is not None
         assert len(burp_list) == 2

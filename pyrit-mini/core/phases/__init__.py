@@ -1,16 +1,16 @@
-"""阶段函数子包 — 6 大攻击阶段 + 辅助函数.
+""" — 6  + .
 
-P1 优化 (2026-09-06):
-    从 core/orchestrator.py (1629行) 拆分为独立子模块,
-    每个阶段一个文件, 提升可维护性和单一职责.
+P1  (2026-09-06):
+    imports core/orchestrator.py (1629) ,
+    converter(s)converter(s), .
 
-模块清单:
-    - _helpers:  辅助函数 (burp 解析 / endpoint 排序 / 状态重置 / 联合 ASR)
-    - recon:     ① Recon 阶段 (HTTP 解析 + 目标构建)
-    - arm:       ③ ARM 阶段 (种子选取 + 技术选择 + Converter 链)
-    - strike:    ④ Strike + Escalate 阶段 (攻击执行 + 升级链)
-    - assess:    ⑤ Assess 阶段 (评分判定 + ASR 统计)
-    - report:    ⑥ Report 阶段 (证据收集 + 报告生成)
+:
+    - _helpers:   (burp  / endpoint  /  /  ASR)
+    - recon:     ① Recon  (HTTP  + )
+    - arm:       ③ ARM  ( +  + Converter )
+    - strike:    ④ Strike + Escalate  ( + )
+    - assess:    ⑤ Assess  ( + ASR )
+    - report:    ⑥ Report  ( + )
 """
 
 from core.phases._helpers import (

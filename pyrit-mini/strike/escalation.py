@@ -5,45 +5,45 @@
 #   - SkeletonKey: arXiv:2402.14266
 #   - Best-of-N: arXiv:2402.01135
 
-"""单轮失败到多轮升级的逻辑.
+""".
 
-核心函数: check_and_escalate — 根据单轮 ASR 决定是否触发多轮升级策略
-
-
-
-HTTPTarget 閫傞厀
-
-    - HTTPTarget 浣滀贀objective_target 鐩存帴浼犲叆澶氳疆鏀诲嚮
-
-    - adversarial_target 璐熻矗鐢熸垚姣忚疆鐨勬敾鍀prompt
-
-    - 姣忚疆鐢熸垚鐀prompt 閫氳繀HTTPTarget 鍙戦€佺粰鐩爀Agent
-
-    - 璇勫垎鍣ㄨ瘎浼扮洰鏍?Agent 鐨勫搷搴?
+: check_and_escalate —  ASR 
 
 
 
-瀛︽湳渚濇嵁:
+HTTPTarget 
 
-    - Heroux et al. (arXiv:2403.04206) 鈀闊ф€у伐绋?
+    - HTTPTarget objective_target 
 
-    - Wei et al. (arXiv:2307.10292) 鈀CoT 鍔寔 ASR 45-60%
+    - adversarial_target prompt
 
-    - Chao et al. (arXiv:2402.01135) 鈀Best-of-N ASR 鎻愬崀1.8x
+    - prompt HTTPTarget €Agent
 
-    - Patrick et al. (arXiv:2404.01833) 鈀Crescendo 澶嶆潙鏀荤悊 ASR 65%
-
-    - Zou et al. (arXiv:2307.15045) 鈀GCG Greedy Coordinate Gradient ASR 60-88%
-
-    - Hanna et al. (arXiv:2406.18112) 鈀SkeletonKey ASR 80-95%
-
-    - Chao et al. (arXiv:2310.08419) 鈀Best-of-N 鑱斿悀ASR 鎶€鏈惀鏀?
-
-    - PyRIT SequentialAttack (arXiv:2407.01232) 鈀RedTeaming 鑱斿悀鍛煎皠 ASR 40%
+    - ㄨ?Agent ?
 
 
 
-鍗囩骇绛栫暐 (鎸変紭鍏堢骇):
+︽:
+
+    - Heroux et al. (arXiv:2403.04206) ф€у?
+
+    - Wei et al. (arXiv:2307.10292) CoT  ASR 45-60%
+
+    - Chao et al. (arXiv:2402.01135) Best-of-N ASR 1.8x
+
+    - Patrick et al. (arXiv:2404.01833) Crescendo  ASR 65%
+
+    - Zou et al. (arXiv:2307.15045) GCG Greedy Coordinate Gradient ASR 60-88%
+
+    - Hanna et al. (arXiv:2406.18112) SkeletonKey ASR 80-95%
+
+    - Chao et al. (arXiv:2310.08419) Best-of-N ASR €?
+
+    - PyRIT SequentialAttack (arXiv:2407.01232) RedTeaming  ASR 40%
+
+
+
+ ():
 
     Level 1: CoT Hijack (arXiv:2307.10292) + Crescendo (arXiv:2404.01833) + TAP + PAIR
 
@@ -57,13 +57,13 @@ HTTPTarget 閫傞厀
 
 
 
-L5 v41: 瀹屾暣鍗囩骇門鈀琛ュ叏鎵€鏈?_run_* wrapper 璋冪敀
+L5 v41: ュ€?_run_* wrapper 
 
-    瀛︽湳渚濇嵁: Rule 10 瀹屾暣鍗囩骇閾捐姀
+    ︽: Rule 10 
 
-    Single-turn 鈀Best-of-N 鈀Crescendo 鈀TAP 鈀PAIR 鈀GCG
+    Single-turn Best-of-N Crescendo TAP PAIR GCG
 
-      鈀Many-Shot+CoT 鈀Multi-model CoT 鈀SkeletonKey 鈀native attacks
+      Many-Shot+CoT Multi-model CoT SkeletonKey native attacks
 
 """
 
@@ -77,7 +77,7 @@ import time
 from typing import Any, Callable
 
 from core.context import PipelineContext
-from strike.escalation_chain import (  # noqa: F401  re-exports (统一升级铀
+from strike.escalation_chain import (  # noqa: F401  re-exports (
     _apply_mtos_ranking,
     _build_refusal_inverter_scoring_config,
     _build_skeleton_key_seed_groups,
@@ -113,20 +113,20 @@ logger = logging.getLogger(__name__)
 
 
 
-# 鈹€鈹€ SSOT 閰嶇疆璇诲彇 鈹€鈹€
+# €€ SSOT  €€
 
-# 鎵€鏈夐槇鍊间粠 config/defaults.yaml 璇诲彀 纭紪鐮佷粎浣?fallback
+# € config/defaults.yaml  ?fallback
 
-# 瀛︽湳渚濇嵁: arXiv:2406.12609 鈀Lattner et al. 骞惰鍗囩骇閾句腑闂撮€€鍀
+# ︽: arXiv:2406.12609 Lattner et al. €€
 
-# 鍀ASR 杈惧埌棰勬湡姘村钩鍚庢彁鍓嶉€€鍀 鑺傜渀60-80% token 鍜屾椂闂?
+# ASR €€ 60-80% token ?
 
 
 
 def _load_config_value(key: str, default: float) -> float:
-    """浀config/defaults.yaml 璇诲彇閰嶇疆鍀 澶辫触鏃跺洖閫€鍒伴粯璁ゅ€?
+    """config/defaults.yaml  €ゅ€?
 
-    Production-grade: 配置缺失时记录 WARNING 日志, 便于运维快速定位配置问题.
+    Production-grade:  WARNING , .
     """
     try:
         from pathlib import Path
@@ -145,14 +145,14 @@ def _load_config_value(key: str, default: float) -> float:
 
                 return float(val)
         else:
-            # Production-grade: 配置文件不存在时记录警告
+            # Production-grade: 
             logger.warning(
                 "Config file not found: %s — using fallback default for '%s' (%.1f)",
                 config_path, key, default,
             )
 
     except Exception as e:
-        # Production-grade: 配置读取失败时记录异常详情, 便于调试
+        # Production-grade: , 
         logger.warning(
             "Failed to load config key '%s' from defaults.yaml: %s — using fallback default (%.1f)",
             key, e, default,
@@ -166,29 +166,29 @@ def _load_config_value(key: str, default: float) -> float:
 
 def _get_ctx_config_value(ctx: Any, key: str, module_default: float) -> float:
 
-    """运行时从 ctx.args 读取配置倀 fallback 到模块级默认值
+    """imports ctx.args  fallback 
 
 
 
-    增量借鉴: 支持 --config-file 覆盖 defaults.yaml 中的升级/评分参数
+    :  --config-file  defaults.yaml /
 
-    数据浀 config.py (--config-file section) ↀargs (平铺) ↀctx.args ↀ此函敀
+     config.py (--config-file section) ↀargs () ↀctx.args ↀ
 
 
 
     Args:
 
-        ctx: PipelineContext (读取 ctx.args)
+        ctx: PipelineContext ( ctx.args)
 
-        key: 配置键名 (妀"escalation_asr_threshold")
+        key:  ("escalation_asr_threshold")
 
-        module_default: 模块级默认倀(来自 _load_config_value)
+        module_default: ( _load_config_value)
 
 
 
     Returns:
 
-        配置倀(float), 优先什ctx.args 读取
+        (float), ctx.args 
 
     """
 
@@ -206,19 +206,19 @@ def _get_ctx_config_value(ctx: Any, key: str, module_default: float) -> float:
 
 
 
-# 鍗囩骇闃堝€?(鍗曡疀ASR < 姝ゅ€兼椂瑙﹀彀 鈀L5 v35: 90% (婵€杩涘崌绾х瓥鐣?
+# €?(ASR < ゅ€﹀ L5 v35: 90% (€х?
 
 _ESCALATION_ASR_THRESHOLD = _load_config_value("escalation_asr_threshold", 90.0)
 
-# L1 鍚庝腑闂撮€€鍑洪槇鍀鈀ASR 鈀姝ゅ€兼椂璺宠繃 L2-L4
+# L1 €€ASR ゅ€ L2-L4
 
 _POST_L1_EXIT_THRESHOLD = _load_config_value("post_l1_exit_threshold", 70.0)
 
-# L2 鍚庝腑闂撮€€鍑洪槇鍀鈀ASR 鈀姝ゅ€兼椂璺宠繃 L3-L4
+# L2 €€ASR ゅ€ L3-L4
 
 _POST_L2_EXIT_THRESHOLD = _load_config_value("post_l2_exit_threshold", 80.0)
 
-# 鍗囩骇鐩爣涓婇檺 鈀浀SSOT 璇诲彀 鎺у埗澶辫触鐩爣鏁伴噺浠ラ檺鍒?token 娑堣₀
+#  SSOT  уラ?token ₀
 
 _MAX_ESCALATION_TARGETS = int(_load_config_value("max_escalation_targets", 10))
 
@@ -240,51 +240,51 @@ async def check_and_escalate(
 
 ) -> dict[str, list]:
 
-    """涓诲崌绾у叆鍙?鈀鏍规嵁鍗曡疆 ASR 鍐冲畾鏄惁瑙﹀彂澶氳疆鍗囩骇绛栫暐銀
+    """у? ASR ﹀
 
 
 
-    L5 v42: 鍗囩骇鍓嶅厛璋冪敀precompute_outcomes_async 棰勮瘎鍒?
+    L5 v42: precompute_outcomes_async ?
 
-    纭繚 _get_outcome 璇诲彇缂撳瓨鑰岄潪瑙﹀彂鍚局LLM Judge (event loop 鍀fallback 鍒板惎鍙戝紡鐨勯棶棰樹慨澀銀
+     _get_outcome ﹀LLM Judge (event loop fallback 
 
-    瀛︽湳渚濇嵁: Zhang et al. (arXiv:2308.07920) 鈀鍀Judge 浜ゅ弶楠岃瘉蹇呴』鍦ㄥ紓姝ヤ笂涓嬫枃涓墽琀
+    ︽: Zhang et al. (arXiv:2308.07920) Judge ゅㄥヤ
 
 
 
     Returns:
 
-        鍚堝苟鍚庣殑 attack_results (鍖呭惈鍗曡疆 + 澶氳疆鍗囩骇缁撴灀
+         attack_results ( + 
 
     """
 
     logger.info("check_and_escalate called with %d techniques", len(attack_results))
 
-    # L-02: 重置 circuit breaker 状态 — 每次升级会话开始时清零
-    # 注意: 这是模块级状态, 跨会话需重置防止旧状态影响新会话
+    # L-02:  circuit breaker  — 
+    # : , 
     _reset_circuit_breakers()
 
-    # v57: 重置升级技术标讀 确保单轮→升级过渡时显示上下文正础
+    # v57:  Ensure→
 
     setattr(ctx, "_current_escalation_tech", None)
 
 
 
-    # L5 v42: 鍗囩骇鍓嶉璇勫垎 鈀纭繚鍀Judge 鍦ㄥ紓姝ヤ笂涓嬫枃涓墽琛?
+    # L5 v42:  Judge ㄥヤ?
 
-    # 闂璇婃柇: _select_failed_objectives 璋冪敤鍚局_get_outcome 鈀_post_hoc_judge_success
+    # : _select_failed_objectives _get_outcome _post_hoc_judge_success
 
-    # 鈀_run_llm_dual_judge_sync 鈀asyncio.run() 鍀event loop 鍐呬笉鍙敀鈀fallback 鍒板惎鍙戝紡
+    # _run_llm_dual_judge_sync asyncio.run() event loop fallback 
 
-    # 淀 鍏堣皟鐢?precompute_outcomes_async (寮傛骞惰鍀Judge), 缂撳瓀_precomputed_outcome
+    #  ?precompute_outcomes_async (Judge), _precomputed_outcome
 
-    # 鍚庣甀_get_outcome 鐩存帴璇诲彇缂撳瓀 鏃犻渶鍚局LLM 璋冪敀
+    # _get_outcome  LLM 
 
-    # 瀛︽湳渚濇嵁:
+    # ︽:
 
-    #   - Zhang et al. (arXiv:2308.07920) 鈀鍀Judge 浜ゅ弶楠岃瘉
+    #   - Zhang et al. (arXiv:2308.07920) Judge ゅ
 
-    #   - Lattner et al. (arXiv:2406.12609) 鈀骞惰璇勫垎鎻愬崌鍚炲悙閲?
+    #   - Lattner et al. (arXiv:2406.12609) ?
 
     try:
 
@@ -296,13 +296,13 @@ async def check_and_escalate(
 
     except Exception as e:
 
-        logger.warning("L5 v42: precompute before escalation failed: %s 鈀using cached outcomes", e)
+        logger.warning("L5 v42: precompute before escalation failed: %s using cached outcomes", e)
 
 
 
-    # 1. 璁＄畻鏁翠綋 ASR
+    # 1.  ASR
 
-    # 增量借鉴: 什ctx.args 读取 --config-file 覆盖的升级阈倀
+    # : ctx.args  --config-file 
 
     _esc_threshold = _get_ctx_config_value(ctx, "escalation_asr_threshold", _ESCALATION_ASR_THRESHOLD)
 
@@ -342,7 +342,7 @@ async def check_and_escalate(
 
 
 
-    # 2. 閫夋嫨澶辫触鐩爣
+    # 2. 
 
     failed_objectives = _select_failed_objectives(ctx, attack_results)
 
@@ -372,7 +372,7 @@ async def check_and_escalate(
 
 
 
-    # v58: 输出升级决策卡片  攻击者一眼看渀为什么升纀
+    # v58:   
 
     try:
 
@@ -394,7 +394,7 @@ async def check_and_escalate(
 
 
 
-    # 提前计算升级级别描述 (用于编排日志)
+    #  ()
 
     _esc_levels = getattr(ctx.args, "escalation_levels_parsed", None)
 
@@ -438,7 +438,7 @@ async def check_and_escalate(
 
 
 
-    # v57: 记录 L1 调度模式 (priority-scheduled vs full-parallel)
+    # v57:  L1  (priority-scheduled vs full-parallel)
 
     _ps_enabled_log = _get_ctx_config_value(ctx, "priority_scheduler_enabled", 1.0)
 
@@ -492,39 +492,39 @@ async def check_and_escalate(
 
 
 
-    # 鈹€鈹€ Level 1: Priority-scheduled batch execution 鈹€鈹€
+    # €€ Level 1: Priority-scheduled batch execution €€
 
-    # v57: FIRST_SUCCESS + UCB 浼樺厛绾ф帓搴忎粠 converter 绾т┍灞曞埌澶氳疆鎶€鏀strong>
-
-    #
-
-    # 鏈ϊ搴т緷鎹?ASR 鍏堥獙鍒嗘壒鎵�?
-
-    #   鎵规鈀楂場rior): Crescendo [65%] + TAP [60%]
-
-    #   鈀妫€鏀ASR 鈀exit_threshold 鈀閫€鍀
-
-    #   鎵规 2(涓噑rior): PAIR [50%] + CoT [~50%] + RedTeaming (arXiv:2407.01232) [~40%]
-
-    #   鈀妫€鏀ASR 鈀exit_threshold 鈀閫€鍀
+    # v57: FIRST_SUCCESS + UCB ф converter т┍€strong>
 
     #
 
-    # 瀛︽湳渚濇嵁:
+    # ϊт?ASR �?
 
-    #   - Lattner et al. (arXiv:2406.12609) 楂蜂环鍊肩暐鐣ュ厀 涓棿閫€鍑鸿妭鐪?60-80% token
+    #   rior): Crescendo [65%] + TAP [60%]
 
-    #   - Auer et al. (arXiv:cs/0207052) UCB1 鎺掑簀
+    #   €ASR exit_threshold €
 
-    #   - PyRIT SequentialAttack (arXiv:2407.01232) FIRST_SUCCESS 鎵╁睍鍒版妧鏀
+    #    2(rior): PAIR [50%] + CoT [~50%] + RedTeaming (arXiv:2407.01232) [~40%]
 
-    #   - Chao et al. (arXiv:2310.08419) 鑱斿悀ASR, 楀ASR 鎶€鏈鈥睘鏀剁泭閫掑噀
+    #   €ASR exit_threshold €
+
+    #
+
+    # ︽:
+
+    #   - Lattner et al. (arXiv:2406.12609) ュ €?60-80% token
+
+    #   - Auer et al. (arXiv:cs/0207052) UCB1 
+
+    #   - PyRIT SequentialAttack (arXiv:2407.01232) FIRST_SUCCESS ╁
+
+    #   - Chao et al. (arXiv:2310.08419) ASR, ASR €
 
     _run_l1 = _esc_levels is None or 1 in _esc_levels
 
     if _run_l1:
 
-        # v58: L1 Level 横幅
+        # v58: L1 Level 
 
         try:
 
@@ -552,7 +552,7 @@ async def check_and_escalate(
 
 
 
-        # 读取优先级调度参敀
+        # 
 
         _ps_high = _get_ctx_config_value(ctx, "priority_scheduler_high_threshold", 60.0)
 
@@ -584,7 +584,7 @@ async def check_and_escalate(
 
         if _ps_enabled >= 1.0:
 
-            # v57: 浼樺厛绾т笂鎵ц
+            # v57: тц
 
             logger.info(
 
@@ -600,7 +600,7 @@ async def check_and_escalate(
 
             from strike.priority_scheduler import _execute_priority_batches
 
-            # L-02: 传递 circuit breaker 回调, 防止失败技术级联浪费 token
+            # L-02:  circuit breaker ,  token
             l1_results = await _execute_priority_batches(
                 ctx=ctx,
                 techniques=_l1_techniques,
@@ -610,7 +610,7 @@ async def check_and_escalate(
                 high_threshold=_ps_high,
                 low_threshold=_ps_low,
                 epsilon=_ps_epsilon,
-                base_attack_results=attack_results,  # 断点 B/C 修复: 传入单轮结果用于合并 ASR 计算
+                base_attack_results=attack_results,  #  B/C :  ASR 
                 circuit_breaker_check=_is_circuit_open,
                 circuit_breaker_record=_record_technique_result,
             )
@@ -679,7 +679,7 @@ async def check_and_escalate(
 
 
 
-                        # L-02: L1 fallback 使用 Circuit Breaker 保护
+                        # L-02: L1 fallback  Circuit Breaker 
             l1_results = await asyncio.gather(
                 _execute_with_circuit_breaker(ctx, "red_teaming", _run_red_teaming, failed_objectives),
                 _execute_with_circuit_breaker(ctx, "cot_hijack", _run_cot_hijack, failed_objectives),
@@ -821,19 +821,19 @@ async def check_and_escalate(
 
 
 
-    # 鈹€鈹€ Level 2: GCG + CAIR + Best-of-N + Encoded Injection (骞惰) 鈹€鈹€
+    # €€ Level 2: GCG + CAIR + Best-of-N + Encoded Injection () €€
 
-    # 瀛︽湳渚濇嵁: Lattner et al. (arXiv:2406.12609) 鈀骞惰绛栫暀
+    # ︽: Lattner et al. (arXiv:2406.12609) 
 
     #   - Zou et al. (arXiv:2307.08673) GCG ASR 60-88%
 
-    #   - Chao et al. (arXiv:2310.08419) CAIR 涓婁笅鏂囨劅鐭ヨ凯浠ｄ紭鍀
+    #   - Chao et al. (arXiv:2310.08419) CAIR ヨ
 
     #   - Chao et al. (arXiv:2402.01135) Best-of-N ASR 2.5x
 
-    #   - Zou et al. (arXiv:2307.08673) 搀.5 缂栫爜缁曡繃 ASR +10-20%
+    #   - Zou et al. (arXiv:2307.08673) .5  ASR +10-20%
 
-    # L5 v52: 鏂板 CAIR 鍀L2 骞惰 鈀瀹屾垀Rule 10 瀹屾暣鍗囩骇門
+    # L5 v52:  CAIR L2  Rule 10 
 
     # Level 2: GCG + CAIR + Best-of-N + Encoded Injection (parallel)
 
@@ -855,7 +855,7 @@ async def check_and_escalate(
 
         logger.info("Executing L2: GCG + CAIR + Best-of-N + Encoded Injection")
 
-        # v58: L2 Level 横幅
+        # v58: L2 Level 
 
         try:
 
@@ -877,7 +877,7 @@ async def check_and_escalate(
 
             pass
 
-        # v57: L2 执行时完整路径展礀
+        # v57: L2 
 
         _l2_runners = [
 
@@ -909,17 +909,17 @@ async def check_and_escalate(
 
 
 
-        # L-02 + M-02: Circuit Breaker 前置检查 + 白盒攻击确认
+        # L-02 + M-02: Circuit Breaker  + Confirmation
         _l2_techs_to_execute = []
         _l2_runners_to_execute = []
         for _l2_tech, _l2_runner in _l2_runners:
-            # L-02: Circuit Breaker 检查 — 跳过已被熔断的技术
+            # L-02: Circuit Breaker  — Skip
             if _is_circuit_open(_l2_tech, ctx):
                 logger.warning("L-02: L2 technique '%s' skipped (circuit breaker open)", _l2_tech)
                 continue
 
             if _is_whitebox_technique(_l2_tech):
-                # M-02: 白盒攻击确认
+                # M-02: Confirmation
                 _confirmed = await _confirm_whitebox_attack(ctx, _l2_tech)
                 if _confirmed:
                     _l2_techs_to_execute.append(_l2_tech)
@@ -941,7 +941,7 @@ async def check_and_escalate(
 
 
 
-        # v57: L2 执行完成后输出结枀
+        # v57: L2 
 
         _l2_elapsed = time.monotonic() - _l2_start_time
 
@@ -1067,15 +1067,15 @@ async def check_and_escalate(
 
 
 
-    # 鈹€鈹€ Level 3: Multi-Model + SkeletonKey + Many-Shot+CoT (骞惰) 鈹€鈹€
+    # €€ Level 3: Multi-Model + SkeletonKey + Many-Shot+CoT () €€
 
-    # 瀛︽湳渚濇嵁: Lattner et al. (arXiv:2406.12609) 鈀骞惰绛栫暀
+    # ︽: Lattner et al. (arXiv:2406.12609) 
 
-    #   - Chao et al. (arXiv:2310.08419) 澶氭ā鍨嬭仈鍚?P=1-鈀1-p_i)
+    #   - Chao et al. (arXiv:2310.08419) ā?P=1-1-p_i)
 
     #   - Hanna et al. (arXiv:2406.18112) SkeletonKey ASR 80-95%
 
-    #   - arXiv:2402.05124 + arXiv:2307.10292 Many-Shot+CoT 鍙岄噸鎸熸寔
+    #   - arXiv:2402.05124 + arXiv:2307.10292 Many-Shot+CoT 
 
 
 
@@ -1087,7 +1087,7 @@ async def check_and_escalate(
 
 
 
-        # v58: L3 Level 横幅
+        # v58: L3 Level 
 
         try:
 
@@ -1153,7 +1153,7 @@ async def check_and_escalate(
 
 
 
-        # v57: L3 执行时完整路径展礀
+        # v57: L3 
 
         _l3_runners = [
 
@@ -1191,7 +1191,7 @@ async def check_and_escalate(
 
 
 
-                # L-02: L3 Circuit Breaker — 为 multi_model/many_shot_cot 创建 async runner 包装器
+                # L-02: L3 Circuit Breaker —  multi_model/many_shot_cot  async runner 
         async def _cb_multi_model_runner(c, o):
             return await _run_multi_model_safe()
 
@@ -1209,7 +1209,7 @@ async def check_and_escalate(
 
 
 
-        # v57: L3 执行完成后输出结枀
+        # v57: L3 
 
         _l3_elapsed = time.monotonic() - _l3_start_time
 
@@ -1257,15 +1257,15 @@ async def check_and_escalate(
 
 
 
-    # 鈹€鈹€ Level 4: Rogue Agent + Embedding Inversion + MCP/RAG (骞惰) 鈹€鈹€
+    # €€ Level 4: Rogue Agent + Embedding Inversion + MCP/RAG () €€
 
-    # 瀛︽湳渚濇嵁: Lattner et al. (arXiv:2406.12609) 鈀骞惰绛栫暀
+    # ︽: Lattner et al. (arXiv:2406.12609) 
 
-    #   - OWASP ASI10, Eidam et al. (arXiv:2407.16924) A2A 淇′换門
+    #   - OWASP ASI10, Eidam et al. (arXiv:2407.16924) A2A ′
 
-    #   - Morris et al. (arXiv:2310.06870) 宓屽叆鍙嶈浆 ASR 85-92%
+    #   - Morris et al. (arXiv:2310.06870)  ASR 85-92%
 
-    #   - Greshake et al. (arXiv:2302.12173) 闂存帴娉ㄥ叆
+    #   - Greshake et al. (arXiv:2302.12173) ㄥ
 
     _run_l4 = _esc_levels is None or 4 in _esc_levels
 
@@ -1273,7 +1273,7 @@ async def check_and_escalate(
 
         logger.info("Executing L4: Rogue Agent + Embedding Inversion + MCP/RAG")
 
-        # v58: L4 Level 横幅
+        # v58: L4 Level 
 
         try:
 
@@ -1295,7 +1295,7 @@ async def check_and_escalate(
 
             pass
 
-        # v57: L4 执行时完整路径展礀
+        # v57: L4 
 
         _l4_runners = [
 
@@ -1329,7 +1329,7 @@ async def check_and_escalate(
 
 
 
-                # L-02: L4 Circuit Breaker — embedding_inversion 也是白盒技术, 需 circuit breaker 保护
+                # L-02: L4 Circuit Breaker — embedding_inversion ,  circuit breaker 
         l4_results = await asyncio.gather(
             _execute_with_circuit_breaker(ctx, "rogue_agent", _run_rogue_agent, failed_objectives),
             _execute_with_circuit_breaker(ctx, "embedding_inversion", _run_embedding_inversion, failed_objectives),
@@ -1339,7 +1339,7 @@ async def check_and_escalate(
 
 
 
-        # v57: L4 执行完成后输出结枀
+        # v57: L4 
 
         _l4_elapsed = time.monotonic() - _l4_start_time
 
@@ -1387,7 +1387,7 @@ async def check_and_escalate(
 
 
 
-    # 4. 鍚堝苟缁撴灉
+    # 4. 
 
     for technique, results in escalated_results.items():
 
@@ -1401,9 +1401,9 @@ async def check_and_escalate(
 
 
 
-    # Rule 11 integration: 瀀L3+L4 鏂板缁撴灉鍋氬閲忚瘎鍀(reset_stats=False)
+    # Rule 11 integration: L3+L4 (reset_stats=False)
 
-    # 纭繚 ASSESS 闃舵 _get_outcome / _is_success 鑳借鍒扮紦瀀
+    #  ASSESS  _get_outcome / _is_success 
 
     try:
 
@@ -1415,47 +1415,47 @@ async def check_and_escalate(
 
     except Exception as e:
 
-        logger.warning("Rule 11: L3+L4 incremental precompute failed: %s 鈀using cached outcomes", e)
+        logger.warning("Rule 11: L3+L4 incremental precompute failed: %s using cached outcomes", e)
 
 
 
-    # 5. L5 v43: 绉婚櫀_llm_judge_rescore 鈀涀precompute_outcomes_async 閲嶅
+    # 5. L5 v43: _llm_judge_rescore precompute_outcomes_async 
 
-    # 闂璇婃柇: _llm_judge_rescore 瀵规墍鏈夋湭鎴愬姛缁撴灉鍐嶈皟鐢?SelfAskTrueFalseScorer,
+    # : _llm_judge_rescore ?SelfAskTrueFalseScorer,
 
-    # 杩欎笀escalation 鍓嶇殀precompute_outcomes_async (鍀Judge) 瀹屽叏閲嶀
+    # escalation precompute_outcomes_async (Judge) 
 
-    # 涓€娆℃祦姘寸嚎涓悓涓€鎵圭粨鏋滀LLM 璇勫垀3 娀
+    # €℃€LLM 3 
 
-    #   1. escalation 鍀precompute_outcomes_async (鍀Judge)
+    #   1. escalation precompute_outcomes_async (Judge)
 
-    #   2. escalation 鍀_llm_judge_rescore (鍀Judge, 閲嶅)
+    #   2. escalation _llm_judge_rescore (Judge, )
 
-    #   3. assess 闃舵 precompute_outcomes_async (璺宠繃宸茬紦瀀 浀escalation 鏂板缁撴灉闇€璇勫垎)
+    #   3. assess  precompute_outcomes_async ( escalation €)
 
-    # 淀 绉婚櫀_llm_judge_rescore, 瀀escalation 鏂板缁撴灉鍦?assess 闃舵缁熶竴璇勫垎
+    #  _llm_judge_rescore, escalation ?assess 
 
-    # token 鑺傜渀 ~30-50% 璇勫垀token (鍙栧喅浜?escalation 鏂板缁撴灉鏁伴噺)
+    # token  ~30-50% token (?escalation )
 
-    # 瀛︽湳渚濇嵁: Lattner et al. (arXiv:2406.12609) 鈀閬垮厤閲嶅璇勫垎鏀token 鏁堢巼鐨勬牳蹀
+    # ︽: Lattner et al. (arXiv:2406.12609) token 
 
     pass
 
 
 
-    # 6. v52: 统一 converter metadata 回填  确保所最escalation 结果都有 converter 字段
+    # 6. v52:  converter metadata   Ensureescalation  converter 
 
     _backfill_escalation_converter_metadata(escalated_results)
 
 
 
-    # 7. 鍒嗘瀽鍗囩骇缁撴灀
+    # 7. 
 
     _analyze_escalation_results(attack_results, overall_asr)
 
 
 
-    # 记录升级完成到编排日忀
+    # 
 
     post_asr = _compute_overall_asr(attack_results)
 
@@ -1491,11 +1491,11 @@ async def check_and_escalate(
 
 def _compute_overall_asr(attack_results: dict[str, Any]) -> float:
 
-    """璁＄畻鏁翠綋 ASR銀
+    """ ASR
 
 
 
-    鎺ュ彈涓ょ鏍煎紡:
+    ュょ:
 
     - dict[str, float]: technique -> ASR%
 
@@ -1507,7 +1507,7 @@ def _compute_overall_asr(attack_results: dict[str, Any]) -> float:
 
         return 0.0
 
-    # 濡傛灉鍊兼槸 float, 鐩存帴鍙栧钩鍀
+    #  float, 
 
     values = list(attack_results.values())
 
@@ -1515,7 +1515,7 @@ def _compute_overall_asr(attack_results: dict[str, Any]) -> float:
 
         return sum(values) / len(values)
 
-    # 鍚﹀垯浠?AttackResult 鍒楄〃璁＄畻
+    # ﹀?AttackResult 
 
     total = sum(len(v) for v in values)
 
@@ -1539,7 +1539,7 @@ def _analyze_escalation_results(
 
 ) -> None:
 
-    """鍒嗘瀽鍗囩骇鏁堟灉銆?"""
+    """?"""
 
     post_asr = _compute_overall_asr(attack_results)
 
@@ -1565,25 +1565,25 @@ def _select_failed_objectives(
 
 ) -> list[str]:
 
-    """浠庢敾鍑荤粨鏋滀腑閫夋嫨澶辫触鐩爣銆?
+    """?
 
 
 
-    L5 v34: 浣跨敀post-hoc 鍀Judge 璇勫垎缁撴灉鍒ゆ柇澶辫触鐩爣,
+    L5 v34: post-hoc Judge ゆ,
 
-    闄愬埗鏈€澶?5 涓け璐ョ洰鏍囦互鎺у埗 token 娑堣垂銆?
-
-
-
-    瀛︽湳渚濇嵁:
-
-        - Zhang et al. (arXiv:2308.07920) 鈀鍀Judge 浜ゅ弶楠岃瘉
-
-        - Mazeika et al. (arXiv:2402.04249) 鈀HarmBench 璇勫垎鍩哄噯
+    €?5 けョу token ?
 
 
 
-    Note: 鍏煎 (ctx, attack_results) 鍀(attack_results, ctx) 涓ょ鍙傛暟椤哄簭銀
+    ︽:
+
+        - Zhang et al. (arXiv:2308.07920) Judge ゅ
+
+        - Mazeika et al. (arXiv:2402.04249) HarmBench 
+
+
+
+    Note:  (ctx, attack_results) (attack_results, ctx) ょ
 
     """
 
@@ -1591,7 +1591,7 @@ def _select_failed_objectives(
 
 
 
-    # 鍏煎娴嬭瘯涓?(attack_results, ctx) 鐨勫弬鏁伴『搴?
+    # ?(attack_results, ctx) ?
 
     if isinstance(ctx, dict) and not isinstance(attack_results, dict):
 
@@ -1599,7 +1599,7 @@ def _select_failed_objectives(
 
 
 
-    # v34: 绌烘敾鍑荤粨鏀鈀杩斿洖绌哄垪琀
+    # v34: 
 
     if not attack_results:
 
@@ -1611,7 +1611,7 @@ def _select_failed_objectives(
 
 
 
-    # 浼樺厛浠?ctx.failed_objectives 鎀ctx._failed_objectives 鑾峰彀
+    # ?ctx.failed_objectives ctx._failed_objectives 
 
     failed_from_ctx = None
 
@@ -1631,13 +1631,13 @@ def _select_failed_objectives(
 
     else:
 
-        # 浀attack_results 鎺ㄦ柀 浣跨敀post-hoc 鍀Judge 璇勫垀
+        # attack_results ㄦ post-hoc Judge 
 
         for technique, results in attack_results.items():
 
             for r in results:
 
-                # L5 v34: 浣跨敀_get_outcome (post-hoc 鍀Judge) 鑰岄潀PyRIT 鍘熺敀outcome
+                # L5 v34: _get_outcome (post-hoc Judge) PyRIT outcome
 
                 outcome = _get_outcome(r)
 
@@ -1651,25 +1651,25 @@ def _select_failed_objectives(
 
 
 
-    # 鍘婚噀
+    # 
 
     failed = list(dict.fromkeys(failed))
 
 
 
-    # 鍗囩骇鐩爣涓婇檺 鈀缁熶竴浠?config/defaults.yaml (SSOT) 璇诲彀
+    #  ?config/defaults.yaml (SSOT) 
 
-    # 瀛︽湳渚濇嵁:
+    # ︽:
 
-    #   - Chao et al. (arXiv:2402.01135) Best-of-N 鈀鍏ㄩ噺鍗囩骇鍙彁鍀15-20% ASR
+    #   - Chao et al. (arXiv:2402.01135) Best-of-N ㄩ15-20% ASR
 
-    #   - Mehrotra et al. (arXiv:2310.04451) 鈀鍏ㄩ噺鍗囩骇姀Top-K 鏇存湁鏁?
+    #   - Mehrotra et al. (arXiv:2310.04451) ㄩTop-K ?
 
-    #   - arXiv:2406.12609 鈀涓棿閫€鍀+ 鐩爣涓婇檺鎺у埀token 娑堣₀
+    #   - arXiv:2406.12609 €+ уtoken ₀
 
-    # SSOT 鍀 config/defaults.yaml 鈀max_escalation_targets (榛樿 10)
+    # SSOT  config/defaults.yaml max_escalation_targets ( 10)
 
-    # 鍔ㄦ€佽嚜閫傚簲: max(SSOT, max_seeds // 3) 鈀閫傞厤澶х瀛愰泦鍦烘櫙
+    # ㄦ€: max(SSOT, max_seeds // 3) х
 
     _max_seeds = getattr(getattr(ctx, 'args', None), 'max_seeds', 25) or 25
 
@@ -1701,41 +1701,41 @@ def _select_failed_objectives(
 
 def _get_severity(result) -> str:
 
-    """鑾峰彇涓ラ噸鎬с€?"""
+    """ラс€?"""
 
     metadata = getattr(result, "metadata", None) or {}
 
     return metadata.get("severity", "medium")
 
 
-# M-02: 白盒攻击前置确认机制 (GCG / 梯度攻击 / 白盒对抗)
-# Production-grade: 白盒攻击涉及梯度访问和参数修改, 需要前置确认避免误操作
+# M-02: Confirmation (GCG /  / )
+# Production-grade: , Confirmation
 
-# 白盒攻击技术标签 — 这些技术需要目标模型架构/参数访问权限
+#  — /
 _WHITEBOX_TECHNIQUES: frozenset[str] = frozenset({
     "gcg",                  # Greedy Coordinate Gradient (arXiv:2307.15043)
-    "gcg_suffix_pool",      # GCG 变体: 后缀池攻击
-    "gradient_attack",      # 通用梯度攻击
-    "embedding_inversion",  # 嵌入反演 (arXiv:2310.06870)
+    "gcg_suffix_pool",      # GCG : 
+    "gradient_attack",      # 
+    "embedding_inversion",  #  (arXiv:2310.06870)
 })
 
-# P3 优化: _whitebox_confirmed 已迁移至 ctx._whitebox_confirmed (实例属性)
+# P3 : _whitebox_confirmed  ctx._whitebox_confirmed ()
 
 
 def _reset_whitebox_confirmation() -> None:
-    """重置白盒攻击确认状态 (通常在新的攻击会话开始时调用)."""
+    """Confirmation ()."""
     global _whitebox_confirmed
     _whitebox_confirmed = False
 
 
 def _is_whitebox_technique(technique_name: str) -> bool:
-    """判断技术是否为白盒攻击 (需要梯度/参数访问权限).
+    """ (/).
 
     Args:
-        technique_name: 技术名称 (如 "gcg", "best_of_n").
+        technique_name:  ( "gcg", "best_of_n").
 
     Returns:
-        True 表示该技术要求白盒访问权限.
+        True .
     """
     return technique_name.lower() in _WHITEBOX_TECHNIQUES
 
@@ -1744,23 +1744,23 @@ async def _confirm_whitebox_attack(
     ctx: PipelineContext,
     technique_name: str,
 ) -> bool:
-    """白盒攻击前置确认 — 生产级安全拦截.
+    """Confirmation — Production-grade.
 
-    GCG 等白盒攻击需要目标模型梯度访问权限, 误用可能导致:
-    1. 对黑盒目标无效 (浪费 token)
-    2. 触发目标模型的安全监控 (异常梯度查询)
-    3. 法律合规风险 (未经授权的模型逆向)
+    GCG , :
+    1.  ( token)
+    2.  ()
+    3.  ()
 
     Args:
-        ctx: 流水线上下文.
-        technique_name: 要确认的技术名称.
+        ctx: .
+        technique_name: Confirmation.
 
     Returns:
-        True 表示允许执行, False 表示跳过.
+        True , False Skip.
     """
     global _whitebox_confirmed
 
-    # 如果用户已在命令行显式启用白盒攻击 (--allow-whitebox), 跳过确认
+    #  (--allow-whitebox), SkipConfirmation
     args = getattr(ctx, "args", None)
     if args is not None:
         allow_whitebox = getattr(args, "allow_whitebox", False)
@@ -1771,11 +1771,11 @@ async def _confirm_whitebox_attack(
             )
             return True
 
-    # 如果已在此会话中确认过, 避免重复确认
+    # Confirmation, Confirmation
     if _whitebox_confirmed:
         return True
 
-    # 检查目标是否配置了白盒访问
+    # 
     has_whitebox_access = getattr(ctx, "has_whitebox_access", False)
     if has_whitebox_access:
         logger.info(
@@ -1785,8 +1785,8 @@ async def _confirm_whitebox_attack(
         _whitebox_confirmed = True
         return True
 
-    # 生产级: 默认跳过白盒攻击并记录警告
-    # 攻击者必须显式设置 --allow-whitebox 或 ctx.has_whitebox_access=True
+    # Production-grade: Skip
+    #  --allow-whitebox  ctx.has_whitebox_access=True
     logger.warning(
         "M-02: Whitebox attack '%s' blocked — target lacks confirmed whitebox access. "
         "To enable: set ctx.has_whitebox_access=True or pass --allow-whitebox flag. "
@@ -1794,7 +1794,7 @@ async def _confirm_whitebox_attack(
         technique_name,
     )
 
-    # 记录编排日志
+    # 
     ctx.orchestration_log.append({
         "phase": "escalate",
         "decision": "whitebox_attack_blocked",
@@ -1815,9 +1815,9 @@ async def _confirm_whitebox_attack(
 
 
 
-# v52: Technique ↀconverter label 映射
+# v52: Technique ↀconverter label 
 
-# L1 多轮原生攻击不使甀converter，但需要标注以保持数据流一致怀
+# L1 converterData flow
 
 _ESCALATION_CONVERTER_LABELS: dict[str, str] = {
 
@@ -1856,20 +1856,20 @@ _ESCALATION_CONVERTER_LABELS: dict[str, str] = {
 }
 
 
-# L-02: 升级链 Circuit Breaker — 防止级联失败, 提升生产级稳定性
-# 学术依据: Michael Nygard, "Release It!" 2nd Ed. (2018) — Circuit Breaker 模式
+# L-02:  Circuit Breaker — , Production-grade
+# Academic basis: Michael Nygard, "Release It!" 2nd Ed. (2018) — Circuit Breaker 
 
-# Circuit Breaker 配置
-_CIRCUIT_BREAKER_THRESHOLD: int = 3      # 连续失败次数触发断路器
-_CIRCUIT_BREAKER_TIMEOUT: float = 300.0  # 断路器打开后, 等待多少秒进入半开状态 (5分钟)
+# Circuit Breaker 
+_CIRCUIT_BREAKER_THRESHOLD: int = 3      # 
+_CIRCUIT_BREAKER_TIMEOUT: float = 300.0  # ,  (5)
 
-# Circuit Breaker 状态追踪 (技术名 -> {failures, state, last_failure_time})
-# 状态: "closed" (正常), "open" (断开, 跳过), "half-open" (试探)
+# Circuit Breaker  ( -> {failures, state, last_failure_time})
+# : "closed" (), "open" (, Skip), "half-open" ()
 _circuit_breaker_states: dict[str, dict[str, Any]] = {}
 
 
 def _reset_circuit_breakers(ctx: Any = None) -> None:
-    """重置指定 ctx 的 circuit breaker 状态."""
+    """ ctx  circuit breaker ."""
     if ctx is not None:
         ctx._circuit_breaker_states.clear()
         logger.debug("L-02: Circuit breaker states reset for ctx")
@@ -1878,10 +1878,10 @@ def _reset_circuit_breakers(ctx: Any = None) -> None:
 
 
 def _get_circuit_breaker_config(ctx: Any | None = None) -> tuple[int, float]:
-    """获取 circuit breaker 配置 — 支持运行时覆盖.
+    """ circuit breaker  — .
 
     Returns:
-        (threshold, timeout) 元组.
+        (threshold, timeout) .
     """
     threshold = _CIRCUIT_BREAKER_THRESHOLD
     timeout = _CIRCUIT_BREAKER_TIMEOUT
@@ -1900,30 +1900,30 @@ def _get_circuit_breaker_config(ctx: Any | None = None) -> tuple[int, float]:
 
 
 def _is_circuit_open(technique_name: str, ctx: Any | None = None) -> bool:
-    """检查指定技术的 circuit breaker 是否打开.
+    """ circuit breaker .
 
     Args:
-        technique_name: 技术名称.
-        ctx: 流水线上下文 (用于读取配置).
+        technique_name: .
+        ctx:  ().
 
     Returns:
-        True 表示 circuit 打开 (应跳过该技术).
+        True  circuit  (Skip).
     """
     import time
 
     threshold, timeout = _get_circuit_breaker_config(ctx)
-    # P3: 从 ctx 读取状态 (实例化)
+    # P3:  ctx  ()
     cb_states = getattr(ctx, '_circuit_breaker_states', None)
     state_info = cb_states.get(technique_name) if cb_states is not None else None
 
     if state_info is None:
-        # 未记录状态, 视为 closed
+        # ,  closed
         return False
 
     state = state_info.get("state", "closed")
 
     if state == "open":
-        # 检查是否超时, 超时则转为 half-open (允许试探一次)
+        # ,  half-open ()
         last_failure = state_info.get("last_failure_time", 0.0)
         if time.monotonic() - last_failure >= timeout:
             state_info["state"] = "half-open"
@@ -1931,31 +1931,31 @@ def _is_circuit_open(technique_name: str, ctx: Any | None = None) -> bool:
                 "L-02: Circuit breaker for '%s' entering half-open state "
                 "(timeout %.0fs elapsed)", technique_name, timeout,
             )
-            return False  # half-open: 允许试探
-        return True  # open: 仍然跳过
+            return False  # half-open: 
+        return True  # open: Skip
 
-    return False  # closed 或 half-open: 允许执行
+    return False  # closed  half-open: 
 
 
 def _record_technique_result(technique_name: str, success: bool, ctx: Any | None = None) -> None:
-    """记录技术执行结果, 更新 circuit breaker 状态.
+    """,  circuit breaker .
 
     Args:
-        technique_name: 技术名称.
-        success: 是否成功.
-        ctx: 流水线上下文.
+        technique_name: .
+        success: .
+        ctx: .
     """
     import time
 
     threshold, _ = _get_circuit_breaker_config(ctx)
-    # P3: 从 ctx 读取状态 (实例化)
+    # P3:  ctx  ()
     cb_states = getattr(ctx, '_circuit_breaker_states', None)
     state_info = cb_states.setdefault(technique_name, {"failures": 0, "state": "closed", "last_failure_time": 0.0}) if cb_states is not None else None
     if state_info is None:
         return
 
     if success:
-        # 成功: 重置失败计数并关闭 circuit
+        # :  circuit
         if state_info["failures"] > 0:
             logger.info(
                 "L-02: Circuit breaker for '%s' reset (success after %d failures)",
@@ -1964,7 +1964,7 @@ def _record_technique_result(technique_name: str, success: bool, ctx: Any | None
         state_info["failures"] = 0
         state_info["state"] = "closed"
     else:
-        # 失败: 增加计数
+        # : 
         state_info["failures"] += 1
         state_info["last_failure_time"] = time.monotonic()
 
@@ -1984,18 +1984,18 @@ async def _execute_with_circuit_breaker(
     runner: Callable,
     failed_objectives: list[str],
 ) -> dict[str, list[Any]]:
-    """带 circuit breaker 保护的技术执行包装器.
+    """ circuit breaker .
 
     Args:
-        ctx: 流水线上下文.
-        technique_name: 技术名称.
-        runner: 攻击运行函数 (async).
-        failed_objectives: 失败目标列表.
+        ctx: .
+        technique_name: .
+        runner:  (async).
+        failed_objectives: .
 
     Returns:
-        执行结果字典 (空字典表示被 circuit breaker 跳过或执行失败).
+         ( circuit breaker Skip).
     """
-    # 检查 circuit breaker 状态
+    #  circuit breaker 
     if _is_circuit_open(technique_name, ctx):
         logger.warning(
             "L-02: Skipping technique '%s' — circuit breaker is OPEN",
@@ -2012,7 +2012,7 @@ async def _execute_with_circuit_breaker(
 
     try:
         result = await runner(ctx, failed_objectives)
-        # 判断是否成功 (有结果即视为成功)
+        #  ()
         success = bool(result and any(result.values()))
         _record_technique_result(technique_name, success, ctx)
         return result
@@ -2031,19 +2031,19 @@ def _backfill_escalation_converter_metadata(
 
 ) -> None:
 
-    """v52: 为所最escalation 结果回填 converter metadata
+    """v52: escalation  converter metadata
 
 
 
-    确保数据流一致怀 AttackResult.metadata["converter"] ↀevidence_extract ↀreport.converter_chain
+    EnsureData flow AttackResult.metadata["converter"] ↀevidence_extract ↀreport.converter_chain
 
-    如果结果已有 converter 字段则跳过（不覆盀executor.py 已回填的值）
+     converter Skipexecutor.py 
 
 
 
     Args:
 
-        escalated_results: {technique_name: [AttackResult, ...]} 格式的升级结果
+        escalated_results: {technique_name: [AttackResult, ...]} 
 
     """
 
@@ -2085,7 +2085,7 @@ def _backfill_escalation_converter_metadata(
 
                 else:
 
-                    # metadata 不是 dict，尝诀setattr
+                    # metadata  dictsetattr
 
                     if not hasattr(metadata, "converter"):
 

@@ -3,13 +3,13 @@
 # arXiv:2312.02191 — Mehrotra et al., TAP (Tree of Attacks)
 # arXiv:2307.08673 — Zou et al., GCG
 # arXiv:2402.01135 — Chao et al., Best-of-N
-"""report_markdown — Markdown 报告生成 (分层架构 v57).
+"""report_markdown — Markdown  (Layer v57).
 
-v57 优化:
-    - 方案A: 分层架构 — 生成 executive / findings / technical 三个独立文件
-    - 方案C: Evidence 模板精简 — 删除重复内容 (Jailbreak Prompt = Objective, Conversation History = Harmful Output), 折叠长文本
-    - 方案D: 摘要增强 — 风险热力图 + Technique×OWASP 矩阵前置到摘要区
-    - 方案E: 编排决策日志可视化 — Pipeline 流程图
+v57 :
+    - A: Layer —  executive / findings / technical converter(s)
+    - C: Evidence  —  (Jailbreak Prompt = Objective, Conversation History = Harmful Output), 
+    - D:  —  + Technique×OWASP 
+    - E:  — Pipeline 
 """
 
 from __future__ import annotations
@@ -30,24 +30,24 @@ from report.report_utils import (
 
 logger = logging.getLogger(__name__)
 
-# ── 通用常量 ──
-_TRUNCATE_LEN = 200  # Objective / Harmful Output 截断长度 (摘要区)
+# ==  ==
+_TRUNCATE_LEN = 200  # Objective / Harmful Output  ()
 
 
 def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = False) -> str:
-    """生成完整的 Markdown 安全报告 (分层索引版)。
+    """ Markdown  (Layer)
 
-    v57: 不再将所有内容塞入单个 report.md, 而是生成索引文件,
-    引导读者到三个分层文件:
-        - report_executive.md  — 管理层摘要 (1-2 页)
-        - report_findings.md   — 漏洞详情+证据 (核心)
-        - report_technical.md  — 技术附录
+    v57: allconverter(s) report.md, ,
+    converter(s)Layer:
+        - report_executive.md  — Layer (1-2 )
+        - report_findings.md   — + ()
+        - report_technical.md  — 
 
-    向后兼容: report.md 仍然作为入口文件, 包含索引+摘要+跳转链接。
+    : report.md , ++
     """
     lines: list[str] = []
 
-    # ── 标题 + 关键指标 ──
+    # ==  +  ==
     lines.append("# AI Red Team Assessment Report")
     lines.append("")
     lines.append(f"**Target Model:** {evidence.target_model}")
@@ -58,13 +58,13 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
     lines.append(f"**Overall ASR:** {evidence.overall_asr:.1f}%")
     lines.append("")
 
-    # ── Wilson CI (如果有) ──
+    # == Wilson CI () ==
     _wilson_ci = getattr(evidence, "wilson_ci", None)
     if _wilson_ci and len(_wilson_ci) == 2 and (_wilson_ci[0] != 0.0 or _wilson_ci[1] != 0.0):
         lines.append(f"**ASR 95% CI (Wilson):** [{_wilson_ci[0]}%, {_wilson_ci[1]}%]")
         lines.append("")
 
-    # ── 分层文件索引 (方案A) ──
+    # == Layer (A) ==
     lines.append("## 📂 Report Structure")
     lines.append("")
     lines.append("| File | Description | Target Audience |")
@@ -77,7 +77,7 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
     lines.append("| [poc/](poc/) | PoC scripts (Python) | Red Team Operator |")
     lines.append("")
 
-    # ── Findings Summary (方案D 前置) ──
+    # == Findings Summary (D ) ==
     lines.append("## Findings Summary")
     lines.append("")
     if hasattr(evidence, "findings") and evidence.findings:
@@ -93,17 +93,17 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
         lines.append("No findings generated.")
     lines.append("")
 
-    # ── 风险热力图 (方案D) ──
+    # ==  (D) ==
     _append_risk_heatmap(lines, evidence)
 
-    # ── Technique × OWASP 矩阵前置 (方案D) ──
+    # == Technique × OWASP  (D) ==
     matrix_lines = _build_technique_effectiveness_matrix(evidence, evidence.evidence)
     lines.extend(matrix_lines)
 
-    # ── Pipeline 流程图 (方案E) ──
+    # == Pipeline  (E) ==
     _append_pipeline_flowchart(lines, evidence)
 
-    # ── 链接到详细文件 ──
+    # ==  ==
     lines.append("## Detailed Sections")
     lines.append("")
     lines.append("→ See [report_executive.md](report_executive.md) for executive summary and remediation priority")
@@ -111,7 +111,7 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
     lines.append("→ See [report_technical.md](report_technical.md) for MITRE ATLAS mapping, scoring analysis, and orchestration decision log")
     lines.append("")
 
-    # ── References ──
+    # == References ==
     lines.append("## References")
     lines.append("")
     refs = _get_all_references(evidence)
@@ -123,10 +123,10 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
 
 
 def _generate_executive_markdown(evidence: EvidenceCollection) -> str:
-    """生成管理层摘要报告 (report_executive.md)。
+    """Layer (report_executive.md)
 
-    目标: CISO / 安全负责人 30 秒内拿到关键信息。
-    内容: 关键指标仪表盘 + Top-3 风险 + 修复优先级矩阵 + 一句话结论。
+    : CISO /  30 
+    :  + Top-3  +  + 
     """
     lines: list[str] = []
 
@@ -136,7 +136,7 @@ def _generate_executive_markdown(evidence: EvidenceCollection) -> str:
     lines.append(f"**Date:** {evidence.timestamp}")
     lines.append("")
 
-    # ── 关键指标仪表盘 ──
+    # ==  ==
     lines.append("## Key Metrics Dashboard")
     lines.append("")
     lines.append("| Metric | Value |")
@@ -156,13 +156,13 @@ def _generate_executive_markdown(evidence: EvidenceCollection) -> str:
     lines.append(f"| OWASP LLM Coverage | {llm_covered}/10 |")
     lines.append(f"| OWASP ASI Coverage | {asi_covered}/10 |")
 
-    # 最高风险
+    # 
     if evidence.findings:
         max_risk = max(evidence.findings, key=lambda f: f.owasp_risk_score)
         lines.append(f"| Highest Risk Score | {max_risk.owasp_risk_score}/10 ({max_risk.owasp_id}) |")
     lines.append("")
 
-    # ── Top-3 风险发现 ──
+    # == Top-3  ==
     lines.append("## Top-3 Risk Findings")
     lines.append("")
     if evidence.findings:
@@ -176,7 +176,7 @@ def _generate_executive_markdown(evidence: EvidenceCollection) -> str:
             lines.append(f"- **Techniques:** {', '.join(sorted({r.get('technique', '') for r in finding.results}))}")
             lines.append("")
 
-    # ── 修复优先级矩阵 ──
+    # ==  ==
     lines.append("## Remediation Priority Matrix")
     lines.append("")
     lines.append("| Priority | OWASP ID | Category | Risk Score | ASR |")
@@ -188,7 +188,7 @@ def _generate_executive_markdown(evidence: EvidenceCollection) -> str:
             lines.append(f"| {priority} | {finding.owasp_id} | {finding.owasp_category} | {finding.owasp_risk_score} | {finding.asr}% |")
     lines.append("")
 
-    # ── OWASP 合规表 ──
+    # == OWASP  ==
     lines.append("## OWASP LLM Top 10 Compliance")
     lines.append("")
     lines.append("| OWASP ID | Category | Tested | Success | ASR |")
@@ -200,7 +200,7 @@ def _generate_executive_markdown(evidence: EvidenceCollection) -> str:
         )
     lines.append("")
 
-    # ── OWASP ASI Top 10 (Agentic AI) ──
+    # == OWASP ASI Top 10 (Agentic AI) ==
     lines.append("## OWASP ASI Top 10 (Agentic AI) Compliance")
     lines.append("")
     lines.append("| OWASP ID | Category | Tested | Success | ASR |")
@@ -212,7 +212,7 @@ def _generate_executive_markdown(evidence: EvidenceCollection) -> str:
         )
     lines.append("")
 
-    # ── 一句话结论 ──
+    # ==  ==
     lines.append("## Conclusion")
     lines.append("")
     risk_level = "CRITICAL" if evidence.overall_asr >= 70 else "HIGH" if evidence.overall_asr >= 40 else "MODERATE"
@@ -223,14 +223,14 @@ def _generate_executive_markdown(evidence: EvidenceCollection) -> str:
     )
     lines.append("")
 
-    # ── R-03: Attack Path Summary ──
-    # 攻击者视角摘要 — 3 行描述主要攻击路径
+    # == R-03: Attack Path Summary ==
+    #  — 3 
     lines.append("## Attack Path Summary (Offensive Perspective)")
     lines.append("")
     lines.append("> This section describes how an attacker would exploit the identified vulnerabilities.")
     lines.append("")
 
-    # 从 findings 提取主要攻击路径
+    #  findings 
     if evidence.findings:
         sorted_findings = sorted(evidence.findings, key=lambda f: f.asr, reverse=True)
         top_paths = [f for f in sorted_findings if f.asr > 0][:3]
@@ -244,8 +244,8 @@ def _generate_executive_markdown(evidence: EvidenceCollection) -> str:
         lines.append("No attack paths identified.")
     lines.append("")
 
-    # ── R-04: Expected ASR Reduction Post-Remediation ──
-    # 修复后预期 ASR 降幅
+    # == R-04: Expected ASR Reduction Post-Remediation ==
+    #  ASR 
     lines.append("## Expected ASR Reduction Post-Remediation")
     lines.append("")
     lines.append("| Remediation Action | Target OWASP ID | Current ASR | Expected ASR |")
@@ -254,7 +254,7 @@ def _generate_executive_markdown(evidence: EvidenceCollection) -> str:
     if evidence.findings:
         sorted_findings = sorted(evidence.findings, key=lambda f: f.asr, reverse=True)
         for finding in sorted_findings[:5]:
-            expected_asr = max(0, finding.asr * 0.1)  # 预期修复后降至 10% 以下
+            expected_asr = max(0, finding.asr * 0.1)  #  10% 
             lines.append(
                 f"| Implement {finding.owasp_id} mitigations "
                 f"| {finding.owasp_id} "
@@ -269,10 +269,10 @@ def _generate_executive_markdown(evidence: EvidenceCollection) -> str:
 
 
 def _generate_findings_markdown(evidence: EvidenceCollection, *, success_only: bool = False) -> str:
-    """生成漏洞详情报告 (report_findings.md)。
+    """ (report_findings.md)
 
-    目标: 安全工程师查看每个 Evidence 的详细信息。
-    方案C: 精简模板 — 删除重复内容, 折叠长文本, 引用外部文件。
+    : converter(s) Evidence 
+    C:  — , , 
     """
     lines: list[str] = []
     evidence_list = evidence.successful_evidence if success_only else evidence.evidence
@@ -284,7 +284,7 @@ def _generate_findings_markdown(evidence: EvidenceCollection, *, success_only: b
     lines.append(f"**Total Evidence:** {len(evidence_list)}")
     lines.append("")
 
-    # ── Target Fingerprint (简要) ──
+    # == Target Fingerprint () ==
     fp = evidence.target_fingerprint or {}
     if fp:
         lines.append("## Target Fingerprint")
@@ -297,13 +297,13 @@ def _generate_findings_markdown(evidence: EvidenceCollection, *, success_only: b
                 lines.append(f"| {key} | {val} |")
         lines.append("")
 
-    # ── 每个 Evidence 的精简卡片 (方案C) ──
+    # ==  Evidence  (C) ==
     lines.append("## Evidence Cards")
     lines.append("")
     for ev in evidence_list:
         _append_evidence_card(lines, ev)
 
-    # ── OWASP LLM Top 10 ──
+    # == OWASP LLM Top 10 ==
     lines.append("## OWASP LLM Top 10")
     lines.append("")
     lines.append("| OWASP ID | Category | Tested | Success | Failed | ASR |")
@@ -315,7 +315,7 @@ def _generate_findings_markdown(evidence: EvidenceCollection, *, success_only: b
         )
     lines.append("")
 
-    # ── OWASP ASI Top 10 (Agentic AI) ──
+    # == OWASP ASI Top 10 (Agentic AI) ==
     lines.append("## OWASP ASI Top 10 (Agentic AI)")
     lines.append("")
     lines.append("| OWASP ID | Category | Tested | Success | Failed | ASR |")
@@ -327,7 +327,7 @@ def _generate_findings_markdown(evidence: EvidenceCollection, *, success_only: b
         )
     lines.append("")
 
-    # ── Technique Performance ──
+    # == Technique Performance ==
     lines.append("## Technique Performance")
     lines.append("")
     tech_map: dict[str, list[VulnerabilityEvidence]] = {}
@@ -343,8 +343,8 @@ def _generate_findings_markdown(evidence: EvidenceCollection, *, success_only: b
         lines.append(f"| {_get_technique_display_name(tech)} | {tested} | {success} | {failed} | {asr:.0f}% |")
     lines.append("")
 
-    # ── Failure Analysis ──
-    # R-06: 当 failure_analysis 为空或无实际内容时, 显示分类表框架
+    # == Failure Analysis ==
+    # R-06:  failure_analysis , 
     lines.append("## Failure Analysis")
     lines.append("")
     fa = evidence.failure_analysis or {}
@@ -370,17 +370,17 @@ def _generate_findings_markdown(evidence: EvidenceCollection, *, success_only: b
             )
         lines.append("")
     else:
-        # R-06: Failure Analysis 分类表 (即使无数据也显示分类框架)
+        # R-06: Failure Analysis  (Even if)
         lines.append("### Failure Classification")
         lines.append("")
         lines.append("| Failure Category | Count | Description |")
         lines.append("|-----------------|-------|-------------|")
 
-        # 统计失败类型
+        # 
         failure_categories: dict[str, int] = {}
         for ev in evidence.evidence:
             if not ev.is_success:
-                # 基于转换器类型分类失败
+                # 
                 if ev.converter_chain and "baseline" not in (ev.converter_chain or ""):
                     cat = "encoding_blocked"
                 elif ev.objective and "jailbreak" in (ev.objective or "").lower():
@@ -403,7 +403,7 @@ def _generate_findings_markdown(evidence: EvidenceCollection, *, success_only: b
 
         lines.append("")
 
-        # 失败按技术统计
+        # 
         lines.append("### Failure Breakdown by Technique")
         lines.append("")
         lines.append("| Technique | Failed | Primary Failure Category |")
@@ -415,7 +415,7 @@ def _generate_findings_markdown(evidence: EvidenceCollection, *, success_only: b
                 if tech not in tech_failures:
                     tech_failures[tech] = {"count": 0, "categories": {}}
                 tech_failures[tech]["count"] += 1
-                # 分类
+                # 
                 if ev.converter_chain and "baseline" not in (ev.converter_chain or ""):
                     cat = "encoding_blocked"
                 elif "jailbreak" in (ev.objective or "").lower():
@@ -432,7 +432,7 @@ def _generate_findings_markdown(evidence: EvidenceCollection, *, success_only: b
             lines.append("| No technique failures | 0 | — |")
         lines.append("")
 
-    # ── Three-Tier Evidence Chain ──
+    # == Three-Tier Evidence Chain ==
     lines.append("## Three-Tier Evidence Chain")
     lines.append("")
     if hasattr(evidence, "findings") and evidence.findings:
@@ -452,10 +452,10 @@ def _generate_findings_markdown(evidence: EvidenceCollection, *, success_only: b
 
 
 def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
-    """生成技术附录报告 (report_technical.md)。
+    """ (report_technical.md)
 
-    目标: 技术审查者查看 MITRE 映射、评分一致性、编排日志。
-    包含方案B/C 的去重优化。
+    :  MITRE 
+    B/C 
     """
     lines: list[str] = []
 
@@ -465,7 +465,7 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
     lines.append(f"**Date:** {evidence.timestamp}")
     lines.append("")
 
-    # ── Target Fingerprint & Attack Surface (完整版) ──
+    # == Target Fingerprint & Attack Surface () ==
     fp = evidence.target_fingerprint or {}
     attack_surface = evidence.attack_surface or {}
     if fp or attack_surface:
@@ -501,12 +501,12 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
                 lines.append(f"| auth_recovery_attempts | {attack_surface['auth_recovery_attempts']} |")
         lines.append("")
 
-    # ── Weapon Loadout (ARM Phase) — v59 新增 ──
-    # 从 orchestration_log 提取 ARM 阶段的武器化决策, 在报告中保留完整武器清单
-    # (终端已将 ARM 卡片降级为 1 行摘要, 详情移至此处)
+    # == Weapon Loadout (ARM Phase) — v59  ==
+    #  orchestration_log  ARM , 
+    # ( ARM  1 , )
     _append_weapon_loadout(lines, evidence)
 
-    # ── MITRE ATLAS Mapping (去重后) — R-08: 空表友好提示 ──
+    # == MITRE ATLAS Mapping () — R-08:  ==
     lines.append("## MITRE ATLAS Mapping")
     lines.append("")
     lines.append("| OWASP ID | MITRE Tactic | Technique ID | Technique Name |")
@@ -529,7 +529,7 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
         lines.append("> MITRE ATLAS mapping not available for this assessment.")
     lines.append("")
 
-    # ── MITRE ATLAS Reference (去重后) — R-08: 空表友好提示 ──
+    # == MITRE ATLAS Reference () — R-08:  ==
     lines.append("## MITRE ATLAS Reference")
     lines.append("")
     seen_refs: set[str] = set()
@@ -546,7 +546,7 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
         lines.append("*No MITRE ATLAS references available for this assessment.*")
     lines.append("")
 
-    # ── Score Consistency Analysis (去重摘要版) — R-08: 空表友好提示 ──
+    # == Score Consistency Analysis () — R-08:  ==
     score_lines = _build_score_consistency_section(evidence)
     if score_lines:
         lines.extend(score_lines)
@@ -556,7 +556,7 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
         lines.append("*No score consistency data available for this assessment.*")
         lines.append("")
 
-    # ── Escalation Chain Report — R-08: 空表友好提示 ──
+    # == Escalation Chain Report — R-08:  ==
     lines.append("## Escalation Chain Report")
     lines.append("")
     dashboard = _build_escalation_dashboard_data(evidence)
@@ -571,7 +571,7 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
         lines.append("*No escalation chain data available. Escalation may have been disabled or not triggered.*")
     lines.append("")
 
-    # ── Adaptive Dual Judge Statistics ──
+    # == Adaptive Dual Judge Statistics ==
     if hasattr(evidence, "dual_judge_stats") and evidence.dual_judge_stats:
         stats = evidence.dual_judge_stats
         lines.append("## Adaptive Dual Judge Statistics")
@@ -644,7 +644,7 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
         lines.append(f"- **Cohen's Kappa**: {kappa:.3f} ({interpretation})")
     lines.append("")
 
-    # ── Orchestration Decision Log (方案E: 流程图版) — R-09: 结构化 ──
+    # == Orchestration Decision Log (E: ) — R-09:  ==
     _orch_log = getattr(evidence, "orchestration_log", [])
     if _orch_log:
         lines.append("## Orchestration Decision Log")
@@ -652,12 +652,12 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
         lines.append("> Chronological log of orchestration decisions made during the assessment.")
         lines.append("")
 
-        # Pipeline 流程图
+        # Pipeline 
         _append_orchestration_flowchart(lines, _orch_log)
         lines.append("")
 
-        # R-09: 详细决策日志 — 按阶段分组, 表格化展示
-        # 按 phase 分组
+        # R-09:  — , 
+        #  phase 
         orch_by_phase: dict[str, list] = {}
         for entry in _orch_log:
             phase = entry.get("phase", "unknown")
@@ -665,7 +665,7 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
                 orch_by_phase[phase] = []
             orch_by_phase[phase].append(entry)
 
-        # 按固定顺序输出各阶段
+        # 
         phase_order = ["recon", "arm", "strike", "escalate", "assess", "report"]
         phase_labels = {
             "recon": "① Reconnaissance",
@@ -683,7 +683,7 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
             lines.append(f"### {phase_labels.get(phase, phase.upper())}")
             lines.append("")
 
-            # 表格头
+            # 
             lines.append("| # | Decision | Key Parameters | Reasoning |")
             lines.append("|---|----------|----------------|-----------|")
 
@@ -693,22 +693,22 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
                 if len(entry.get("reasoning", "")) > 80:
                     reasoning += "..."
 
-                # 提取关键参数 (从 input + output)
+                #  ( input + output)
                 _input = entry.get("input", {}) or {}
                 _output = entry.get("output", {}) or {}
                 params = []
                 if _input:
-                    # 只展示关键输入参数
+                    # 
                     for k in ["seed_files", "mode", "capabilities", "enabled"]:
                         if k in _input:
                             params.append(f"{k}={_input[k]}")
                 if _output:
-                    # 只展示关键输出参数
+                    # 
                     for k in ["seed_count", "total_results", "overall_asr", "converter_count"]:
                         if k in _output:
                             params.append(f"{k}={_output[k]}")
 
-                params_str = ", ".join(params[:3])  # 最多显示 3 个参数
+                params_str = ", ".join(params[:3])  #  3 converter(s)
                 if not params_str:
                     params_str = "—"
 
@@ -719,30 +719,30 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
     return "\n".join(lines)
 
 
-# ════════════════════════════════════════════════════════════════
-# 方案C: Evidence 精简卡片
-# ════════════════════════════════════════════════════════════════
+# ================================================================
+# C: Evidence 
+# ================================================================
 
 def _append_evidence_card(lines: list[str], ev: VulnerabilityEvidence) -> None:
-    """生成单个 Evidence 的精简卡片 (方案C + R-05)。
+    """converter(s) Evidence  (C + R-05)
 
-    优化:
-    - 删除 Jailbreak Prompt (与 Objective 相同时)
-    - Harmful Output 折叠到 <details> 块
-    - Conversation History 改为文件引用
-    - PoC 脚本改为路径链接
-    - R-05: 增加 Attack Chain 可视化 — 展示从 Seed→Converter→Technique→Outcome 的攻击路径
+    :
+    -  Jailbreak Prompt ( Objective )
+    - Harmful Output  <details> 
+    - Conversation History 
+    - PoC 
+    - R-05:  Attack Chain  — imports Seed→Converter→Technique→Outcome 
     """
     lines.append(f"### {ev.evidence_id} — {ev.owasp_id}: {ev.owasp_category}")
     lines.append("")
 
-    # ── R-05: Attack Chain Visualization ──
-    # 展示攻击路径: Seed → Converter → Technique → Outcome
+    # == R-05: Attack Chain Visualization ==
+    # : Seed → Converter → Technique → Outcome
     lines.append("**Attack Chain:**")
     attack_chain_parts = []
     attack_chain_parts.append(f"Seed({(ev.objective or 'unknown')[:30]})")
     if ev.converter_chain and ev.converter_chain != "none (baseline)":
-        # 简化 converter chain 显示
+        #  converter chain 
         conv_short = ev.converter_chain.split(" → ")[0] if " → " in ev.converter_chain else ev.converter_chain
         attack_chain_parts.append(f"Converter({conv_short})")
     attack_chain_parts.append(f"Tech({ev.technique_name or 'baseline'})")
@@ -751,7 +751,7 @@ def _append_evidence_card(lines: list[str], ev: VulnerabilityEvidence) -> None:
     lines.append(f"`{' → '.join(attack_chain_parts)}`")
     lines.append("")
 
-    # 元数据表 (紧凑)
+    #  ()
     lines.append("| Attribute | Value |")
     lines.append("|-----------|-------|")
     lines.append(f"| Technique | {ev.technique_display_name} |")
@@ -766,18 +766,18 @@ def _append_evidence_card(lines: list[str], ev: VulnerabilityEvidence) -> None:
     lines.append(f"| Evidence | → `evidence/{ev.evidence_id}.json` |")
     lines.append("")
 
-    # Objective (截断)
+    # Objective ()
     obj_truncated = ev.objective[:_TRUNCATE_LEN] + ("..." if len(ev.objective) > _TRUNCATE_LEN else "")
     lines.append(f"**Objective:** {obj_truncated}")
     lines.append("")
 
-    # Jailbreak Prompt (仅当与 Objective 不同时才显示)
+    # Jailbreak Prompt ( Objective )
     if ev.jailbreak_prompt and ev.jailbreak_prompt != ev.objective:
         jbp_truncated = ev.jailbreak_prompt[:_TRUNCATE_LEN] + ("..." if len(ev.jailbreak_prompt) > _TRUNCATE_LEN else "")
         lines.append(f"**Jailbreak Prompt (modified):** {jbp_truncated}")
         lines.append("")
 
-    # Harmful Output (折叠到 details 块)
+    # Harmful Output ( details )
     if ev.harmful_output:
         harmful_lines = ev.harmful_output.split("\n")
         harmful_preview = harmful_lines[0][:100] + "..." if harmful_lines else ""
@@ -814,12 +814,12 @@ def _append_evidence_card(lines: list[str], ev: VulnerabilityEvidence) -> None:
     lines.append("")
 
 
-# ════════════════════════════════════════════════════════════════
-# 方案D: 风险热力图 (Severity × ASR 矩阵)
-# ════════════════════════════════════════════════════════════════
+# ================================================================
+# D:  (Severity × ASR )
+# ================================================================
 
 def _append_risk_heatmap(lines: list[str], evidence: EvidenceCollection) -> None:
-    """追加风险热力图 (Severity × ASR 区间矩阵)。"""
+    """ (Severity × ASR )"""
     if not evidence.findings:
         return
 
@@ -848,23 +848,23 @@ def _append_risk_heatmap(lines: list[str], evidence: EvidenceCollection) -> None
     lines.append("")
 
 
-# ════════════════════════════════════════════════════════════════
-# 方案E: Pipeline 流程图
-# ════════════════════════════════════════════════════════════════
+# ================================================================
+# E: Pipeline 
+# ================================================================
 
 def _append_pipeline_flowchart(lines: list[str], evidence: EvidenceCollection) -> None:
-    """追加 Pipeline 流程图 (方案E)。
+    """ Pipeline  (E)
 
-    v60 优化 (R-01): 新增 REPORT 阶段框, 完整的 6 阶段流水线。
-    v59 优化: 在 ARM→STRIKE 箭头上标注数据流字段 (seeds/techniques/converter_map)。
+    v60  (R-01):  REPORT ,  6 
+    v59 :  ARM→STRIKE Data flow (seeds/techniques/converter_map)
     """
     lines.append("## Pipeline Flowchart")
     lines.append("")
     lines.append("```")
-    lines.append("┌─────────┐         ┌──────────┐         ┌───────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐")
-    lines.append("│  RECON   │──fp────→│  ARM     │──seeds──→│  STRIKE   │────→│ ESCALATE │────→│  ASSESS  │────→│  REPORT  │")
+    lines.append("===========         ============         =============     ============     ============     ============")
+    lines.append("=  RECON   ===fp====→=  ARM     ===seeds==→=  STRIKE   =====→= ESCALATE =====→=  ASSESS  =====→=  REPORT  =")
 
-    # 从 orchestration log 提取关键指标 (合并同一 phase 的多个条目)
+    #  orchestration log  ( phase )
     orch_log = getattr(evidence, "orchestration_log", [])
     recon_out: dict = {}
     arm_out: dict = {}
@@ -894,33 +894,33 @@ def _append_pipeline_flowchart(lines: list[str], evidence: EvidenceCollection) -
     strike_results = strike_out.get("total_results", evidence.total_attacks) if isinstance(strike_out, dict) else evidence.total_attacks
     esc_results = escalate_out.get("total_results", evidence.total_attacks) if isinstance(escalate_out, dict) else evidence.total_attacks
     assess_success = assess_out.get("overall_asr", "?") if isinstance(assess_out, dict) else "?"
-    # R-01: 计算报告文件数 — report_out 已是 output 字典 (非嵌套), 统计非空值数量
+    # R-01:  — report_out  output  (), 
     _report_keys = ["report_index", "report_executive", "report_findings", "report_technical", "report_success", "native_output"]
     report_files = sum(1 for k in _report_keys if report_out.get(k)) if isinstance(report_out, dict) else 6
 
-    # ARM 行: 展示 seeds + techs + converters
+    # ARM :  seeds + techs + converters
     _arm_tech_str = f"{len(arm_techs)} techs" if isinstance(arm_techs, list) else "? techs"
-    lines.append(f"│ {recon_detail} probes│         │ {arm_seeds} seeds │+conv    │ {strike_results} attacks│     │ +{esc_results - strike_results if esc_results > strike_results else 0} attacks │     │ ASR {assess_success}%│     │ {report_files} files│")
-    lines.append(f"│           │         │ {_arm_tech_str}│+techs   │           │     │           │     │          │     │          │")
-    lines.append("└─────────┘         └──────────┘         └───────────┘     └──────────┘     └──────────┘     └──────────┘")
+    lines.append(f"= {recon_detail} probes=         = {arm_seeds} seeds =+conv    = {strike_results} attacks=     = +{esc_results - strike_results if esc_results > strike_results else 0} attacks =     = ASR {assess_success}%=     = {report_files} files=")
+    lines.append(f"=           =         = {_arm_tech_str}=+techs   =           =     =           =     =          =     =          =")
+    lines.append("===========         ============         =============     ============     ============     ============")
     lines.append("")
-    # R-02: 更新 Data flow 行包含 ASSESS→REPORT
+    # R-02:  Data flow  ASSESS→REPORT
     lines.append("Data flow: RECON→ARM (target_fingerprint, capabilities) | ARM→STRIKE (ctx.seeds, ctx.techniques, ctx.converter_map) | STRIKE→ESCALATE (failed_objectives, attack_results) | ESCALATE→ASSESS (full attack_results) | ASSESS→REPORT (evidence, asr, orchestration_log)")
     lines.append("```")
     lines.append("")
 
 
 def _append_orchestration_flowchart(lines: list[str], orch_log: list) -> None:
-    """编排决策日志的流程图表示 (方案E)。
+    """ (E)
 
-    v60 优化 (R-01): 新增 REPORT 阶段框, 完整的 6 阶段流水线。
-    v59 优化: 在阶段间箭头上标注数据流传递的关键字段。
+    v60  (R-01):  REPORT ,  6 
+    v59 : Data flow
     """
     lines.append("```")
-    lines.append("┌─────────┐         ┌──────────┐         ┌───────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐")
-    lines.append("│  RECON   │──fp────→│  ARM     │──seeds──→│  STRIKE   │────→│ ESCALATE │────→│  ASSESS  │────→│  REPORT  │")
+    lines.append("===========         ============         =============     ============     ============     ============")
+    lines.append("=  RECON   ===fp====→=  ARM     ===seeds==→=  STRIKE   =====→= ESCALATE =====→=  ASSESS  =====→=  REPORT  =")
 
-    # 从日志提取各阶段关键输出 (合并同一 phase 的多个条目, 不覆盖)
+    #  ( phase , Not overridden)
     phases_data: dict[str, dict] = {}
     for entry in orch_log:
         phase = entry.get("phase", "unknown")
@@ -936,7 +936,7 @@ def _append_orchestration_flowchart(lines: list[str], orch_log: list) -> None:
     assess_data = phases_data.get("assess", {})
     report_data = phases_data.get("report", {})
 
-    # 提取关键信息
+    # 
     recon_probe = recon_data.get("probe_count", "?") if isinstance(recon_data, dict) else "?"
     arm_seeds = arm_data.get("seed_count", "?") if isinstance(arm_data, dict) else "?"
     arm_techs = arm_data.get("techniques", None) if isinstance(arm_data, dict) else None
@@ -945,41 +945,41 @@ def _append_orchestration_flowchart(lines: list[str], orch_log: list) -> None:
     assess_asr = assess_data.get("overall_asr", "?") if isinstance(assess_data, dict) else "?"
 
     _arm_tech_str = f"{len(arm_techs)} techs" if isinstance(arm_techs, list) else "? techs"
-    # R-01: report_data 已是 output 字典 (非嵌套), 统计已知报告文件的非空值
+    # R-01: report_data  output  (), 
     _report_keys = ["report_index", "report_executive", "report_findings", "report_technical", "report_success", "native_output"]
     _report_file_count = sum(1 for k in _report_keys if report_data.get(k)) if isinstance(report_data, dict) else 6
 
-    lines.append(f"│ {recon_probe} probes │         │ {arm_seeds} seeds │+conv    │ {strike_results} results │   │ {esc_techs} │    │ ASR {assess_asr}%│     │ {_report_file_count} files│")
-    lines.append(f"│           │         │ {_arm_tech_str}│+techs   │           │   │           │    │          │     │          │")
-    lines.append("└─────────┘         └──────────┘         └───────────┘     └──────────┘     └──────────┘     └──────────┘")
+    lines.append(f"= {recon_probe} probes =         = {arm_seeds} seeds =+conv    = {strike_results} results =   = {esc_techs} =    = ASR {assess_asr}%=     = {_report_file_count} files=")
+    lines.append(f"=           =         = {_arm_tech_str}=+techs   =           =   =           =    =          =     =          =")
+    lines.append("===========         ============         =============     ============     ============     ============")
     lines.append("")
-    # R-02: 更新 Data flow 行包含 ASSESS→REPORT
+    # R-02:  Data flow  ASSESS→REPORT
     lines.append("Data flow: RECON→ARM (target_fingerprint, capabilities) | ARM→STRIKE (ctx.seeds, ctx.techniques, ctx.converter_map) | STRIKE→ESCALATE (failed_objectives, attack_results) | ESCALATE→ASSESS (full attack_results) | ASSESS→REPORT (evidence, asr, orchestration_log)")
     lines.append("```")
     lines.append("")
 
 
-# ════════════════════════════════════════════════════════════════
-# Weapon Loadout (ARM Phase) — v59 新增
-# 终端 ARM 卡片降级为 1 行摘要后, 完整武器清单移至此处供事后分析
-# ════════════════════════════════════════════════════════════════
+# ================================================================
+# Weapon Loadout (ARM Phase) — v59 
+#  ARM  1 , 
+# ================================================================
 
 def _append_weapon_loadout(lines: list[str], evidence: EvidenceCollection) -> None:
-    """追加 ARM 阶段武器清单章节。
+    """ ARM 
 
-    从 orchestration_log 提取 ARM 阶段的种子/技术/Converter 决策,
-    从 evidence.evidence 提取每个证据的 seed/converter_chain/technique 信息,
-    生成完整的武器配置档案供技术审查者事后分析。
+    imports orchestration_log  ARM //Converter ,
+    imports evidence.evidence converter(s) seed/converter_chain/technique ,
+    
 
-    数据来源:
-        - orchestration_log: ARM 阶段的 seed_selection / technique_selection / converter_selection
-        - evidence.evidence: 每个 VulnerabilityEvidence 的 seed / converter_chain / technique_name
+    :
+        - orchestration_log: ARM  seed_selection / technique_selection / converter_selection
+        - evidence.evidence: converter(s) VulnerabilityEvidence  seed / converter_chain / technique_name
 
-    R-07: 新增 "Converter Selection Rationale" 表 — 解释为什么选择特定 converter。
+    R-07:  "Converter Selection Rationale"  —  converter
     """
     orch_log = getattr(evidence, "orchestration_log", [])
 
-    # 从编排日志提取 ARM 阶段数据
+    #  ARM 
     arm_data: dict[str, Any] = {}
     arm_input: dict[str, Any] = {}
     for entry in orch_log:
@@ -1009,7 +1009,7 @@ def _append_weapon_loadout(lines: list[str], evidence: EvidenceCollection) -> No
     lines.append("> ARM stage weapon configuration — seeds, techniques, and converter paths selected for this assessment.")
     lines.append("")
 
-    # ── 汇总 ──
+    # ==  ==
     lines.append("### Summary")
     lines.append("")
     lines.append("| Attribute | Value |")
@@ -1021,13 +1021,13 @@ def _append_weapon_loadout(lines: list[str], evidence: EvidenceCollection) -> No
     lines.append(f"| Converter Paths | {converter_count} |")
     lines.append("")
 
-    # ── R-07: Converter Selection Rationale ──
+    # == R-07: Converter Selection Rationale ==
     lines.append("### Converter Selection Rationale")
     lines.append("")
     lines.append("| Technique | Converter Count | Rationale |")
     lines.append("|-----------|----------------|-----------|")
 
-    # 定义技术对应的 converter 选择理由
+    #  converter 
     CONVERTER_RATIONALE: dict[str, str] = {
         "prompt_sending": "Baseline testing — no converter applied, used as ASR reference",
         "crescendo": "Multi-turn escalation — conversation-based, no encoding converters needed",
@@ -1048,7 +1048,7 @@ def _append_weapon_loadout(lines: list[str], evidence: EvidenceCollection) -> No
             lines.append(f"| {tech} | {_conv_count} | {rationale} |")
         lines.append("")
 
-        # 从 evidence 提取实际使用的 converter
+        #  evidence  converter
         lines.append("### Converters Used (from evidence)")
         lines.append("")
         lines.append("| # | Technique | Converter Chain | Effectiveness |")
@@ -1069,7 +1069,7 @@ def _append_weapon_loadout(lines: list[str], evidence: EvidenceCollection) -> No
         lines.append("| No techniques recorded | — | — |")
         lines.append("")
 
-    # ── Techniques ──
+    # == Techniques ==
     if isinstance(techniques, list) and techniques:
         lines.append("### Techniques")
         lines.append("")
@@ -1080,7 +1080,7 @@ def _append_weapon_loadout(lines: list[str], evidence: EvidenceCollection) -> No
             lines.append(f"| {i} | {tech} | {_conv_count} |")
         lines.append("")
 
-    # ── Seeds (from evidence — per-evidence seed/converter/technique) ──
+    # == Seeds (from evidence — per-evidence seed/converter/technique) ==
     if evidence.evidence:
         lines.append("### Seed & Converter Details (per evidence)")
         lines.append("")
@@ -1090,7 +1090,7 @@ def _append_weapon_loadout(lines: list[str], evidence: EvidenceCollection) -> No
         idx = 0
         for ev in evidence.evidence:
             _seed = (ev.objective or "")[:60]
-            _seed_key = _seed[:30]  # 去重键
+            _seed_key = _seed[:30]  # 
             if _seed_key in seen_seeds:
                 continue
             seen_seeds.add(_seed_key)
@@ -1102,7 +1102,7 @@ def _append_weapon_loadout(lines: list[str], evidence: EvidenceCollection) -> No
             lines.append(f"| {idx} | {_seed_display} | {_tech} | {_conv} | {_success} |")
         lines.append("")
 
-    # ── Role Separation ──
+    # == Role Separation ==
     fp = evidence.target_fingerprint or {}
     lines.append("### Role Separation")
     lines.append("")

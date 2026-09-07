@@ -23,7 +23,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-# ── Target type classification ──
+# == Target type classification ==
 # arXiv:2302.12173 — Greshake et al.: target capability fingerprint determines
 #   which attack vectors are effective. MCP agents accept JSON text prompts,
 #   not file uploads; pure LLM chat endpoints cannot process document files.
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 # File-type converters only effective on targets that accept file uploads
 _FILE_CONVERTER_NAMES = {"PDFConverter", "WordDocConverter"}
 
-# ── L5 v41: l5_optimal build cache ──
+# == L5 v41: l5_optimal build cache ==
 # arXiv:2407.01232 — SequentialAttack FIRST_SUCCESS uses the same converter
 #   candidate list for every technique. Building 17 converters (decomposition,
 #   persuasion, variation, translation, code_chameleon, ...) involves LLM calls
@@ -41,7 +41,7 @@ _FILE_CONVERTER_NAMES = {"PDFConverter", "WordDocConverter"}
 #   reused across techniques, we return the cached list instead of rebuilding.
 _L5_OPTIMAL_CACHE: dict[tuple[int, str], list[Any]] = {}
 
-# v57: 标记是否已打印完整候选列表 (避免逐技术重复打印)
+# v57:  ()
 _L5_PRINTED_FULL_CANDIDATES: bool = False
 _L5_PRINTED_FULL_REORDER: bool = False
 
@@ -85,12 +85,12 @@ def _classify_target_type(
             return "mcp_agent"
         if app_type == "browser" or target_type == "browser":
             return "browser"
-        # Agent 级能力 (工具调用/工具劫持/A2A协议/嵌入RAG) → MCP Agent 类型
-        # 这些能力表明目标是 Agent 而非纯聊天端点, 接受 JSON 文本而非文件上传
-        # arXiv:2302.12173 — Agent 能力指纹决定攻击面
-        # arXiv:2307.00929 — InjecAgent 工具劫持
-        # arXiv:2407.16924 — A2A 协议横向移动
-        # arXiv:2310.06870 — 嵌入反演泄露
+        # Agent  (//A2A/RAG) → MCP Agent 
+        #  Agent ,  JSON 
+        # arXiv:2302.12173 — Agent 
+        # arXiv:2307.00929 — InjecAgent 
+        # arXiv:2407.16924 — A2A 
+        # arXiv:2310.06870 — 
         if caps & {"function_calling", "tool_hijack", "a2a_protocol", "embedding_rag"}:
             return "mcp_agent"
         if app_type in ("chat", "responses", "litellm"):
@@ -100,7 +100,7 @@ def _classify_target_type(
         caps = {c.strip().lower() for c in capabilities.split(",") if c.strip()}
         if "mcp" in caps or "mcp_protocol" in caps:
             return "mcp_agent"
-        # Agent 级能力 → MCP Agent 类型 (同 target_fingerprint 分支逻辑)
+        # Agent  → MCP Agent  ( target_fingerprint )
         if caps & {"function_calling", "tool_hijack", "a2a_protocol", "embedding_rag"}:
             return "mcp_agent"
 
@@ -180,7 +180,7 @@ def l5_optimal(
 
     converters: list[Any] = []
 
-    # 鎯版€у鍏ュ熀纭€ converter 閾惧嚱鏁?(閬垮厤寰幆瀵煎叆)
+    # €уュ€ converter ?()
     from arm.converter_chains import (
         _conv,
         chained_selective,
@@ -200,13 +200,13 @@ def l5_optimal(
         word_doc_placeholder_injection,
     )
 
-    # 鈹€鈹€ LLM 杈呭姪 converters (闇€ converter_target) 鈹€鈹€
+    # €€ LLM  converters (€ converter_target) €€
     if converter_target is not None:
-        # Path 1: Decomposition 鈥?ASR 40-60% (鏈€楂? DrAttack)
+        # Path 1: Decomposition ?ASR 40-60% (€? DrAttack)
         decomp_converters = decomposition(converter_target=converter_target)
         converters.extend(decomp_converters)
 
-        # Path 2: Persuasion authority 鈥?ASR 38.4%
+        # Path 2: Persuasion authority ?ASR 38.4%
         try:
             PersuasionConverter = _conv("PersuasionConverter")
             converters.append(PersuasionConverter(
@@ -216,74 +216,74 @@ def l5_optimal(
         except (TypeError, ValueError, FileNotFoundError) as e:
             logger.warning("L5: PersuasionConverter(authority) failed: %s", e)
 
-        # Path 3: Variation 鈥?ASR 20-30% (澶氭牱鎬цˉ鍏?
+        # Path 3: Variation ?ASR 20-30% (цˉ?
         var_converters = variation(converter_target=converter_target)
         converters.extend(var_converters)
 
-        # Path 4: RandomTranslationConverter 鈥?ASR 25-35%
+        # Path 4: RandomTranslationConverter ?ASR 25-35%
         translation_converters = translation_multilingual(converter_target=converter_target)
         converters.extend(translation_converters)
 
-    # 鈹€鈹€ 闈?LLM converters (鏃犻渶 converter_target, 0 token) 鈹€鈹€
+    # €€ ?LLM converters ( converter_target, 0 token) €€
 
-    # Path 5: CodeChameleon 鈥?ASR 35-45% (NEW, 绾枃鏈?0 token)
-    # PyRIT 鍘熺敓: CodeChameleonConverter(encrypt_type=), 涓嶉渶 converter_target
+    # Path 5: CodeChameleon ?ASR 35-45% (NEW, ?0 token)
+    # PyRIT : CodeChameleonConverter(encrypt_type=),  converter_target
     converters.extend(code_chameleon())
 
-    # Path 6: PolicyPuppetry 鈥?ASR 30-40% (NEW, 绾枃鏈?0 token)
-    # PyRIT 鍘熺敓: PolicyPuppetryConverter(), 涓嶉渶 converter_target
+    # Path 6: PolicyPuppetry ?ASR 30-40% (NEW, ?0 token)
+    # PyRIT : PolicyPuppetryConverter(),  converter_target
     converters.extend(policy_puppetry())
 
-    # Path 7: Chained Selective (Base64+ROT13, 閫夋嫨鎬ч摼寮? 鈥?ASR 30-40% (NEW)
-    # 猸?鏍稿績鏀硅繘: SelectiveTextConverter + preserve_tokens 瀹炵幇閾惧紡閫夋嫨鎬?
-    # 鍙 30% 鏂囨湰鍋?2 灞傜紪鐮? 70% 淇濇寔鍘熸枃, ASR 30-40%
+    # Path 7: Chained Selective (Base64+ROT13, ч? ?ASR 30-40% (NEW)
+    # ?: SelectiveTextConverter + preserve_tokens ?
+    #  30% ?2 ? 70% , ASR 30-40%
     converters.extend(chained_selective())
 
-    # Path 8: Selective Encoding (Base64 30%) 鈥?ASR 25-35% (NEW)
-    # 鏇夸唬鍏ㄦ枃 Base64Converter (ASR 7%), ASR 鎻愬崌 3-5x
+    # Path 8: Selective Encoding (Base64 30%) ?ASR 25-35% (NEW)
+    # ㄦ Base64Converter (ASR 7%), ASR  3-5x
     converters.extend(selective_encoding())
 
-    # Path 9: TemplateSegment 鈥?ASR 25-35% (NEW)
+    # Path 9: TemplateSegment ?ASR 25-35% (NEW)
     converters.extend(template_segment())
 
-    # Path 10: KeywordReplacement 鈥?ASR 20-30% (NEW, 0 token)
+    # Path 10: KeywordReplacement ?ASR 20-30% (NEW, 0 token)
     converters.extend(keyword_replacement())
 
-    # Path 11: SelectiveObfuscation (Leetspeak 20%) 鈥?ASR 20-30% (NEW)
+    # Path 11: SelectiveObfuscation (Leetspeak 20%) ?ASR 20-30% (NEW)
     converters.extend(selective_obfuscation())
 
-    # Path 12: AsciiSmuggler 鈥?ASR 20-30% (NEW)
+    # Path 12: AsciiSmuggler ?ASR 20-30% (NEW)
     converters.extend(token_smuggling())
 
-    # Path 13: ROT13 (鍏ㄦ枃, 淇濈暀浣滀负杞婚噺 fallback) 鈥?ASR 30-40%
+    # Path 13: ROT13 (ㄦ,  fallback) ?ASR 30-40%
     try:
         converters.append(_conv("ROT13Converter")())
         logger.info("L5 v36: ROT13Converter added as lightweight fallback (ASR 30-40%%)")
     except Exception as e:
         logger.warning("L5 v36: ROT13Converter failed: %s", e)
 
-    # 鈹€鈹€ L5 v36: File Converters 鈥?瀵归綈 PyRIT 1.0.1 瀹樻柟 File Converters 鈹€鈹€
-    # 瀛︽湳渚濇嵁: PyRIT 瀹樻柟 File Converters (PDFConverter + WordDocConverter)
-    # 鏀诲嚮鍦烘櫙: 灏?payload 鍖呰涓?PDF/Word 鏂囦欢, 妯℃嫙鏂囨。鎶曢€?闂存帴娉ㄥ叆
-    # OWASP LLM01: Prompt Injection (闂存帴娉ㄥ叆鍚戦噺)
+    # €€ L5 v36: File Converters ? PyRIT 1.0.1  File Converters €€
+    # ︽: PyRIT  File Converters (PDFConverter + WordDocConverter)
+    # : ?payload ?PDF/Word , ℃€?ㄥ
+    # OWASP LLM01: Prompt Injection (ㄥ)
 
-    # Path 14: Word Doc Direct Generation 鈥?payload 鈫?.docx file (NEW)
-    # WordDocConverter() 鏃犳ā鏉? 鐩存帴鍒涘缓 .docx
+    # Path 14: Word Doc Direct Generation ?payload ?.docx file (NEW)
+    # WordDocConverter() ā?  .docx
     converters.extend(word_doc_direct_generation())
 
-    # Path 15: Word Doc Placeholder Injection 鈥?payload 鏇挎崲妯℃澘鍗犱綅绗?(NEW)
-    # WordDocConverter(existing_docx=, placeholder=) 鍦ㄦā鏉夸腑鏇挎崲鍗犱綅绗?
+    # Path 15: Word Doc Placeholder Injection ?payload ℃?(NEW)
+    # WordDocConverter(existing_docx=, placeholder=) ㄦā?
     converters.extend(word_doc_placeholder_injection())
 
-    # Path 16: PDF Direct Generation 鈥?payload 鈫?PDF file (NEW)
-    # PDFConverter(prompt_template=None) 鐩存帴鐢熸垚 PDF
+    # Path 16: PDF Direct Generation ?payload ?PDF file (NEW)
+    # PDFConverter(prompt_template=None)  PDF
     converters.extend(pdf_direct_generation())
 
-    # Path 17: PDF Injection 鈥?鍦ㄥ凡鏈?PDF 涓敞鍏?payload (NEW)
-    # PDFConverter(existing_pdf=, injection_items=) 鍦ㄦ寚瀹氬潗鏍囨敞鍏ユ枃鏈?
+    # Path 17: PDF Injection ?ㄥ?PDF ?payload (NEW)
+    # PDFConverter(existing_pdf=, injection_items=) ㄦユ?
     converters.extend(pdf_injection())
 
-    # ── L5 v39: Target-aware filtering ──
+    # == L5 v39: Target-aware filtering ==
     # arXiv:2302.12173 — Greshake et al.: target type determines attack surface.
     # arXiv:2407.01232 — PyRIT HTTPTarget sends JSON body, no file upload.
     # File converters (PDF/WordDoc) only work on browser targets that can
@@ -307,7 +307,7 @@ def l5_optimal(
             "(target_type=%s, Selective-First)",
             len(converters), target_type,
         )
-        # v57: 只在首次打印完整候选列表, 后续技术复用缓存时只输出摘要
+        # v57: , 
         global _L5_PRINTED_FULL_CANDIDATES
         if not _L5_PRINTED_FULL_CANDIDATES:
             for i, c in enumerate(converters):
@@ -358,40 +358,40 @@ def l5_optimal_for_model(
     if not model_family or not candidates:
         return candidates
 
-    # 鏌ヨ妯″瀷鏃忓厛楠?
+    # ヨ″?
     try:
         from arm.seed_ranker import load_asr_priors
         priors = load_asr_priors(model_family)
         converter_asr = priors.get("converter_asr", {})
     except Exception as e:
-        logger.debug("Failed to load converter ASR priors: %s 鈥?using default order", e)
+        logger.debug("Failed to load converter ASR priors: %s ?using default order", e)
         return candidates
 
     if not converter_asr:
         return candidates
 
     def _get_converter_asr(conv: Any) -> float:
-        """浠?asr_priors.yaml 鏌ヨ璇?converter 瀵硅妯″瀷鏃忕殑 ASR.
+        """?asr_priors.yaml ヨ?converter ″ ASR.
 
-        妯＄硦鍖归厤 converter 绫诲悕 + technique 鍙傛暟銆?
+         converter  + technique ?
         """
         conv_class = type(conv).__name__
-        # 妫€鏌ユ槸鍚︽湁 persuasion_technique 灞炴€?
+        # €ユ︽ persuasion_technique €?
         technique = getattr(conv, "persuasion_technique", "")
         sig_key = f"{conv_class}:{technique}" if technique else conv_class
 
         model_lower = model_family.lower()
 
-        # 精确匹配 "Class:technique"
+        #  "Class:technique"
         if sig_key in converter_asr:
             entry = converter_asr[sig_key]
-            # v58: 精确匹配优先
+            # v58: 
             for mk, mv in entry.items():
                 if mk == "default":
                     continue
                 if mk.lower() == model_lower:
                     return float(mv)
-            # Pass 2: 最长子串匹配
+            # Pass 2: 
             best_key = ""
             best_val = None
             for mk, mv in entry.items():
@@ -405,16 +405,16 @@ def l5_optimal_for_model(
                 return float(best_val)
             return float(entry.get("default", 0.0))
 
-        # 妯＄硦鍖归厤 鈥?浠呯被鍚?
+        #  ??
         for key, entry in converter_asr.items():
             if conv_class in key:
-                # v58: 精确匹配优先
+                # v58: 
                 for mk, mv in entry.items():
                     if mk == "default":
                         continue
                     if mk.lower() == model_lower:
                         return float(mv)
-                # Pass 2: 最长子串匹配
+                # Pass 2: 
                 best_key = ""
                 best_val = None
                 for mk, mv in entry.items():
@@ -430,21 +430,21 @@ def l5_optimal_for_model(
 
         return 0.0
 
-    # 鎸夋ā鍨嬫棌鍏堥獙 ASR 闄嶅簭鎺掑簭 (绋冲畾鎺掑簭淇濇寔鍘熸湁鐩稿椤哄簭)
+    # ā ASR  ()
     candidates.sort(key=_get_converter_asr, reverse=True)
 
     logger.info(
         "L5 converter candidates re-ordered by model_family=%s ASR priors",
         model_family,
     )
-    # v57: 只在首次打印完整 reordered 列表, 后续只输出摘要
+    # v57:  reordered , 
     global _L5_PRINTED_FULL_REORDER
     if not _L5_PRINTED_FULL_REORDER:
         for i, c in enumerate(candidates):
             logger.info("  Reordered %d: %s (prior ASR=%.1f%%)", i + 1, type(c).__name__, _get_converter_asr(c))
         _L5_PRINTED_FULL_REORDER = True
     else:
-        # 只输出前 3 个 (最有价值的 converter) + 摘要
+        #  3  ( converter) + 
         for i, c in enumerate(candidates[:3]):
             logger.info("  Top %d: %s (prior ASR=%.1f%%)", i + 1, type(c).__name__, _get_converter_asr(c))
         logger.info("  ... (%d more, same as previous technique)", max(0, len(candidates) - 3))
@@ -452,17 +452,17 @@ def l5_optimal_for_model(
     return candidates
 
 
-# 鈹€鈹€ 閾惧悕 鈫?鏋勫缓鍑芥暟鏄犲皠 鈹€鈹€
-# 寤惰繜鏋勫缓浠ラ伩鍏嶅惊鐜鍏?(converter_chains 鍦ㄦā鍧楁湯灏?re-export 鏈ā鍧?
+# €€  ? €€
+# ラ?(converter_chains ㄦā?re-export ā?
 def _build_chain_builders() -> dict[str, Any]:
-    """构建链名 → 构建函数映射 (延迟加载避免循环导入)。
+    """ →  (Loadfrom)
 
-    L5 v42: 移除 encoding_bypass 和 multi_encoding。
-        原因: 二者返回 3-4 个 converter, 隐含串联堆叠语义,
-        违反 Wei et al. (arXiv:2307.15043) 三层衰减定律 (ASR <4%)。
-        替换方案: 如需编码绕过, 使用 selective_encoding (ASR 25-35%, 单 converter)。
+    L5 v42:  encoding_bypass  multi_encoding
+        :  3-4 converter(s), ,
+         Wei et al. (arXiv:2307.15043) Layer (ASR <4%)
+        : ,  selective_encoding (ASR 25-35%,  converter)
 
-    L5 v36: 新增 SelectiveTextConverter 链。
+    L5 v36:  SelectiveTextConverter 
     """
     from arm.converter_chains import (
         chained_selective,
@@ -499,7 +499,7 @@ def _build_chain_builders() -> dict[str, Any]:
         "smoothllm_bypass": smoothllm_bypass,
         "l5_optimal": l5_optimal,
         "l5_optimal_for_model": l5_optimal_for_model,
-        # L5 v36: 新 SelectiveTextConverter 链
+        # L5 v36:  SelectiveTextConverter 
         "selective_encoding": selective_encoding,
         "selective_obfuscation": selective_obfuscation,
         "chained_selective": chained_selective,
@@ -508,7 +508,7 @@ def _build_chain_builders() -> dict[str, Any]:
         "policy_puppetry": policy_puppetry,
         "token_smuggling": token_smuggling,
         "template_segment": template_segment,
-        # L5 v36: 新 File Converter 链
+        # L5 v36:  File Converter 
         "pdf_direct_generation": pdf_direct_generation,
         "pdf_injection": pdf_injection,
         "word_doc_direct_generation": word_doc_direct_generation,
@@ -516,12 +516,12 @@ def _build_chain_builders() -> dict[str, Any]:
     }
 
 
-# 妯″潡鍔犺浇鏃朵笉鏋勫缓, 棣栨璁块棶鏃舵瀯寤?
+# ″, ?
 _CHAIN_BUILDERS: dict[str, Any] | None = None
 
 
 def _get_chain_builders() -> dict[str, Any]:
-    """鑾峰彇 CHAIN_BUILDERS (棣栨璋冪敤鏃舵瀯寤?銆?"""
+    """ CHAIN_BUILDERS (??"""
     global _CHAIN_BUILDERS
     if _CHAIN_BUILDERS is None:
         _CHAIN_BUILDERS = _build_chain_builders()
@@ -556,11 +556,11 @@ def build_converter_map(
     Returns: {technique_name: [converter_instances]}
 
     L5 v40 seed-aware adaptation:
-        - 新增 seeds 参数: 从种子 metadata (category/suitable_for) 感知
-          攻击向量类型, 对 context techniques 放宽编码 converter 限制
-        - 学术依据: Greshake et al. (arXiv:2302.12173) —
-          攻击策略必须匹配目标攻击面, 种子 category 反映攻击向量类型
-        - 如果 seeds 为 None, 回退到 L5 v39 行为 (semantic-only for context)
+        -  seeds : imports metadata (category/suitable_for) 
+          ,  context techniques  converter 
+        - Academic basis: Greshake et al. (arXiv:2302.12173) —
+          ,  category 
+        -  seeds  None,  L5 v39  (semantic-only for context)
 
     L5 v39 technique-aware assignment:
         - Baseline techniques (prompt_sending): no converters — raw payload
@@ -624,7 +624,7 @@ def build_converter_map(
             target_fingerprint,
         )
 
-    # ── L5 v41: Pre-build base converter list ONCE (not per-technique) ──
+    # == L5 v41: Pre-build base converter list ONCE (not per-technique) ==
     # arXiv:2407.01232 — SequentialAttack FIRST_SUCCESS: the same converter
     #   candidate list is used for every technique. Previously, the loop below
     #   called l5_optimal_for_model() once PER technique, resulting in N×17
@@ -744,7 +744,7 @@ def build_converter_map(
     converter_map: dict[str, list[Any]] = {}
 
     for technique_name in technique_names:
-        # ── L5 v39: Technique-aware converter assignment ──
+        # == L5 v39: Technique-aware converter assignment ==
         # arXiv:2307.15043 — baseline (prompt_sending) needs no converter
         # to establish ASR reference for converter effectiveness measurement.
         if technique_name in _BASELINE_TECHNIQUES and "l5_optimal" in chain_names:
@@ -795,7 +795,7 @@ def build_converter_map(
 
         if technique_name in _CONTEXT_TECHNIQUES and converters:
             if has_encoding_category:
-                # L5 v40: 编码类种子 + context technique → 允许编码 converter
+                # L5 v40:  + context technique →  converter
                 # arXiv:2302.12173 — category-aware
                 logger.info(
                     "L5 v40: Technique '%s' is context-based BUT seeds have "
@@ -804,7 +804,7 @@ def build_converter_map(
                     technique_name,
                     ", ".join(seed_categories & _ENCODING_CATEGORIES),
                 )
-                # 不过滤, 保留全部 converter (编码 + 语义)
+                # ,  converter ( + )
             else:
                 # L5 v41: Per-technique semantic whitelist
                 # Different context techniques preserve different structural
@@ -840,10 +840,10 @@ def build_converter_map(
                 f"  {technique_name}: {len(converters)} converters"
             )
 
-    # ── 增量借鉴: per-technique converter 追加 (technique:converter.xxx 语法) ──
-    # 借鉴 pyrit_scan 的 per-technique converter 注册模式
+    # == : per-technique converter  (technique:converter.xxx ) ==
+    #  pyrit_scan  per-technique converter 
     # converter_overrides: {technique_name: [chain_name, ...]}
-    # 为指定 technique 追加额外的 converter chain (不覆盖全局链)
+    #  technique  converter chain (Not overridden)
     if converter_overrides:
         builders = _get_chain_builders()
         for tech_name, extra_chains in converter_overrides.items():
@@ -883,7 +883,7 @@ def build_converter_map(
                         extra_chains,
                     )
                 else:
-                    # technique 不在全局链中 (如 baseline 无 converter), 追加创建
+                    # technique  ( baseline  converter), 
                     converter_map[tech_name] = extra_converters
                     logger.info(
                         "Per-technique override: '%s' created with %d converters (%s)",
@@ -892,7 +892,7 @@ def build_converter_map(
                         extra_chains,
                     )
 
-    # v57: 输出聚合的技术 converter 分配摘要 (替代逐行 INFO)
+    # v57:  converter  ( INFO)
     if _tech_assignment_summary:
         logger.info(
             "Converter assignment summary (%d techniques, target_type=%s):",

@@ -27,7 +27,7 @@ class TestInjectPlaceholder:
         body = json.dumps({
             "Inputs": {"stuNo": "123", "CourseName": ""},
             "Stream": True,
-            "Query": "介绍你自己",
+            "Query": "",
             "ChatId": "",
             "UserId": "123",
         }, ensure_ascii=False)

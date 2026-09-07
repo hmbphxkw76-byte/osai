@@ -10,10 +10,10 @@ Covers:
     - is_token_expired: token expiry check
     - _decode_jwt_payload: JWT payload decoding (no signature verification)
 
-学术依据:
-    - Heroux et al. (arXiv:2403.04206) §3.2 — 认证失效恢复策略
+Academic basis:
+    - Heroux et al. (arXiv:2403.04206) §3.2 — 
     - RFC 7519 §4.1.4 — JWT exp claim
-    - OWASP WSTG-ATHN-01 — 认证绕过测试标准
+    - OWASP WSTG-ATHN-01 — 
 """
 
 from __future__ import annotations

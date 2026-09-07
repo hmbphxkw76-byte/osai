@@ -1,12 +1,12 @@
-"""Burp Suite HTTP 请求解析 → PyRIT 原生 HTTPTarget 构建。
+"""Burp Suite HTTP  → PyRIT  HTTPTarget 
 
-子模块拆分:
-    - sse_parser: SSE 流式响应解析
-    - fingerprint: AI 框架/SDK 指纹识别
-    - prompt_injector: Prompt 注入 & 会话ID管理
-    - api_classifier: API 端点类别检测
+:
+    - sse_parser: SSE 
+    - fingerprint: AI /SDK 
+    - prompt_injector: Prompt  & ID
+    - api_classifier: API 
 
-真实样本::
+::
 
     POST /api/chat HTTP/1.1
     Host: target.example.com
@@ -14,7 +14,7 @@
     Cookie: session_id=xxx
     ...
 
-    {"prompt":"介绍自己"}
+    {"prompt":""}
 """
 
 from __future__ import annotations
@@ -43,29 +43,29 @@ from recon.prompt_injector import (
 
 logger = logging.getLogger(__name__)
 
-# ════════════════════════════════════════════════════════════════════
-# P1-05: TargetFingerprint Schema 显式化
-# 学术依据: C3 显式优于隐式 — dict[str, str] 缺乏编译时检查,
-# 字段名 typo (如 "chat_id" vs "chatid") 和类型混乱 (str/int/bool 混存)
-# 是 2024-2025 年 Python AI 安全工具中常见报告数据损坏根因。
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# P1-05: TargetFingerprint Schema 
+# Academic basis: C3  — dict[str, str] ,
+#  typo ( "chat_id" vs "chatid")  (str/int/bool )
+#  2024-2025  Python AI 
+# ====================================================================
 
 
 @dataclass
 class TargetFingerprint:
-    """目标指纹信息 — 显式 Schema, 两阶段写入隔离。
+    """ —  Schema, 
 
-    两阶段写入契约:
-        Phase 1 (parse-time): 由 ``burp_parser._parse_raw_http`` 填充
-            (HTTP 静态解析阶段, 不发送网络请求)
-        Phase 2 (probe-time): 由探测模块 (capability_detector/target_router) 填充
-            (发送探测请求后动态收集, 字段默认 None / 空 / False)
+    :
+        Phase 1 (parse-time):  ``burp_parser._parse_raw_http`` 
+            (HTTP , )
+        Phase 2 (probe-time):  (capability_detector/target_router) 
+            (,  None /  / False)
 
-    向后兼容: 提供 ``get`` / ``__getitem__`` / ``__setitem__`` 接口, 允许
-    旧式 ``fp["key"]`` 写法继续工作, 但新增字段强烈推荐 attribute 访问。
+    :  ``get`` / ``__getitem__`` / ``__setitem__`` , 
+     ``fp["key"]`` ,  attribute 
     """
 
-    # ── Phase 1: HTTP 请求解析 (必填, _extract_fingerprint 写入) ──
+    # == Phase 1: HTTP  (, _extract_fingerprint ) ==
     framework: str = "Unknown"
     api_path: str = ""
     host: str = ""
@@ -74,21 +74,21 @@ class TargetFingerprint:
     app_type: str = "Web Application"
     api_category: str = "chat"
 
-    # ── Phase 1: HTTP 请求解析 (可选, _parse_raw_http 写入) ──
+    # == Phase 1: HTTP  (, _parse_raw_http ) ==
     ai_framework: str | None = None
     ai_framework_category: str | None = None
     chat_id: str | None = None
     burp_model_name: str | None = None
     has_model_list: bool = False
 
-    # ── Phase 2: 主动探测 (capability_detector / target_router 写入) ──
+    # == Phase 2:  (capability_detector / target_router ) ==
     language: str | None = None
     model_family: str | None = None
     capabilities: list[str] = field(default_factory=list)
     probe_count: int = 0
     probe_duration_seconds: float = 0.0
 
-    # ── Phase 2: 深度探测 (target_router 后处理写入) ──
+    # == Phase 2:  (target_router ) ==
     mcp_tools: list[str] = field(default_factory=list)
     mcp_resources: list[str] = field(default_factory=list)
     mcp_prompts: list[str] = field(default_factory=list)
@@ -100,43 +100,43 @@ class TargetFingerprint:
     original_prompt: str | None = None
     session_type: str | None = None
 
-    # ── 动态扩展 (非预期字段落地点, 运行时探测的未知键) ──
+    # ==  (, ) ==
     extra: dict[str, Any] = field(default_factory=dict)
 
     def get(self, key: str, default: Any = None) -> Any:
-        """向后兼容 dict.get()。"""
+        """ dict.get()"""
         if hasattr(self, key) and not key.startswith("_"):
             val = getattr(self, key)
             return val if val is not None else default
         return self.extra.get(key, default)
 
     def __getitem__(self, key: str) -> Any:
-        """向后兼容 dict[key] 读。"""
+        """ dict[key] """
         if hasattr(self, key) and not key.startswith("_"):
             return getattr(self, key)
         return self.extra[key]
 
     def __setitem__(self, key: str, value: Any) -> None:
-        """向后兼容 dict[key] = value 写。优先 attribute, 否则 extra。"""
+        """ dict[key] = value  attribute,  extra"""
         if hasattr(self, key) and not key.startswith("_"):
             setattr(self, key, value)
         else:
             self.extra[key] = value
 
     def to_dict(self) -> dict[str, Any]:
-        """序列化为 JSON 兼容字典 (用于报告输出)。"""
+        """ JSON  ()"""
         from dataclasses import asdict
 
         result = asdict(self)
         extra = result.pop("extra", {})
         result.update(extra)
-        # 过滤 None / 空 / False, 保留有意义的字段
+        #  None /  / False, 
         return {k: v for k, v in result.items() if v not in (None, "", [], False, 0, 0.0)}
 
 
 @dataclass
 class ParsedBurpRequest:
-    """解析后的 Burp 请求。"""
+    """ Burp """
 
     method: str
     url: str
@@ -160,15 +160,15 @@ class ParsedBurpRequest:
     api_category: str = "chat"
 
 
-# ════════════════════════════════════════════════════════════════════
-# 主入口函数
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# 
+# ====================================================================
 
 
 def parse_burp_request(file_path: str | Path) -> ParsedBurpRequest:
-    """解析 Burp 原始 HTTP 请求文件。
+    """ Burp  HTTP 
 
-    支持格式::
+    ::
 
         POST /api/chat HTTP/1.1
         Host: target.example.com
@@ -177,24 +177,24 @@ def parse_burp_request(file_path: str | Path) -> ParsedBurpRequest:
 
         {"prompt":"{PROMPT}"}
 
-    也支持 Burp 导出的完整 HTTP 交互 (Request + Response)。
+     Burp  HTTP  (Request + Response)
 
     Args:
-        file_path: Burp 请求文件路径。
+        file_path: Burp 
 
     Returns:
-        ParsedBurpRequest: 解析结果。
+        ParsedBurpRequest: 
 
     Raises:
-        FileNotFoundError: 文件不存在。
-        ValueError: HTTP 请求格式无效。
+        FileNotFoundError: 
+        ValueError: HTTP 
     """
     raw = Path(file_path).read_text(encoding="utf-8", errors="replace")
     return _parse_raw_http(raw)
 
 
 def build_raw_http_request(parsed: ParsedBurpRequest) -> str:
-    """重建原始 HTTP 请求字符串 (CRLF 格式)。"""
+    """ HTTP  (CRLF )"""
     lines = [f"{parsed.method} {parsed.path} {parsed.http_version}"]
 
     for key, value in parsed.raw_headers:
@@ -213,18 +213,18 @@ def build_raw_http_request(parsed: ParsedBurpRequest) -> str:
     return request
 
 
-# ════════════════════════════════════════════════════════════════════
-# 内部实现
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# 
+# ====================================================================
 
 
 def _parse_raw_http(raw: str) -> ParsedBurpRequest:
-    """解析原始 HTTP 请求字符串。
+    """ HTTP 
 
-    L5 v19 修复: 某些 Burp 导出格式 header 与 body 间无空行分隔,
-    导致 body 行被误判为 header。
+    L5 v19 :  Burp  header  body ,
+     body  header
 
-    P2-20 增强: 支持 Burp 导出的完整 HTTP 交互 (Request + Response)。
+    P2-20 :  Burp  HTTP  (Request + Response)
     """
     normalized = raw.replace("\r\n", "\n")
 
@@ -244,7 +244,7 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
     path = request_line[1]
     http_version = request_line[2]
 
-    # 全量保留 header (保持原始顺序 + 大小写)
+    #  header ( + )
     headers: dict[str, str] = {}
     raw_headers: list[tuple[str, str]] = []
     body_from_headers: list[str] = []
@@ -281,7 +281,7 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
     use_tls = infer_tls(path, headers)
     full_url = build_full_url(path, host, use_tls)
 
-    # SSE 检测 (3 层策略)
+    # SSE  (3 Layer)
     accept_header = headers.get("accept", "")
     is_sse = "text/event-stream" in accept_header
     if not is_sse and body:
@@ -300,10 +300,10 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
                 is_sse = True
                 break
 
-    # API 端点类别检测 (委托给 api_classifier)
+    # API  ( api_classifier)
     api_category = detect_api_category(path, body)
 
-    # 提取原始 prompt 值 (侦察分析)
+    #  prompt  ()
     original_prompt_value: str | None = None
     if api_category == "chat" and body and "{PROMPT}" not in body:
         original_prompt_value = extract_original_prompt_value(body)
@@ -313,7 +313,7 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
                 original_prompt_value[:80],
             )
 
-    # 占位符检测 + 自动注入
+    #  + 
     has_placeholder = "{PROMPT}" in body or "{PROMPT}" in path
     if not has_placeholder and body and api_category == "chat":
         body = inject_prompt_placeholder(body)
@@ -325,17 +325,17 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
             path,
         )
 
-    # 目标指纹 (委托给 fingerprint 模块)
+    #  ( fingerprint )
     fingerprint = _extract_fingerprint(headers, path, host, response_section)
     fingerprint.api_category = api_category
 
-    # 从 Response 部分提取会话 ID
+    #  Response  ID
     chat_id: str | None = None
     chat_id_field: str | None = None
     has_chat_id_placeholder = False
     initial_chat_id_from_body: str | None = None
 
-    # 从 Burp Response 中提取模型信息
+    #  Burp Response 
     burp_model_name: str | None = None
     burp_model_list: str | None = None
 
@@ -353,7 +353,7 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
             logger.info("Extracted model list from Burp Response (length=%d)", len(burp_model_list))
             fingerprint.extra["burp_model_list"] = "yes"
 
-    # 检测 Request body 中的会话 ID 字段名并注入 {CHAT_ID} 占位符
+    #  Request body  ID and inject into {CHAT_ID} 
     if body:
         try:
             orig_body_data = json.loads(body)
@@ -407,7 +407,7 @@ def _extract_fingerprint(
     host: str,
     response_section: str | None = None,
 ) -> TargetFingerprint:
-    """从 HTTP 请求和响应中提取目标指纹信息 (Phase 1 解析输出)。"""
+    """imports HTTP  (Phase 1 )"""
     server = headers.get("server", "")
     x_powered = headers.get("x-powered-by", "")
     if "next" in (server + x_powered).lower():
@@ -436,7 +436,7 @@ def _extract_fingerprint(
 
     content_type = headers.get("content-type", "unknown")
 
-    # 从路径推断应用类型
+    # 
     path_lower = path.lower()
     if "/challenges/" in path_lower or "/scenarios/" in path_lower or "/arena/" in path_lower:
         app_type = "Testing/Arena"
@@ -449,7 +449,7 @@ def _extract_fingerprint(
     else:
         app_type = "Web Application"
 
-    # AI 框架/SDK 指纹识别 (委托给 fingerprint 模块)
+    # AI /SDK  ( fingerprint )
     ai_fw: str | None = None
     ai_fw_cat: str | None = None
     if response_section:
@@ -471,9 +471,9 @@ def _extract_fingerprint(
 
 
 def _split_request_response(normalized: str) -> tuple[str, str | None]:
-    """分离 Burp 导出的完整 HTTP 交互中的 Request 和 Response 部分。
+    """ Burp  HTTP  Request  Response 
 
-    通过检测 ``HTTP/<digit>`` 开头的行来识别 Response 起始位置。
+     ``HTTP/<digit>``  Response 
     """
     lines = normalized.split("\n")
 
@@ -498,7 +498,7 @@ def _split_request_response(normalized: str) -> tuple[str, str | None]:
     return request_section, response_section
 
 
-# 会话 ID 字段名匹配列表 (大小写不敏感)
+#  ID  ()
 _CHAT_ID_FIELD_NAMES = frozenset({
     "chatid", "chat_id", "chatidvalue", "chatsessionid", "chat_session_id",
     "sessionid", "session_id", "sessionidvalue",

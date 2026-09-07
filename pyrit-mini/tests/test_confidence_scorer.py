@@ -8,10 +8,10 @@ Covers:
     - get_trigger_recommendations: attack trigger recommendations
     - filter_by_level: confidence level filtering
 
-学术依据:
-    - Zheng et al. (arXiv:2306.05685) §4.3 — 评分者置信度分级
-    - Mazeika et al. (arXiv:2402.04249) §3.2 — 能力评估分级
-    - Bayesian Inference — 后验概率证据累积
+Academic basis:
+    - Zheng et al. (arXiv:2306.05685) §4.3 — 
+    - Mazeika et al. (arXiv:2402.04249) §3.2 — 
+    - Bayesian Inference — 
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ class TestMatchCapabilityI18n:
         """Chinese keyword should match."""
         from recon.confidence_scorer import match_capability_i18n
 
-        assert match_capability_i18n("我可以使用工具", "agent") is True
+        assert match_capability_i18n("", "agent") is True
 
     def test_case_insensitive_english(self):
         """English matching should be case-insensitive."""
@@ -62,7 +62,7 @@ class TestMatchCapabilityI18n:
         from recon.confidence_scorer import match_capability_i18n
 
         assert match_capability_i18n("model context protocol", "mcp") is True
-        assert match_capability_i18n("模型上下文协议", "mcp") is True
+        assert match_capability_i18n("", "mcp") is True
 
 
 class TestScoreCapability:

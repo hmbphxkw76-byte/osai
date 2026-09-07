@@ -8,10 +8,10 @@ Covers:
     - _detect_language: Chinese/English language detection
     - _infer_json_path: JSON response path inference
 
-学术依据:
-    - Greshake et al. (arXiv:2302.12173) — 间接提示注入探测
+Academic basis:
+    - Greshake et al. (arXiv:2302.12173) — 
     - Zhan et al. (arXiv:2307.00929) — InjecAgent
-    - Mazeika et al. (arXiv:2406.18510) — WILDTEAMING 模型族
+    - Mazeika et al. (arXiv:2406.18510) — WILDTEAMING 
 """
 
 from __future__ import annotations
@@ -231,19 +231,19 @@ class TestDetectModelFamily:
         """Qwen model names should be detected precisely."""
         from recon.capability_detector import _detect_model_family
 
-        assert _detect_model_family("我是通义千问 Qwen3") == "qwen3-32b"
+        assert _detect_model_family(" Qwen3") == "qwen3-32b"
 
     def test_deepseek_family(self):
         """DeepSeek model names should be detected precisely."""
         from recon.capability_detector import _detect_model_family
 
-        assert _detect_model_family("我是深度求索 DeepSeek-V3") == "deepseek-v3"
+        assert _detect_model_family(" DeepSeek-V3") == "deepseek-v3"
 
     def test_glm_family(self):
         """GLM model names should be detected precisely."""
         from recon.capability_detector import _detect_model_family
 
-        assert _detect_model_family("我是智谱 GLM-5") == "glm-5"
+        assert _detect_model_family(" GLM-5") == "glm-5"
 
     def test_grok_family(self):
         """Grok model names should be detected."""
@@ -279,7 +279,7 @@ class TestDetectLanguage:
         """Chinese text (>5% CJK) should be detected as 'zh'."""
         from recon.capability_detector import _detect_language
 
-        text = "你好世界，这是一个测试用的中文文本"
+        text = "converter(s)"
         assert _detect_language(text) == "zh"
 
     def test_english_detection(self):

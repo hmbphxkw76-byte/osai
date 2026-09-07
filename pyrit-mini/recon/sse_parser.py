@@ -1,15 +1,15 @@
-"""SSE (Server-Sent Events) 流式响应解析器。
+"""SSE (Server-Sent Events) 
 
-支持多种 SSE 格式的 content 片段提取与拼接:
-    - 标准 SSE (event:, data:)
-    - OpenAI 兼容 (choices[0].delta.content)
-    - DeepSeek JSON Patch (RFC 6902 变体)
-    - Qwen 纯值片段 ({"v":"..."})
+ SSE  content :
+    -  SSE (event:, data:)
+    - OpenAI  (choices[0].delta.content)
+    - DeepSeek JSON Patch (RFC 6902 )
+    - Qwen  ({"v":"..."})
 
 ⚠️ DEPRECATED (2026-09-06):
-    当前未被任何模块 import 引用 (SSE 解析功能已内联到 burp_parser.py)。
-    保留原因: 预留供未来可能的独立 SSE 解析需求。
-    如需恢复: 在 burp_parser.py 或其他模块中添加 `from recon.sse_parser import make_sse_callback`。
+     import  (SSE  burp_parser.py)
+    :  SSE 
+    :  burp_parser.py  `from recon.sse_parser import make_sse_callback`
 """
 
 from __future__ import annotations
@@ -20,9 +20,9 @@ from typing import Any
 
 
 def _extract_nested_ci(obj: Any, *keys: Any) -> Any:
-    """从嵌套 dict/list 中提取值 (大小写不敏感)。
+    """imports dict/list  ()
 
-    适配不同 API 的 JSON key 命名风格:
+     API  JSON key :
         - snake_case: "choices", "delta", "content"
         - PascalCase: "Choices", "Delta", "Content"
     """
@@ -37,7 +37,7 @@ def _extract_nested_ci(obj: Any, *keys: Any) -> Any:
                 return None
         else:
             if isinstance(current, dict):
-                # 大小写不敏感查找
+                # 
                 if key in current:
                     current = current[key]
                 else:
@@ -56,7 +56,7 @@ def _extract_nested_ci(obj: Any, *keys: Any) -> Any:
 
 
 def _extract_nested(obj: Any, *keys: Any) -> Any:
-    """从嵌套 dict/list 中提取值 (大小写敏感)。"""
+    """imports dict/list  ()"""
     current = obj
     for key in keys:
         if current is None:
@@ -75,18 +75,18 @@ def _extract_nested(obj: Any, *keys: Any) -> Any:
 
 
 def make_sse_callback() -> Any:
-    """创建 SSE 流式响应解析 callback。
+    """ SSE  callback
 
-    策略 (4层 fallback):
-        1. 逐行解析 SSE data: 行，提取 content/delta.content/v 字段
-        2. 如果逐行解析失败，用正则全局匹配 content 字段
-        3. 如果 content 正则也失败，用正则全局匹配 "v":"..." 片段
-        4. 如果都失败，返回原始文本 (去掉 SSE 前缀)
+     (4Layer fallback):
+        1.  SSE data:  content/delta.content/v 
+        2.  content 
+        3.  content  "v":"..." 
+        4.  ( SSE )
     """
 
     def parse_sse_response(response: Any) -> str:
-        """解析 SSE 流式响应，拼接所有 content 片段。"""
-        # 获取响应文本
+        """ SSE all content """
+        # 
         text = None
         if hasattr(response, "text") and response.text is not None:
             text = response.text
@@ -101,7 +101,7 @@ def make_sse_callback() -> Any:
         if not text or not text.strip():
             return ""
 
-        # 策略1: 逐行解析 SSE data: 行 (最准确)
+        # 1:  SSE data:  ()
         content_parts: list[str] = []
         for line in text.split("\n"):
             line = line.strip()
@@ -115,7 +115,7 @@ def make_sse_callback() -> Any:
             try:
                 data_obj = json.loads(data_content)
 
-                # ── DeepSeek JSON Patch 格式 ──
+                # == DeepSeek JSON Patch  ==
                 if isinstance(data_obj, dict) and "v" in data_obj:
                     v_val = data_obj["v"]
                     if "p" in data_obj and "o" in data_obj:
@@ -134,7 +134,7 @@ def make_sse_callback() -> Any:
                                         content_parts.append(item)
                         continue
                     else:
-                        # 纯值片段 {"v":"片段"} — 直接提取
+                        #  {"v":""} — 
                         if isinstance(v_val, str):
                             content_parts.append(v_val)
                         elif isinstance(v_val, dict):
@@ -143,7 +143,7 @@ def make_sse_callback() -> Any:
                                 content_parts.append(inner)
                         continue
 
-                # ── 标准 SSE / OpenAI / 通用 JSON ──
+                # ==  SSE / OpenAI /  JSON ==
                 content_val = (
                     _extract_nested_ci(data_obj, "content")
                     or _extract_nested_ci(data_obj, "delta", "content")
@@ -156,7 +156,7 @@ def make_sse_callback() -> Any:
                 if content_val and isinstance(content_val, str):
                     content_parts.append(content_val)
             except (json.JSONDecodeError, ValueError):
-                # 非 JSON 格式，尝试正则 (大小写不敏感)
+                #  JSON  ()
                 pattern = re.compile(r'"content"\s*:\s*"((?:[^"\\]|\\.)*)"', re.I)
                 match = pattern.search(data_content)
                 if match:
@@ -167,7 +167,7 @@ def make_sse_callback() -> Any:
             full_content = full_content.replace("\\n", "\n").replace("\\\"", "\"").replace("\\t", "\t")
             return full_content
 
-        # 策略2: 正则全局匹配 content 字段
+        # 2:  content 
         pattern = re.compile(r'"content"\s*:\s*"((?:[^"\\]|\\.)*)"', re.I)
         matches = pattern.findall(text)
         if matches:
@@ -175,7 +175,7 @@ def make_sse_callback() -> Any:
             full_content = full_content.replace("\\n", "\n").replace("\\\"", "\"").replace("\\t", "\t")
             return full_content
 
-        # 策略3: 正则全局匹配 "v":"..." 片段
+        # 3:  "v":"..." 
         v_pattern = re.compile(r'"v"\s*:\s*"((?:[^"\\]|\\.)*)"', re.I)
         v_matches = v_pattern.findall(text)
         if v_matches:
@@ -183,7 +183,7 @@ def make_sse_callback() -> Any:
             full_content = full_content.replace("\\n", "\n").replace("\\\"", "\"").replace("\\t", "\t")
             return full_content
 
-        # 策略4: 返回原始文本 (清理 SSE 前缀)
+        # 4:  ( SSE )
         cleaned = re.sub(r"^(event:|data:)\s*", "", text, flags=re.MULTILINE)
         cleaned = cleaned.replace("[DONE]", "").replace("[STOP]", "")
         return cleaned.strip()

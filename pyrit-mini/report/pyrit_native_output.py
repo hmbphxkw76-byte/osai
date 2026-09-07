@@ -1,4 +1,4 @@
-"""PyRIT 原生 output 适配层 — 对齐 PyRIT 1.0.1 官方 output 模块标准。
+"""PyRIT  output Layer —  PyRIT 1.0.1  output 
 
 # arXiv:2407.01232 — PyRIT, native output module (output_attack_async, output_scenario_async)
 # arXiv:2402.12109 — Russinovich et al., CrescendoAttack (multi-turn progressive escalation)
@@ -7,26 +7,26 @@
 # arXiv:2406.18112 — Hanna et al., SkeletonKeyAttack (prefix injection)
 # arXiv:2402.05124 — Anthropic, ManyShotJailbreakAttack (many-shot jailbreaking)
 
-本模块是 PyRIT 官方 `pyrit.output` 模块的薄适配层，确保攻击结果输出
-完全符合 PyRIT 原生框架标准，同时与 OffSec AI-300 考试要求的
-安全报告功能共存。
+ PyRIT  `pyrit.output` LayerEnsure
+ PyRIT  OffSec AI-300 
 
-PyRIT 官方 output 架构:
-    Sink (输出目标) → PrinterBase (渲染逻辑) → Domain Printer (具体格式)
 
-输出格式:
-    - pretty (ANSI-colored): 终端友好，PyRIT 默认格式
-    - markdown: Jupyter/文档友好，PyRIT 官方 markdown 格式
+PyRIT  output :
+    Sink () → PrinterBase () → Domain Printer ()
 
-关键函数:
-    - output_native_attack_results: 使用 output_attack_async 输出每个 AttackResult
-    - output_native_scenario_result: 使用 output_scenario_async 输出 ScenarioResult
-    - generate_native_output_files: 生成官方标准文件 (attack_results.md + scenario_result.md)
+:
+    - pretty (ANSI-colored): PyRIT 
+    - markdown: Jupyter/PyRIT  markdown 
 
-OffSec AI-300 对齐:
-    - R2 PyRIT 原生优先: 使用 pyrit.output 官方模块，不自行实现渲染逻辑
-    - R6 红队就绪: 完整证据链，原生 output + 安全报告双输出
-    - 考试评分: 官方格式输出证明 PyRIT 框架掌握能力
+:
+    - output_native_attack_results:  output_attack_async converter(s) AttackResult
+    - output_native_scenario_result:  output_scenario_async  ScenarioResult
+    - generate_native_output_files:  (attack_results.md + scenario_result.md)
+
+OffSec AI-300 :
+    - R2 PyRIT :  pyrit.output 
+    - R6 :  output + 
+    - :  PyRIT 
 """
 
 from __future__ import annotations
@@ -49,27 +49,27 @@ async def output_native_attack_results(
     include_adversarial_conversation: bool = True,
     include_pruned_conversations: bool = True,
 ) -> int:
-    """使用 PyRIT 官方 output_attack_async 输出每个 AttackResult。
+    """ PyRIT  output_attack_async converter(s) AttackResult
 
-    生成文件:
-        - output_dir/native_output/attack_<technique>_<index>.md (markdown 格式)
-        - output_dir/native_output/attack_<technique>_<index>.txt (pretty 格式)
+    :
+        - output_dir/native_output/attack_<technique>_<index>.md (markdown )
+        - output_dir/native_output/attack_<technique>_<index>.txt (pretty )
 
-    PyRIT 官方标准:
-        - 使用 MarkdownAttackResultMemoryPrinter (markdown 格式)
-        - 使用 PrettyAttackResultMemoryPrinter (pretty 格式)
-        - 数据源: CentralMemory (通过 conversation_id 获取完整对话)
-        - 输出结构: Header → Summary → Conversation History → Metadata → Footer
+    PyRIT :
+        -  MarkdownAttackResultMemoryPrinter (markdown )
+        -  PrettyAttackResultMemoryPrinter (pretty )
+        - : CentralMemory ( conversation_id )
+        - : Header → Summary → Conversation History → Metadata → Footer
 
     Args:
-        attack_results: {technique_name: [AttackResult, ...]} 字典。
-        output_dir: 输出目录。
-        include_auxiliary_scores: 是否包含辅助评分 (OffSec: True)。
-        include_adversarial_conversation: 是否包含对抗对话 (OffSec: True)。
-        include_pruned_conversations: 是否包含裁剪对话。
+        attack_results: {technique_name: [AttackResult, ...]} 
+        output_dir: Output directory
+        include_auxiliary_scores:  (OffSec: True)
+        include_adversarial_conversation:  (OffSec: True)
+        include_pruned_conversations: 
 
     Returns:
-        成功输出的 AttackResult 数量。
+         AttackResult 
     """
     from pyrit.output import FileSink, output_attack_async
 
@@ -78,13 +78,13 @@ async def output_native_attack_results(
 
     count = 0
     fallback_count = 0
-    # v57: 聚合 native output fallback warnings, 不再逐条输出
+    # v57:  native output fallback warnings, 
     _fb_markdown_count = 0
     _fb_pretty_count = 0
     for technique_name, results in attack_results.items():
         safe_name = technique_name.replace("/", "_").replace("\\", "_")
         for i, result in enumerate(results):
-            # — Markdown 格式 (PyRIT 官方标准) —
+            # — Markdown  (PyRIT ) —
             md_path = native_dir / f"attack_{safe_name}_{i + 1}.md"
             try:
                 await output_attack_async(
@@ -101,13 +101,13 @@ async def output_native_attack_results(
                     "Native markdown output failed for %s[%d]: %s — using fallback",
                     technique_name, i, e,
                 )
-                # Fallback: 写入从 AttackResult 字段直接提取的简化输出
+                # Fallback:  AttackResult 
                 fb_written = _write_fallback_attack_output(result, md_path, fmt="markdown")
                 if fb_written:
                     fallback_count += 1
                     _fb_markdown_count += 1
 
-            # — Pretty 格式 (ANSI-colored, PyRIT 默认) —
+            # — Pretty  (ANSI-colored, PyRIT ) —
             txt_path = native_dir / f"attack_{safe_name}_{i + 1}.txt"
             try:
                 await output_attack_async(
@@ -123,11 +123,11 @@ async def output_native_attack_results(
                     "Native pretty output failed for %s[%d]: %s — using fallback",
                     technique_name, i, e,
                 )
-                # Fallback: 写入简化 pretty 输出
+                # Fallback:  pretty 
                 _write_fallback_attack_output(result, txt_path, fmt="pretty")
                 _fb_pretty_count += 1
 
-    # v57: 聚合摘要 — 替代之前的逐条 WARNING
+    # v57:  —  WARNING
     total_fb = _fb_markdown_count + _fb_pretty_count
     if total_fb > 0:
         logger.info(
@@ -160,25 +160,25 @@ async def output_native_scenario_result(
     *,
     sort_groups_by_success_rate: bool = True,
 ) -> bool:
-    """使用 PyRIT 官方 output_scenario_async 输出 ScenarioResult。
+    """ PyRIT  output_scenario_async  ScenarioResult
 
-    生成文件:
-        - output_dir/native_output/scenario_result.txt (pretty 格式, ANSI-colored)
-        - output_dir/native_output/scenario_result.md (markdown 格式, Jupyter/文档友好)
+    :
+        - output_dir/native_output/scenario_result.txt (pretty , ANSI-colored)
+        - output_dir/native_output/scenario_result.md (markdown , Jupyter/)
 
-    PyRIT 官方标准:
-        - 使用 PrettyScenarioResultMemoryPrinter (pretty 格式)
-        - 使用 MarkdownScenarioResultMemoryPrinter (markdown 格式)
-        - 输出结构: Header → Scenario Info → Target Info → Scorer Info
+    PyRIT :
+        -  PrettyScenarioResultMemoryPrinter (pretty )
+        -  MarkdownScenarioResultMemoryPrinter (markdown )
+        - : Header → Scenario Info → Target Info → Scorer Info
           → Overall Statistics → Per-Group Breakdown → Footer
 
     Args:
-        scenario_result: PyRIT ScenarioResult 对象 (可为 None)。
-        output_dir: 输出目录。
-        sort_groups_by_success_rate: 按成功率排序分组。
+        scenario_result: PyRIT ScenarioResult  ( None)
+        output_dir: Output directory
+        sort_groups_by_success_rate: 
 
     Returns:
-        True 如果成功输出。
+        True 
     """
     if scenario_result is None:
         logger.debug("No ScenarioResult to output (scenario_result is None)")
@@ -189,7 +189,7 @@ async def output_native_scenario_result(
     native_dir = output_dir / "native_output"
     native_dir.mkdir(parents=True, exist_ok=True)
 
-    # — Pretty 格式 (ANSI-colored, PyRIT 默认) —
+    # — Pretty  (ANSI-colored, PyRIT ) —
     txt_path = native_dir / "scenario_result.txt"
     try:
         await output_scenario_async(
@@ -202,7 +202,7 @@ async def output_native_scenario_result(
     except Exception as e:
         logger.warning("Native scenario pretty output failed: %s", e)
 
-    # — Markdown 格式 (Jupyter/文档友好) —
+    # — Markdown  (Jupyter/) —
     md_path = native_dir / "scenario_result.md"
     try:
         await output_scenario_async(
@@ -223,39 +223,39 @@ async def generate_native_output_files(
     scenario_result: Any | None,
     output_dir: Path,
 ) -> Path:
-    """生成所有 PyRIT 官方标准输出文件。
+    """all PyRIT 
 
-    这是 PyRIT 原生 output 的统一入口，生成:
-        1. native_output/attack_*.md — 每个 AttackResult 的 markdown 格式
-        2. native_output/attack_*.txt — 每个 AttackResult 的 pretty 格式
-        3. native_output/scenario_result.txt — ScenarioResult 的 pretty 格式
-        4. native_output/scenario_result.md — ScenarioResult 的 markdown 格式
-        5. native_output/README.md — 说明文档
+     PyRIT  output :
+        1. native_output/attack_*.md — converter(s) AttackResult  markdown 
+        2. native_output/attack_*.txt — converter(s) AttackResult  pretty 
+        3. native_output/scenario_result.txt — ScenarioResult  pretty 
+        4. native_output/scenario_result.md — ScenarioResult  markdown 
+        5. native_output/README.md — 
 
-    与安全报告 (report.md/report.html 等) 并行存在:
-        - native_output/ — PyRIT 官方标准输出 (证明框架掌握能力)
-        - report.md / report.html — OffSec AI-300 安全评估报告
-        - evidence/ — 证据收集 JSON
-        - poc/ — PoC 脚本
+     (report.md/report.html ) :
+        - native_output/ — PyRIT  ()
+        - report.md / report.html — OffSec AI-300 
+        - evidence/ —  JSON
+        - poc/ — PoC 
 
     Args:
-        attack_results: {technique_name: [AttackResult, ...]} 字典。
-        scenario_result: ScenarioResult 对象 (可为 None)。
-        output_dir: 输出目录。
+        attack_results: {technique_name: [AttackResult, ...]} 
+        scenario_result: ScenarioResult  ( None)
+        output_dir: Output directory
 
     Returns:
-        native_output 目录路径。
+        native_output 
     """
     native_dir = output_dir / "native_output"
     native_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. 输出每个 AttackResult
+    # 1.  AttackResult
     attack_count = await output_native_attack_results(attack_results, output_dir)
 
-    # 2. 输出 ScenarioResult
+    # 2.  ScenarioResult
     scenario_ok = await output_native_scenario_result(scenario_result, output_dir)
 
-    # 3. 生成 README
+    # 3.  README
     readme_path = native_dir / "README.md"
     readme_path.write_text(
         _generate_readme(attack_count, scenario_ok),
@@ -275,33 +275,33 @@ def _write_fallback_attack_output(
     *,
     fmt: str = "markdown",
 ) -> bool:
-    """当 PyRIT 原生 output_attack_async 失败时的 fallback 输出。
+    """ PyRIT  output_attack_async  fallback 
 
-    从 AttackResult 对象字段直接提取关键信息，写入简化格式的文件。
-    保留 PyRIT 官方格式的核心结构: Header → Summary → Conversation → Footer。
+    imports AttackResult 
+     PyRIT : Header → Summary → Conversation → Footer
 
-    根因: output_attack_async 内部通过 CentralMemory.get_memory_instance()
-    获取 conversation 数据，多 endpoint 模式下 setup_environment 清除
-    CentralMemory 单例后，之前的 AttackResult 引用的 conversation_id
-    在新 DB 中不存在，导致原生 output 抛出异常。
+    : output_attack_async  CentralMemory.get_memory_instance()
+     conversation  endpoint  setup_environment 
+    CentralMemory  AttackResult  conversation_id
+     DB  output 
 
     Args:
-        result: PyRIT AttackResult 对象。
-        path: 输出文件路径。
-        fmt: 输出格式 ("markdown" 或 "pretty")。
+        result: PyRIT AttackResult 
+        path: 
+        fmt:  ("markdown"  "pretty")
 
     Returns:
-        True 如果成功写入。
+        True 
     """
     try:
-        # 从 AttackResult 提取字段 (对齐 PyRIT 1.0.1 model 字段名)
+        #  AttackResult  ( PyRIT 1.0.1 model )
         outcome = getattr(result, "outcome", None)
         outcome_str = str(outcome).upper() if outcome else "UNKNOWN"
         objective = getattr(result, "objective", "") or ""
         conversation_id = getattr(result, "conversation_id", "N/A")
         attack_id = getattr(result, "attack_result_id", getattr(result, "id", "N/A"))
 
-        # 提取 scores — AttackResult 有 last_score (单个 Score | None)
+        #  scores — AttackResult  last_score ( Score | None)
         score_lines: list[str] = []
         last_score = getattr(result, "last_score", None)
         if last_score:
@@ -310,7 +310,7 @@ def _write_fallback_attack_output(
             sc = getattr(last_score, "score_type", "")
             score_lines.append(f"  - Scorer: {type(last_score).__name__} | Type: {sc} | Value: {sv} | Rationale: {sr}")
 
-        # 提取 conversation — 从 last_response (MessagePiece) 提取
+        #  conversation —  last_response (MessagePiece) 
         conv_pieces: list[str] = []
         try:
             last_response = getattr(result, "last_response", None)
@@ -322,12 +322,12 @@ def _write_fallback_attack_output(
         except Exception:
             pass
 
-        # Fallback: 如果 last_response 为空, 从 objective 构造最小对话
+        # Fallback:  last_response ,  objective 
         if not conv_pieces:
             if objective:
                 conv_pieces.append(f"  [user] {objective[:500]}")
 
-        # 构建输出内容
+        # 
         if fmt == "markdown":
             score_section = score_lines if score_lines else ["  (no scores available)"]
             conv_section = conv_pieces if conv_pieces else ["  (no conversation data available)"]
@@ -387,12 +387,12 @@ def _write_fallback_attack_output(
 
 
 def _generate_readme(attack_count: int, scenario_ok: bool) -> str:
-    """生成 native_output 目录的 README.md。
+    """ native_output  README.md
 
-    对齐 PyRIT 1.0.1 官方 output 模块格式标准:
-        - PrettyAttackResultMemoryPrinter (终端 ANSI 彩色)
-        - MarkdownAttackResultMemoryPrinter (Jupyter/文档 Markdown)
-        - PrettyScenarioResultMemoryPrinter (场景汇总)
+     PyRIT 1.0.1  output :
+        - PrettyAttackResultMemoryPrinter ( ANSI )
+        - MarkdownAttackResultMemoryPrinter (Jupyter/ Markdown)
+        - PrettyScenarioResultMemoryPrinter ()
     """
     lines = [
         "# PyRIT Native Output",

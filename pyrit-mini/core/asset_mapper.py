@@ -1,33 +1,33 @@
-"""core/asset_mapper.py — 测试资产映射器 (v2).
+"""core/asset_mapper.py —  (v2).
 
-基于 MITRE ATLAS 框架的上下文感知资产映射.
+ MITRE ATLAS .
 
-迁移说明:
-    v61 从 data/asset_mapper.py 迁来, 符合架构蓝图 D-13 要求:
-    data/ 层只保留声明式资产, 代码迁至 core/ 或对应阶段层.
+:
+    v61 imports data/asset_mapper.py ,  D-13 :
+    data/ Layer,  core/ Layer.
 
-理论依据:
-  - NIST SP 800-115: 基于威胁模型的测试用例选择
-  - MITRE ATLAS v4.2: 攻击面→TTP映射
-  - HarmBench (arXiv:2402.04249): 评分器选择标准化
+:
+  - NIST SP 800-115: 
+  - MITRE ATLAS v4.2: →TTP
+  - HarmBench (arXiv:2402.04249): 
 
-设计原则:
-  1. 静态映射优先, 统计增强为辅
-  2. 向后兼容: 协同层作为可选增强
-  3. 可验证: 每个决策点可独立测试
-  4. 最小依赖: 仅依赖 YAML 配置
+:
+  1. , 
+  2. : Layer
+  3. : converter(s)
+  4. :  YAML 
 
-使用方式:
+Usage:
     from core.asset_mapper import AssetMapper, load_asset_index
     mapper = AssetMapper()
 
-    # Burp 文件 → 种子列表
+    # Burp  → 
     seeds = mapper.get_seeds_for_burp_profile("mcp05")
 
-    # 攻击面类型 → 评分器
+    #  → 
     scorer = mapper.get_scorer_for_attack_surface("mcp_server")
 
-    # 加载资产配置索引
+    # 
     index = load_asset_index()
 """
 
@@ -41,14 +41,14 @@ logger = logging.getLogger(__name__)
 
 
 class AssetMapper:
-    """资产映射器 — 提供 Burp→Seed, Seed→Scorer 协同映射."""
+    """ —  Burp→Seed, Seed→Scorer ."""
 
     def __init__(self, asset_index: dict[str, Any] | None = None):
         """
-        初始化资产映射器.
+        .
 
         Args:
-            asset_index: 可选的资产索引字典. 默认从 config/asset_index.yaml 加载 (v61).
+            asset_index: . imports config/asset_index.yaml Load (v61).
         """
         if asset_index is not None:
             self._index = asset_index
@@ -62,8 +62,8 @@ class AssetMapper:
 
     @staticmethod
     def _load_default_index() -> dict[str, Any]:
-        """加载默认 asset_index.yaml."""
-        # v63: asset_index 迁移至 config/profiles/ (固定参数集)
+        """Load asset_index.yaml."""
+        # v63: asset_index  config/profiles/ ()
         import yaml
         from pathlib import Path
         index_path = Path(__file__).resolve().parent.parent / "config" / "profiles" / "asset_index.yaml"
@@ -73,26 +73,26 @@ class AssetMapper:
         with open(index_path, encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
 
-    # ──────────────────────────────────────────────
-    # Burp Profile → 攻击面类型
-    # ──────────────────────────────────────────────
+    # ==============================================
+    # Burp Profile → 
+    # ==============================================
     def classify_attack_surface(self, burp_profile_name: str) -> str:
-        """根据 Burp 配置文件名推断攻击面类型.
+        """ Burp .
 
-        匹配规则 (按优先级):
-          1. 明确匹配 (精确文件名)
-          2. 关键词匹配 (子串)
-          3. 默认: standard_llm_api
+         ():
+          1.  ()
+          2.  ()
+          3. : standard_llm_api
 
         Args:
-            burp_profile_name: Burp 配置文件名 (如 "mcp05", "mocka")
+            burp_profile_name: Burp  ( "mcp05", "mocka")
 
         Returns:
-            攻击面类型字符串 (如 "mcp_server", "standard_llm_api")
+             ( "mcp_server", "standard_llm_api")
         """
         profile_lower = burp_profile_name.lower()
 
-        # 按规则顺序匹配
+        # 
         for rule in self._burp_rules:
             patterns = rule.get("patterns", [])
             match_type = rule.get("match_type", "filename_contains")
@@ -107,24 +107,24 @@ class AssetMapper:
                         )
                         return attack_surface
 
-        # 默认回退
+        # 
         logger.debug(
             "Burp profile '%s' did not match any rule, defaulting to standard_llm_api",
             burp_profile_name,
         )
         return "standard_llm_api"
 
-    # ──────────────────────────────────────────────
-    # 攻击面类型 → 种子列表
-    # ──────────────────────────────────────────────
+    # ==============================================
+    #  → 
+    # ==============================================
     def get_seeds_for_attack_surface(self, attack_surface: str) -> list[str]:
-        """获取指定攻击面类型的推荐种子列表.
+        """.
 
         Args:
-            attack_surface: 攻击面类型 (如 "mcp_server", "rag_system")
+            attack_surface:  ( "mcp_server", "rag_system")
 
         Returns:
-            种子资源名称列表 (如 ["mcp_tool_enum", "mcp_server_injection"])
+             ( ["mcp_tool_enum", "mcp_server_injection"])
         """
         mapping = self._surface_mapping.get(attack_surface)
         if not mapping:
@@ -146,28 +146,28 @@ class AssetMapper:
         return seeds
 
     def get_seeds_for_burp_profile(self, burp_profile_name: str) -> list[str]:
-        """Burp 配置文件 → 种子列表 (便捷方法).
+        """Burp  →  ().
 
         Args:
-            burp_profile_name: Burp 配置文件名 (如 "mcp05")
+            burp_profile_name: Burp  ( "mcp05")
 
         Returns:
-            种子资源名称列表
+            
         """
         attack_surface = self.classify_attack_surface(burp_profile_name)
         return self.get_seeds_for_attack_surface(attack_surface)
 
-    # ──────────────────────────────────────────────
-    # 攻击面类型 → 评分器
-    # ──────────────────────────────────────────────
+    # ==============================================
+    #  → 
+    # ==============================================
     def get_scorer_for_attack_surface(self, attack_surface: str) -> str | None:
-        """获取指定攻击面类型的推荐评分器.
+        """.
 
         Args:
-            attack_surface: 攻击面类型
+            attack_surface: 
 
         Returns:
-            评分器资源名称 (如 "web_vuln_detected")
+             ( "web_vuln_detected")
         """
         mapping = self._surface_mapping.get(attack_surface)
         if not mapping:
@@ -175,13 +175,13 @@ class AssetMapper:
         return mapping.get("scorer")
 
     def get_scorer_path(self, scorer_name: str) -> str | None:
-        """获取评分器配置文件路径.
+        """.
 
         Args:
-            scorer_name: 评分器名称 (如 "web_vuln_detected")
+            scorer_name:  ( "web_vuln_detected")
 
         Returns:
-            评分器配置文件路径 (如 "scorers/web_vuln_detected.yaml")
+             ( "scorers/web_vuln_detected.yaml")
         """
         scorer_cfg = self._scorers_cfg.get(scorer_name)
         if not scorer_cfg:
@@ -189,17 +189,17 @@ class AssetMapper:
             return None
         return scorer_cfg.get("path")
 
-    # ──────────────────────────────────────────────
-    # 种子路径 → 实际文件路径
-    # ──────────────────────────────────────────────
+    # ==============================================
+    #  → 
+    # ==============================================
     def get_seed_file_path(self, seed_name: str) -> str | None:
-        """获取种子文件的实际路径.
+        """.
 
         Args:
-            seed_name: 种子资源名称 (如 "mcp_tool_enum")
+            seed_name:  ( "mcp_tool_enum")
 
         Returns:
-            种子文件相对路径 (如 "_attack_surface/T1_ASI02_mcp_full_surface/mcp_tool_enum")
+             ( "_attack_surface/T1_ASI02_mcp_full_surface/mcp_tool_enum")
         """
         seed_cfg = self._seeds_cfg.get(seed_name)
         if not seed_cfg:
@@ -208,13 +208,13 @@ class AssetMapper:
         return seed_cfg.get("path")
 
     def get_seed_tier(self, seed_name: str) -> int | None:
-        """获取种子的 tier 级别.
+        """ tier .
 
         Args:
-            seed_name: 种子资源名称
+            seed_name: 
 
         Returns:
-            tier 级别 (1/2/3) 或 None
+            tier  (1/2/3)  None
         """
         seed_cfg = self._seeds_cfg.get(seed_name)
         if not seed_cfg:
@@ -222,36 +222,36 @@ class AssetMapper:
         return seed_cfg.get("tier")
 
     def get_seed_category(self, seed_name: str) -> str | None:
-        """获取种子的攻击类别.
+        """.
 
         Args:
-            seed_name: 种子资源名称
+            seed_name: 
 
         Returns:
-            攻击类别字符串
+            
         """
         seed_cfg = self._seeds_cfg.get(seed_name)
         if not seed_cfg:
             return None
         return seed_cfg.get("category")
 
-    # ──────────────────────────────────────────────
-    # 全链路协同
-    # ──────────────────────────────────────────────
+    # ==============================================
+    # 
+    # ==============================================
     def get_full_synergy_config(self, burp_profile_name: str) -> dict[str, Any]:
-        """Burp 配置文件 → 完整协同配置 (便捷方法).
+        """Burp  →  ().
 
         Args:
-            burp_profile_name: Burp 配置文件名
+            burp_profile_name: Burp 
 
         Returns:
-            完整配置字典:
+            :
             {
                 "burp_profile": str,
                 "attack_surface": str,
-                "seeds": list[str],       # 种子名称列表
-                "scorer": str,            # 评分器名称
-                "scorer_path": str,       # 评分器文件路径
+                "seeds": list[str],       # 
+                "scorer": str,            # 
+                "scorer_path": str,       # 
             }
         """
         attack_surface = self.classify_attack_surface(burp_profile_name)
@@ -268,39 +268,39 @@ class AssetMapper:
         }
 
 
-# ──────────────────────────────────────────────
-# 全局单例 (延迟加载)
-# ──────────────────────────────────────────────
+# ==============================================
+#  ()
+# ==============================================
 _default_mapper: AssetMapper | None = None
 
 
 def get_default_mapper() -> AssetMapper:
-    """获取全局默认 AssetMapper 实例."""
+    """ AssetMapper ."""
     global _default_mapper
     if _default_mapper is None:
         _default_mapper = AssetMapper()
     return _default_mapper
 
 
-# ──────────────────────────────────────────────
-# 资产配置索引加载
-# ──────────────────────────────────────────────
+# ==============================================
+# 
+# ==============================================
 import yaml as _yaml
 
-# 项目根目录
+# 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-# v63: asset_index 迁移至 config/profiles/ (固定参数集)
+# v63: asset_index  config/profiles/ ()
 ASSET_INDEX_PATH = _PROJECT_ROOT / "config" / "profiles" / "asset_index.yaml"
 
 
 def load_asset_index() -> dict[str, Any]:
-    """加载 asset_index.yaml 资产配置索引.
+    """Load asset_index.yaml .
 
-    v61: 从 data/__init__.py 迁至 core/asset_mapper.py.
-    data/ 层只保留声明式资产, 无 Python 代码.
+    v61: imports data/__init__.py  core/asset_mapper.py.
+    data/ Layer,  Python .
 
     Returns:
-        资产配置字典, 加载失败返回空字典
+        , Load
     """
     if not ASSET_INDEX_PATH.exists():
         return {}
@@ -312,19 +312,19 @@ def load_asset_index() -> dict[str, Any]:
         return {}
 
 
-# 便捷函数 (直接使用全局单例)
+#  ()
 def get_seeds_for_burp(burp_profile_name: str) -> list[str]:
-    """便捷函数: Burp → 种子列表."""
+    """: Burp → ."""
     return get_default_mapper().get_seeds_for_burp_profile(burp_profile_name)
 
 
 def get_scorer_for_burp(burp_profile_name: str) -> str | None:
-    """便捷函数: Burp → 评分器."""
+    """: Burp → ."""
     mapper = get_default_mapper()
     surface = mapper.classify_attack_surface(burp_profile_name)
     return mapper.get_scorer_for_attack_surface(surface)
 
 
 def get_synergy_config(burp_profile_name: str) -> dict[str, Any]:
-    """便捷函数: 完整协同配置."""
+    """: ."""
     return get_default_mapper().get_full_synergy_config(burp_profile_name)

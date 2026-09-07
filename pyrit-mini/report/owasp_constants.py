@@ -1,11 +1,11 @@
-"""OWASP 鏍囧噯甯搁噺 鈥?浠?evidence.py 鎷嗗垎鑰屾潵.
+"""OWASP  ??evidence.py .
 
-鍖呭惈 MITRE ATLAS 鏄犲皠, OWASP 鏍囧噯寮曠敤, OWASP Web Top 10 缂撹В寤鸿.
+ MITRE ATLAS , OWASP , OWASP Web Top 10 В.
 """
 
-# 鈹€鈹€ MITRE ATT&CK for AI Systems (ATLAS) 鏄犲皠 鈹€鈹€
+# €€ MITRE ATT&CK for AI Systems (ATLAS)  €€
 # Reference: https://atlas.mitre.org/
-# 瀛︽湳渚濇嵁: MITRE ATLAS (Adversarial Threat Landscape for AI Systems)
+# ︽: MITRE ATLAS (Adversarial Threat Landscape for AI Systems)
 #  frames AI-specific attack techniques analogous to ATT&CK for traditional IT.
 _MITRE_ATLAS_TECHNIQUES: dict[str, dict[str, str]] = {
     "LLM01": {
@@ -41,7 +41,7 @@ _MITRE_ATLAS_TECHNIQUES: dict[str, dict[str, str]] = {
     "LLM06": {
         "tactic": "Execution",
         "technique_id": "AML.T0051",
-        "technique_name": "LLM Prompt Injection 鈫?Excessive Agency",
+        "technique_name": "LLM Prompt Injection ?Excessive Agency",
         "url": "https://atlas.mitre.org/techniques/AML.T0051",
     },
     "LLM07": {
@@ -130,7 +130,7 @@ _MITRE_ATLAS_TECHNIQUES: dict[str, dict[str, str]] = {
     },
 }
 
-# 鈹€鈹€ OWASP Top 10 (2025) 鈥?浼犵粺 Web 瀹夊叏婕忔礊 鈹€鈹€
+# €€ OWASP Top 10 (2025) ? Web  €€
 # Reference: https://owasp.org/www-project-top-10/
 _OWASP_WEB_CATEGORIES = {
     "A01": "Broken Access Control",
@@ -145,7 +145,7 @@ _OWASP_WEB_CATEGORIES = {
     "A10": "Server-Side Request Forgery (SSRF)",
 }
 
-# 鈹€鈹€ OWASP LLM Top 10 for LLM Applications (2025 Edition) 鈹€鈹€
+# €€ OWASP LLM Top 10 for LLM Applications (2025 Edition) €€
 # Reference: https://owasp.org/www-project-top-10-for-large-language-model-applications/
 _OWASP_LLM_CATEGORIES = {
     "LLM01": "Prompt Injection",
@@ -160,9 +160,9 @@ _OWASP_LLM_CATEGORIES = {
     "LLM10": "Unbounded Consumption",
 }
 
-# 鈹€鈹€ OWASP Agentic AI Top 10 鈹€鈹€
+# €€ OWASP Agentic AI Top 10 €€
 # Reference: https://owasp.org/www-project-agent-security/
-# (鍓嶈韩: Agent Security Initiative, 2025 鏇村悕涓?Agentic AI Top 10)
+# (: Agent Security Initiative, 2025 ?Agentic AI Top 10)
 _OWASP_ASI_CATEGORIES = {
     "ASI01": "Agent Identity Spoofing",
     "ASI02": "Tool Misuse",
@@ -176,7 +176,7 @@ _OWASP_ASI_CATEGORIES = {
     "ASI10": "Rogue Agent",
 }
 
-# 鈹€鈹€ OWASP 鏍囧噯涓ラ噸鎬х瓑绾?(CVSS-like 椋庨櫓璇勫垎) 鈹€鈹€
+# €€ OWASP ラх?(CVSS-like ) €€
 _OWASP_SEVERITY_LEVELS = {
     "critical": {"score_range": (9.0, 10.0), "color": "#ff0000", "description": "Immediate exploitation risk, requires urgent remediation"},
     "high": {"score_range": (7.0, 8.9), "color": "#ff4444", "description": "Significant risk, remediate within 7 days"},
@@ -185,7 +185,7 @@ _OWASP_SEVERITY_LEVELS = {
     "info": {"score_range": (0.0, 0.9), "color": "#888888", "description": "Informational, no direct risk"},
 }
 
-# 鈹€鈹€ OWASP LLM Top 10 鏍囧噯缂撹В寤鸿 鈹€鈹€
+# €€ OWASP LLM Top 10 В €€
 _OWASP_LLM_MITIGATIONS = {
     "LLM01": [
         "Implement input validation and sanitization for all prompts",
@@ -249,7 +249,7 @@ _OWASP_LLM_MITIGATIONS = {
     ],
 }
 
-# 鈹€鈹€ OWASP ASI Top 10 鏍囧噯缂撹В寤鸿 鈹€鈹€
+# €€ OWASP ASI Top 10 В €€
 _OWASP_ASI_MITIGATIONS = {
     "ASI01": [
         "Implement agent identity verification and authentication",
@@ -313,7 +313,7 @@ _OWASP_ASI_MITIGATIONS = {
     ],
 }
 
-# 鈹€鈹€ OWASP Web Top 10 (2025) 鏍囧噯缂撹В寤鸿 鈹€鈹€
+# €€ OWASP Web Top 10 (2025) В €€
 _OWASP_WEB_MITIGATIONS = {
     "A01": [
         "Implement proper access control checks on every request",
@@ -377,17 +377,17 @@ _OWASP_WEB_MITIGATIONS = {
     ],
 }
 
-# 鈹€鈹€ OWASP 鏍囧噯寮曠敤 鈹€鈹€
+# €€ OWASP  €€
 OWASP_WEB_TOP10_REFERENCE = (
-    "OWASP Top 10 (2025) 鈥?"
+    "OWASP Top 10 (2025) ?"
     "https://owasp.org/www-project-top-10/"
 )
 OWASP_LLM_TOP10_REFERENCE = (
-    "OWASP Top 10 for LLM Applications (2025 Edition) 鈥?"
+    "OWASP Top 10 for LLM Applications (2025 Edition) ?"
     "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
 )
 OWASP_ASI_TOP10_REFERENCE = (
-    "OWASP Agentic AI Top 10 鈥?"
+    "OWASP Agentic AI Top 10 ?"
     "https://owasp.org/www-project-agent-security/"
 )
 

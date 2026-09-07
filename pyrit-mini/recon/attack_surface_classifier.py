@@ -1,28 +1,28 @@
-"""recon/attack_surface_classifier.py — 基于 HTTP 内容的攻击面分类器.
+"""recon/attack_surface_classifier.py —  HTTP .
 
-扩展静态 Burp 文件名分析, 基于 HTTP 内容进行更深层的攻击面识别.
+Extend Burp ,  HTTP Layer.
 
-迁移说明:
-    v61 从 data/attack_surface_classifier.py 迁来, 符合架构蓝图 D-13 要求:
-    本模块属于侦察能力, 应在 recon/ 阶段层.
+:
+    v61 imports data/attack_surface_classifier.py ,  D-13 :
+    ,  recon/ Layer.
 
-理论依据:
-  - Wappalyzer/WhatWeb 技术指纹识别方法论
-  - NIST SP 800-115 §2.3: 基于调查的技术识别
-  - OWASP WSTG (Web Security Testing Guide) §4.2: 应用技术识别
+:
+  - Wappalyzer/WhatWeb 
+  - NIST SP 800-115 §2.3: 
+  - OWASP WSTG (Web Security Testing Guide) §4.2: 
 
-设计原则:
-  1. 被动分析优先: 不发送额外请求
-  2. 保守分类: 置信度低时回退到默认类型
-  3. 可解释性: 每个分类结果附带证据
+:
+  1. : 
+  2. : 
+  3. : converter(s)
 
-分类结果对齐:
-  - MCP Server: 基于 OpenAI MCP 规范的特征 (路径、端点、response schema)
-  - RAG System: 基于 RAG API 常见模式 (search, retrieve, documents)
-  - Agent System: 基于 Agent 工具调用模式 (tools, actions, workflow)
-  - Standard LLM API: 默认分类 (OpenAI-compatible)
+:
+  - MCP Server:  OpenAI MCP  (response schema)
+  - RAG System:  RAG API  (search, retrieve, documents)
+  - Agent System:  Agent  (tools, actions, workflow)
+  - Standard LLM API:  (OpenAI-compatible)
 
-注意: 本分类器仅做初步筛选, 最终决策仍需人工确认.
+: , Confirmation.
 """
 
 from __future__ import annotations
@@ -36,18 +36,18 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ClassificationResult:
-    """攻击面分类结果."""
+    """."""
 
     attack_surface: str
     confidence: float  # 0.0 ~ 1.0
     evidence: list[str] = field(default_factory=list)
-    sub_type: str | None = None  # 更细粒度的子类型
+    sub_type: str | None = None  # 
 
 
-# ──────────────────────────────────────────────
-# 检测规则 (基于实证研究)
-# ──────────────────────────────────────────────
-# MCP Protocol Indicators (来自 OpenAI MCP 规范 + 实际部署)
+# ==============================================
+#  ()
+# ==============================================
+# MCP Protocol Indicators ( OpenAI MCP  + )
 MCP_INDICATORS: dict[str, list[str]] = {
     "path_patterns": [
         r"/mcp/?$",
@@ -56,7 +56,7 @@ MCP_INDICATORS: dict[str, list[str]] = {
         r"/mcp-api",
         r"/sse",  # Server-Sent Events (MCP streaming)
         r"/api/v1/mcp",
-        r"/mcp",  # 通用 MCP 路径匹配 (如 /api/labs/MCP_05/chat)
+        r"/mcp",  #  MCP  ( /api/labs/MCP_05/chat)
     ],
     "header_indicators": [
         "mcp-session-id",
@@ -157,17 +157,17 @@ def classify_http_content(
     http_response: str | None = None,
     url: str | None = None,
 ) -> ClassificationResult:
-    """基于 HTTP 内容分析攻击面类型.
+    """ HTTP .
 
-    被动分析 HTTP 请求/响应内容, 识别目标系统的攻击面类型.
+     HTTP /, .
 
     Args:
-        http_request: HTTP 请求原始内容 (可选)
-        http_response: HTTP 响应原始内容 (可选)
-        url: 请求 URL (可选, 若未提供则从 http_request 提取)
+        http_request: HTTP  ()
+        http_response: HTTP  ()
+        url:  URL (, imports http_request )
 
     Returns:
-        ClassificationResult: 攻击面分类结果
+        ClassificationResult: 
     """
     if not any([http_request, http_response, url]):
         return ClassificationResult(
@@ -191,24 +191,24 @@ def classify_http_content(
         "multi_agent_system": [],
     }
 
-    # ① URL 分析 (最高权重)
+    # ① URL  ()
     if url:
         url_lower = url.lower()
         _score_url_indicators(url_lower, scores, evidence)
 
-    # ② Request Headers 分析
+    # ② Request Headers 
     if http_request:
         _score_headers(http_request, scores, evidence)
 
-    # ③ Request Body 分析
+    # ③ Request Body 
     if http_request:
         _score_body(http_request, scores, evidence)
 
-    # ④ Response Body 分析
+    # ④ Response Body 
     if http_response:
         _score_response(http_response, scores, evidence)
 
-    # 选择最高分类型
+    # 
     max_score = max(scores.values())
     if max_score == 0:
         return ClassificationResult(
@@ -218,7 +218,7 @@ def classify_http_content(
         )
 
     max_surface = max(scores, key=scores.get)
-    confidence = min(max_score / 10.0, 1.0)  # 归一化到 0~1
+    confidence = min(max_score / 10.0, 1.0)  #  0~1
 
     return ClassificationResult(
         attack_surface=max_surface,
@@ -233,23 +233,23 @@ def _score_url_indicators(
     scores: dict[str, float],
     evidence: dict[str, list[str]],
 ) -> None:
-    """URL 路径指标评分.
+    """URL .
 
-    权重: 每个匹配 +3 (强指标)
+    : converter(s) +3 ()
     """
-    # MCP 检测
+    # MCP 
     for pattern in MCP_INDICATORS["path_patterns"]:
         if re.search(pattern, url, re.IGNORECASE):
             scores["mcp_server"] += 3.0
             evidence["mcp_server"].append(f"URL pattern match: {pattern}")
 
-    # RAG 检测
+    # RAG 
     for pattern in RAG_INDICATORS["path_patterns"]:
         if re.search(pattern, url, re.IGNORECASE):
             scores["rag_system"] += 3.0
             evidence["rag_system"].append(f"URL pattern match: {pattern}")
 
-    # Agent 检测
+    # Agent 
     for pattern in AGENT_INDICATORS["path_patterns"]:
         if re.search(pattern, url, re.IGNORECASE):
             scores["multi_agent_system"] += 3.0
@@ -261,19 +261,19 @@ def _score_headers(
     scores: dict[str, float],
     evidence: dict[str, list[str]],
 ) -> None:
-    """HTTP 请求头指标评分.
+    """HTTP .
 
-    权重: 每个匹配 +2 (中等指标)
+    : converter(s) +2 ()
     """
     headers_lower = http_request.lower()
 
-    # MCP Header 检测
+    # MCP Header 
     for header in MCP_INDICATORS["header_indicators"]:
         if header in headers_lower:
             scores["mcp_server"] += 2.0
             evidence["mcp_server"].append(f"Header indicator: {header}")
 
-    # Agent Header 检测
+    # Agent Header 
     for header in AGENT_INDICATORS["header_indicators"]:
         if header in headers_lower:
             scores["multi_agent_system"] += 2.0
@@ -285,23 +285,23 @@ def _score_body(
     scores: dict[str, float],
     evidence: dict[str, list[str]],
 ) -> None:
-    """HTTP 请求体指标评分.
+    """HTTP .
 
-    权重: 每个匹配 +1.5 (弱指标, 但多条可累积)
+    : converter(s) +1.5 (, )
     """
     body_lower = http_request.lower()
 
-    # JSON-RPC 检测 (MCP 协议)
+    # JSON-RPC  (MCP )
     if "jsonrpc" in body_lower:
         scores["mcp_server"] += 2.5
         evidence["mcp_server"].append("JSON-RPC protocol detected")
 
-    # RAG 语义搜索特征
+    # RAG 
     if any(kw in body_lower for kw in ["query", "documents", "retrieval"]):
         scores["rag_system"] += 1.5
         evidence["rag_system"].append("RAG-like terms in body")
 
-    # Agent 工具调用特征
+    # Agent 
     if "tool_calls" in body_lower or "function_call" in body_lower:
         scores["multi_agent_system"] += 2.0
         evidence["multi_agent_system"].append("Agent tool call pattern")
@@ -312,9 +312,9 @@ def _score_response(
     scores: dict[str, float],
     evidence: dict[str, list[str]],
 ) -> None:
-    """HTTP 响应体指标评分.
+    """HTTP .
 
-    权重: 每个匹配 +2 (中等指标, 响应结构更能反映后端类型)
+    : converter(s) +2 (, )
     """
     resp_lower = http_response.lower()
 
@@ -324,7 +324,7 @@ def _score_response(
         evidence["mcp_server"].append("MCP JSON-RPC response with tools")
 
     # MCP SSE Response (Server-Sent Events format, common in MCP deployments)
-    # 特征: MCP_CALL + server: + tool: pattern
+    # : MCP_CALL + server: + tool: pattern
     if "mcp_call" in resp_lower:
         scores["mcp_server"] += 3.0
         evidence["mcp_server"].append("MCP SSE response with MCP_CALL event")
@@ -351,7 +351,7 @@ def _score_response(
 
 
 def _determine_sub_type(score: float, surface: str) -> str | None:
-    """根据分数确定子类型."""
+    """."""
     if score >= 8:
         return "high_confidence"
     elif score >= 5:
@@ -361,38 +361,38 @@ def _determine_sub_type(score: float, surface: str) -> str | None:
     return None
 
 
-# ──────────────────────────────────────────────
-# Burp 文件联合分类器 (文件名 + 内容)
-# ──────────────────────────────────────────────
+# ==============================================
+# Burp  ( + )
+# ==============================================
 def classify_burp_file(
     burp_file_path: str | None = None,
     burp_content: str | None = None,
     burp_profile_name: str | None = None,
 ) -> ClassificationResult:
-    """Burp 配置文件完整分类 (文件名 + 内容).
+    """Burp  ( + ).
 
-    整合:
-      1. 基于文件名的快速分类 (from AssetMapper)
-      2. 基于 HTTP 内容的深度分类
+    :
+      1.  (from AssetMapper)
+      2.  HTTP 
 
     Args:
-        burp_file_path: Burp 文件路径 (可选)
-        burp_content: Burp 文件原始内容 (可选)
-        burp_profile_name: Burp 配置文件名 (可选)
+        burp_file_path: Burp  ()
+        burp_content: Burp  ()
+        burp_profile_name: Burp  ()
 
     Returns:
-        ClassificationResult: 完整分类结果
+        ClassificationResult: 
     """
     from core.asset_mapper import get_default_mapper
 
-    # Phase 1: 文件名分类 (快速)
+    # Phase 1:  ()
     mapper = get_default_mapper()
     if burp_profile_name:
         filename_surface = mapper.classify_attack_surface(burp_profile_name)
     else:
         filename_surface = "standard_llm_api"
 
-    # Phase 2: 内容分类 (深度)
+    # Phase 2:  ()
     if burp_content:
         content_result = classify_http_content(
             http_request=burp_content,
@@ -411,16 +411,16 @@ def classify_burp_file(
     else:
         content_result = None
 
-    # 决策融合
+    # 
     if content_result is None or content_result.confidence < 0.3:
-        # 内容分类置信度低, 回退到文件名分类
+        # , 
         return ClassificationResult(
             attack_surface=filename_surface,
             confidence=0.5 if content_result is None else content_result.confidence,
             evidence=["File-name based classification (content confidence too low)"],
         )
 
-    # 两者一致: 置信度高
+    # : 
     if content_result.attack_surface == filename_surface:
         return ClassificationResult(
             attack_surface=content_result.attack_surface,
@@ -428,11 +428,11 @@ def classify_burp_file(
             evidence=["File-name + content agreement"] + content_result.evidence,
         )
 
-    # 两者不一致: 选择置信度更高的
+    # : 
     if content_result.confidence >= 0.6:
         return ClassificationResult(
             attack_surface=content_result.attack_surface,
-            confidence=content_result.confidence - 0.1,  # 轻微惩罚不一致
+            confidence=content_result.confidence - 0.1,  # 
             evidence=["Content-based (filename disagreed)"] + content_result.evidence,
         )
 
@@ -444,8 +444,8 @@ def classify_burp_file(
 
 
 def _extract_url_from_burp(content: str) -> str | None:
-    """从 Burp HTTP 内容中提取 URL."""
-    # 简单解析: 第一行通常是 "METHOD /path HTTP/1.1"
+    """imports Burp HTTP  URL."""
+    # :  "METHOD /path HTTP/1.1"
     first_line = content.split("\n", 1)[0].strip()
     parts = first_line.split()
     if len(parts) >= 2:
@@ -453,26 +453,26 @@ def _extract_url_from_burp(content: str) -> str | None:
     return None
 
 
-# ──────────────────────────────────────────────
-# 全局实例
-# ──────────────────────────────────────────────
+# ==============================================
+# 
+# ==============================================
 
 
 def get_default_classifier():
-    """获取全局默认分类器 (返回 classify_http_content 函数).
+    """ ( classify_http_content ).
 
     Returns:
-        分类器函数 (classify_http_content)
+         (classify_http_content)
     """
     return classify_http_content
 
 
 def quick_classify(burp_profile_name: str, burp_dir: str | None = None) -> ClassificationResult:
-    """快速分类接口 (Burp 文件名 → 攻击面类型).
+    """ (Burp  → ).
 
     Args:
-        burp_profile_name: Burp 配置文件名 (如 "mcp05")
-        burp_dir: config/burp 目录路径 (可选, v61 迁移)
+        burp_profile_name: Burp  ( "mcp05")
+        burp_dir: config/burp  (, v61 )
 
     Returns:
         ClassificationResult
@@ -481,7 +481,7 @@ def quick_classify(burp_profile_name: str, burp_dir: str | None = None) -> Class
         burp_path = f"{burp_dir}/{burp_profile_name}.txt"
         return classify_burp_file(burp_file_path=burp_path, burp_profile_name=burp_profile_name)
 
-    # 仅文件名分类
+    # 
     from core.asset_mapper import get_default_mapper
     mapper = get_default_mapper()
     surface = mapper.classify_attack_surface(burp_profile_name)

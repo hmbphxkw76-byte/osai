@@ -1,19 +1,19 @@
-"""SARIF 2.1 鏍煎紡鎶ュ憡杈撳嚭銆?
+"""SARIF 2.1 ュ?
 
-SARIF (Static Analysis Results Interchange Format) 鏄?OASIS 鏍囧噯锛?
-鐢ㄤ簬闈欐€佸垎鏋愮粨鏋滅殑浜ゆ崲鍜岄泦鎴愩€?
+SARIF (Static Analysis Results Interchange Format) ?OASIS ?
+ㄤ€ゆ€?
 
-瑙勬牸: https://docs.oasis.org/oasis-sarif/sarif/v2.1.0/sarif-v2.1.0.html
+: https://docs.oasis.org/oasis-sarif/sarif/v2.1.0/sarif-v2.1.0.html
 
-鐢ㄩ€?
-    - CI/CD 闆嗘垚 (GitHub Code Scanning, Azure DevOps)
-    - 瀹夊叏宸ュ叿浜掓搷浣?
-    - 婕忔礊绠＄悊骞冲彴瀵煎叆
+ㄩ€?
+    - CI/CD  (GitHub Code Scanning, Azure DevOps)
+    - ュ?
+    - 
 
-灏?AI Red Team 璇勪及缁撴灉杞崲涓?SARIF 2.1 鏍煎紡:
-    - 姣忎釜 OWASP 婕忔礊 鈫?SARIF Result
-    - OWASP 绫诲埆 鈫?SARIF Rule
-    - CVSS 3.1 鍚戦噺 鈫?SARIF Rule properties
+?AI Red Team ?SARIF 2.1 :
+    -  OWASP  ?SARIF Result
+    - OWASP  ?SARIF Rule
+    - CVSS 3.1  ?SARIF Rule properties
 """
 
 from __future__ import annotations
@@ -32,14 +32,14 @@ def generate_sarif_report(
     evidence: EvidenceCollection,
     output_path: Path,
 ) -> Path:
-    """鐢熸垚 SARIF 2.1 鏍煎紡鎶ュ憡銆?
+    """ SARIF 2.1 ュ?
 
     Args:
-        evidence: 璇佹嵁闆嗗悎銆?
-        output_path: 杈撳嚭鏂囦欢璺緞銆?
+        evidence: ?
+        output_path: ?
 
     Returns:
-        SARIF 鏂囦欢璺緞銆?
+        SARIF ?
     """
     sarif = _build_sarif(evidence)
     output_path.write_text(
@@ -51,12 +51,12 @@ def generate_sarif_report(
 
 
 def _build_sarif(evidence: EvidenceCollection) -> dict[str, Any]:
-    """鏋勫缓 SARIF 2.1 鎶ュ憡缁撴瀯銆?"""
-    # 鏋勫缓瑙勫垯
+    """ SARIF 2.1 ュ?"""
+    # 
     rules = _build_rules(evidence)
     rule_indices = {r["id"]: i for i, r in enumerate(rules)}
 
-    # 鏋勫缓缁撴灉
+    # 
     results = _build_results(evidence, rule_indices)
 
     return {
@@ -97,7 +97,7 @@ def _build_sarif(evidence: EvidenceCollection) -> dict[str, Any]:
 
 
 def _build_rules(evidence: EvidenceCollection) -> list[dict[str, Any]]:
-    """鏋勫缓 SARIF 瑙勫垯鍒楄〃 (姣忎釜 OWASP 绫诲埆涓€鏉¤鍒?銆?"""
+    """ SARIF  ( OWASP €¤??"""
     rules: list[dict[str, Any]] = []
     seen_owasp_ids: set[str] = set()
 
@@ -113,7 +113,7 @@ def _build_rules(evidence: EvidenceCollection) -> list[dict[str, Any]]:
                 "text": f"{ev.owasp_id}: {ev.owasp_category}",
             },
             "fullDescription": {
-                "text": f"OWASP {ev.owasp_standard} 鈥?{ev.owasp_id}: {ev.owasp_category}",
+                "text": f"OWASP {ev.owasp_standard} ?{ev.owasp_id}: {ev.owasp_category}",
             },
             "helpUri": ev.owasp_reference,
             "properties": {
@@ -122,7 +122,7 @@ def _build_rules(evidence: EvidenceCollection) -> list[dict[str, Any]]:
             },
         }
 
-        # MITRE ATLAS 瑙勫垯鏄犲皠
+        # MITRE ATLAS 
         mitre_info = _MITRE_ATLAS_TECHNIQUES.get(ev.owasp_id, {})
         if mitre_info:
             rule["properties"]["mitre_atlas_tactic"] = mitre_info.get("tactic", "")
@@ -151,7 +151,7 @@ def _build_results(
     evidence: EvidenceCollection,
     rule_indices: dict[str, int],
 ) -> list[dict[str, Any]]:
-    """鏋勫缓 SARIF 缁撴灉鍒楄〃 (姣忎釜鏀诲嚮涓€鏉＄粨鏋?銆?"""
+    """ SARIF  (€??"""
     results: list[dict[str, Any]] = []
 
     for ev in evidence.evidence:
@@ -165,7 +165,7 @@ def _build_results(
             "ruleIndex": rule_index,
             "level": _sarif_level(ev.owasp_severity),
             "message": {
-                "text": f"{ev.technique_display_name} 鈥?{'SUCCESS' if ev.is_success else 'FAILED'} (ASR: {ev.asr}%)",
+                "text": f"{ev.technique_display_name} ?{'SUCCESS' if ev.is_success else 'FAILED'} (ASR: {ev.asr}%)",
             },
             "locations": _build_locations(evidence),
             "properties": {
@@ -187,7 +187,7 @@ def _build_results(
             },
         }
 
-        # P0-3 淇: arxiv_reference 濮嬬粓鍐欏叆 SARIF (鍏戝簳 "PyRIT (arXiv:2407.01232)")
+        # P0-3 : arxiv_reference  SARIF ( "PyRIT (arXiv:2407.01232)")
         result["properties"]["arxiv_reference"] = ev.arxiv_reference or "PyRIT (arXiv:2407.01232)"
 
         results.append(result)
@@ -196,7 +196,7 @@ def _build_results(
 
 
 def _build_locations(evidence: EvidenceCollection) -> list[dict[str, Any]]:
-    """鏋勫缓 SARIF 浣嶇疆淇℃伅 (鐩爣 API 绔偣)銆?"""
+    """ SARIF ℃ ( API )?"""
     fp = evidence.target_fingerprint
     if not fp:
         return []
@@ -219,7 +219,7 @@ def _build_locations(evidence: EvidenceCollection) -> list[dict[str, Any]]:
 
 
 def _sarif_level(severity: str) -> str:
-    """灏?OWASP 涓ラ噸鎬ф槧灏勫埌 SARIF level銆?"""
+    """?OWASP ラф SARIF level?"""
     mapping = {
         "critical": "error",
         "high": "error",

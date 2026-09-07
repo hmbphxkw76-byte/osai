@@ -1,35 +1,35 @@
-"""adapters — PyRIT 原生组件适配器层（包装与扩展）。
+"""adapters — PyRIT native component adapter layer (wrapping and extension).
 
-对齐 PyRIT 1.0.1 原生 Target 体系:
-    本包不替代 PyRIT 原生 Target, 仅提供增强包装器:
+Aligned with PyRIT 1.0.1 native Target system:
+    This package does not replace PyRIT native Targets, only provides enhanced wrappers:
 
-    PyRIT 1.0.1 原生 Target (直接使用):
-        - OpenAIChatTarget: Chat Completions API (gpt-4o, DeepSeek 等)
+    PyRIT 1.0.1 native Target (direct use):
+        - OpenAIChatTarget: Chat Completions API (gpt-4o, DeepSeek, etc.)
         - OpenAIResponseTarget: Responses API (o1/o3/GPT-5)
-        - LiteLLMChatTarget: 100+ LLM 提供商 (Anthropic, Bedrock, Vertex)
-        - HTTPTarget: 原始 HTTP 请求 (Burp 场景)
-        - HTTPXAPITarget: API 模式 (文件上传/multipart)
-        - PlaywrightTarget: 浏览器自动化 (JS 渲染 Chat UI)
-        - RoundRobinTarget: 多目标轮询 (负载分散)
+        - LiteLLMChatTarget: 100+ LLM providers (Anthropic, Bedrock, Vertex)
+        - HTTPTarget: Raw HTTP request (Burp scenario)
+        - HTTPXAPITarget: API mode (/multipart)
+        - PlaywrightTarget: Browser automation (JS  Chat UI)
+        - RoundRobinTarget: Multi-target polling (load distribution)
 
-    本包增强模块:
-        - RateLimitedTarget: 并发控制 + 认证恢复 + 能力验证
-          (PyRIT 原生 @limit_requests_per_minute + @pyrit_target_retry
-          装饰器保留在被包装 target 上)
-        - ContentFilterExt: 扩展 PyRIT 原生 CONTENT_FILTER_MARKERS
-          (直接扩展 exception_classes 模块属性)
+    This package enhancement modules:
+        - RateLimitedTarget: Concurrency control + auth recovery + capability verification
+          (PyRIT native @limit_requests_per_minute + @pyrit_target_retry
+          decorators preserved on wrapped target)
+        - ContentFilterExt: Extends PyRIT native CONTENT_FILTER_MARKERS
+          (Directly extends exception_classes module attribute)
 
-原生组件映射 (Rule 2: PyRIT 原生优先):
-    | 层 | MUST use (PyRIT native) | Enhancement (本包) |
+Native component mapping (Rule 2: PyRIT native priority):
+    | Layer | MUST use (PyRIT native) | Enhancement (this package) |
     |-------|-------------------------|--------------------------|
-    | Target | OpenAIChatTarget, OpenAIResponseTarget, HTTPTarget, HTTPXAPITarget, LiteLLMChatTarget, PlaywrightTarget, RoundRobinTarget | RateLimitedTarget (并发+认证) |
-    | RPM 限速 | @limit_requests_per_minute | RateLimitedTarget 透传 |
-    | 重试 | @pyrit_target_retry (tenacity) | RateLimitedTarget 透传 |
-    | 错误处理 | _handle_openai_request_async | 不覆盖 |
-    | 内容过滤 | CONTENT_FILTER_MARKERS | ContentFilterExt 扩展 |
-    | 能力验证 | TargetRequirements.validate() | RateLimitedTarget 调用 |
-    | 能力发现 | discover_target_capabilities_async | RateLimitedTarget.apply_discovered_capabilities |
-    | 目标路由 | recon/target_router.py 统一路由 | — |
+    | Target | OpenAIChatTarget, OpenAIResponseTarget, HTTPTarget, HTTPXAPITarget, LiteLLMChatTarget, PlaywrightTarget, RoundRobinTarget | RateLimitedTarget (Concurrency+Auth) |
+    | RPM rate limit | @limit_requests_per_minute | RateLimitedTarget passthrough |
+    | Retry | @pyrit_target_retry (tenacity) | RateLimitedTarget passthrough |
+    | Error handling | _handle_openai_request_async | Not overridden |
+    | Content filtering | CONTENT_FILTER_MARKERS | ContentFilterExt extension |
+    | Capability verification | TargetRequirements.validate() | RateLimitedTarget invocation |
+    | Capability discovery | discover_target_capabilities_async | RateLimitedTarget.apply_discovered_capabilities |
+    | Target routing | recon/target_router.py Unified routing | — |
 """
 
 from adapters.rate_limited import RateLimitedTarget
@@ -43,7 +43,7 @@ __all__ = [
 
 
 def __getattr__(name: str):
-    """惰性导入 content_filter 模块函数。"""
+    """Lazy import content_filter module function."""
     if name == "extend_content_filter_markers":
         from adapters.content_filter import extend_content_filter_markers
         return extend_content_filter_markers

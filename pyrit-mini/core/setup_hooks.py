@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Git Hooks 安装脚本 — 一键配置 pre-commit / pre-push 自动检查。
+"""Git Hooks  —  pre-commit / pre-push 
 
-安装后，每次 git commit 和 git push 都会自动运行 architecture_guard.py，
-任何 BLOCKING 违规都会阻止提交，无需开发者手动运行。
+ git commit  git push  architecture_guard.py
+ BLOCKING 
 
-用法:
-    python core/setup_hooks.py          # 安装 hooks
-    python core/setup_hooks.py --remove # 卸载 hooks
+:
+    python core/setup_hooks.py          #  hooks
+    python core/setup_hooks.py --remove #  hooks
 
-学术依据: 无 (工程门禁工具, R3 工程门禁自动化)
+Academic basis:  (, R3 )
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def find_git_root() -> str | None:
-    """查找真实的 git 仓库根目录（处理子目录场景）。返回仓库根路径字符串。"""
+    """ git """
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--git-dir"],
@@ -49,7 +49,7 @@ def find_git_root() -> str | None:
 
 
 def _find_python_exe() -> str:
-    """查找 Python 可执行文件完整路径，用于 hook 中硬编码。"""
+    """ Python  hook """
     try:
         result = subprocess.run(
             [sys.executable, "-c", "import sys; print(sys.executable)"],
@@ -58,7 +58,7 @@ def _find_python_exe() -> str:
         )
         if result.returncode == 0:
             exe = result.stdout.strip()
-            # 转换为 Windows 路径格式
+            #  Windows 
             return exe.replace("/", "\\")
     except Exception:
         pass
@@ -79,7 +79,7 @@ if _GIT_ROOT:
 _PROJECT_NAME = _PROJECT_ROOT.name
 _PYTHON_EXE = _find_python_exe()
 
-# Hook 模板 — 使用 {python_exe} 硬编码完整路径避免 PATH 问题
+# Hook  —  {python_exe}  PATH 
 _PRE_COMMIT_HOOK = """#!/bin/sh
 # Combined pre-commit hook for {repo_name} + architecture_guard
 # Auto-installed by: python {project_name}/core/setup_hooks.py
@@ -177,7 +177,7 @@ HOOKS = {
 
 
 def install_hooks() -> int:
-    """安装 Git hooks。"""
+    """ Git hooks"""
     if not _HOOKS_DIR or not os.path.exists(_HOOKS_DIR):
         print("ERROR: .git/hooks/ directory not found")
         return 1
@@ -213,7 +213,7 @@ def install_hooks() -> int:
 
 
 def remove_hooks() -> int:
-    """卸载 Git hooks。"""
+    """ Git hooks"""
     for name in HOOKS:
         if not _HOOKS_DIR:
             continue

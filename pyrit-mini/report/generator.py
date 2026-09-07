@@ -1,23 +1,23 @@
-"""generator — 报告生成协调器。
+"""generator — 
 
-职责:
-    - 定义共享常量 (_OWASP_ALL_CATEGORIES)
-    - 提供 _classify_score_consistency 评分一致性分析
-    - generate_report: 异步生成所有报告文件 (MD + HTML + JSON + PoC + CSV + ZIP)
-    - 重新导出 _generate_markdown / _generate_html / _evidence_to_dict / _single_evidence_to_dict
-      (实际实现在 report_markdown.py / report_html.py 中)
-    - _load_html_template: 从 report/templates/report.html 加载 HTML 模板
+:
+    -  (_OWASP_ALL_CATEGORIES)
+    -  _classify_score_consistency 
+    - generate_report: all (MD + HTML + JSON + PoC + CSV + ZIP)
+    -  _generate_markdown / _generate_html / _evidence_to_dict / _single_evidence_to_dict
+      ( report_markdown.py / report_html.py )
+    - _load_html_template: imports report/templates/report.html Load HTML 
 
-架构:
-    generator.py (常量 + 协调) -> report_markdown.py (MD 生成)
-                              -> report_html.py (HTML 生成)
-                              -> report_sections.py (章节构建)
-                              -> report_utils.py (工具函数)
-                              -> templates/report.html (HTML 模板)
+:
+    generator.py ( + ) -> report_markdown.py (MD )
+                              -> report_html.py (HTML )
+                              -> report_sections.py ()
+                              -> report_utils.py ()
+                              -> templates/report.html (HTML )
 
-循环依赖解决:
-    generator.py 延迟导入 report_html/report_markdown 的函数 (在 generate_report 内).
-    HTML 模板已从代码解耦到独立文件, 通过 _load_html_template() 运行时读取.
+:
+    generator.py from report_html/report_markdown function (in generate_report ).
+    HTML imports,  _load_html_template() .
 """
 
 from __future__ import annotations
@@ -32,8 +32,8 @@ from report.evidence import EvidenceCollection
 logger = logging.getLogger(__name__)
 
 
-# ── OWASP 类别字典 (Web + LLM + ASI 合并) ──
-# 被 report_html.py 和 report_utils.py 引用
+# == OWASP  (Web + LLM + ASI ) ==
+#  report_html.py  report_utils.py 
 _OWASP_ALL_CATEGORIES: dict[str, str] = {
     # OWASP Web Top 10 (2025)
     "A01": "Broken Access Control",
@@ -71,24 +71,24 @@ _OWASP_ALL_CATEGORIES: dict[str, str] = {
 }
 
 
-# ── HTML 模板加载 (从独立文件读取, 解耦代码与模板) ──
-# 模板文件路径: report/templates/report.html
-# 被 report_html.py 和 _generate_html 引用
+# == HTML  (, ) ==
+# : report/templates/report.html
+#  report_html.py  _generate_html 
 
 _html_template_cache: str | None = None
 
 
 def _load_html_template() -> str:
-    """从 report/templates/report.html 加载 HTML 模板。
+    """imports report/templates/report.html Load HTML 
 
-    使用内存缓存避免重复文件 I/O, 仅在首次调用时读取文件。
-    支持运行时模板热更新 (清除缓存后重新加载)。
+    cache I/O, 
+     (cacheLoad)
 
     Returns:
-        HTML 模板字符串。
+        HTML 
 
     Raises:
-        FileNotFoundError: 模板文件不存在时记录错误并返回备用模板。
+        FileNotFoundError: 
     """
     global _html_template_cache
 
@@ -104,7 +104,7 @@ def _load_html_template() -> str:
             "HTML template file not found at %s — using fallback minimal template",
             template_path,
         )
-        # 生产级容错: 返回最小可用模板, 避免报告生成完全失败
+        # Production-grade: , 
         _html_template_cache = (
             "<!DOCTYPE html><html><head><meta charset='utf-8'>"
             "<title>AI Red Team Assessment Report</title></head>"
@@ -116,9 +116,9 @@ def _load_html_template() -> str:
 
 
 def clear_template_cache() -> None:
-    """清除 HTML 模板缓存, 下次加载时重新读取文件。
+    """ HTML cache, Load
 
-    用于开发时模板热更新, 或在测试后重置状态。
+    , 
     """
     global _html_template_cache
     _html_template_cache = None
@@ -126,24 +126,24 @@ def clear_template_cache() -> None:
 
 
 def _classify_score_consistency(score_details: list[dict[str, Any]]) -> str:
-    """分类评分一致性。
+    """
 
-    分析 score_details 中多个 scorer 的评分一致性:
-        - 空 -> N/A
-        - 单 scorer -> Post-hoc Dual Judge
-        - 多 scorer 全一致 -> Consistent
-        - 多 scorer 不一致 -> Minor Disagreement
+     score_details converter(s) scorer :
+        -  -> N/A
+        -  scorer -> Post-hoc Dual Judge
+        -  scorer  -> Consistent
+        -  scorer  -> Minor Disagreement
 
     Args:
-        score_details: 评分详情列表, 每项含 "scorer" 和 "score_value" 键。
+        score_details: ,  "scorer"  "score_value" 
 
     Returns:
-        一致性分类字符串。
+        
     """
     if not score_details:
         return "N/A"
 
-    # 提取所有 score_value
+    #  score_value
     score_values: list[str] = []
     for sd in score_details:
         val = str(sd.get("score_value", "")).lower().strip()
@@ -152,7 +152,7 @@ def _classify_score_consistency(score_details: list[dict[str, Any]]) -> str:
     if len(score_values) <= 1:
         return "Post-hoc Dual Judge"
 
-    # 检查是否全部一致 (true/1 或全部 false/0)
+    #  (true/1  false/0)
     truthy = {"true", "1", "yes"}
     falsy = {"false", "0", "no"}
 
@@ -164,14 +164,14 @@ def _classify_score_consistency(score_details: list[dict[str, Any]]) -> str:
     return "Minor Disagreement"
 
 
-# ── 重新导出 (延迟导入, 避免循环依赖) ──
-# 这些函数实际实现在 report_markdown.py 和 report_html.py 中
-# 但测试和旧代码从 generator 导入它们.
-# 使用延迟导入 (wrapper 函数) 避免循环依赖.
+# ==  (, ) ==
+#  report_markdown.py  report_html.py 
+#  generator .
+#  (wrapper ) .
 
 
 def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = False) -> str:
-    """生成 Markdown 报告 (委托给 report_markdown).
+    """ Markdown  ( report_markdown).
 
     Includes sections: dual_judge_stats, wilson_ci, cohens_kappa, Adaptive Dual Judge Statistics.
     """
@@ -181,14 +181,14 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
 
 
 def _generate_html(evidence: EvidenceCollection, *, success_only: bool = False) -> str:
-    """生成 HTML 报告 (委托给 report_html)."""
+    """ HTML  ( report_html)."""
     from report.report_html import _generate_html as _impl
 
     return _impl(evidence, success_only=success_only)
 
 
 def _evidence_to_dict(evidence: EvidenceCollection, *, success_only: bool = False) -> dict[str, Any]:
-    """将证据集合转换为字典 (委托给 report_html).
+    """ ( report_html).
 
     Includes: dual_judge_stats, owasp_web_compliance, web_vuln_stats, discovered_endpoints.
     """
@@ -198,7 +198,7 @@ def _evidence_to_dict(evidence: EvidenceCollection, *, success_only: bool = Fals
 
 
 def _single_evidence_to_dict(ev: Any) -> dict[str, Any]:
-    """将单个证据转换为字典 (委托给 report_html)."""
+    """converter(s) ( report_html)."""
     from report.report_html import _single_evidence_to_dict as _impl
 
     return _impl(ev)
@@ -209,25 +209,25 @@ async def generate_report(
     evidence: EvidenceCollection,
     output_dir: Path,
 ) -> Path:
-    """生成所有报告文件。
+    """all
 
-    生成:
+    :
         - report.md / report_success.md
-        - report.html / report_success.html (如果 args.html_report)
+        - report.html / report_success.html ( args.html_report)
         - evidence/evidence.json / evidence_success.json
-        - evidence/EVD-*.json (每个证据单独保存)
-        - poc/poc_*.py (成功攻击的 PoC 脚本)
-        - report.sarif (SARIF 2.1 格式, 用于 CI/CD 集成)
+        - evidence/EVD-*.json (converter(s))
+        - poc/poc_*.py ( PoC )
+        - report.sarif (SARIF 2.1 ,  CI/CD )
         - attack_summary.csv / owasp_coverage_matrix.csv
         - evidence_package.zip
 
     Args:
-        ctx: PipelineContext 对象.
-        evidence: 证据集合.
-        output_dir: 输出目录.
+        ctx: PipelineContext .
+        evidence: .
+        output_dir: Output directory.
 
     Returns:
-        报告文件路径.
+        .
     """
     output_dir = Path(output_dir)
     evidence_dir = output_dir / "evidence"
@@ -235,7 +235,7 @@ async def generate_report(
     evidence_dir.mkdir(parents=True, exist_ok=True)
     poc_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── PyRIT Native Output (R2: PyRIT 原生优先) ──
+    # == PyRIT Native Output (R2: PyRIT ) ==
     # Uses official pyrit.output module to generate standard-format output files.
     # This is the PyRIT-native output path, separate from the security report.
     # OffSec AI-300: Proves PyRIT framework mastery via native output format.
@@ -248,8 +248,8 @@ async def generate_report(
     except Exception as e:
         logger.warning("PyRIT native output generation failed (non-fatal): %s", e)
 
-    # ── Markdown Report (OffSec AI-300 Security Report) ──
-    # v57: 分层架构 — 生成 索引 + 执行摘要 + 漏洞详情 + 技术附录
+    # == Markdown Report (OffSec AI-300 Security Report) ==
+    # v57: Layer —   +  +  + 
     from report.report_markdown import (
         _generate_executive_markdown,
         _generate_findings_markdown,
@@ -261,7 +261,7 @@ async def generate_report(
     md_path.write_text(md_content, encoding="utf-8")
     logger.info("Markdown report (index) saved to %s", md_path)
 
-    # v57: 分层报告文件
+    # v57: Layer
     exec_md = _generate_executive_markdown(evidence)
     exec_md_path = output_dir / "report_executive.md"
     exec_md_path.write_text(exec_md, encoding="utf-8")
@@ -277,21 +277,21 @@ async def generate_report(
     tech_md_path.write_text(tech_md, encoding="utf-8")
     logger.info("Technical appendix saved to %s", tech_md_path)
 
-    # ── 仅成功攻击的 Markdown ──
-    # v57: success_only 报告 = executive 摘要(仅成功) + findings 详情(仅成功)
+    # ==  Markdown ==
+    # v57: success_only  = executive () + findings ()
     if evidence.successful_evidence:
         from report.report_markdown import _generate_executive_markdown as _gen_exec
 
-        # 用 findings 模板 (success_only) 作为主体, 前置 executive 摘要
+        #  findings  (success_only) ,  executive 
         success_findings = _generate_findings_markdown(evidence, success_only=True)
-        # executive 摘要仍用全量数据 (ASR/total 等指标不变, 只是 findings 只列成功)
+        # executive  (ASR/total ,  findings )
         success_exec = _gen_exec(evidence)
         success_md = success_exec + "\n\n---\n\n" + success_findings
         success_md_path = output_dir / "report_success.md"
         success_md_path.write_text(success_md, encoding="utf-8")
         logger.info("Success-only Markdown report saved to %s", success_md_path)
 
-    # ── HTML 报告 (可选) ──
+    # == HTML  () ==
     if getattr(ctx.args, "html_report", False):
         html_content = _generate_html(evidence)
         html_path = output_dir / "report.html"
@@ -304,7 +304,7 @@ async def generate_report(
             success_html_path.write_text(success_html, encoding="utf-8")
             logger.info("Success-only HTML report saved to %s", success_html_path)
 
-    # ── evidence JSON ──
+    # == evidence JSON ==
     json_data = _evidence_to_dict(evidence)
     json_path = evidence_dir / "evidence.json"
     json_path.write_text(
@@ -322,7 +322,7 @@ async def generate_report(
         )
         logger.info("Success-only evidence JSON saved to %s", success_json_path)
 
-    # ── 每个证据单独保存 ──
+    # ==  ==
     for ev in evidence.evidence:
         ev_filename = f"{ev.evidence_id}.json"
         ev_path = evidence_dir / ev_filename
@@ -331,8 +331,8 @@ async def generate_report(
             encoding="utf-8",
         )
 
-    # ── PoC 脚本 (仅成功攻击) ──
-    # 断点修复: 增强日志记录, 包含技术名称和失败原因, 便于调试
+    # == PoC  () ==
+    # : , , 
     from report.owasp_mapping import generate_poc_script
 
     poc_count = 0
@@ -363,10 +363,10 @@ async def generate_report(
     if poc_failed:
         logger.warning("PoC generation: %d succeeded, %d failed", poc_count, poc_failed)
 
-    # ── SARIF 报告 ──
-    # 断点修复: SARIF 报告 (sarif_report.py) 存在但未被主流流水线调用
-    # 导致 CI/CD 集成场景缺少 SARIF 输出。
-    # 修复: 在 generator.py 中集成 SARIF 报告生成, 与 MD/HTML/JSON 并行输出。
+    # == SARIF  ==
+    # : SARIF  (sarif_report.py) 
+    #  CI/CD  SARIF 
+    # :  generator.py  SARIF ,  MD/HTML/JSON 
     try:
         from report.sarif_report import generate_sarif_report
 
@@ -375,7 +375,7 @@ async def generate_report(
     except Exception as e:
         logger.warning("Failed to generate SARIF report: %s", e)
 
-    # ── CSV 导出 ──
+    # == CSV  ==
     try:
         from report.report_sections import (
             _export_evidence_zip,
@@ -392,7 +392,7 @@ async def generate_report(
         csv_coverage_path.write_text(csv_coverage, encoding="utf-8")
         logger.info("CSV exports saved to %s", output_dir)
 
-        # ── ZIP 证据包 ──
+        # == ZIP  ==
         _export_evidence_zip(output_dir, evidence)
         logger.info("Evidence ZIP saved to %s", output_dir / "evidence_package.zip")
     except Exception as e:

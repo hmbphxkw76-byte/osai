@@ -1,22 +1,22 @@
-"""recon — Burp 拦截与侦察阶段。
+"""recon — Burp 
 
-攻击链路第 1 步: 从 Burp 拦截的 HTTP 请求解析目标信息,
-构建 HTTPTarget, 探测目标能力指纹。
+ 1 : imports Burp  HTTP ,
+ HTTPTarget, 
 
-核心模块:
-    - burp_parser: 解析 Burp HTTP 请求, 提取 URL/Headers/Body, 注入 {PROMPT}
-    - target_router: 构建 HTTPTarget + RateLimitedTarget, 创建 adversarial/scoring target
-    - capability_detector: 探测目标能力 (agent/mcp/rag/embedding)
-    - confidence_scorer: 能力置信度评分 (SSOT)
-    - mcp_enumerator: MCP 协议深度探测
-    - system_prompt_extractor: 系统提示泄露探测
-    - endpoint_sorter: 多 endpoint 攻击优先级排序
-    - adaptive_probe_config: 自适应探测深度 (按目标复杂度动态分配)
-    - behavioral_verifier: 行为验证层 (验证声明能力 vs 实际能力)
-    - capability_monitor: 能力漂移检测 (攻击过程中监测目标变化)
-    - guardrail_detector: 护栏探测 (识别目标安全护栏类型)
-    - model_seed_mapper: 种子映射 (模型指纹 → 最优种子配置)
-    - stealth_config: Stealth Level 分级 (隐蔽性控制)
+Core modules:
+    - burp_parser:  Burp HTTP ,  URL/Headers/Body,  {PROMPT}
+    - target_router:  HTTPTarget + RateLimitedTarget,  adversarial/scoring target
+    - capability_detector:  (agent/mcp/rag/embedding)
+    - confidence_scorer:  (SSOT)
+    - mcp_enumerator: MCP 
+    - system_prompt_extractor: 
+    - endpoint_sorter:  endpoint 
+    - adaptive_probe_config:  ()
+    - behavioral_verifier: Layer ( vs )
+    - capability_monitor:  ()
+    - guardrail_detector:  ()
+    - model_seed_mapper:  ( → )
+    - stealth_config: Stealth Level  ()
 """
 
 from recon.adaptive_probe_config import compute_probe_budget, should_run_probe

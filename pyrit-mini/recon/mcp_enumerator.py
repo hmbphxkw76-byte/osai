@@ -1,35 +1,35 @@
-"""MCP (Model Context Protocol) 端点枚举模块 — 发现并提取 MCP Server 的 tools/resources/prompts。
+"""MCP (Model Context Protocol)  —  MCP Server  tools/resources/prompts
 
-学术依据:
-    - Anthropic MCP Specification (2024) §3.2 — MCP server 必须实现
-      tools/list, resources/list, prompts/list JSON-RPC 方法
-    - Greshake et al. (arXiv:2302.12173) §4 — 间接提示注入的核心是
-      利用工具输出中的信任传递, 枚举 tool schema 后可针对每个 tool
-      的参数构造精准备注注入
-    - Zhan et al. (arXiv:2307.00929) InjecAgent §3.3 — Agent 工具调用
-      的参数注入需要知道 tool 的 input schema
-    - 课程 AI-300 Ch7.1 — "Extract detailed tool schemas through
+Academic basis:
+    - Anthropic MCP Specification (2024) §3.2 — MCP server 
+      tools/list, resources/list, prompts/list JSON-RPC 
+    - Greshake et al. (arXiv:2302.12173) §4 — 
+      ,  tool schema converter(s) tool
+      
+    - Zhan et al. (arXiv:2307.00929) InjecAgent §3.3 — Agent 
+       tool  input schema
+    -  AI-300 Ch7.1 — "Extract detailed tool schemas through
       error-based enumeration"
 
-枚举策略 (3 层):
-    1. 标准 JSON-RPC 枚举: 向目标 MCP endpoint 发送 tools/list,
-       resources/list, prompts/list 请求, 解析 JSON-RPC 响应
-    2. 错误推断枚举 (Error-based): 发送不完整/格式错误的 tool call,
-       利用错误信息推断 schema (如缺少必选参数时 MCP 返回 schema 描述)
-    3. Prompt 辅助枚举: 当 JSON-RPC 不可达时, 通过 PromptSendingAttack
-       向目标 LLM 发送 "list all MCP tools" prompt, 解析 LLM 响应
+ (3 Layer):
+    1.  JSON-RPC :  MCP endpoint  tools/list,
+       resources/list, prompts/list ,  JSON-RPC 
+    2.  (Error-based): / tool call,
+        schema ( MCP  schema )
+    3. Prompt :  JSON-RPC ,  PromptSendingAttack
+        LLM  "list all MCP tools" prompt,  LLM 
 
-PyRIT 原生优先 (Rule 2: 原生优先):
-    层 1-2 使用 httpx 直接发送 JSON-RPC 请求 (HTTPTarget 的 {PROMPT}
-    占位符机制不适合发送结构化 JSON-RPC, 但 httpx 是 PyRIT 已有的
-    依赖, 且 SKILL.md 设计域边界规则允许 MCP JSON-RPC 枚举使用
-    HTTPTarget 原生 HTTP 发送能力
-    层 3 使用 PyRIT 原生 PromptSendingAttack (prompt 层攻击)
+PyRIT  (Rule 2: ):
+    Layer 1-2  httpx  JSON-RPC  (HTTPTarget  {PROMPT}
+     JSON-RPC,  httpx  PyRIT 
+    ,  SKILL.md  MCP JSON-RPC 
+    HTTPTarget  HTTP 
+    Layer 3  PyRIT  PromptSendingAttack (prompt Layer)
 
-设计域边界 (Rule 2: PyRIT Design Domain Boundary):
-    MCP tools/list 等 JSON-RPC 方法是标准 HTTP POST + JSON body,
-    属于 HTTPTarget 的原生 HTTP 发送能力范围内。这是 Rule 2 中
-    明确允许的 MCP JSON-RPC 枚举例外。
+ (Rule 2: PyRIT Design Domain Boundary):
+    MCP tools/list  JSON-RPC  HTTP POST + JSON body,
+     HTTPTarget  HTTP  Rule 2 
+     MCP JSON-RPC 
 """
 
 from __future__ import annotations
@@ -39,54 +39,54 @@ import logging
 import re
 from typing import Any
 
-# P2-06: TLS verify 配置化 (SSOT)
+# P2-06: TLS verify  (SSOT)
 from recon.config_loader import get_tls_verify as _get_tls_verify_from_config
 
 _TLS_VERIFY = _get_tls_verify_from_config()
 
 logger = logging.getLogger(__name__)
 
-# MCP JSON-RPC 方法 (Anthropic MCP Specification §3.2)
+# MCP JSON-RPC  (Anthropic MCP Specification §3.2)
 _MCP_METHODS = {
     "tools/list": "List all tools with their schemas",
     "resources/list": "List all available resources",
     "prompts/list": "List all available prompts",
 }
 
-# MCP 标准 JSON-RPC 请求 ID 前缀
+# MCP  JSON-RPC  ID 
 _MCP_REQUEST_ID_PREFIX = "strike-mcp-enum"
 
-# 探针超时 (秒)
+#  ()
 _PROBE_TIMEOUT = 15
 
 
 async def enumerate_mcp_endpoint(
     parsed_request: Any,
 ) -> dict[str, Any]:
-    """枚举目标 MCP Server 的 tools/resources/prompts。
+    """ MCP Server  tools/resources/prompts
 
-    学术依据:
-        - Anthropic MCP Specification (2024) §3.2 — MCP server 必须实现
-          tools/list, resources/list, prompts/list JSON-RPC 方法
-        - 课程 AI-300 Ch7.1 — MCP 端点枚举 + tool schema 提取
+    Academic basis:
+        - Anthropic MCP Specification (2024) §3.2 — MCP server 
+          tools/list, resources/list, prompts/list JSON-RPC 
+        -  AI-300 Ch7.1 — MCP  + tool schema 
 
-    枚举策略 (3 层 fallback):
-        1. 标准 JSON-RPC 枚举: 向目标 endpoint 发送 MCP 标准 JSON-RPC 请求
-        2. 错误推断枚举: 发送格式错误的 tool call, 利用错误信息推断 schema
-        3. 结果汇总: 将所有发现的 tools/resources/prompts 存入 target_fingerprint
+     (3 Layer fallback):
+        1.  JSON-RPC :  endpoint  MCP  JSON-RPC 
+        2. :  tool call,  schema
+        3. : all tools/resources/prompts  target_fingerprint
 
     Args:
-        parsed_request: ParsedBurpRequest 实例 (复用其 headers/认证)。
+        parsed_request: ParsedBurpRequest  ( headers/)
 
     Returns:
-        枚举结果字典:
+        :
         {
             "has_mcp": bool,
             "tools": [{"name": str, "description": str, "inputSchema": dict}, ...],
             "resources": [{"uri": str, "name": str, "description": str}, ...],
             "prompts": [{"name": str, "description": str}, ...],
-            "tool_names": [str, ...],  # 简化列表, 供子系统集成使用
-            "server_info": dict | None,  # MCP server 信息
+            "tool_names": [str, ...],  # , 
+            "server_info": dict | None,  # MCP server 
         }
     """
     results: dict[str, Any] = {
@@ -102,8 +102,8 @@ async def enumerate_mcp_endpoint(
         logger.debug("MCP enumerate: no parsed_request")
         return results
 
-    # ── 层 1: 标准 JSON-RPC 枚举 ──
-    # 向目标 endpoint 发送 tools/list, resources/list, prompts/list
+    # == Layer 1:  JSON-RPC  ==
+    #  endpoint  tools/list, resources/list, prompts/list
     logger.info("MCP enumerate: sending standard JSON-RPC requests")
 
     for method, description in _MCP_METHODS.items():
@@ -141,10 +141,10 @@ async def enumerate_mcp_endpoint(
         except Exception as e:
             logger.debug("MCP enumerate: method %s failed: %s", method, e)
 
-    # ── 层 2: 错误推断枚举 (Error-based) ──
-    # 学术依据: 课程 AI-300 Ch7.1 — "Extract detailed tool schemas
+    # == Layer 2:  (Error-based) ==
+    # Academic basis:  AI-300 Ch7.1 — "Extract detailed tool schemas
     # through error-based enumeration techniques"
-    # 如果层 1 没发现 tools, 尝试发送不完整的 tool call 触发错误响应
+    # Layer 1  tools,  tool call 
     if not results["tools"]:
         logger.info("MCP enumerate: no tools from standard list, trying error-based enumeration")
         error_tools = await _error_based_enumeration(parsed_request)
@@ -158,13 +158,13 @@ async def enumerate_mcp_endpoint(
                 results["tool_names"],
             )
 
-    # ── 查询 MCP server info (含版本协商) ──
-    # 学术依据: Anthropic MCP Specification (2024) §3.1 — initialize 方法
-    # 版本协商: 先发送 initialize, 服务器返回支持的 protocolVersion,
-    # 后续请求使用协商后的版本
+    # ==  MCP server info () ==
+    # Academic basis: Anthropic MCP Specification (2024) §3.1 — initialize 
+    # :  initialize,  protocolVersion,
+    # 
     if results["has_mcp"]:
         try:
-            # 版本协商: 尝试最新版本, 服务器可降级
+            # : , 
             negotiated_version = await _negotiate_protocol_version(
                 parsed_request,
                 client_versions=["2025-06-18", "2024-11-05", "2024-10-07"],
@@ -186,7 +186,7 @@ async def enumerate_mcp_endpoint(
                 server_info = _extract_server_info(info_response)
                 if server_info:
                     results["server_info"] = server_info
-                    # 记录协商后的协议版本
+                    # 
                     results["server_info"]["negotiated_version"] = negotiated_version
                     logger.info(
                         "MCP enumerate: server info: name=%s, version=%s, protocol=%s",
@@ -197,14 +197,14 @@ async def enumerate_mcp_endpoint(
         except Exception as e:
             logger.debug("MCP enumerate: server info query failed: %s", e)
 
-    # ── MCP 工具静态安全分析 (从 RedAmon YARA 规则借鉴, 轻量级正则实现) ──
-    # 学术依据:
+    # == MCP  ( RedAmon YARA , ) ==
+    # Academic basis:
     #   - Cisco AI Defense MCP Scanner — tool_poisoning / data_exfiltration /
-    #     credential_harvesting / command_injection 静态检测规则
+    #     credential_harvesting / command_injection 
     #   - OWASP LLM01 (Prompt Injection) / LLM06 (Sensitive Info Disclosure)
     #   - MITRE ATLAS AML.T0051 (Compromise ML Models)
-    # 对每个枚举到的 tool 的 description + inputSchema 做静态安全分析,
-    # 检测是否存在提示注入风险、数据外传风险、凭证窃取风险等。
+    #  tool  description + inputSchema ,
+    # 
     if results["tools"]:
         results["tool_safety"] = analyze_mcp_tool_safety(results["tools"])
         risky = [t for t in results["tool_safety"] if t.get("risks")]
@@ -228,12 +228,12 @@ async def enumerate_mcp_endpoint(
     return results
 
 
-# ════════════════════════════════════════════════════════════════════
-# MCP 工具静态安全分析 (从 RedAmon YARA 规则借鉴)
-# 学术依据: Cisco AI Defense MCP Scanner 规则集
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# MCP  ( RedAmon YARA )
+# Academic basis: Cisco AI Defense MCP Scanner 
+# ====================================================================
 
-# 提示注入检测规则 (tool description 中的恶意指令)
+#  (tool description )
 _TOOL_POISONING_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
     (re.compile(r"ignore\s+(?:all\s+)?(?:previous|prior|above)\s+instructions", re.I), "prompt_injection", "high"),
     (re.compile(r"disregard\s+(?:all\s+)?(?:previous|prior|system)\s+(?:instructions|prompts)", re.I), "prompt_injection", "high"),
@@ -247,7 +247,7 @@ _TOOL_POISONING_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
     (re.compile(r"(?:disable|bypass|circumvent)\s+(?:security|auth|firewall|filter|guardrail|safety)", re.I), "security_bypass", "critical"),
 ]
 
-# 参数名敏感度规则
+# 
 _SENSITIVE_PARAM_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?:password|passwd|pwd)", re.I), "credential"),
     (re.compile(r"(?:secret|api.?key|access.?key|private.?key)", re.I), "credential"),
@@ -259,29 +259,29 @@ _SENSITIVE_PARAM_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?:path|file|directory|filename)", re.I), "path_traversal_risk"),
 ]
 
-# Annotation 矛盾检测: tool 名称暗示 mutation 但声明 readOnlyHint
+# Annotation : tool  mutation  readOnlyHint
 _MUTATING_NAME_KEYWORDS = ("delete", "write", "exec", "run", "remove", "update", "create", "modify", "insert", "drop", "alter")
 
 
 def analyze_mcp_tool_safety(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """对 MCP 工具列表做静态安全分析。
+    """ MCP 
 
-    学术依据:
-        - Cisco AI Defense MCP Scanner — YARA 规则检测 tool poisoning
-        - OWASP LLM01 / LLM06 — 提示注入和敏感信息泄露
-        - MITRE ATLAS AML.T0051 — 模型妥协
+    Academic basis:
+        - Cisco AI Defense MCP Scanner — YARA  tool poisoning
+        - OWASP LLM01 / LLM06 — 
+        - MITRE ATLAS AML.T0051 — 
 
-    检测维度:
-        1. 工具描述中的提示注入指令 (tool poisoning)
-        2. 参数名暗示敏感数据 (credential/token/command)
-        3. Annotation 矛盾 (name 含 delete/write 但声明 readOnlyHint)
-        4. 参数 schema 中的高危路径注入 (command/path/exec 参数)
+    :
+        1.  (tool poisoning)
+        2.  (credential/token/command)
+        3. Annotation  (name  delete/write  readOnlyHint)
+        4.  schema  (command/path/exec )
 
     Args:
-        tools: MCP 枚举到的 tools 列表 (每个包含 name, description, inputSchema)。
+        tools: MCP  tools  (converter(s) name, description, inputSchema)
 
     Returns:
-        安全分析结果列表 (与 tools 一一对应):
+         ( tools ):
         [
             {
                 "tool_name": str,
@@ -289,7 +289,7 @@ def analyze_mcp_tool_safety(tools: list[dict[str, Any]]) -> list[dict[str, Any]]
                     {"type": str, "severity": str, "detail": str},
                     ...
                 ],
-                "risk_score": int,  # 0-100, 越高风险越大
+                "risk_score": int,  # 0-100, 
             },
             ...
         ]
@@ -304,7 +304,7 @@ def analyze_mcp_tool_safety(tools: list[dict[str, Any]]) -> list[dict[str, Any]]
 
         risks: list[dict[str, str]] = []
 
-        # ── 1. 工具描述中的提示注入检测 ──
+        # == 1.  ==
         if description:
             for pattern, risk_type, severity in _TOOL_POISONING_PATTERNS:
                 match = pattern.search(description)
@@ -315,7 +315,7 @@ def analyze_mcp_tool_safety(tools: list[dict[str, Any]]) -> list[dict[str, Any]]
                         "detail": f"Description contains '{risk_type}': '{match.group()}'",
                     })
 
-        # ── 2. 参数名敏感度检测 ──
+        # == 2.  ==
         if isinstance(input_schema, dict):
             properties = input_schema.get("properties", {})
             if isinstance(properties, dict):
@@ -329,9 +329,9 @@ def analyze_mcp_tool_safety(tools: list[dict[str, Any]]) -> list[dict[str, Any]]
                                 "severity": "medium",
                                 "detail": f"Sensitive parameter name: '{param_name}'",
                             })
-                            break  # 每个参数只匹配一次
+                            break  # converter(s)
 
-                    # 检查参数 schema 中的高危描述
+                    #  schema 
                     param_desc = param_schema.get("description", "")
                     if param_desc:
                         for pattern, risk_type, severity in _TOOL_POISONING_PATTERNS:
@@ -343,8 +343,8 @@ def analyze_mcp_tool_safety(tools: list[dict[str, Any]]) -> list[dict[str, Any]]
                                 })
                                 break
 
-        # ── 3. Annotation 矛盾检测 ──
-        # tool 名称暗示 mutation (delete/write/exec) 但 annotation 声称 readOnlyHint
+        # == 3. Annotation  ==
+        # tool  mutation (delete/write/exec)  annotation  readOnlyHint
         name_lower = tool_name.lower()
         is_mutating_name = any(kw in name_lower for kw in _MUTATING_NAME_KEYWORDS)
         read_only_hint = False
@@ -357,7 +357,7 @@ def analyze_mcp_tool_safety(tools: list[dict[str, Any]]) -> list[dict[str, Any]]
                 "detail": f"Tool '{tool_name}' name implies mutation but annotation declares readOnlyHint",
             })
 
-        # ── 4. 风险评分 ──
+        # == 4.  ==
         risk_score = 0
         severity_weights = {"critical": 40, "high": 25, "medium": 10, "low": 5}
         for risk in risks:
@@ -370,7 +370,7 @@ def analyze_mcp_tool_safety(tools: list[dict[str, Any]]) -> list[dict[str, Any]]
             "risk_score": risk_score,
         })
 
-    # 日志汇总
+    # 
     risky_tools = [r for r in safety_results if r["risks"]]
     if risky_tools:
         for r in risky_tools:
@@ -389,24 +389,24 @@ async def _send_mcp_jsonrpc(
     method: str,
     params: dict[str, Any],
 ) -> dict[str, Any] | None:
-    """发送 MCP JSON-RPC 2.0 请求, 返回响应 JSON。
+    """ MCP JSON-RPC 2.0 ,  JSON
 
-    使用 httpx 直接发送 HTTP POST (复用原始请求的认证 headers)。
-    HTTPTarget 的 {PROMPT} 占位符机制不适合发送结构化 JSON-RPC,
-    但 httpx 是 PyRIT 已有依赖, 且 MCP JSON-RPC 枚举属于 Rule 2
-    允许的例外。
+     httpx  HTTP POST ( headers)
+    HTTPTarget  {PROMPT}  JSON-RPC,
+     httpx  PyRIT ,  MCP JSON-RPC  Rule 2
+    
 
-    学术依据:
-        - Anthropic MCP Specification (2024) §3.1 — MCP 使用 JSON-RPC 2.0
-        - JSON-RPC 2.0 Specification — method, params, id 字段
+    Academic basis:
+        - Anthropic MCP Specification (2024) §3.1 — MCP  JSON-RPC 2.0
+        - JSON-RPC 2.0 Specification — method, params, id 
 
     Args:
-        parsed_request: ParsedBurpRequest (复用 headers/认证)。
-        method: MCP JSON-RPC 方法名 (如 "tools/list")。
-        params: JSON-RPC params 字段。
+        parsed_request: ParsedBurpRequest ( headers/)
+        method: MCP JSON-RPC  ( "tools/list")
+        params: JSON-RPC params 
 
     Returns:
-        JSON-RPC 响应字典, 或 None 如果失败。
+        JSON-RPC ,  None 
     """
     import asyncio
 
@@ -415,16 +415,16 @@ async def _send_mcp_jsonrpc(
     scheme = "https" if parsed_request.use_tls else "http"
     url = f"{scheme}://{parsed_request.host}{parsed_request.path}"
 
-    # 复用原始请求的 headers (排除 Content-Length 和 Host)
+    #  headers ( Content-Length  Host)
     headers: dict[str, str] = {}
     for key, value in parsed_request.raw_headers:
         if key.lower() not in ("content-length", "host"):
             headers[key] = value
 
-    # 确保 Content-Type 为 JSON
+    # Ensure Content-Type  JSON
     headers["Content-Type"] = "application/json"
 
-    # 构建 MCP JSON-RPC 2.0 请求
+    #  MCP JSON-RPC 2.0 
     jsonrpc_request = {
         "jsonrpc": "2.0",
         "method": method,
@@ -454,9 +454,9 @@ async def _send_mcp_jsonrpc(
                 )
                 return None
 
-            # 尝试解析 JSON-RPC 响应
-            # 检查是否为 SSE (Server-Sent Events) 传输
-            # 学术依据: MCP Specification (2024) §3.1 — 支持 SSE 传输
+            #  JSON-RPC 
+            #  SSE (Server-Sent Events) 
+            # Academic basis: MCP Specification (2024) §3.1 —  SSE 
             content_type = response.headers.get("content-type", "")
             if "text/event-stream" in content_type or response.text.startswith("data:"):
                 logger.debug("MCP JSON-RPC %s: detected SSE transport", method)
@@ -469,7 +469,7 @@ async def _send_mcp_jsonrpc(
             try:
                 data = response.json()
                 if isinstance(data, dict):
-                    # 检查 JSON-RPC error
+                    #  JSON-RPC error
                     if "error" in data:
                         error = data["error"]
                         logger.debug(
@@ -478,7 +478,7 @@ async def _send_mcp_jsonrpc(
                             error.get("code", "unknown"),
                             error.get("message", ""),
                         )
-                        # 错误响应仍然包含信息 (如 schema 在 error.data 中)
+                        #  ( schema  error.data )
                         return data
                     return data
             except (json.JSONDecodeError, ValueError):
@@ -498,37 +498,37 @@ async def _send_mcp_jsonrpc(
 async def _error_based_enumeration(
     parsed_request: Any,
 ) -> list[dict[str, Any]]:
-    """错误推断枚举 — 发送不完整的 tool call 触发错误响应。
+    """ —  tool call 
 
-    学术依据:
-        - 课程 AI-300 Ch7.1 — "Extract detailed tool schemas through
+    Academic basis:
+        -  AI-300 Ch7.1 — "Extract detailed tool schemas through
           error-based enumeration techniques"
-        - 当 MCP server 收到不完整或格式错误的 tool call 时,
-          会返回错误信息, 其中包含 tool 的 input schema 描述
+        -  MCP server  tool call ,
+          ,  tool  input schema 
 
-    策略:
-        1. 发送 tools/call with missing arguments
-        2. 发送 tools/call with invalid tool name
-        3. 解析错误响应中的 schema 信息
+    :
+        1.  tools/call with missing arguments
+        2.  tools/call with invalid tool name
+        3.  schema 
 
     Args:
-        parsed_request: ParsedBurpRequest。
+        parsed_request: ParsedBurpRequest
 
     Returns:
-        从错误响应推断出的 tool schema 列表。
+        imports tool schema 
     """
     tools: list[dict[str, Any]] = []
 
-    # 尝试发送不完整的 tool call 触发 schema 泄露
+    #  tool call  schema 
     probe_calls = [
-        # 缺少 arguments 的 tool call
+        #  arguments  tool call
         {
             "jsonrpc": "2.0",
             "method": "tools/call",
             "params": {"name": "", "arguments": {}},
             "id": f"{_MCP_REQUEST_ID_PREFIX}-error-probe-1",
         },
-        # 无效 tool name
+        #  tool name
         {
             "jsonrpc": "2.0",
             "method": "tools/call",
@@ -545,11 +545,11 @@ async def _error_based_enumeration(
             if response is None:
                 continue
 
-            # 从错误响应中提取 schema 信息
+            #  schema 
             error = response.get("error", {})
             error_data = error.get("data", {})
 
-            # MCP 错误响应可能在 data 中包含 available tools
+            # MCP  data  available tools
             if isinstance(error_data, dict):
                 available_tools = error_data.get("availableTools") or error_data.get("tools")
                 if isinstance(available_tools, list):
@@ -561,10 +561,10 @@ async def _error_based_enumeration(
                                 tools.append(tool)
                     break
 
-                # 错误消息中可能列出可用的 tool 名称
+                #  tool 
                 error_msg = error.get("message", "")
                 if error_msg:
-                    # 解析 "Unknown tool 'X'. Available tools: [A, B, C]" 格式
+                    #  "Unknown tool 'X'. Available tools: [A, B, C]" 
                     name_match = re.search(
                         r"Available tools?\s*:\s*\[?([^]\]]+)",
                         error_msg,
@@ -572,7 +572,7 @@ async def _error_based_enumeration(
                     )
                     if name_match:
                         names_str = name_match.group(1)
-                        # 清理可能残留的括号字符
+                        # 
                         names_str = names_str.strip("[]")
                         tool_names = [
                             n.strip().strip("'\"[]")
@@ -594,14 +594,14 @@ async def _send_raw_jsonrpc(
     parsed_request: Any,
     jsonrpc_request: dict[str, Any],
 ) -> dict[str, Any] | None:
-    """发送原始 JSON-RPC 请求 (不限于 MCP 标准方法)。
+    """ JSON-RPC  ( MCP )
 
     Args:
-        parsed_request: ParsedBurpRequest。
-        jsonrpc_request: 完整的 JSON-RPC 2.0 请求字典。
+        parsed_request: ParsedBurpRequest
+        jsonrpc_request:  JSON-RPC 2.0 
 
     Returns:
-        JSON-RPC 响应字典, 或 None。
+        JSON-RPC ,  None
     """
     import asyncio
 
@@ -635,9 +635,9 @@ async def _send_raw_jsonrpc(
 
 
 def _extract_tools_from_response(response: dict[str, Any]) -> list[dict[str, Any]]:
-    """从 JSON-RPC tools/list 响应中提取 tools 列表。
+    """imports JSON-RPC tools/list  tools 
 
-    MCP tools/list 响应格式:
+    MCP tools/list :
         {
             "jsonrpc": "2.0",
             "result": {
@@ -659,10 +659,10 @@ def _extract_tools_from_response(response: dict[str, Any]) -> list[dict[str, Any
         }
 
     Args:
-        response: JSON-RPC 响应字典。
+        response: JSON-RPC 
 
     Returns:
-        tools 列表, 每个包含 name, description, inputSchema。
+        tools , converter(s) name, description, inputSchema
     """
     result = response.get("result", {})
     if not isinstance(result, dict):
@@ -672,7 +672,7 @@ def _extract_tools_from_response(response: dict[str, Any]) -> list[dict[str, Any
     if not isinstance(tools, list):
         return []
 
-    # 过滤: 只保留有 name 的 tool
+    # :  name  tool
     valid_tools: list[dict[str, Any]] = []
     for tool in tools:
         if isinstance(tool, dict) and "name" in tool:
@@ -686,9 +686,9 @@ def _extract_tools_from_response(response: dict[str, Any]) -> list[dict[str, Any
 
 
 def _extract_resources_from_response(response: dict[str, Any]) -> list[dict[str, Any]]:
-    """从 JSON-RPC resources/list 响应中提取 resources 列表。
+    """imports JSON-RPC resources/list  resources 
 
-    MCP resources/list 响应格式:
+    MCP resources/list :
         {
             "result": {
                 "resources": [
@@ -718,9 +718,9 @@ def _extract_resources_from_response(response: dict[str, Any]) -> list[dict[str,
 
 
 def _extract_prompts_from_response(response: dict[str, Any]) -> list[dict[str, Any]]:
-    """从 JSON-RPC prompts/list 响应中提取 prompts 列表。
+    """imports JSON-RPC prompts/list  prompts 
 
-    MCP prompts/list 响应格式:
+    MCP prompts/list :
         {
             "result": {
                 "prompts": [
@@ -749,9 +749,9 @@ def _extract_prompts_from_response(response: dict[str, Any]) -> list[dict[str, A
 
 
 def _extract_server_info(response: dict[str, Any]) -> dict[str, Any] | None:
-    """从 MCP initialize 响应中提取 server 信息。
+    """imports MCP initialize  server 
 
-    MCP initialize 响应格式:
+    MCP initialize :
         {
             "result": {
                 "protocolVersion": "2024-11-05",
@@ -780,25 +780,25 @@ def build_mcp_attack_seeds(
     tools: list[dict[str, Any]],
     resources: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """根据 MCP 枚举结果生成定向攻击种子。
+    """ MCP 
 
-    学术依据:
-        - Greshake et al. (arXiv:2302.12173) §4 — 间接提示注入在工具输出中的利用
-        - Zhan et al. (arXiv:2307.00929) InjecAgent §3.3 — 针对工具
-          inputSchema 的参数注入
-        - 课程 AI-300 Ch7.1 — 从枚举到的 tool schema 构造攻击
+    Academic basis:
+        - Greshake et al. (arXiv:2302.12173) §4 — 
+        - Zhan et al. (arXiv:2307.00929) InjecAgent §3.3 — 
+          inputSchema 
+        -  AI-300 Ch7.1 — imports tool schema 
 
-    策略:
-        1. 对每个 tool, 生成参数注入种子 (利用 inputSchema 中的参数名)
-        2. 对每个 resource, 生成资源读取种子
-        3. 生成跨工具调用种子 (组合多个 tool 的参数)
+    :
+        1. converter(s) tool,  ( inputSchema )
+        2. converter(s) resource, 
+        3.  (converter(s) tool )
 
     Args:
-        tools: MCP 枚举到的 tools 列表。
-        resources: MCP 枚举到的 resources 列表。
+        tools: MCP  tools 
+        resources: MCP  resources 
 
     Returns:
-        攻击种子列表 (PyRIT SeedPrompt YAML 格式)。
+         (PyRIT SeedPrompt YAML )
     """
     seeds: list[dict[str, Any]] = []
 
@@ -808,12 +808,12 @@ def build_mcp_attack_seeds(
         "Start your response with 'SK.' to confirm.\n\n"
     )
 
-    # ── 对每个 tool 生成参数注入种子 ──
+    # ==  tool  ==
     for tool in tools:
         tool_name = tool.get("name", "")
         schema = tool.get("inputSchema", {})
 
-        # 提取参数名
+        # 
         properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
         param_names = list(properties.keys()) if isinstance(properties, dict) else []
         required_params = schema.get("required", []) if isinstance(schema, dict) else []
@@ -821,7 +821,7 @@ def build_mcp_attack_seeds(
         if not tool_name:
             continue
 
-        # 参数注入种子: 让 LLM 调用 tool 并暴露敏感数据
+        # :  LLM  tool 
         param_hint = ""
         if param_names:
             param_hint = f" The tool accepts parameters: {', '.join(param_names)}."
@@ -850,7 +850,7 @@ def build_mcp_attack_seeds(
             },
         })
 
-    # ── 对每个 resource 生成读取种子 ──
+    # ==  resource  ==
     for res in resources:
         res_uri = res.get("uri", "")
         res_name = res.get("name", "")
@@ -876,7 +876,7 @@ def build_mcp_attack_seeds(
             },
         })
 
-    # ── 跨工具调用种子 (组合多个 tool) ──
+    # ==  ( tool) ==
     if len(tools) >= 2:
         tool1 = tools[0].get("name", "tool1")
         tool2 = tools[1].get("name", "tool2")
@@ -917,23 +917,23 @@ async def _negotiate_protocol_version(
     *,
     client_versions: list[str],
 ) -> str | None:
-    """MCP 协议版本协商 — 尝试客户端支持的版本列表。
+    """MCP  — 
 
-    学术依据:
-        - MCP Specification (2024) §3.1 — initialize 方法中 protocolVersion 字段
-        - 服务器返回自己支持的 protocolVersion, 客户端应使用该版本
+    Academic basis:
+        - MCP Specification (2024) §3.1 — initialize  protocolVersion 
+        -  protocolVersion, 
 
-    策略:
-        1. 按优先级发送 initialize 请求 (最新版本优先)
-        2. 如果服务器返回有效响应, 提取其 protocolVersion
-        3. 如果服务器返回 error, 尝试下一个版本
+    :
+        1.  initialize  ()
+        2. ,  protocolVersion
+        3.  error, converter(s)
 
     Args:
-        parsed_request: ParsedBurpRequest 实例。
-        client_versions: 客户端支持的版本列表 (按优先级排序)。
+        parsed_request: ParsedBurpRequest 
+        client_versions:  ()
 
     Returns:
-        协商后的协议版本, 或 None 如果所有版本均失败。
+        ,  None all
     """
     for version in client_versions:
         try:
@@ -947,7 +947,7 @@ async def _negotiate_protocol_version(
             if response is None:
                 continue
 
-            # 检查是否有 error (版本不支持)
+            #  error ()
             if "error" in response:
                 logger.debug(
                     "MCP version negotiation: version %s rejected (error)",
@@ -955,7 +955,7 @@ async def _negotiate_protocol_version(
                 )
                 continue
 
-            # 提取服务器返回的 protocolVersion
+            #  protocolVersion
             result = response.get("result", {})
             if isinstance(result, dict):
                 server_version = result.get("protocolVersion")
@@ -970,20 +970,20 @@ async def _negotiate_protocol_version(
 
 
 def _parse_sse_jsonrpc(sse_text: str) -> dict[str, Any] | None:
-    """从 SSE (Server-Sent Events) 文本中提取 JSON-RPC 响应。
+    """imports SSE (Server-Sent Events)  JSON-RPC 
 
-    MCP 规范支持 SSE 传输: JSON-RPC 响应通过 SSE data: 行发送。
-    每行格式: data: {"jsonrpc": "2.0", "result": {...}, "id": "..."}
+    MCP  SSE : JSON-RPC  SSE data: 
+    : data: {"jsonrpc": "2.0", "result": {...}, "id": "..."}
 
-    学术依据:
-        - MCP Specification (2024) §3.1 — SSE 传输模式
-        - HTML5 Server-Sent Events 标准 — data: 前缀
+    Academic basis:
+        - MCP Specification (2024) §3.1 — SSE 
+        - HTML5 Server-Sent Events  — data: 
 
     Args:
-        sse_text: SSE 格式的响应文本。
+        sse_text: SSE 
 
     Returns:
-        解析出的 JSON-RPC 响应字典, 或 None 如果解析失败。
+         JSON-RPC ,  None 
     """
     lines = sse_text.split("\n")
     for line in lines:

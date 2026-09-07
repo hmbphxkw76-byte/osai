@@ -1,14 +1,14 @@
-"""display_native.py — PyRIT 原生输出适配器。
+"""display_native.py — PyRIT 
 
-R2 PyRIT 原生 Output 优先原则:
-    1. 攻击结果展示: 优先使用 PyRIT 原生 output_attack_async(result, format='pretty') + StdoutSink
-    2. 过程性输出: 每个 AttackResult 执行后实时调用原生 output 展示 (攻击者视角)
-    3. 技术链路详情: per-objective per-attempt 技术链路追踪
+R2 PyRIT  Output :
+    1. :  PyRIT  output_attack_async(result, format='pretty') + StdoutSink
+    2. : converter(s) AttackResult  output  ()
+    3. : per-objective per-attempt 
 
-职责边界:
-    - 仅封装 PyRIT 原生 output 模块 (pyrit.output)
-    - 失败时返回 False, 由调用方决定 fallback 策略
-    - 不处理卡片/横幅等非原生输出
+:
+    -  PyRIT  output  (pyrit.output)
+    -  False,  fallback 
+    - /
 """
 
 from __future__ import annotations
@@ -26,10 +26,10 @@ async def print_native_attack_result(
     include_adversarial: bool = True,
     include_pruned: bool = True,
 ) -> bool:
-    """使用 PyRIT 原生 output_attack_async 输出单个 AttackResult 到终端.
+    """ PyRIT  output_attack_async converter(s) AttackResult .
 
-    R2 PyRIT 原生优先: 使用 pyrit.output 官方模块渲染攻击结果,
-    而非手动提取 prompt/response 文本。
+    R2 PyRIT :  pyrit.output ,
+     prompt/response 
     """
     if result is None:
         logger.debug("No result to display (result is None)")
@@ -53,7 +53,7 @@ async def print_native_attack_result(
 
 
 async def print_native_scenario_result(scenario_result: Any) -> bool:
-    """使用 PyRIT 原生 output_scenario_async 输出 ScenarioResult 到终端."""
+    """ PyRIT  output_scenario_async  ScenarioResult ."""
     if scenario_result is None:
         logger.debug("No ScenarioResult to display (scenario_result is None)")
         return False
@@ -74,7 +74,7 @@ async def print_native_scenario_result(scenario_result: Any) -> bool:
 
 
 async def print_technique_trail(scenario_result: Any) -> None:
-    """输出 per-objective per-attempt 技术链路详情 (PyRIT 文档: 'Inspecting which techniques were tried')."""
+    """ per-objective per-attempt  (PyRIT : 'Inspecting which techniques were tried')."""
     if scenario_result is None:
         return
 
@@ -131,7 +131,7 @@ async def print_technique_trail(scenario_result: Any) -> None:
 
 
 def _get_technique_class_name(result: Any) -> str:
-    """从 AttackResult 提取技术类名 (用于 technique trail 展示)."""
+    """imports AttackResult  ( technique trail )."""
     try:
         identifier = result.get_attack_strategy_identifier()
         if identifier is not None:

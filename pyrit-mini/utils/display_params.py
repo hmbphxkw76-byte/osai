@@ -1,11 +1,11 @@
-"""display_params.py — 技术展示参数逻辑 (从 YAML 配置读取).
+"""display_params.py —  (imports YAML ).
 
-T0-10 拆分: 将 display.py 的三项参数展示职责下沉到独立模块.
-    - _get_technique_category: 技术分类标签
-    - _get_technique_params: 技术特定参数 (标签和值均从 YAML 读取)
-    - _get_converter_summary: 技术对应 converter 描述 (从 YAML 读取)
+T0-10 :  display.py .
+    - _get_technique_category: 
+    - _get_technique_params:  (imports YAML )
+    - _get_converter_summary:  converter  (imports YAML )
 
-架构: 展示层不再硬编码任何技术元数据, 所有配置集中在 config/defaults.yaml.
+: Layer, all config/defaults.yaml.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def _load_display_config() -> dict:
-    """加载 display 相关配置节 (technique_param_labels, technique_converter_descriptions, technique_categories)."""
+    """Load display  (technique_param_labels, technique_converter_descriptions, technique_categories)."""
     try:
         from pathlib import Path
 
@@ -34,13 +34,13 @@ def _load_display_config() -> dict:
 
 
 def _get_technique_category(tech: str) -> str:
-    """技术分类标签 (从 YAML 读取).
+    """ (imports YAML ).
 
     Args:
-        tech: 技术名称
+        tech: 
 
     Returns:
-        分类标签: baseline / multi-turn / context-semantic / encoding / infrastructure / other
+        : baseline / multi-turn / context-semantic / encoding / infrastructure / other
     """
     cfg = _load_display_config()
     categories = cfg.get("technique_categories", {})
@@ -54,23 +54,23 @@ def _get_technique_category(tech: str) -> str:
 
 
 def _get_technique_params(tech: str, ctx: Any = None) -> str:
-    """从 ctx.args / defaults.yaml 读取技术特定参数, 展示关键配置.
+    """imports ctx.args / defaults.yaml , .
 
-    标签和技术键均从 config/defaults.yaml 的 technique_param_labels 节读取,
-    避免在展示层硬编码任何映射关系.
+    imports config/defaults.yaml  technique_param_labels ,
+    Layer.
 
     Args:
-        tech: 技术名称
-        ctx: PipelineContext (可选, 用于读取运行时覆盖)
+        tech: 
+        ctx: PipelineContext (, )
 
     Returns:
-        格式化的参数字符串, 如 "turns=10, backtrack=5"
+        ,  "turns=10, backtrack=5"
     """
     cfg = _load_display_config()
     param_labels = cfg.get("technique_param_labels", {})
 
     def _resolve(key: str, default: float) -> float:
-        """优先从 ctx.args 读取, 其次 yaml, 最后 fallback."""
+        """imports ctx.args ,  yaml,  fallback."""
         if ctx is not None:
             args = getattr(ctx, "args", None)
             if args is not None:
@@ -80,13 +80,13 @@ def _get_technique_params(tech: str, ctx: Any = None) -> str:
         return float(cfg.get(key, default))
 
     def _fmt(key: str, default: float) -> str | None:
-        """获取参数标签+值, 如果标签未配置则返回 None."""
+        """+,  None."""
         label = param_labels.get(key)
         if label is None:
             return None
         return f"{label}={int(_resolve(key, default))}"
 
-    # 技术参数映射: 技术名 → [(yaml_key, default), ...]
+    # :  → [(yaml_key, default), ...]
     tech_param_map: dict[str, list[tuple[str, float]]] = {
         "crescendo": [("crescendo_max_turns", 10), ("crescendo_max_backtracks", 5)],
         "tap": [("tap_tree_width", 4), ("tap_tree_depth", 4)],
@@ -101,7 +101,7 @@ def _get_technique_params(tech: str, ctx: Any = None) -> str:
         "cot_hijack": [("cot_hijack_max_turns", 5)],
     }
 
-    # 特殊参数 (固定值, 不在 YAML 中)
+    #  (,  YAML )
     static_params: dict[str, list[str]] = {
         "skeleton_key": ["prefix=system_prompt"],
         "skeleton_key_native": ["prefix=system_prompt"],
@@ -114,7 +114,7 @@ def _get_technique_params(tech: str, ctx: Any = None) -> str:
 
     params: list[str] = []
 
-    # 处理带前缀匹配的技术
+    # 
     for prefix, key_defaults in tech_param_map.items():
         if tech.startswith(prefix):
             for key, default in key_defaults:
@@ -123,7 +123,7 @@ def _get_technique_params(tech: str, ctx: Any = None) -> str:
                     params.append(val)
             break
 
-    # 处理固定值参数
+    # 
     if tech in static_params:
         params.extend(static_params[tech])
 
@@ -131,16 +131,16 @@ def _get_technique_params(tech: str, ctx: Any = None) -> str:
 
 
 def _get_converter_summary(tech: str, ctx: Any) -> str:
-    """获取技术对应的 converter 摘要 (从 YAML 读取).
+    """ converter  (imports YAML ).
 
     Args:
-        tech: 技术名称
-        ctx: PipelineContext (用于读取 converter_map)
+        tech: 
+        ctx: PipelineContext ( converter_map)
 
     Returns:
-        converter 描述字符串
+        converter 
     """
-    # 优先从 ctx.converter_map 读取
+    #  ctx.converter_map 
     if ctx.converter_map and tech in ctx.converter_map:
         converters = ctx.converter_map[tech]
         if converters:
@@ -148,7 +148,7 @@ def _get_converter_summary(tech: str, ctx: Any) -> str:
             return _get_converter_chain_names(converters, max_display=5)
         return "none (raw payload)"
 
-    # 从 YAML 读取静态描述
+    #  YAML 
     cfg = _load_display_config()
     converter_descs = cfg.get("technique_converter_descriptions", {})
     native_desc = converter_descs.get(tech)

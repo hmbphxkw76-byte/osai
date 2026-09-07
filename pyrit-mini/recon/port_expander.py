@@ -1,35 +1,35 @@
-"""跨端口端点发现 — 探测同主机其他端口上的 AI 服务。
+""" —  AI 
 
-学术依据:
-    - Arbis et al. (arXiv:2306.01943) §4.5 — API 端点发现应覆盖
-      同主机的不同端口, Agent 服务常部署在非标准端口
-    - OWASP WSTG-INFO-03 — 框架指纹识别后的针对性探测
-      应包含端口维度
-    - PTES (Penetration Testing Execution Standard) §2 — 情报收集
-      阶段应做端口服务发现
-    - A2A Protocol (Google, 2025) — Agent Card 通常部署在
-      /.well-known/agent.json, 可能在不同端口
+Academic basis:
+    - Arbis et al. (arXiv:2306.01943) §4.5 — API 
+      , Agent 
+    - OWASP WSTG-INFO-03 — 
+      
+    - PTES (Penetration Testing Execution Standard) §2 — 
+      
+    - A2A Protocol (Google, 2025) — Agent Card 
+      /.well-known/agent.json, 
 
-设计原则 (Rule 2: 胶水层, 不替换):
-    使用 httpx 直接探测 (不使用 PyRIT HTTPTarget, 因为这不是
-    prompt 交互, 而是端口探测)。httpx 是 PyRIT 已有依赖。
+ (Rule 2: Layer, ):
+     httpx  ( PyRIT HTTPTarget, 
+    prompt , )httpx  PyRIT 
 
-探测策略:
-    1. 常见 AI 服务端口优先 (3000-3010, 8000-8100, 9000-9100, 11434)
-    2. 对每个端口探测 /.well-known/agent.json + /mcp + /health
-    3. 发现的端口端点生成新的 ParsedBurpRequest 供后续攻击
-    4. 并发控制 + 早期终止 (发现 N 个即停止)
+:
+    1.  AI  (3000-3010, 8000-8100, 9000-9100, 11434)
+    2. converter(s) /.well-known/agent.json + /mcp + /health
+    3.  ParsedBurpRequest 
+    4.  +  ( N converter(s))
 
-效率优化:
-    - 每端口只探测 5 个路径 (不是全量端点发现)
-    - 超时 3s (端口可能关闭, 快速失败)
-    - 并发控制 10
-    - 早期终止: 发现 3 个端口端点即停止
+:
+    -  5 converter(s) ()
+    -  3s (, )
+    -  10
+    - :  3 converter(s)
 
 ⚠️ DEPRECATED (2026-09-06):
-    当前未被任何模块 import 引用 (功能未集成到主流水线)。
-    保留原因: 预留供未来跨端口 AI 服务发现需求。
-    如需恢复: 在 core/orchestrator.py 中添加 `from recon.port_expander import discover_port_endpoints`。
+     import  ()
+    :  AI 
+    :  core/orchestrator.py  `from recon.port_expander import discover_port_endpoints`
 """
 
 from __future__ import annotations
@@ -42,19 +42,19 @@ from typing import Any
 
 import yaml as _yaml
 
-# P2-06: TLS verify 配置化 (SSOT)
+# P2-06: TLS verify  (SSOT)
 from recon.config_loader import get_tls_verify as _get_tls_verify_from_config
 
 _TLS_VERIFY = _get_tls_verify_from_config()
 
 logger = logging.getLogger(__name__)
 
-# R7: 效率参数从 config/defaults.yaml SSOT 读取 (禁止硬编码)
+# R7:  config/defaults.yaml SSOT  ()
 _SSOT_PATH = Path(__file__).resolve().parent.parent / "config" / "defaults.yaml"
 
 
 def _load_ssot_int(key: str, default: int) -> int:
-    """从 defaults.yaml 读取整数参数 (R7 SSOT 原则)."""
+    """imports defaults.yaml  (R7 SSOT )."""
     try:
         if _SSOT_PATH.exists():
             with open(_SSOT_PATH, encoding="utf-8") as _f:
@@ -64,65 +64,65 @@ def _load_ssot_int(key: str, default: int) -> int:
         pass
     return default
 
-# ──────────────────────────────────────────────────────────────────────
-# 常见 AI 服务端口 (按优先级排序)
-# ──────────────────────────────────────────────────────────────────────
+# ======================================================================
+#  AI  ()
+# ======================================================================
 
 _AI_SERVICE_PORTS: list[int] = [
-    # MCP Server 常见端口
+    # MCP Server 
     3001, 3002, 3003,           # Node.js MCP Server
     8000, 8001, 8080, 8081,     # Python MCP Server
     9000, 9001, 9090,           # gRPC MCP Server
-    # LLM 推理服务
+    # LLM 
     11434,                       # Ollama
     1234,                        # LM Studio
     5000, 5001,                  # text-generation-webui
-    # Agent 编排
+    # Agent 
     3000, 4000, 4001,            # LangChain, CrewAI
     # A2A Agent
     5002, 5003, 5004,            # A2A Agent
-    # 额外常见端口
+    # 
     7860,                        # Gradio
     8501,                        # Triton Inference Server
     9696,                        # TorchServe
-    # P2-3: 扩展端口列表 — gRPC/WebSocket/容器化
-    # gRPC 服务
+    # P2-3:  — gRPC/WebSocket/
+    # gRPC 
     50051, 50052, 50053,         # gRPC AI Server
     9091, 9092,                  # gRPC reflection
-    # WebSocket 服务
+    # WebSocket 
     8765, 8766,                  # WebSocket AI Server
     4200, 4201,                  # WebSocket Agent
-    # 容器化 (Docker/K8s)
+    #  (Docker/K8s)
     31100, 31101,               # K8s NodePort
     31000, 31001,               # K8s NodePort
-    # 额外 LLM 服务
-    8082, 8083, 8084,            # 额外 Python Server
+    #  LLM 
+    8082, 8083, 8084,            #  Python Server
     6000, 6001,                  # vLLM / TGI
     7000, 7001,                  # vLLM
 ]
 
-# 每个端口探测的路径 (按优先级排序)
+#  ()
 _PORT_PROBE_PATHS: list[str] = [
     "/.well-known/agent.json",   # A2A Agent Card
     "/mcp",                       # MCP endpoint
-    "/health",                    # 健康检查
-    "/api/health",                # API 健康检查
-    "/v1/models",                 # OpenAI 兼容 API
-    # P2-3: 新增探测路径
-    "/openapi.json",              # OpenAPI/Swagger 文档
-    "/swagger.json",              # Swagger 文档
+    "/health",                    # 
+    "/api/health",                # API 
+    "/v1/models",                 # OpenAI  API
+    # P2-3: 
+    "/openapi.json",              # OpenAPI/Swagger 
+    "/swagger.json",              # Swagger 
     "/grpc.health.v1.Health/Check", # gRPC health check (HTTP/2)
-    "/ws",                        # WebSocket 端点
-    "/v1/chat/completions",       # OpenAI 兼容 chat 端点
+    "/ws",                        # WebSocket 
+    "/v1/chat/completions",       # OpenAI  chat 
 ]
 
-# 服务类型推断关键词
+# 
 _SERVICE_TYPE_KEYWORDS: dict[str, list[str]] = {
     "mcp": ["mcp", "model context protocol", "jsonrpc", "json-rpc"],
     "a2a": ["agent card", "a2a", "agent-to-agent", "capabilities", "skills"],
     "llm_api": ["models", "openai", "completion", "chat", "inference"],
     "agent": ["agent", "tool", "function", "workflow"],
-    # P2-3: 新增服务类型
+    # P2-3: 
     "grpc": ["grpc", "protobuf", "rpc", "trailers", "status"],
     "websocket": ["websocket", "ws", "upgrade", "sec-websocket"],
     "openapi": ["swagger", "openapi", "api-docs", "spec"],
@@ -131,16 +131,16 @@ _SERVICE_TYPE_KEYWORDS: dict[str, list[str]] = {
 
 @dataclass
 class DiscoveredPortEndpoint:
-    """发现的端口端点。
+    """
 
-    属性:
-        port: 端口号。
-        path: 探测路径。
-        status_code: HTTP 状态码。
-        content_type: 响应 Content-Type。
-        response_preview: 响应体预览 (前 200 字符)。
-        service_type: 推断的服务类型 (mcp/a2a/llm_api/agent/unknown)。
-        use_tls: 是否使用 TLS。
+    :
+        port: 
+        path: 
+        status_code: HTTP 
+        content_type:  Content-Type
+        response_preview:  ( 200 )
+        service_type:  (mcp/a2a/llm_api/agent/unknown)
+        use_tls:  TLS
     """
 
     port: int
@@ -160,34 +160,34 @@ async def discover_port_endpoints(
     early_stop: int = 3,
     custom_ports: list[int] | None = None,
 ) -> list[DiscoveredPortEndpoint]:
-    """探测同主机其他端口上的 AI 服务。
+    """ AI 
 
-    学术依据:
-        - Arbis et al. (arXiv:2306.01943) §4.5 — 跨端口端点发现
-        - PTES §2 — 情报收集阶段端口发现
+    Academic basis:
+        - Arbis et al. (arXiv:2306.01943) §4.5 — 
+        - PTES §2 — 
 
-    策略:
-        1. 从原始请求提取 host
-        2. 对常见 AI 服务端口并发探测
-        3. 每个端口探测 5 个关键路径
-        4. 从响应推断服务类型
-        5. 发现的端点返回供后续构建 HTTPTarget
+    :
+        1. imports host
+        2.  AI 
+        3. converter(s) 5 converter(s)
+        4. imports
+        5.  HTTPTarget
 
-    效率优化:
-        - 每端口只探测 5 个路径 (不是全量端点发现)
-        - 超时 3s (端口可能关闭, 快速失败)
-        - 并发控制 max_concurrent (默认 10)
-        - 早期终止: 发现 early_stop 个端口端点即停止
+    :
+        -  5 converter(s) ()
+        -  3s (, )
+        -  max_concurrent ( 10)
+        - :  early_stop converter(s)
 
     Args:
-        parsed: ParsedBurpRequest 实例 (提取 host 和 TLS 信息)。
-        timeout: 每个探测请求的超时秒数。
-        max_concurrent: 最大并发探测数。
-        early_stop: 发现 N 个端口端点即停止。
-        custom_ports: 自定义端口列表 (None = 使用默认 AI 端口列表)。
+        parsed: ParsedBurpRequest  ( host  TLS )
+        timeout: converter(s)
+        max_concurrent: 
+        early_stop:  N converter(s)
+        custom_ports:  (None =  AI )
 
     Returns:
-        发现的端口端点列表。
+        
     """
     host = _extract_host(parsed)
     use_tls = _extract_tls(parsed)
@@ -203,7 +203,7 @@ async def discover_port_endpoints(
         len(ports), host, use_tls,
     )
 
-    # 并发探测所有端口
+    # 
     semaphore = asyncio.Semaphore(max_concurrent)
     results: list[DiscoveredPortEndpoint] = []
     results_lock = asyncio.Lock()
@@ -211,7 +211,7 @@ async def discover_port_endpoints(
     async def _probe_port(port: int) -> None:
         nonlocal results
 
-        # 早期终止检查
+        # 
         if len(results) >= early_stop:
             return
 
@@ -249,16 +249,16 @@ async def _probe_port_paths(
     use_tls: bool,
     timeout: float,
 ) -> list[DiscoveredPortEndpoint]:
-    """探测单个端口的多个路径。
+    """converter(s)converter(s)
 
     Args:
-        host: 主机名。
-        port: 端口号。
-        use_tls: 是否使用 TLS。
-        timeout: 超时秒数。
+        host: 
+        port: 
+        use_tls:  TLS
+        timeout: 
 
     Returns:
-        发现的端点列表 (可能为空)。
+         ()
     """
     import httpx
 
@@ -277,11 +277,11 @@ async def _probe_port_paths(
                 try:
                     response = await client.get(url)
 
-                    # 只记录有意义的响应 (非 404/连接失败)
+                    #  ( 404/)
                     if response.status_code == 404:
                         continue
 
-                    # 推断服务类型
+                    # 
                     body_preview = response.text[:200] if response.text else ""
                     service_type = _infer_service_type(
                         response.status_code,
@@ -305,11 +305,11 @@ async def _probe_port_paths(
                         port, path, response.status_code, service_type,
                     )
 
-                    # 首个有意义响应即可代表该端口
+                    # 
                     break
 
                 except (httpx.TimeoutException, httpx.ConnectError):
-                    # 端口关闭或不支持, 跳过
+                    # , Skip
                     break
                 except Exception as e:
                     logger.debug("Port %d probe error: %s", port, e)
@@ -326,15 +326,15 @@ def _infer_service_type(
     content_type: str,
     body_preview: str,
 ) -> str:
-    """从响应推断服务类型。
+    """imports
 
     Args:
-        status_code: HTTP 状态码。
-        content_type: Content-Type header。
-        body_preview: 响应体预览。
+        status_code: HTTP 
+        content_type: Content-Type header
+        body_preview: 
 
     Returns:
-        服务类型 (mcp/a2a/llm_api/agent/unknown)。
+         (mcp/a2a/llm_api/agent/unknown)
     """
     text = f"{content_type} {body_preview}".lower()
 
@@ -343,7 +343,7 @@ def _infer_service_type(
             if kw in text:
                 return service_type
 
-    # JSON 响应但无法确定类型
+    # JSON 
     if "json" in content_type.lower() and status_code == 200:
         return "unknown"
 
@@ -351,22 +351,22 @@ def _infer_service_type(
 
 
 def _extract_host(parsed: Any) -> str:
-    """从 ParsedBurpRequest 提取 host。
+    """imports ParsedBurpRequest  host
 
-    优先级:
-        1. parsed.host (已解析)
-        2. 从 Host header 中提取
-        3. 从 raw_request 第一行中提取
+    :
+        1. parsed.host ()
+        2. imports Host header 
+        3. imports raw_request 
     """
-    # 直接属性
+    # 
     host = getattr(parsed, "host", None)
     if host:
-        # 去除端口号
+        # 
         if ":" in str(host):
             return str(host).split(":")[0]
         return str(host)
 
-    # 从 headers 提取
+    #  headers 
     headers = getattr(parsed, "headers", {})
     host_header = headers.get("host", headers.get("Host", ""))
     if host_header:
@@ -374,7 +374,7 @@ def _extract_host(parsed: Any) -> str:
             return host_header.split(":")[0]
         return host_header
 
-    # 从 raw_request 提取
+    #  raw_request 
     raw = getattr(parsed, "raw_request", "")
     if raw:
         for line in raw.split("\n"):
@@ -388,27 +388,27 @@ def _extract_host(parsed: Any) -> str:
 
 
 def _extract_tls(parsed: Any) -> bool:
-    """从 ParsedBurpRequest 提取 TLS 信息。
+    """imports ParsedBurpRequest  TLS 
 
-    优先级:
+    :
         1. parsed.use_tls / parsed.is_https
-        2. 从 raw_request 第一行判断 (HTTPS)
-        3. 从端口判断 (443 = TLS)
+        2. imports raw_request  (HTTPS)
+        3. imports (443 = TLS)
     """
-    # 直接属性
+    # 
     for attr in ("use_tls", "is_https", "tls"):
         val = getattr(parsed, attr, None)
         if val is not None:
             return bool(val)
 
-    # 从 raw_request 判断
+    #  raw_request 
     raw = getattr(parsed, "raw_request", "")
     if raw:
         first_line = raw.split("\n")[0].upper()
         if "HTTPS" in first_line:
             return True
 
-    # 从端口判断
+    # 
     port = getattr(parsed, "port", None)
     if port == 443:
         return True
@@ -420,19 +420,19 @@ def build_port_parsed_request(
     original_parsed: Any,
     port_endpoint: DiscoveredPortEndpoint,
 ) -> dict[str, Any]:
-    """从端口端点构建请求参数 (供后续构建 HTTPTarget)。
+    """imports ( HTTPTarget)
 
     Args:
-        original_parsed: 原始 ParsedBurpRequest。
-        port_endpoint: 发现的端口端点。
+        original_parsed:  ParsedBurpRequest
+        port_endpoint: 
 
     Returns:
-        请求参数字典 (host, port, path, use_tls, method, headers)。
+         (host, port, path, use_tls, method, headers)
     """
     host = _extract_host(original_parsed)
     original_headers = getattr(original_parsed, "headers", {})
 
-    # 保留原始认证 headers, 去掉 Host
+    #  headers,  Host
     port_headers: dict[str, str] = {}
     for k, v in original_headers.items():
         if k.lower() != "host" and k.lower() != "content-length":
@@ -449,12 +449,12 @@ def build_port_parsed_request(
     }
 
 
-# ════════════════════════════════════════════════════════════════════
-# 向量数据库确认探测 (从 RedAmon _confirm_vector_dbs 借鉴)
-# 学术依据: Morris et al. (arXiv:2310.06870) — 嵌入反演需要知道向量数据库类型
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# Confirmation ( RedAmon _confirm_vector_dbs )
+# Academic basis: Morris et al. (arXiv:2310.06870) — 
+# ====================================================================
 
-# 向量数据库确认读取路径 (benign unauthenticated read)
+# Confirmation (benign unauthenticated read)
 # (tech_name, [(path, expected_substring), ...])
 _VECTOR_DB_READS: dict[str, list[tuple[str, str]]] = {
     "qdrant": [
@@ -482,13 +482,13 @@ _VECTOR_DB_READS: dict[str, list[tuple[str, str]]] = {
     ],
 }
 
-# 向量数据库端口映射 (补充 _AI_SERVICE_PORTS 中的向量 DB 端口)
+#  ( _AI_SERVICE_PORTS  DB )
 _VECTOR_DB_PORTS: dict[int, str] = {
     6333: "qdrant",
     6334: "qdrant",
     19530: "milvus",
-    8080: "weaviate",  # 可能与 web 服务器共享, 需确认
-    8000: "chroma",    # 可能与 web 服务器共享, 需确认
+    8080: "weaviate",  #  web , Confirmation
+    8000: "chroma",    #  web , Confirmation
     9200: "elasticsearch",
     6379: "redis",
 }
@@ -496,14 +496,14 @@ _VECTOR_DB_PORTS: dict[int, str] = {
 
 @dataclass
 class VectorDBConfirmation:
-    """确认的向量数据库实例。
+    """Confirmation
 
-    属性:
-        tech: 技术名称 (qdrant/milvus/weaviate/chroma/elasticsearch/redis)。
-        host: 主机名。
-        port: 端口号。
-        confirmed_via: 确认路径 (如 "/collections")。
-        response_preview: 响应预览 (前 200 字符)。
+    :
+        tech:  (qdrant/milvus/weaviate/chroma/elasticsearch/redis)
+        host: 
+        port: 
+        confirmed_via: Confirmation ( "/collections")
+        response_preview:  ( 200 )
     """
 
     tech: str
@@ -519,24 +519,24 @@ async def confirm_vector_dbs(
     timeout: float = 3.0,
     port_endpoints: list[DiscoveredPortEndpoint] | None = None,
 ) -> list[VectorDBConfirmation]:
-    """确认目标主机上的向量数据库服务。
+    """Confirmation
 
-    学术依据:
-        - Morris et al. (arXiv:2310.06870) — 嵌入反演需要知道向量数据库类型
-        - RedAmon _confirm_vector_dbs — benign unauthenticated read 确认
+    Academic basis:
+        - Morris et al. (arXiv:2310.06870) — 
+        - RedAmon _confirm_vector_dbs — benign unauthenticated read Confirmation
 
-    策略:
-        1. 从 port_endpoints 结果中筛选向量数据库候选端口
-        2. 对每个候选发送 benign read 请求 (GET /collections, /v1/schema 等)
-        3. 确认后返回结构化结果
+    :
+        1. imports port_endpoints 
+        2. converter(s) benign read  (GET /collections, /v1/schema )
+        3. Confirmation
 
     Args:
-        parsed: ParsedBurpRequest 实例 (提取 host 和 TLS 信息)。
-        timeout: 每个探测请求的超时秒数。
-        port_endpoints: 已发现的端口端点列表 (可选, 如为 None 则探测已知向量 DB 端口)。
+        parsed: ParsedBurpRequest  ( host  TLS )
+        timeout: converter(s)
+        port_endpoints:  (,  None  DB )
 
     Returns:
-        确认的向量数据库列表。
+        Confirmation
     """
     import httpx
 
@@ -546,22 +546,22 @@ async def confirm_vector_dbs(
     if not host:
         return []
 
-    # R8-1 资源生命周期: 共享单个 httpx.AsyncClient
-    # R8-6 并发安全: Semaphore 控制并发 (R7: 从 SSOT 读取)
+    # R8-1 :  httpx.AsyncClient
+    # R8-6 : Semaphore  (R7:  SSOT )
     _vdb_concurrency = _load_ssot_int("max_concurrent_probes", 10)
     semaphore = asyncio.Semaphore(_vdb_concurrency)
 
-    # 收集候选 (tech, port) 对
+    #  (tech, port) 
     candidates: list[tuple[str, int]] = []
 
     if port_endpoints:
-        # 从已发现的端口端点中筛选向量 DB 端口
+        #  DB 
         for pe in port_endpoints:
             tech = _VECTOR_DB_PORTS.get(pe.port)
             if tech:
                 candidates.append((tech, pe.port))
 
-    # 如果没有从 port_endpoints 获取到候选, 尝试直接探测已知端口
+    #  port_endpoints , 
     if not candidates:
         for port, tech in _VECTOR_DB_PORTS.items():
             candidates.append((tech, port))
@@ -569,7 +569,7 @@ async def confirm_vector_dbs(
     if not candidates:
         return []
 
-    # 去重
+    # 
     seen = set()
     unique_candidates: list[tuple[str, int]] = []
     for tech, port in candidates:
@@ -584,11 +584,11 @@ async def confirm_vector_dbs(
         host,
     )
 
-    # 并发确认
+    # Confirmation
     confirmed: list[VectorDBConfirmation] = []
     confirmed_lock = asyncio.Lock()
 
-    # R8-1 资源生命周期: 共享单个 httpx.AsyncClient (LIFO+共享/目标分离)
+    # R8-1 :  httpx.AsyncClient (LIFO+/)
     scheme = "https" if use_tls else "http"
     probe_headers: dict[str, str] = {}
     for key, value in getattr(parsed, "raw_headers", []):

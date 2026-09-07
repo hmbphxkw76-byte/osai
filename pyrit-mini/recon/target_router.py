@@ -1,18 +1,18 @@
 # arXiv:2402.12109 — Russinovich et al., Crescendo
 # arXiv:2402.19181 — Zeng et al., Persuasion
 # arXiv:2407.01232 — PyRIT, framework foundation
-"""目标路由 — 纯黑盒 Burp 场景。
+"""Target routing —  Burp 
 
-唯一路径:
-    Burp 请求 → 解析 → 探测响应路径 → 构建 HTTPTarget → RateLimitedTarget 包装
+:
+    Burp  →  →  →  HTTPTarget → RateLimitedTarget 
 
-辅助角色:
-    - adversarial_target: 从 .env 读取 (用户自己的 LLM API)
-    - scoring_target: 从 .env 读取或复用 adversarial
+:
+    - adversarial_target: imports .env  ( LLM API)
+    - scoring_target: imports .env  adversarial
 
-P0-02 宪法合规 (修 C2 探测风暴):
-    探测总数 ≤ 5 个 (P0 可用 2 + P1 能力 3，P2 延迟至战斗阶段)
-    所有非核心探测异步进行，不阻塞攻击启动。
+P0-02  ( C2 ):
+     ≤ 5 converter(s) (P0  2 + P1  3P2 )
+    all
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from recon.burp_parser import (
     probe_response_path,
 )
 
-# P2-06: TLS verify 配置化 (SSOT)
+# P2-06: TLS verify  (SSOT)
 from recon.config_loader import get_tls_verify as _get_tls_verify_from_config
 from adapters.rate_limited import RateLimitedTarget
 
@@ -54,31 +54,31 @@ _TLS_VERIFY = _get_tls_verify_from_config()
 
 logger = logging.getLogger(__name__)
 
-# ════════════════════════════════════════════════════════════════════
-# 探测风暴防护 - 硬限制探针宪法上限 ≥ 3. 默认 10 保护交互 (直接为攻击核心服务)
+# ====================================================================
+#  -  ≥ 3.  10  ()
 # L5 v54+: _MAX_PROBE_COUNT is the ABSOLUTE ceiling. Adaptive config lowers it.
 _MAX_PROBE_COUNT = int(os.environ.get("RECON_MAX_PROBES", "10"))
 _COMPLEXITY_BASED_BUDGET: dict[str, Any] = {}  # Populated by _init_adaptive_probe
 
 
-# ════════════════════════════════════════════════════════════════════
-# P2-07: 探测失败静默降级显式化 — 写入 orchestration_log
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# P2-07:  —  orchestration_log
+# ====================================================================
 def _log_probe_failure(
     ctx: Any,
     probe_phase: str,
     error: Exception,
     is_fatal: bool = False,
 ) -> None:
-    """将探测失败写入 orchestration_log (P2-07: 禁止静默降级)。
+    """ orchestration_log (P2-07: )
 
     Args:
-        ctx: PipelineContext 实例 (需有 orchestration_log 属性).
-        probe_phase: 探测阶段名称 (如 "response_path", "capability", "mcp_enum").
-        error: 异常实例.
-        is_fatal: 是否为致命错误 (True=阻止继续, False=降级继续).
+        ctx: PipelineContext  ( orchestration_log ).
+        probe_phase:  ( "response_path", "capability", "mcp_enum").
+        error: .
+        is_fatal:  (True=, False=).
     """
-    # 防御性: ctx 可能无 orchestration_log (如单元测试)
+    # : ctx  orchestration_log ()
     if ctx is None or not hasattr(ctx, "orchestration_log"):
         return
 
@@ -99,34 +99,34 @@ def _log_probe_failure(
 
 
 async def create_target(ctx: PipelineContext) -> None:
-    """创建并注册攻击目标。
+    """
 
-    路由逻辑:
-        1. --browser-url → PlaywrightTarget (浏览器渲染 Chat UI)
-        2. --target-api-endpoint + --target-api-key → API 直连模式
-        3. --burp → Burp 模式 (HTTPTarget + RateLimitedTarget)
-        4. --target-url + --api-key → API 直连模式
-        5. 无参数 → .env 默认
+    :
+        1. --browser-url → PlaywrightTarget ( Chat UI)
+        2. --target-api-endpoint + --target-api-key → API 
+        3. --burp → Burp  (HTTPTarget + RateLimitedTarget)
+        4. --target-url + --api-key → API 
+        5.  → .env 
 
-    P0-02 流程 (限制探测数 ≤ 5 核心):
-        1. 解析 Burp 请求 → ParsedBurpRequest
-        2. P0-1: 目标可用性预检 (1 个探针)
-        3. P0-2: 响应路径探测 (1-2 个探针)
-        4. P0-3: HTTPTarget 构建 + RateLimitedTarget 包装
-        5. P1 (异步非阻塞): 能力核心探测 (最多 3 个)
-           - 任务挂载到 ctx._recon_background_tasks，在攻击执行期间后台运行
-        6. P2 完全延后至 arm 或通过 CLI 参数启用
+    P0-02  ( ≤ 5 ):
+        1.  Burp  → ParsedBurpRequest
+        2. P0-1:  (1 converter(s))
+        3. P0-2:  (1-2 converter(s))
+        4. P0-3: HTTPTarget  + RateLimitedTarget 
+        5. P1 ():  ( 3 converter(s))
+           -  ctx._recon_background_tasks
+        6. P2  arm  CLI 
 
     Args:
-        ctx: 流水线上下文。
+        ctx: 
     """
-    # ── L5 v52: OpenAIChatTarget/OpenAIResponseTarget 原生路由 ──
+    # == L5 v52: OpenAIChatTarget/OpenAIResponseTarget  ==
     target_api_endpoint = getattr(ctx.args, "target_api_endpoint", None)
     target_api_key = getattr(ctx.args, "target_api_key", None)
     target_api_model = getattr(ctx.args, "target_api_model", None)
     target_api_type = getattr(ctx.args, "target_api_type", "chat")
 
-    # ── LiteLLM 多提供商路由 ──
+    # == LiteLLM  ==
     litellm_model = getattr(ctx.args, "litellm_model", None) or os.environ.get("LITELLM_MODEL")
     if litellm_model:
         logger.info("LiteLLM mode — creating native LiteLLMChatTarget for %s", litellm_model)
@@ -150,7 +150,7 @@ async def create_target(ctx: PipelineContext) -> None:
         await _configure_remaining_targets(ctx)
         return
 
-    # ── L5 v38: PlaywrightTarget 路由 ──
+    # == L5 v38: PlaywrightTarget  ==
     browser_url = getattr(ctx.args, "browser_url", None)
     if browser_url:
         logger.info("Browser mode — creating PlaywrightTarget for %s", browser_url)
@@ -158,29 +158,29 @@ async def create_target(ctx: PipelineContext) -> None:
         await _configure_remaining_targets(ctx)
         return
 
-    # ════════════════════════════════════════════════════════════════
-    # Burp 模式 — P0-02 探测风暴防护核心
-    # ════════════════════════════════════════════════════════════════
+    # ================================================================
+    # Burp  — P0-02 
+    # ================================================================
 
-    # ── Step 1: 解析 Burp 请求 ──
+    # == Step 1:  Burp  ==
     parsed = parse_burp_request(ctx.args.burp)
     ctx.parsed_request = parsed
     ctx.model_name = f"HTTP:{parsed.host}{parsed.path}"
 
-    # ── L5 v53: 模型信息从 Burp 响应提取 ──
+    # == L5 v53:  Burp  ==
     if parsed.burp_model_name:
         ctx.model_name = parsed.burp_model_name
-        # P1-05: 使用属性赋值
+        # P1-05: 
         parsed.target_fingerprint.burp_model_name = parsed.burp_model_name
         logger.info("Model name from Burp response: %s", parsed.burp_model_name)
 
     if parsed.burp_model_list:
-        # P1-05: 使用 extra dict 存储非 Schema 字段
+        # P1-05:  extra dict  Schema 
         parsed.target_fingerprint.extra["burp_model_list"] = "yes"
         logger.info("Model list extracted from Burp (length=%d)", len(parsed.burp_model_list))
 
     if parsed.original_prompt_value:
-        # P1-05: 使用属性赋值
+        # P1-05: 
         parsed.target_fingerprint.original_prompt = parsed.original_prompt_value[:200]
         logger.info("Original prompt from Burp: %s", parsed.original_prompt_value[:80])
 
@@ -191,7 +191,7 @@ async def create_target(ctx: PipelineContext) -> None:
             parsed.api_category, parsed.path,
         )
 
-    # ── Step 2 (P0): 目标可用性预检 (1 个探针) ──
+    # == Step 2 (P0):  (1 ) ==
     _probe_counter = _ProbeCounter()
     _probe_start = _time.monotonic()
 
@@ -208,13 +208,13 @@ async def create_target(ctx: PipelineContext) -> None:
         )
     logger.info("Target availability check passed.")
 
-    # ── Step 3 (P0): 响应路径探测 (0-1 个探针) ──
+    # == Step 3 (P0):  (0-1 ) ==
     logger.info("Probing response format...")
     try:
         await probe_response_path(parsed)
         _probe_counter.add(1)
     except Exception as e:
-        # P2-07: 探测失败必须写入 orchestration_log (禁止静默降级)
+        # P2-07:  orchestration_log ()
         logger.warning("Response path probing failed (non-fatal): %s", e)
         _log_probe_failure(ctx, "response_path", e, is_fatal=False)
 
@@ -223,7 +223,7 @@ async def create_target(ctx: PipelineContext) -> None:
     else:
         logger.info("No response path detected, using default callback")
 
-    # ── Chat ID 日志 ──
+    # == Chat ID  ==
     if parsed.chat_id:
         logger.info("Chat ID from probe/Burp response: %s", parsed.chat_id)
     elif parsed.has_chat_id_placeholder:
@@ -233,7 +233,7 @@ async def create_target(ctx: PipelineContext) -> None:
             parsed.chat_id_field,
         )
 
-    # ── Step 4 (P0): 构建 HTTPTarget (0 个探针 - 仅 HTTP 包装) ──
+    # == Step 4 (P0):  HTTPTarget (0  -  HTTP ) ==
     target = build_http_target(parsed)
     target = RateLimitedTarget(
         target=target,
@@ -241,7 +241,7 @@ async def create_target(ctx: PipelineContext) -> None:
     )
     ctx.objective_target = target
 
-    # ── Step 4.1 (P0): 多轮 HTTPTarget ──
+    # == Step 4.1 (P0):  HTTPTarget ==
     multi_turn_target = build_http_target(parsed, enable_multi_turn=True)
     multi_turn_target = RateLimitedTarget(
         target=multi_turn_target,
@@ -249,9 +249,9 @@ async def create_target(ctx: PipelineContext) -> None:
     )
     ctx.multi_turn_target = multi_turn_target
 
-    # ── Step 4.5 (P0): 自适应探测初始化 — 6大侦察策略集成 ──
+    # == Step 4.5 (P0):  — 6 ==
     # L5 v54+: Guardrail/Stealth/Behavioral/Capability/Seed/Drift
-    # 数据流: create_target → _init_adaptive_probe → ctx.adaptive_probe_ctx
+    # Data flow: create_target → _init_adaptive_probe → ctx.adaptive_probe_ctx
     #            → arm phase (seed_preferences, stealth_policy, probe_budget)
     #            → strike phase (drift_monitor, guardrail_report)
     try:
@@ -259,7 +259,7 @@ async def create_target(ctx: PipelineContext) -> None:
         ctx.adaptive_probe_ctx = _probe_ctx
         ctx.guardrail_report = _probe_ctx.get("guardrail_report", {})
         ctx.stealth_policy = _probe_ctx.get("stealth_policy", {})
-        ctx.drift_monitor = get_drift_monitor()  # 能力漂移单例
+        ctx.drift_monitor = get_drift_monitor()  # 
         logger.info(
             "[Adaptive] Pipeline integration OK: guardrail=%s, stealth=%s, "
             "adaptive_budget=%s",
@@ -273,16 +273,16 @@ async def create_target(ctx: PipelineContext) -> None:
         ctx.guardrail_report = {"has_guardrail": False, "severity": "none"}
         ctx.stealth_policy = {"name": "balanced", "behavioral_verify": True}
 
-    # ── Step 5 (P1 异步非阻塞): 能力核心探测 ──
-    # P0-02: 仅当用户使用 --deep-probe 或探测计数 < 上限时执行
-    # 任务挂载到 ctx._recon_background_tasks，在攻击执行期间后台运行
+    # == Step 5 (P1 ):  ==
+    # P0-02:  --deep-probe  < 
+    #  ctx._recon_background_tasks
     deep_probe_enabled = getattr(ctx.args, "deep_probe", False)
     always_capability_probe = getattr(ctx.args, "capability_probe", True)
 
     if always_capability_probe and _probe_counter.value < _MAX_PROBE_COUNT:
-        # 启动后台探测任务 (不阻塞攻击启动)
+        #  ()
         bg_task = asyncio.create_task(
-            # P2-07: 传入 ctx 以支持探测失败日志记录
+            # P2-07:  ctx 
             _run_background_probes(parsed, _probe_counter, ctx, deep_probe_enabled),
             name="recon_background_probes",
         )
@@ -294,12 +294,12 @@ async def create_target(ctx: PipelineContext) -> None:
             _MAX_PROBE_COUNT, deep_probe_enabled,
         )
 
-    # ── Step 6: 剩余目标配置 ──
+    # == Step 6:  ==
     await _configure_remaining_targets(ctx)
 
-    # ── 记录探测统计 ──
+    # ==  ==
     _probe_duration = _time.monotonic() - _probe_start
-    # P1-05: 使用属性赋值
+    # P1-05: 
     parsed.target_fingerprint.probe_count = _probe_counter.value
     parsed.target_fingerprint.probe_duration_seconds = round(_probe_duration, 2)
     logger.info(
@@ -312,7 +312,7 @@ async def create_target(ctx: PipelineContext) -> None:
 
 
 async def _configure_remaining_targets(ctx: PipelineContext) -> None:
-    """配置 adversarial/scoring/converter targets."""
+    """ adversarial/scoring/converter targets."""
     # adversarial target
     if ctx.adversarial_target is None:
         ctx.adversarial_target = _create_adversarial_target()
@@ -344,15 +344,15 @@ async def _configure_remaining_targets(ctx: PipelineContext) -> None:
     )
 
 
-# ════════════════════════════════════════════════════════════════════
-# 探测计数器 - 防止探测风暴
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+#  - 
+# ====================================================================
 
 
 class _ProbeCounter:
-    """线程安全的探针计数器，用于限制总探测数。
+    """
 
-    L5 v54+: 支持动态自适应 max_probes (由 _init_adaptive_probe 设置)。
+    L5 v54+:  max_probes ( _init_adaptive_probe )
     """
 
     def __init__(self) -> None:
@@ -363,19 +363,19 @@ class _ProbeCounter:
         self.value += n
 
     def can_probe(self, n: int = 1, max_probes: int = _MAX_PROBE_COUNT) -> bool:
-        # 优先使用自适应 max (如果已被设置)
+        #  max ()
         effective_max = self._adaptive_max if self._adaptive_max is not None else max_probes
         return self.value + n <= effective_max
 
     def get_budget_remaining(self, max_probes: int = _MAX_PROBE_COUNT) -> int:
-        """获取剩余探测预算。"""
+        """"""
         effective_max = self._adaptive_max if self._adaptive_max is not None else max_probes
         return max(0, effective_max - self.value)
 
 
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
 # L5 v54+: Adaptive Probe Initialization — 6-Strategy Integration Hub
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
 
 
 async def _init_adaptive_probe(
@@ -383,9 +383,9 @@ async def _init_adaptive_probe(
     parsed: Any,
     counter: _ProbeCounter,
 ) -> dict[str, Any]:
-    """初始化自适应探测 — 集成 6 大策略的协调中心。
+    """ —  6 
 
-    执行顺序 (每步都是前一步的输入):
+     ():
         1. Guardrail Detection → severity, stealth_level
         2. Stealth Config → delay_range, max_probes, allowed_converters
         3. Adaptive Probe Budget → total budget, deep_budget, behavioral_budget
@@ -394,12 +394,12 @@ async def _init_adaptive_probe(
         6. Capability Monitor → baseline snapshot for drift detection
 
     Args:
-        ctx: PipelineContext 实例.
-        parsed: ParsedBurpRequest 实例.
-        counter: _ProbeCounter 实例.
+        ctx: PipelineContext .
+        parsed: ParsedBurpRequest .
+        counter: _ProbeCounter .
 
     Returns:
-        dict: 包含所有探测阶段输出的汇总字典.
+        dict: all.
     """
     probe_ctx: dict[str, Any] = {
         "guardrail_report": {},
@@ -411,7 +411,7 @@ async def _init_adaptive_probe(
 
     model_name = getattr(parsed, "burp_model_name", "") or "unknown"
 
-    # ── Phase 1: Guardrail Detection (策略前置) ──
+    # == Phase 1: Guardrail Detection () ==
     try:
         logger.info("[Adaptive] Phase 1: Guardrail detection...")
         guardrail_report = await detect_guardrail(parsed)
@@ -431,13 +431,13 @@ async def _init_adaptive_probe(
             "stealth_level": "balanced",
         }
 
-    # ── Phase 2: Stealth Level → Policy ──
+    # == Phase 2: Stealth Level → Policy ==
     try:
         stealth_mgr = get_stealth_manager()
         guardrail_severity = probe_ctx["guardrail_report"].get("severity", "none")
         recommended_stealth = probe_ctx["guardrail_report"].get("stealth_level", "balanced")
 
-        # 优先使用 guardrail 推荐, 否则使用用户指定
+        #  guardrail , 
         user_stealth = getattr(ctx.args, "stealth_level", None) or recommended_stealth
         stealth_policy = stealth_mgr.get_policy(user_stealth)
         probe_ctx["stealth_policy"] = {
@@ -451,9 +451,9 @@ async def _init_adaptive_probe(
         logger.debug("[Adaptive] Stealth config failed: %s", e)
         probe_ctx["stealth_policy"] = {"name": "balanced", "behavioral_verify": True}
 
-    # ── Phase 3: Adaptive Probe Budget ──
+    # == Phase 3: Adaptive Probe Budget ==
     try:
-        # 已检测到的能力 (从 parsed target_fingerprint 获取)
+        #  ( parsed target_fingerprint )
         existing_caps_str = parsed.target_fingerprint.extra.get("capabilities", "")
         existing_caps = {}
         if existing_caps_str:
@@ -470,7 +470,7 @@ async def _init_adaptive_probe(
             stealth_level=probe_ctx["stealth_policy"].get("name", "balanced"),
         )
         probe_ctx["probe_budget"] = probe_budget
-        # 更新全局计数器的 max_probes (使用自适应预算而非硬编码)
+        #  max_probes ()
         counter._adaptive_max = probe_budget["budget"]
         logger.info(
             "[Adaptive] Probe budget: total=%d, parallel=%d, deep=%d, behavioral=%d "
@@ -485,7 +485,7 @@ async def _init_adaptive_probe(
         logger.debug("[Adaptive] Probe budget calc failed: %s", e)
         probe_ctx["probe_budget"] = {"budget": 5, "parallel": 1, "complexity_level": "moderate"}
 
-    # ── Phase 4: Model Seed Mapping (使用 model_name 推断) ──
+    # == Phase 4: Model Seed Mapping ( model_name ) ==
     try:
         if model_name and model_name != "unknown":
             seed_mapping = get_seeds_for_model(model_name)
@@ -498,19 +498,19 @@ async def _init_adaptive_probe(
                 seed_mapping.get("source", "default"),
             )
 
-            # 存储到 ctx 供后续 arm 阶段使用
+            #  ctx  arm 
             ctx.seed_preferences = seed_mapping
     except Exception as e:
         logger.debug("[Adaptive] Seed mapping failed: %s", e)
 
-    # ── Phase 5: Behavioral Verification (仅运行 S1 文本声明的能力) ──
+    # == Phase 5: Behavioral Verification ( S1 ) ==
     behavioral_enabled = probe_ctx["stealth_policy"].get("behavioral_verify", True)
     behavioral_budget = probe_ctx["probe_budget"].get("behavioral_verify_budget", 0)
 
     if behavioral_enabled and behavioral_budget > 0:
         try:
             logger.info("[Adaptive] Phase 5: Behavioral verification...")
-            # 构建简化的 capabilities 输入
+            #  capabilities 
             caps_for_verify = {}
             for cap, val in existing_caps.items():
                 caps_for_verify[cap] = {
@@ -522,7 +522,7 @@ async def _init_adaptive_probe(
 
             behavioral_report = await behavioral_verify(parsed, caps_for_verify)
             probe_ctx["behavioral_report"] = behavioral_report.to_dict()
-            counter.add(min(behavioral_budget, 2))  # 限制 behavioral probes 数
+            counter.add(min(behavioral_budget, 2))  #  behavioral probes 
             logger.info(
                 "[Adaptive] Behavioral verify: %d/%d verified (ratio=%.0f%%)",
                 behavioral_report.summary.get("total_claimed", 0),
@@ -536,42 +536,42 @@ async def _init_adaptive_probe(
     return probe_ctx
 
 
-# ════════════════════════════════════════════════════════════════════
-# P1 后台探测任务 (异步非阻塞)
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# P1  ()
+# ====================================================================
 
 
 async def _run_background_probes(
     parsed: Any,
     counter: _ProbeCounter,
-    ctx: Any = None,  # P2-07: 可选的 PipelineContext, 用于写入 orchestration_log
+    ctx: Any = None,  # P2-07:  PipelineContext,  orchestration_log
     deep_probe: bool = False,
 ) -> None:
-    """后台运行非核心能力探测，不阻塞攻击主流程。
+    """
 
-    探测优先级 (按 ASR 贡献排序):
-        1. probe_active_capabilities (agent/mcp/rag 关键词)
-        2. MCP 枚举 (如果探测到 MCP 能力)
-        3. system_prompt_extraction (泄露探测，高价值用于种子定制)
+     ( ASR ):
+        1. probe_active_capabilities (agent/mcp/rag )
+        2. MCP  ( MCP )
+        3. system_prompt_extraction ()
 
-    P0-02 深度探测 (仅当 deep_probe=True):
-        - deep_probe_capabilities (8 个深度探针，高延迟)
-        - OpenAPI 发现 (API schema 用于定向注入)
-        - 向量数据库确认 (RAG 攻击辅助)
+    P0-02  ( deep_probe=True):
+        - deep_probe_capabilities (8 converter(s))
+        - OpenAPI  (API schema )
+        - Confirmation (RAG )
 
     Args:
-        parsed: 解析后的 Burp 请求。
-        counter: 全局探针计数器。n        ctx: 可选的 PipelineContext (P2-07: 探测失败时写入 orchestration_log)。
-        deep_probe: 是否运行深度探测 (默认 False)。
+        parsed:  Burp 
+        counter: n        ctx:  PipelineContext (P2-07:  orchestration_log)
+        deep_probe:  ( False)
     """
     logger.info("Background probes started (cap=%d)...", _MAX_PROBE_COUNT)
 
-    # ── P1-1: 执行 probe_active_capabilities (3 个关键词探测) ──
+    # == P1-1:  probe_active_capabilities (3 ) ==
     try:
         active_caps = await probe_active_capabilities(parsed)
         counter.add(3)
         if active_caps:
-            # P1-05: 使用属性赋值
+            # P1-05: 
             existing_caps = parsed.target_fingerprint.extra.get("capabilities", "")
             all_caps = set(existing_caps.split(",")) if existing_caps else set()
             for cap_key, cap_val in active_caps.items():
@@ -582,11 +582,11 @@ async def _run_background_probes(
             parsed.target_fingerprint.extra["capabilities"] = ",".join(sorted(all_caps))
             logger.info("Background: active probe detected: %s", sorted(all_caps))
     except Exception as e:
-        # P2-07: 探测失败必须写入 orchestration_log (禁止静默降级)
+        # P2-07:  orchestration_log ()
         logger.warning("Background: active probe failed: %s", e)
         _log_probe_failure(ctx, "active_capability", e, is_fatal=False)
 
-    # ── P1-2: MCP 枚举 (条件触发 - 仅在检测到 MCP 能力时) ──
+    # == P1-2: MCP  ( -  MCP ) ==
     capabilities_str = parsed.target_fingerprint.extra.get("capabilities", "")
     if "mcp" in capabilities_str or "mcp_protocol" in capabilities_str:
         logger.info("MCP capability detected, launching MCP enumeration...")
@@ -594,7 +594,7 @@ async def _run_background_probes(
             from recon.mcp_enumerator import enumerate_mcp_endpoint
             mcp_results = await enumerate_mcp_endpoint(parsed)
             if mcp_results.get("has_mcp"):
-                # P1-05: 使用属性赋值
+                # P1-05: 
                 parsed.target_fingerprint.mcp_tools = mcp_results.get("tools", [])
                 parsed.target_fingerprint.mcp_resources = mcp_results.get("resources", [])
                 parsed.target_fingerprint.mcp_prompts = mcp_results.get("prompts", [])
@@ -604,18 +604,18 @@ async def _run_background_probes(
                     len(mcp_results.get("resources", [])),
                 )
         except Exception as e:
-            # P2-07: 探测失败必须写入 orchestration_log (禁止静默降级)
+            # P2-07:  orchestration_log ()
             logger.warning("Background: MCP enumeration failed: %s", e)
             _log_probe_failure(ctx, "mcp_enum", e, is_fatal=False)
 
-    # ── P1-3: 系统提示泄露探测 (高价值 - 用于种子定制) ──
+    # == P1-3:  ( - ) ==
     if counter.can_probe(3, _MAX_PROBE_COUNT):
         try:
             from recon.system_prompt_extractor import extract_system_prompt
             sp_result = await extract_system_prompt(parsed)
             counter.add(3)
             if sp_result.get("system_prompt_leaked"):
-                # P1-05: 使用属性赋值
+                # P1-05: 
                 parsed.target_fingerprint.system_prompt_leaked = True
                 parsed.target_fingerprint.extracted_system_prompt = sp_result.get(
                     "extracted_system_prompt", ""
@@ -631,23 +631,23 @@ async def _run_background_probes(
             else:
                 parsed.target_fingerprint.system_prompt_leaked = False
         except Exception as e:
-            # P2-07: 探测失败必须写入 orchestration_log (禁止静默降级)
+            # P2-07:  orchestration_log ()
             logger.warning("Background: system prompt extraction failed: %s", e)
             _log_probe_failure(ctx, "system_prompt", e, is_fatal=False)
 
-    # ── P2 (仅当 deep_probe=True): 深度探测 ──
+    # == P2 ( deep_probe=True):  ==
     if not deep_probe:
         logger.info("Background probes complete (deep probe disabled).")
         return
 
-    # 深度探测: deep_probe_capabilities (并行 8 个)
+    # : deep_probe_capabilities ( 8 )
     if counter.can_probe(8, _MAX_PROBE_COUNT):
         try:
             from recon.capability_probe import deep_probe_capabilities
             deep_caps = await deep_probe_capabilities(parsed)
             counter.add(8)
             if deep_caps:
-                # P1-05: 使用属性赋值
+                # P1-05: 
                 existing_caps_str = parsed.target_fingerprint.extra.get("capabilities", "")
                 all_caps = set(existing_caps_str.split(",")) if existing_caps_str else set()
                 for cap_key in [
@@ -658,62 +658,62 @@ async def _run_background_probes(
                     if deep_caps.get(cap_key):
                         all_caps.add(cap_key.replace("has_", ""))
                 parsed.target_fingerprint.extra["capabilities"] = ",".join(sorted(all_caps))
-                # P1-05: 识别字段使用属性赋值, 非 Schema 字段使用 extra dict
+                # P1-05: ,  Schema  extra dict
                 for k in ("secret_format", "tool_schemas", "model_family"):
                     if deep_caps.get(k):
                         parsed.target_fingerprint.extra[k] = deep_caps[k]
-                # Schema 中的 session_type
+                # Schema  session_type
                 if deep_caps.get("session_type"):
                     parsed.target_fingerprint.session_type = deep_caps["session_type"]
-                # 额外字段存储到 extra
+                #  extra
                 for k in ("model_ids", "api_behavior", "capability_confidence", "capability_recommendations"):
                     if deep_caps.get(k):
                         parsed.target_fingerprint.extra[k] = deep_caps[k]
         except Exception as e:
-            # P2-07: 探测失败必须写入 orchestration_log (禁止静默降级)
+            # P2-07:  orchestration_log ()
             logger.warning("Background: deep probe failed: %s", e)
             _log_probe_failure(ctx, "deep_capability", e, is_fatal=False)
 
-    # OpenAPI 发现 (仅 deep_probe)
+    # OpenAPI  ( deep_probe)
     if counter.can_probe(5, _MAX_PROBE_COUNT):
         try:
             from recon.openapi_discoverer import discover_openapi_spec
             openapi_result = await discover_openapi_spec(parsed)
             counter.add(5)
             if openapi_result and openapi_result.endpoints:
-                # P1-05: 使用属性赋值
+                # P1-05: 
                 parsed.target_fingerprint.openapi_spec_path = openapi_result.spec_path
                 parsed.target_fingerprint.openapi_endpoints = [
                     {"path": ep.path, "method": ep.method, "summary": ep.summary}
-                    for ep in openapi_result.endpoints[:20]  # 限制存储数量
+                    for ep in openapi_result.endpoints[:20]  # 
                 ]
         except Exception as e:
-            # P2-07: 探测失败必须写入 orchestration_log (禁止静默降级)
+            # P2-07:  orchestration_log ()
             logger.warning("Background: OpenAPI discovery failed: %s", e)
             _log_probe_failure(ctx, "openapi_discovery", e, is_fatal=False)
 
     logger.info("Background probes complete. Total probes: %d", counter.value)
 
 
-# ════════════════════════════════════════════════════════════════════
-# P0 目标可用性预检
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# P0 
+# ====================================================================
 
 
 async def _check_target_availability(parsed: Any) -> bool:
-    """P0: 检查目标 API 是否可用。
+    """P0:  API 
 
-    检查策略:
-        1. 发送简单 POST 请求, 使用 stream=True 只读取响应头
-        2. 连接超时 5s, 读取超时 15s
-        3. 接受任何 HTTP 响应 (200/400/401/403 都算在线)
-        4. 402/503 = 终止; 连接拒绝/超时 = 不可用
+    :
+        1.  POST ,  stream=True 
+        2.  5s,  15s
+        3.  HTTP  (200/400/401/403 )
+        4. 402/503 = ; / = 
 
     Args:
-        parsed: 解析后的 Burp 请求。
+        parsed:  Burp 
 
     Returns:
-        True 如果目标在线, False 如果不可达。
+        True , False 
     """
     import httpx
 
@@ -760,13 +760,13 @@ async def _check_target_availability(parsed: Any) -> bool:
         return False
 
 
-# ════════════════════════════════════════════════════════════════════
-# Adversarial / Scoring Target 创建
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# Adversarial / Scoring Target 
+# ====================================================================
 
 
 def _create_adversarial_target() -> Any:
-    """从 .env 创建 adversarial chat 目标。"""
+    """imports .env  adversarial chat """
     from pyrit.prompt_target import OpenAIChatTarget
 
     endpoint = os.environ.get("ADVERSARIAL_CHAT_ENDPOINT")
@@ -791,7 +791,7 @@ def _create_adversarial_target() -> Any:
 
 
 def _create_extra_adversarial_targets() -> list[Any]:
-    """L5 v10: 创建额外的 adversarial targets (多模型并行攻击)。"""
+    """L5 v10:  adversarial targets ()"""
     from pyrit.prompt_target import OpenAIChatTarget
 
     targets: list[Any] = []
@@ -816,7 +816,7 @@ def _create_extra_adversarial_targets() -> list[Any]:
 
 
 def _create_scoring_target(ctx: PipelineContext) -> Any:
-    """从 .env 创建评分器目标 (缺失时复用 adversarial)。"""
+    """imports .env  ( adversarial)"""
     from pyrit.prompt_target import OpenAIChatTarget
 
     endpoint = os.environ.get("SCORING_CHAT_ENDPOINT") or os.environ.get("SCORER_CHAT_ENDPOINT")
@@ -837,23 +837,23 @@ def _create_scoring_target(ctx: PipelineContext) -> Any:
         logger.info("Scorer target not configured, reusing adversarial target")
         target = ctx.adversarial_target
 
-    # D-04 修复 (2026-09-06): 删除 recon → assess 越界调用。
-    # 评分目标的能力验证统一在 assess 层 (assess/scorer.py:74,
-    # assess/dual_judge.py:134, assess/judge_utils.py:998) 自行完成,
-    # recon 层不再越权校验, 遵循 "最小知识原则"。
+    # D-04  (2026-09-06):  recon → assess 
+    # Capability verification assess Layer (assess/scorer.py:74,
+    # assess/dual_judge.py:134, assess/judge_utils.py:998) ,
+    # recon Layer,  ""
     if target:
         logger.info("Scoring target created (capability validation deferred to assess layer)")
 
     return target
 
 
-# ════════════════════════════════════════════════════════════════════
-# Playwright Target (浏览器模式)
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# Playwright Target ()
+# ====================================================================
 
 
 async def _create_playwright_target(ctx: PipelineContext, browser_url: str) -> None:
-    """创建 PyRIT 原生 PlaywrightTarget — 浏览器渲染 Chat UI 攻击。"""
+    """ PyRIT  PlaywrightTarget —  Chat UI """
     import importlib.util
 
     if importlib.util.find_spec("playwright") is None:
@@ -928,9 +928,9 @@ async def _create_playwright_target(ctx: PipelineContext, browser_url: str) -> N
     ctx._browser_context = _context
 
 
-# ════════════════════════════════════════════════════════════════════
-# OpenAI Native Target (API 直连)
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# OpenAI Native Target (API )
+# ====================================================================
 
 
 async def _create_native_openai_target(
@@ -941,7 +941,7 @@ async def _create_native_openai_target(
     model_name: str,
     api_type: str = "chat",
 ) -> None:
-    """L5 v52: 创建 PyRIT 原生 OpenAIChatTarget 或 OpenAIResponseTarget。"""
+    """L5 v52:  PyRIT  OpenAIChatTarget  OpenAIResponseTarget"""
     from pyrit.prompt_target import OpenAIChatTarget, OpenAIResponseTarget
 
     rpm = getattr(ctx.args, "rate_limit", None) or None
@@ -972,9 +972,9 @@ async def _create_native_openai_target(
     _ensure_parsed_request_for_api_path(ctx, mode=api_type, model_name=model_name, endpoint=endpoint)
 
 
-# ════════════════════════════════════════════════════════════════════
-# LiteLLM Target (多提供商)
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# LiteLLM Target ()
+# ====================================================================
 
 
 async def _create_litellm_target(
@@ -982,7 +982,7 @@ async def _create_litellm_target(
     *,
     model_name: str,
 ) -> None:
-    """创建 PyRIT 原生 LiteLLMChatTarget — 适配 100+ LLM 提供商。"""
+    """ PyRIT  LiteLLMChatTarget —  100+ LLM """
     from pyrit.prompt_target import LiteLLMChatTarget
 
     api_key = os.environ.get("LITELLM_API_KEY")
@@ -1018,9 +1018,9 @@ async def _create_litellm_target(
     _ensure_parsed_request_for_api_path(ctx, mode="litellm", model_name=model_name, endpoint=endpoint)
 
 
-# ════════════════════════════════════════════════════════════════════
-# 非 Burp 路径 parsed_request 兼容
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+#  Burp  parsed_request 
+# ====================================================================
 
 
 def _ensure_parsed_request_for_api_path(
@@ -1030,7 +1030,7 @@ def _ensure_parsed_request_for_api_path(
     model_name: str,
     endpoint: str | None,
 ) -> None:
-    """为非Burp路径创建轻量级 parsed_request, 确保数据流一致性。"""
+    """Burp parsed_request, EnsureData flow"""
     from recon.burp_parser import ParsedBurpRequest
 
     capabilities = "text"
@@ -1053,7 +1053,7 @@ def _ensure_parsed_request_for_api_path(
         elif "deepseek" in model_lower:
             model_family = "deepseek"
             language = "zh"
-        elif "qwen" in model_lower or "通义" in model_lower:
+        elif "qwen" in model_lower or "" in model_lower:
             model_family = "qwen"
             language = "zh"
         elif "claude" in model_lower:

@@ -1,16 +1,16 @@
-"""display.py — 终端输出格式化 + 分阶段报告输出 (统一门面)。
+"""display.py —  +  ()
 
-架构: 拆分后的统一入口, 提供向后兼容的完整符号集。
-    - display_primitives: 基础卡片工具 + Banner/Phase/Status
-    - display_stages: RECON/ARM/STRIKE/ESCALATE/ASSESS/REPORT 阶段卡片
-    - display_native: PyRIT 原生 output 适配器 (output_attack/scenario/technique_trail)
-    - display.py: 编排进度展示 + 兼容导出
+: , 
+    - display_primitives:  + Banner/Phase/Status
+    - display_stages: RECON/ARM/STRIKE/ESCALATE/ASSESS/REPORT 
+    - display_native: PyRIT  output  (output_attack/scenario/technique_trail)
+    - display.py:  + 
 
-设计原则:
-    1. 卡片式: 阶段级摘要以边框卡片突出
-    2. 高信噪比: PyRIT/Alembic 等第三方 INFO 日志压制
-    3. 攻击者关注: 目标指纹→种子→Converter→攻击进度→ASR→成功payload→报告
-    4. 阶段传递一致性: 每个阶段结束后输出 "传递给下一阶段" 的关键数据卡片
+:
+    1. : 
+    2. : PyRIT/Alembic  INFO 
+    3. : →→Converter→→ASR→payload→
+    4. : converter(s) "" 
 """
 
 from __future__ import annotations
@@ -18,23 +18,23 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-# ── 导入 PyRIT 原生输出适配器 (display_native) ──
+# ==  PyRIT  (display_native) ==
 from utils.display_native import (
     print_native_attack_result,
     print_native_scenario_result,
     print_technique_trail,
 )
 
-# ── 导入技术参数展示逻辑 (display_params SSOT) ──
+# ==  (display_params SSOT) ==
 from utils.display_params import (
     _get_converter_summary,
     _get_technique_category,
     _get_technique_params,
 )
 
-# ── 导入基础工具 (display_primitives) ──
-# ── 导入阶段卡片 (display_stages) ──
-# 注意: _get_converter_chain_names 已提升至 display_primitives (行 289)
+# ==  (display_primitives) ==
+# ==  (display_stages) ==
+# : _get_converter_chain_names  display_primitives ( 289)
 from utils.display_primitives import (
     _C_BLUE,
     _C_BOLD,
@@ -74,17 +74,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# ════════════════════════════════════════════════════════════════════
-# 兼容旧接口
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# 
+# ====================================================================
 
-# 旧函数名兼容 (已弃用, 新代码请用 print_status)
+#  (,  print_status)
 print_status_card = print_status
 
 
-# ════════════════════════════════════════════════════════════════════
-# 全局摘要
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# 
+# ====================================================================
 
 def print_summary(
     *,
@@ -93,7 +93,7 @@ def print_summary(
     overall_asr: float,
     report_path: str,
 ) -> None:
-    """打印最终摘要 (卡片式)."""
+    """ ()."""
     print()
     print_card(
         "Attack Summary",
@@ -108,12 +108,12 @@ def print_summary(
     print()
 
 
-# ════════════════════════════════════════════════════════════════════
-# PyRIT AttackResult 过程性输出 (通用)
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# PyRIT AttackResult  ()
+# ====================================================================
 
 def _print_failure_summary(result: Any, tech_name: str, idx: int) -> None:
-    """T-03: 失败结果 1 行精简摘要."""
+    """T-03:  1 ."""
     objective = getattr(result, "objective", "") or ""
     outcome = _get_outcome_label(result)
 
@@ -137,7 +137,7 @@ def _print_failure_summary(result: Any, tech_name: str, idx: int) -> None:
 
 
 def _print_result_fallback(result: Any) -> None:
-    """原生 output 失败时的最小摘要."""
+    """ output ."""
     objective = getattr(result, "objective", "") or ""
     outcome = _get_outcome_label(result)
     print(f"    Objective: {objective[:100]}")
@@ -151,17 +151,17 @@ async def print_attack_results_native(
     max_per_tech: int = 3,
     verbose_failures: bool = False,
 ) -> None:
-    """通用过程性输出: 使用 PyRIT 原生 output_attack_async 展示攻击结果.
+    """:  PyRIT  output_attack_async .
 
-    R2 §2.1 原生优先: 先调用 pyrit.output 官方模块渲染 AttackResult,
-    再输出增强层卡片 (技术 ASR 统计)。
+    R2 §2.1 :  pyrit.output  AttackResult,
+    Layer ( ASR )
     """
     total_results = sum(len(r) for r in attack_results.values())
     if total_results == 0:
-        print(f"\n  {_C_RED}✗ 无攻击结果 — 检查目标是否可用{_C_RESET}")
+        print(f"\n  {_C_RED}✗  — {_C_RESET}")
         return
 
-    # 按 ASR 降序排
+    #  ASR 
     sorted_techs = sorted(
         attack_results.items(),
         key=lambda kv: -(sum(1 for r in kv[1] if _is_success(r)) / max(1, len(kv[1]))),
@@ -229,12 +229,12 @@ async def print_attack_results_native(
 
 
 async def print_strike_results_native(ctx: "PipelineContext", *, max_per_tech: int = 3) -> None:
-    """STRIKE 阶段过程性输出的向后兼容包装."""
+    """STRIKE ."""
     await print_attack_results_native(ctx.attack_results, phase_label="STRIKE", max_per_tech=max_per_tech)
 
 
 def print_strike_card(ctx: "PipelineContext") -> None:
-    """打印攻击执行结果摘要卡片 (进度/统计)."""
+    """ (/)."""
     total = sum(len(results) for results in ctx.attack_results.values())
     success_count = sum(
         1 for results in ctx.attack_results.values()
@@ -258,15 +258,15 @@ def print_strike_card(ctx: "PipelineContext") -> None:
     )
 
     if total == 0:
-        print(f"\n  {_C_RED}✗ 无攻击结果 — 检查目标是否可用{_C_RESET}")
+        print(f"\n  {_C_RED}✗  — {_C_RESET}")
 
 
-# ════════════════════════════════════════════════════════════════════
-# 分阶段报告 (--stage 模式, 调用对应卡片函数)
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+#  (--stage , )
+# ====================================================================
 
 async def print_strike_report_async(ctx: "PipelineContext") -> None:
-    """输出单轮攻击阶段 (--stage strike) 的完整结果."""
+    """ (--stage strike) ."""
     scenario_result = getattr(ctx, "scenario_result", None)
 
     if scenario_result is not None:
@@ -281,17 +281,17 @@ async def print_strike_report_async(ctx: "PipelineContext") -> None:
 
 
 def print_strike_report(ctx: "PipelineContext") -> None:
-    """同步包装: 输出单轮攻击阶段结果 (仅摘要卡片)."""
+    """:  ()."""
     print_strike_card(ctx)
 
 
 def print_arm_report(ctx: "PipelineContext") -> None:
-    """输出武器化阶段 (--stage arm) 的结果摘要."""
+    """ (--stage arm) ."""
     print_arm_card(ctx)
 
 
 async def print_escalate_report_async(ctx: "PipelineContext") -> None:
-    """输出升级链阶段的完整结果 (R2 §2.1 原生优先)."""
+    """ (R2 §2.1 )."""
     escalation_techs = [
         k for k in ctx.attack_results
         if any(
@@ -317,21 +317,21 @@ async def print_escalate_report_async(ctx: "PipelineContext") -> None:
 
 
 def print_escalate_report(ctx: "PipelineContext") -> None:
-    """同步包装: 输出升级链阶段结果 (仅摘要卡片)."""
+    """:  ()."""
     print_escalate_card(ctx)
 
 
 def print_assess_report(ctx: "PipelineContext") -> None:
-    """输出评分阶段 (--stage assess) 的结果摘要."""
+    """ (--stage assess) ."""
     print_assess_card(ctx)
 
 
-# ════════════════════════════════════════════════════════════════════
-# STRIKE 进度展示 (攻击者实时感知)
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# STRIKE  ()
+# ====================================================================
 
 def _get_endpoint_name(ctx: "PipelineContext") -> str:
-    """从 ctx 提取当前 endpoint 名称 (用于进度日志)."""
+    """imports ctx  endpoint  ()."""
     import pathlib
 
     burp_val = getattr(ctx.args, "burp", None)
@@ -363,7 +363,7 @@ def _load_tech_asr_data(
     techniques: list[str],
     ctx: "PipelineContext",
 ) -> tuple[dict[str, float], dict[str, float]]:
-    """加载技术级历史 ASR 和先验 ASR."""
+    """Load ASR  ASR."""
     tech_asr_history: dict[str, float] = {}
     try:
         from arm.seed_ranking import _ASR_HISTORY_PATH
@@ -399,7 +399,7 @@ def _rank_techniques_for_display(
     techniques: list[str],
     tech_asr_priors: dict[str, float],
 ) -> list[tuple[str, float]]:
-    """按 ASR 先验降序排序技术."""
+    """ ASR ."""
     ranked: list[tuple[str, float]] = []
     for tech in techniques:
         prior = tech_asr_priors.get(tech, 0.0)
@@ -414,7 +414,7 @@ def _partition_into_display_batches(
     high_threshold: float = 60.0,
     low_threshold: float = 40.0,
 ) -> list[tuple[str, list[tuple[str, float]]]]:
-    """将排序后的技术按 prior 阈值分为高/中/低三批."""
+    """ prior //."""
     if len(ranked) <= 2:
         return [("all", ranked)]
 
@@ -442,7 +442,7 @@ def _partition_into_display_batches(
 
 
 def _get_seed_summary(ctx: "PipelineContext") -> str:
-    """种子摘要: 数量 + UCB 排序 + 类别多样性."""
+    """:  + UCB  + ."""
     total = len(ctx.seeds)
     if total == 0:
         return "0 seeds"
@@ -471,7 +471,7 @@ def _get_seed_summary(ctx: "PipelineContext") -> str:
 
 
 
-# ── 卡片绘制函数 (用于进度展示) ──
+# ==  () ==
 
 def _print_priority_batch_card(
     batch_label: str,
@@ -483,7 +483,7 @@ def _print_priority_batch_card(
     total_batches: int,
     exit_threshold: float,
 ) -> None:
-    """打印单个优先级批次卡片."""
+    """converter(s)."""
     batch_colors = [_C_RED, _C_YELLOW, _C_CYAN]
     batch_color = batch_colors[batch_idx] if batch_idx < len(batch_colors) else _C_CYAN
 
@@ -535,7 +535,7 @@ def _print_priority_batch_card(
     _print_card_bottom(batch_color)
 
 
-# ── STRIKE 阶段横幅 + 进度 ──
+# == STRIKE  +  ==
 
 def print_strike_start_banner(
     ctx: "PipelineContext",
@@ -543,7 +543,7 @@ def print_strike_start_banner(
     total_endpoints: int | None = None,
     current_endpoint_idx: int | None = None,
 ) -> None:
-    """STRIKE 阶段开始时输出 baseline 攻击概览横幅."""
+    """STRIKE  baseline ."""
     ep_name = _get_endpoint_name(ctx)
     total_seeds = len(ctx.seeds)
     total_converters = sum(len(v) for v in ctx.converter_map.values()) if ctx.converter_map else 0
@@ -564,9 +564,9 @@ def print_strike_start_banner(
         model_family = ctx.model_name or "unknown"
 
     print()
-    print(f"{_C_BOLD}{'─' * 60}{_C_RESET}")
-    print(f"{_C_BOLD}  ► STRIKE: Baseline Attack (单轮 PromptSending){_C_RESET}{ep_idx_str}")
-    print(f"{_C_BOLD}{'─' * 60}{_C_RESET}")
+    print(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
+    print(f"{_C_BOLD}  ► STRIKE: Baseline Attack ( PromptSending){_C_RESET}{ep_idx_str}")
+    print(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
     print(f"  {_C_CYAN}Endpoint{_C_RESET}      {ep_name}")
     print(f"  {_C_CYAN}Model Family{_C_RESET}  {model_family}")
     print(f"  {_C_CYAN}Technique{_C_RESET}    prompt_sending (PromptSendingAttack)")
@@ -576,7 +576,7 @@ def print_strike_start_banner(
     print(f"  {_C_CYAN}Timeout{_C_RESET}       {timeout_val}s ({timeout_val // 60}m {(timeout_val % 60)}s)")
     print(f"  {_C_CYAN}Pre-inject{_C_RESET}    SkeletonKey (native)")
     print(f"  {_C_CYAN}Scorer{_C_RESET}        MultiKeywordRefusal (0 token, FIRST_SUCCESS)")
-    print(f"{_C_BOLD}{'─' * 60}{_C_RESET}")
+    print(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
 
 
 def print_escalation_decision_card(
@@ -585,7 +585,7 @@ def print_escalation_decision_card(
     baseline_asr: float,
     failed_count: int,
 ) -> None:
-    """输出升级决策卡片."""
+    """."""
     _esc_threshold = float(getattr(ctx.args, "escalation_asr_threshold", 90) or 90)
     _l1_exit = float(getattr(ctx.args, "post_l1_exit_threshold", 70) or 70)
     _l2_exit = float(getattr(ctx.args, "post_l2_exit_threshold", 80) or 80)
@@ -623,7 +623,7 @@ def print_escalation_level_banner(
     failed_count: int,
     batch_mode: bool = False,
 ) -> None:
-    """输出升级链 Level 横幅."""
+    """ Level ."""
     level_names = {
         1: "Multi-Turn Priority Batches",
         2: "GCG + CAIR + Best-of-N + Encoded Injection",
@@ -634,7 +634,7 @@ def print_escalation_level_banner(
     color = level_colors.get(level, _C_BOLD)
     name = level_names.get(level, f"Level {level}")
 
-    sep = "═" * 60
+    sep = "=" * 60
     print()
     print(f"  {color}{sep}{_C_RESET}")
     print(f"  {color}► ESCALATE L{level}: {name}{_C_RESET}")
@@ -658,7 +658,7 @@ def print_batch_exit_card(
     exit_threshold: float,
     remaining_failed: int,
 ) -> None:
-    """输出批次退出决策卡片."""
+    """."""
     is_exit = cumulative_asr >= exit_threshold
     decision = "EXIT" if is_exit else "CONTINUE"
     decision_color = _C_GREEN if is_exit else _C_YELLOW
@@ -685,10 +685,10 @@ def print_batch_exit_card(
     _print_card_bottom(_C_BLUE)
 
 
-# ── 辅助函数 ──
+# ==  ==
 
 def _get_current_technique(ctx: "PipelineContext") -> str:
-    """推断当前正在执行的技术名称."""
+    """."""
     _esc_tech = getattr(ctx, "_current_escalation_tech", None)
     if _esc_tech:
         return _esc_tech
@@ -699,7 +699,7 @@ def _get_current_technique(ctx: "PipelineContext") -> str:
 
 
 def _get_seed_category_for_idx(ctx: "PipelineContext", seed_idx: int) -> str:
-    """获取指定索引种子的 category 标签."""
+    """ category ."""
     if seed_idx < 0 or seed_idx >= len(ctx.seeds):
         return ""
     group = ctx.seeds[seed_idx]
@@ -719,7 +719,7 @@ def _get_seed_category_for_idx(ctx: "PipelineContext", seed_idx: int) -> str:
     return ""
 
 
-# ── Converter 路径进度 ──
+# == Converter  ==
 
 def print_converter_path_start(
     ctx: "PipelineContext",
@@ -729,7 +729,7 @@ def print_converter_path_start(
     total_paths: int,
     seeds_remaining: int,
 ) -> None:
-    """单条 converter 路径开始执行时输出进度行."""
+    """ converter ."""
     ep_name = _get_endpoint_name(ctx)
     tech = _get_current_technique(ctx)
     cat = _get_technique_category(tech)
@@ -743,8 +743,8 @@ def print_converter_path_start(
     )
     seed_summary = _get_seed_summary(ctx)
     print(
-        f"  {_C_DIM}└─ Seeds: {_C_CYAN}{seed_summary}{_C_RESET}  "
-        f"{_C_DIM}└─ Scorer: MultiKeywordRefusal (0-token) → TFInverter{_C_RESET}"
+        f"  {_C_DIM}== Seeds: {_C_CYAN}{seed_summary}{_C_RESET}  "
+        f"{_C_DIM}== Scorer: MultiKeywordRefusal (0-token) → TFInverter{_C_RESET}"
     )
 
 
@@ -759,7 +759,7 @@ def print_converter_path_done(
     seeds_remaining: int,
     elapsed_seconds: float,
 ) -> None:
-    """单条 converter 路径执行完成后输出结果行."""
+    """ converter ."""
     ep_name = _get_endpoint_name(ctx)
     tech = _get_current_technique(ctx)
 
@@ -797,7 +797,7 @@ def print_seed_batch_progress(
     total: int,
     succeeded: int,
 ) -> None:
-    """批量执行中输出种子级进度."""
+    """."""
     ep_name = _get_endpoint_name(ctx)
     tech = _get_current_technique(ctx)
 
@@ -832,7 +832,7 @@ def print_native_sequential_progress(
     converter_count: int,
     objective_preview: str,
 ) -> None:
-    """SequentialAttack 逐种子执行时输出进度."""
+    """SequentialAttack ."""
     ep_name = _get_endpoint_name(ctx)
     tech = _get_current_technique(ctx)
 
@@ -857,7 +857,7 @@ def print_native_sequential_progress(
         print(f"{line}{' ' * 10}")
 
 
-# ── ESCALATE 阶段进度 ──
+# == ESCALATE  ==
 
 def print_escalation_tech_start(
     ctx: "PipelineContext",
@@ -868,7 +868,7 @@ def print_escalation_tech_start(
     total_batches: int | None = None,
     objectives_count: int,
 ) -> None:
-    """升级阶段技术开始执行时输出完整路径卡片."""
+    """."""
     setattr(ctx, "_current_escalation_tech", technique)
 
     ep_name = _get_endpoint_name(ctx)
@@ -897,11 +897,11 @@ def print_escalation_tech_start(
         f"{_C_DIM}({cat}){_C_RESET}{batch_str} "
         f"{_C_DIM}| {objectives_count} objectives{_C_RESET}"
     )
-    print(f"  {_C_DIM}└─ Seeds: {_C_CYAN}{seed_source}{_C_RESET}")
-    print(f"  {_C_DIM}└─ Converters: {_C_DIM}{converter_str}{_C_RESET}")
+    print(f"  {_C_DIM}== Seeds: {_C_CYAN}{seed_source}{_C_RESET}")
+    print(f"  {_C_DIM}== Converters: {_C_DIM}{converter_str}{_C_RESET}")
     if params_str:
-        print(f"  {_C_DIM}└─ Params: {_C_DIM}{params_str}{_C_RESET}")
-    print(f"  {_C_DIM}└─ Scorer: {_C_DIM}{scorer_str}{_C_RESET}")
+        print(f"  {_C_DIM}== Params: {_C_DIM}{params_str}{_C_RESET}")
+    print(f"  {_C_DIM}== Scorer: {_C_DIM}{scorer_str}{_C_RESET}")
 
 
 def print_escalation_tech_done(
@@ -913,7 +913,7 @@ def print_escalation_tech_done(
     success_count: int,
     elapsed_seconds: float,
 ) -> None:
-    """升级阶段技术执行完成后输出结果行."""
+    """."""
     setattr(ctx, "_current_escalation_tech", None)
 
     ep_name = _get_endpoint_name(ctx)
@@ -947,16 +947,16 @@ def print_strike_phase_summary(
     total_success: int,
     elapsed_seconds: float,
 ) -> None:
-    """STRIKE 整体执行完毕后的精简摘要行."""
+    """STRIKE ."""
     ep_name = _get_endpoint_name(ctx)
     asr = (total_success / max(1, total_results) * 100) if total_results > 0 else 0.0
     asr_str = _format_asr(asr)
 
     print()
-    print(f"  {_C_BOLD}{'═' * 60}{_C_RESET}")
+    print(f"  {_C_BOLD}{'=' * 60}{_C_RESET}")
     print(
         f"  {_C_BOLD}STRIKE DONE:{_C_RESET} {_C_CYAN}{ep_name}{_C_RESET} "
         f"| {total_results} attacks, {_C_GREEN}{total_success} success{_C_RESET} ({asr_str}) "
         f"| {elapsed_seconds:.1f}s"
     )
-    print(f"  {_C_BOLD}{'═' * 60}{_C_RESET}")
+    print(f"  {_C_BOLD}{'=' * 60}{_C_RESET}")

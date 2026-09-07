@@ -1,26 +1,26 @@
-"""OpenAPI/Swagger 端点发现模块 — 自动发现并解析 OpenAPI 规范文档。
+"""OpenAPI/Swagger  —  OpenAPI 
 
-学术依据:
-    - OWASP WSTG-INFO-05 — 通过 OpenAPI/Swagger 文档发现 API 端点
-    - Arbis et al. (arXiv:2306.01943) §4.5 — API 端点发现应覆盖
-      标准文档路径 (/swagger, /openapi.json, /docs)
-    - Zhan et al. (arXiv:2307.00929) §3.3 — 工具/函数 schema
-      可从 OpenAPI spec 中提取, 用于构造参数注入
+Academic basis:
+    - OWASP WSTG-INFO-05 —  OpenAPI/Swagger  API 
+    - Arbis et al. (arXiv:2306.01943) §4.5 — API 
+       (/swagger, /openapi.json, /docs)
+    - Zhan et al. (arXiv:2307.00929) §3.3 — / schema
+      imports OpenAPI spec , 
 
-设计原则 (Rule 2: 胶水层, 不替换):
-    使用 httpx 直接探测 (不使用 PyRIT HTTPTarget, 因为这不是
-    prompt 交互, 而是文档发现)。httpx 是 PyRIT 已有依赖。
+ (Rule 2: Layer, ):
+     httpx  ( PyRIT HTTPTarget, 
+    prompt , )httpx  PyRIT 
 
-探测策略:
-    1. 常见 OpenAPI 文档路径探测 (/openapi.json, /swagger.json,
-       /api-docs, /v1/openapi.json 等)
-    2. 解析 OpenAPI spec, 提取端点路径和参数 schema
-    3. 生成定向攻击种子 (参数注入 → 端点路径)
+:
+    1.  OpenAPI  (/openapi.json, /swagger.json,
+       /api-docs, /v1/openapi.json )
+    2.  OpenAPI spec,  schema
+    3.  ( → )
 
-效率优化:
-    - 复用单个 httpx.AsyncClient 实例
-    - 超时 5s (文档请求应快速返回)
-    - 并发探测所有路径
+:
+    - converter(s) httpx.AsyncClient 
+    -  5s ()
+    - all
 """
 
 from __future__ import annotations
@@ -31,14 +31,14 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-# P2-06: TLS verify 配置化 (SSOT)
+# P2-06: TLS verify  (SSOT)
 from recon.config_loader import get_tls_verify as _get_tls_verify_from_config
 
 _TLS_VERIFY = _get_tls_verify_from_config()
 
 logger = logging.getLogger(__name__)
 
-# 常见 OpenAPI/Swagger 文档路径 (按优先级排序)
+#  OpenAPI/Swagger  ()
 _OPENAPI_PATHS: list[str] = [
     "/openapi.json",
     "/openapi.yaml",
@@ -55,20 +55,20 @@ _OPENAPI_PATHS: list[str] = [
     "/api/swagger.json",
 ]
 
-# 超时 (秒)
+#  ()
 _PROBE_TIMEOUT = 5
 
 
 @dataclass
 class OpenAPIEndpoint:
-    """从 OpenAPI spec 中提取的端点信息。
+    """imports OpenAPI spec 
 
-    属性:
-        path: API 端点路径 (如 /api/users/{id})。
-        method: HTTP 方法 (GET/POST/PUT/DELETE)。
-        summary: 端点摘要描述。
-        parameters: 参数列表 (从 requestBody/parameters 提取)。
-        has_auth: 是否需要认证 (从 security 字段判断)。
+    :
+        path: API  ( /api/users/{id})
+        method: HTTP  (GET/POST/PUT/DELETE)
+        summary: 
+        parameters:  (imports requestBody/parameters )
+        has_auth:  (imports security )
     """
 
     path: str
@@ -80,14 +80,14 @@ class OpenAPIEndpoint:
 
 @dataclass
 class OpenAPIDiscovery:
-    """OpenAPI 文档发现结果。
+    """OpenAPI 
 
-    属性:
-        spec_path: 发现文档的路径。
-        spec_version: OpenAPI 版本 (如 "3.0.3")。
-        title: API 标题。
-        endpoints: 提取的端点列表。
-        security_schemes: 认证方案列表。
+    :
+        spec_path: 
+        spec_version: OpenAPI  ( "3.0.3")
+        title: API 
+        endpoints: 
+        security_schemes: 
     """
 
     spec_path: str
@@ -103,25 +103,25 @@ async def discover_openapi_spec(
     timeout: float = _PROBE_TIMEOUT,
     custom_paths: list[str] | None = None,
 ) -> OpenAPIDiscovery | None:
-    """探测并解析 OpenAPI/Swagger 文档。
+    """ OpenAPI/Swagger 
 
-    学术依据:
-        - OWASP WSTG-INFO-05 — OpenAPI 文档发现
-        - Arbis et al. (arXiv:2306.01943) §4.5 — API 端点发现
+    Academic basis:
+        - OWASP WSTG-INFO-05 — OpenAPI 
+        - Arbis et al. (arXiv:2306.01943) §4.5 — API 
 
-    策略:
-        1. 并发探测常见 OpenAPI 文档路径
-        2. 解析 JSON/YAML 格式的 OpenAPI spec
-        3. 提取端点路径、参数 schema、认证方案
-        4. 返回结构化发现结果
+    :
+        1.  OpenAPI 
+        2.  JSON/YAML  OpenAPI spec
+        3.  schema
+        4. 
 
     Args:
-        parsed: ParsedBurpRequest 实例 (复用 host 和 headers)。
-        timeout: 每个探测请求的超时秒数。
-        custom_paths: 自定义路径列表 (None = 使用默认路径)。
+        parsed: ParsedBurpRequest  ( host  headers)
+        timeout: converter(s)
+        custom_paths:  (None = )
 
     Returns:
-        OpenAPIDiscovery 发现结果, 或 None 如果未找到文档。
+        OpenAPIDiscovery ,  None 
     """
     import httpx
 
@@ -133,7 +133,7 @@ async def discover_openapi_spec(
     scheme = "https" if use_tls else "http"
     base_url = f"{scheme}://{host}"
 
-    # 复用原始认证 headers
+    #  headers
     probe_headers: dict[str, str] = {}
     for key, value in getattr(parsed, "raw_headers", []):
         if key.lower() not in ("content-length", "host"):
@@ -141,7 +141,7 @@ async def discover_openapi_spec(
 
     paths = custom_paths if custom_paths else _OPENAPI_PATHS
 
-    # 并发探测所有路径
+    # 
     async def _probe_path(path: str) -> tuple[str, dict | None]:
         url = f"{base_url}{path}"
         try:
@@ -168,7 +168,7 @@ async def discover_openapi_spec(
     tasks = [_probe_path(p) for p in paths]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    # 找到第一个有效 OpenAPI spec
+    #  OpenAPI spec
     for result in results:
         if isinstance(result, tuple) and len(result) == 2:
             path, spec_data = result
@@ -182,29 +182,29 @@ async def discover_openapi_spec(
 
 
 def _is_openapi_spec(data: dict) -> bool:
-    """检查 JSON 是否为有效的 OpenAPI/Swagger spec。
+    """ JSON  OpenAPI/Swagger spec
 
-    OpenAPI 3.x: 有 "openapi" 字段 (如 "3.0.3")
-    Swagger 2.x: 有 "swagger" 字段 (如 "2.0")
+    OpenAPI 3.x:  "openapi"  ( "3.0.3")
+    Swagger 2.x:  "swagger"  ( "2.0")
     """
     return "openapi" in data or "swagger" in data
 
 
 def _parse_openapi_spec(spec_path: str, spec: dict) -> OpenAPIDiscovery:
-    """解析 OpenAPI spec, 提取端点和认证信息。
+    """ OpenAPI spec, 
 
     Args:
-        spec_path: 发现 spec 的路径。
-        spec: OpenAPI spec 字典。
+        spec_path:  spec 
+        spec: OpenAPI spec 
 
     Returns:
-        OpenAPIDiscovery 解析结果。
+        OpenAPIDiscovery 
     """
     version = spec.get("openapi", spec.get("swagger", ""))
     info = spec.get("info", {})
     title = info.get("title", "Unknown API") if isinstance(info, dict) else ""
 
-    # 提取认证方案
+    # 
     security_schemes: list[dict[str, Any]] = []
     components = spec.get("components", {})
     if isinstance(components, dict):
@@ -214,7 +214,7 @@ def _parse_openapi_spec(spec_path: str, spec: dict) -> OpenAPIDiscovery:
                 if isinstance(scheme, dict):
                     security_schemes.append({"name": name, **scheme})
 
-    # 提取端点
+    # 
     endpoints: list[OpenAPIEndpoint] = []
     paths = spec.get("paths", {})
     if isinstance(paths, dict):
@@ -227,9 +227,9 @@ def _parse_openapi_spec(spec_path: str, spec: dict) -> OpenAPIDiscovery:
                 if not isinstance(operation, dict):
                     continue
 
-                # 提取参数
+                # 
                 parameters: list[dict[str, Any]] = []
-                # 从 parameters 字段提取
+                #  parameters 
                 for param in operation.get("parameters", []):
                     if isinstance(param, dict):
                         parameters.append({
@@ -238,7 +238,7 @@ def _parse_openapi_spec(spec_path: str, spec: dict) -> OpenAPIDiscovery:
                             "required": param.get("required", False),
                             "type": param.get("schema", {}).get("type", ""),
                         })
-                # 从 requestBody 提取
+                #  requestBody 
                 request_body = operation.get("requestBody", {})
                 if isinstance(request_body, dict):
                     content = request_body.get("content", {})
@@ -257,7 +257,7 @@ def _parse_openapi_spec(spec_path: str, spec: dict) -> OpenAPIDiscovery:
                                                 "type": prop_schema.get("type", "") if isinstance(prop_schema, dict) else "",
                                             })
 
-                # 判断是否需要认证
+                # 
                 has_auth = bool(operation.get("security")) or bool(security_schemes)
 
                 endpoints.append(OpenAPIEndpoint(
@@ -283,23 +283,23 @@ def _parse_openapi_spec(spec_path: str, spec: dict) -> OpenAPIDiscovery:
 
 
 def build_openapi_attack_seeds(discovery: OpenAPIDiscovery) -> list[dict[str, Any]]:
-    """根据 OpenAPI 发现结果生成定向攻击种子。
+    """ OpenAPI 
 
-    学术依据:
-        - OWASP API1 (BOLA) — 参数注入路径
-        - OWASP API3 (BOPLA) — 权限边界探测
-        - Zhan et al. (arXiv:2307.00929) §3.3 — 参数注入需要知道 schema
+    Academic basis:
+        - OWASP API1 (BOLA) — 
+        - OWASP API3 (BOPLA) — 
+        - Zhan et al. (arXiv:2307.00929) §3.3 —  schema
 
-    策略:
-        1. 对每个有参数的端点, 生成参数注入种子
-        2. 对需要认证的端点, 生成认证绕过种子
-        3. 对 DELETE/PUT 端点, 生成未授权访问种子
+    :
+        1. converter(s), 
+        2. , 
+        3.  DELETE/PUT , 
 
     Args:
-        discovery: OpenAPI 发现结果。
+        discovery: OpenAPI 
 
     Returns:
-        攻击种子列表 (PyRIT SeedPrompt YAML 格式)。
+         (PyRIT SeedPrompt YAML )
     """
     seeds: list[dict[str, Any]] = []
 
@@ -310,7 +310,7 @@ def build_openapi_attack_seeds(discovery: OpenAPIDiscovery) -> list[dict[str, An
     )
 
     for endpoint in discovery.endpoints:
-        # 对有参数的端点生成参数注入种子
+        # 
         if endpoint.parameters:
             param_names = [p["name"] for p in endpoint.parameters if p.get("name")]
             param_hint = f" Parameters: {', '.join(param_names)}." if param_names else ""
@@ -338,7 +338,7 @@ def build_openapi_attack_seeds(discovery: OpenAPIDiscovery) -> list[dict[str, An
                 },
             })
 
-        # 对需要认证的端点生成认证绕过种子
+        # 
         if endpoint.has_auth and endpoint.method in ("GET", "POST"):
             seeds.append({
                 "value": (
@@ -361,7 +361,7 @@ def build_openapi_attack_seeds(discovery: OpenAPIDiscovery) -> list[dict[str, An
                 },
             })
 
-        # 对 DELETE/PUT 端点生成未授权访问种子
+        #  DELETE/PUT 
         if endpoint.method in ("DELETE", "PUT"):
             seeds.append({
                 "value": (

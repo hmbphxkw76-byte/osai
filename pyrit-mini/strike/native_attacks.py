@@ -1,14 +1,14 @@
 # arXiv:2402.14266 — SKELETONKEY, SkeletonKey (ASR 80-95%)
 # arXiv:2406.18112 — Hanna et al., SkeletonKey (prefix injection)
 # arXiv:2407.01232 — PyRIT, native attack patterns
-"""native_attacks — PyRIT 原生攻击策略包装。
+"""native_attacks — PyRIT 
 
-提供 SkeletonKey 等原生攻击的异步包装函数。
-使用 PyRIT 原生 SkeletonKeyAttack 实现前缀注入攻击。
+ SkeletonKey 
+ PyRIT  SkeletonKeyAttack 
 
-学术依据:
+Academic basis:
     - Hanna et al. (arXiv:2406.18112) — SkeletonKey ASR 80-95%
-    - PyRIT (arXiv:2407.01232) — 原生 SkeletonKeyAttack 类
+    - PyRIT (arXiv:2407.01232) —  SkeletonKeyAttack 
 """
 
 from __future__ import annotations
@@ -27,25 +27,25 @@ async def run_skeleton_key_native(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
-    """SkeletonKey 原生攻击包装 — 使用 PyRIT 原生 SkeletonKeyAttack.
+    """SkeletonKey  —  PyRIT  SkeletonKeyAttack.
 
-    学术依据: Hanna et al. (arXiv:2406.18112) — ASR 80-95%
+    Academic basis: Hanna et al. (arXiv:2406.18112) — ASR 80-95%
 
-    使用 PyRIT 原生 SkeletonKeyAttack 执行前缀注入攻击:
-        1. SkeletonKeyAttack 通过 prepended_conversation 注入安全码上下文
-        2. system prompt + 模拟接受 → 目标降低安全过滤
-        3. 然后执行实际攻击 prompt
+     PyRIT  SkeletonKeyAttack :
+        1. SkeletonKeyAttack  prepended_conversation 
+        2. system prompt +  → 
+        3.  prompt
 
-    R2 (PyRIT native first): 使用原生 SkeletonKeyAttack 类, 不自行实现
-    R6 §6.4: 7 种原生攻击策略之一
+    R2 (PyRIT native first):  SkeletonKeyAttack , 
+    R6 §6.4: 7 
 
     Args:
-        ctx: 流水线上下文 (包含 objective_target, scoring_target).
-        objectives: 失败目标列表.
+        ctx:  ( objective_target, scoring_target).
+        objectives: .
 
     Returns:
-        {technique_name: [AttackResult, ...]} 格式的攻击结果。
-        如果 SkeletonKeyAttack 不可用或执行失败, 返回空字典 (调用方优雅降级)。
+        {technique_name: [AttackResult, ...]} 
+         SkeletonKeyAttack ,  ()
     """
     if not objectives:
         return {}
@@ -60,7 +60,7 @@ async def run_skeleton_key_native(
         logger.warning("SkeletonKeyAttack not available (%s), skipping", e)
         return {}
 
-    # 构建评分配置 (0-token FIRST_SUCCESS scorer, 与 executor.py 一致)
+    #  (0-token FIRST_SUCCESS scorer,  executor.py )
     from strike.executor import _build_first_success_scoring_config
     first_success_scoring = _build_first_success_scoring_config(ctx)
 
@@ -72,9 +72,9 @@ async def run_skeleton_key_native(
             continue
 
         try:
-            # 构建 SkeletonKeyAttack
-            # PyRIT 原生 SkeletonKeyAttack 使用 prepended_conversation 机制
-            # 官方文档: skeleton key prompt + 模拟接受 → 目标降低安全过滤
+            #  SkeletonKeyAttack
+            # PyRIT  SkeletonKeyAttack  prepended_conversation 
+            # : skeleton key prompt +  → 
             attack = SkeletonKeyAttack(
                 objective_target=ctx.objective_target,
                 attack_scoring_config=first_success_scoring,
@@ -86,7 +86,7 @@ async def run_skeleton_key_native(
             )
             results.append(result)
 
-            # 检查 outcome
+            #  outcome
             from pyrit.models import AttackOutcome
             seq_outcome = getattr(result, "outcome", None)
             if seq_outcome != AttackOutcome.SUCCESS:

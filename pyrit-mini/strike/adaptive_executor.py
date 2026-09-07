@@ -1,24 +1,24 @@
-"""自适应执行器模块 — 合并 2 个执行器相关模块。
+""" —  2 converter(s)
 
-合并来源:
-    - text_adaptive_executor.py: PyRIT 原生 TextAdaptive Scenario
-    - best_of_n_retry.py: Best-of-N 重试 + Crescendo 升级
+:
+    - text_adaptive_executor.py: PyRIT  TextAdaptive Scenario
+    - best_of_n_retry.py: Best-of-N Retry + Crescendo 
 
-v60 重构: 统一入口逻辑, 支持 synergy_config.technique_tags 直接传入。
+v60 : ,  synergy_config.technique_tags 
 
-数据流:
+Data flow:
     synergy_config.technique_tags → adaptive_technique_filter → TextAdaptive
 
-学术依据:
+Academic basis:
     - Greshake et al. (arXiv:2302.12173) — PromptSendingAttack
     - Russinovich et al. (arXiv:2404.01833) — CrescendoAttack
     - Hughes et al. (arXiv:2404.02151) — BestOfN
-    - PyRIT TextAdaptive (arXiv:2407.01232) — ε-贪心自适应技术选择
-    - Chao et al. (arXiv:2402.01135) — Best-of-N, N=5 ASR 提升 1.8x
+    - PyRIT TextAdaptive (arXiv:2407.01232) — ε-
+    - Chao et al. (arXiv:2402.01135) — Best-of-N, N=5 ASR  1.8x
     - Crescendo (arXiv:2402.12109) — 10 turns ASR=82%
 
-PyRIT 原生优先 (Rule 2):
-    使用 PyRIT 原生 TextAdaptive + PromptSendingAttack 作为主引擎。
+PyRIT  (Rule 2):
+     PyRIT  TextAdaptive + PromptSendingAttack 
 """
 
 from __future__ import annotations
@@ -33,12 +33,12 @@ from core.context import PipelineContext, _get_config_int, get_effective_concurr
 
 logger = logging.getLogger(__name__)
 
-# 椤圭洰鏍圭洰褰?(pipeline/strike/ 鈫?涓婃函涓ょ骇)
+# ?(pipeline/strike/ ?ょ)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _adaptive_outcome_success(result: Any) -> bool:
-    """判断攻击结果是否成功 (进度统计用, 与 executor._is_success 逻辑一致)."""
+    """ (,  executor._is_success )."""
     outcome = getattr(result, "outcome", None)
     if outcome:
         outcome_str = str(outcome).lower()
@@ -65,18 +65,18 @@ def _adaptive_outcome_success(result: Any) -> bool:
 
 
 def _get_best_of_n_retries(ctx: Any | None = None) -> int:
-    """L5 v44: 从 config/defaults.yaml 或 ctx.args 读取 best_of_n_retries 配置.
+    """L5 v44: imports config/defaults.yaml  ctx.args  best_of_n_retries .
 
-    增量借鉴: 如果传入 ctx, 优先从 ctx.args 读取 --config-file 覆盖值。
-    数据流: config.py (scoring.best_of_n_retries) → args → ctx.args → 此函数
+    :  ctx, imports ctx.args  --config-file 
+    Data flow: config.py (scoring.best_of_n_retries) → args → ctx.args → 
 
-    学术依据: Chao et al. (arXiv:2402.01135) — N=5 ASR 1.8x, token 成本为 N=10 的 50%
-    R10 override: N≥5 即满足考试要求
+    Academic basis: Chao et al. (arXiv:2402.01135) — N=5 ASR 1.8x, token  N=10  50%
+    R10 override: N≥5 
 
     Returns:
-        best_of_n_retries 值 (默认 5, 如配置文件不可用)
+        best_of_n_retries  ( 5, )
     """
-    # 增量借鉴: 优先从 ctx.args 读取 --config-file 覆盖值
+    # :  ctx.args  --config-file 
     if ctx is not None:
         _args = getattr(ctx, "args", None)
         if _args is not None:
@@ -107,9 +107,9 @@ def _load_adaptive_config(ctx: Any | None = None) -> dict[str, Any]:
     R8 §8.1 Production-Grade: single YAML read per invocation (no repeated I/O).
     R7 SSOT: all adaptive parameters sourced from config/defaults.yaml.
 
-    增量借鉴: 如果传入 ctx, 优先从 ctx.args 读取 --config-file 覆盖值。
-    数据流: config.py (adaptive section) → args → ctx.args → 此函数
-    优先级: ctx.args (--config-file) > config/defaults.yaml > PyRIT 官方默认值
+    :  ctx, imports ctx.args  --config-file 
+    Data flow: config.py (adaptive section) → args → ctx.args → 
+    : ctx.args (--config-file) > config/defaults.yaml > PyRIT 
 
     Returns dict with keys: epsilon, random_seed, max_attempts, technique_filter.
     Each value falls back to PyRIT official default if config unavailable.
@@ -124,7 +124,7 @@ def _load_adaptive_config(ctx: Any | None = None) -> dict[str, Any]:
         "technique_filter": None,
     }
 
-    # 增量借鉴: 优先从 ctx.args 读取 --config-file 覆盖值
+    # :  ctx.args  --config-file 
     if ctx is not None:
         _args = getattr(ctx, "args", None)
         if _args is not None:
@@ -199,34 +199,34 @@ def _load_adaptive_config(ctx: Any | None = None) -> dict[str, Any]:
     return defaults
 
 
-# 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
-# TextAdaptive Scenario 鈥?蔚-璐績鑷€傚簲鎶€鏈€夋嫨
-# 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+# ?
+# TextAdaptive Scenario ?-€€€
+# ?
 
 async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
-    """浣跨敤 PyRIT 鍘熺敓 TextAdaptive 鍦烘櫙鎵ц鏀诲嚮銆?
+    """ PyRIT  TextAdaptive ц?
 
-    L5 v50: 澧炲己闆嗘垚 鈥?娉ㄥ唽椤圭洰 AttackTechniqueFactory 鍒?PyRIT registry,
-    浣?TextAdaptive 鑷姩鍙戠幇 Crescendo/TAP/PAIR/BestOfN 绛夋妧鏈€?
+    L5 v50:  ?ㄥ AttackTechniqueFactory ?PyRIT registry,
+    ?TextAdaptive  Crescendo/TAP/PAIR/BestOfN €?
 
-    TextAdaptive 鑷姩:
-        1. 涓烘瘡涓?objective 閫夋嫨鏈€浣虫敾鍑绘妧鏈?(epsilon-greedy)
-        2. 鏍规嵁鍘嗗彶鎴愬姛鐜囧姩鎬佽皟鏁存妧鏈€夋嫨姒傜巼
-        3. prompt_sending 浣滀负 baseline 瀵规瘮
-        4. 鏀寔 scenario_result_id 鎭㈠涓柇鐨勮繍琛?
-    5. L5 v50: 浠?AttackTechniqueRegistry 鍙戠幇宸叉敞鍐岀殑鑷畾涔夋妧鏈?
+    TextAdaptive :
+        1. ?objective €?(epsilon-greedy)
+        2. €
+        3. prompt_sending  baseline 
+        4.  scenario_result_id ?
+    5. L5 v50: ?AttackTechniqueRegistry ?
 
-    瀛︽湳渚濇嵁:
-        - PyRIT TextAdaptive (arXiv:2407.01232) 鈥?蔚-璐績鑷€傚簲鎶€鏈€夋嫨
-        - Chao et al. (arXiv:2310.08419) 鈥?PAIR 鑷€傚簲绛栫暐閫夋嫨
-        - Mehrotra et al. (arXiv:2312.02191) 鈥?TAP 鏍戞悳绱?
-        - Russinovich et al. (arXiv:2402.12109) 鈥?Crescendo 娓愯繘鍗囩骇
+    ︽:
+        - PyRIT TextAdaptive (arXiv:2407.01232) ?-€€€
+        - Chao et al. (arXiv:2310.08419) ?PAIR €
+        - Mehrotra et al. (arXiv:2312.02191) ?TAP ?
+        - Russinovich et al. (arXiv:2402.12109) ?Crescendo 
 
     Args:
-        ctx: 娴佹按绾夸笂涓嬫枃銆?
+        ctx: ?
 
     Returns:
-        鏀诲嚮缁撴灉瀛楀吀 {technique_name: [AttackResult, ...]}銆?
+         {technique_name: [AttackResult, ...]}?
     """
     from pyrit.scenario.scenarios.adaptive import (
         EpsilonGreedyTechniqueSelector,
@@ -239,10 +239,10 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
         register_project_techniques,
     )
 
-    # L5 v50: 娉ㄥ唽椤圭洰鏀诲嚮鎶€鏈埌 PyRIT 鍘熺敓 AttackTechniqueRegistry
-    # 浣?TextAdaptive 鑳借嚜鍔ㄥ彂鐜?Crescendo/TAP/PAIR/BestOfN 绛夋妧鏈?
-    # arXiv:2407.01232 鈥?AttackTechniqueRegistry + tag 鏌ヨ鑷姩鍙戠幇
-    # R6 §6.4b: 传入 config_overrides 使 technique_registry 从 SSOT 读取攻击参数
+    # L5 v50: ㄥ€ PyRIT  AttackTechniqueRegistry
+    # ?TextAdaptive ㄥ?Crescendo/TAP/PAIR/BestOfN ?
+    # arXiv:2407.01232 ?AttackTechniqueRegistry + tag ヨ
+    # R6 §6.4b:  config_overrides  technique_registry  SSOT 
     _tech_cfg: dict[str, Any] = {}
     try:
         import yaml as _yaml
@@ -295,9 +295,9 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
     _max_attempts = _config["max_attempts"]
     _technique_filter = _config["technique_filter"]
 
-    # v60: 优先使用 synergy_config.technique_tags (来自攻击面分类→技术标签映射)
-    # 数据流: burp_profile → synergy_config → technique_tags → adaptive_technique_filter
-    # 优先级: synergy_config.technique_tags > args.adaptive_technique_filter > config defaults
+    # v60:  synergy_config.technique_tags (→)
+    # Data flow: burp_profile → synergy_config → technique_tags → adaptive_technique_filter
+    # : synergy_config.technique_tags > args.adaptive_technique_filter > config defaults
     _synergy_config = getattr(ctx, "synergy_config", None)
     if _synergy_config is not None:
         _synergy_tags = getattr(_synergy_config, "technique_tags", None)
@@ -308,7 +308,7 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
                 _technique_filter,
             )
         elif _synergy_config.attack_surface == "standard_llm_api":
-            # standard_llm_api → 使用全部技术 (不设 filter)
+            # standard_llm_api →  ( filter)
             _technique_filter = None
             logger.info(
                 "v60: standard_llm_api surface — using all techniques (no filter)"
@@ -391,7 +391,7 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
         params.get("max_retries", 1),
     )
 
-    # 进度展示: 计时开始
+    # : 
     _adaptive_start = time.monotonic()
     try:
         from utils.display import print_strike_phase_summary as _adaptive_summ
@@ -409,7 +409,7 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
         from strike.executor import _retrieve_partial_results
         await _retrieve_partial_results(ctx, "text_adaptive")
 
-        # 进度展示: 超时路径输出摘要
+        # : 
         if _adaptive_summ is not None:
             _elapsed = time.monotonic() - _adaptive_start
             try:
@@ -426,8 +426,8 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
             except Exception:
                 pass
 
-        # R8 sec8.5: timeout 路径编排日志 — 记录 partial results 上下文
-        # 主编排日志由 main.py 第 871 行统一添加, 此处仅记录 timeout 决策
+        # R8 sec8.5: timeout  —  partial results 
+        #  main.py  871 ,  timeout 
         ctx.orchestration_log.append({
             "phase": "strike",
             "decision": "text_adaptive_timeout",
@@ -442,7 +442,7 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
         return ctx.attack_results
     except Exception as e:
         logger.error("TextAdaptive: execution failed: %s — falling back to executor.py", e)
-        # R8 sec8.5: fallback 路径编排日志 — 记录 fallback 决策
+        # R8 sec8.5: fallback  —  fallback 
         ctx.orchestration_log.append({
             "phase": "strike",
             "decision": "text_adaptive_fallback",
@@ -451,7 +451,7 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
             "reasoning": "TextAdaptive failed, falling back to multi-path executor.py",
         })
 
-        # 进度展示: fallback 路径输出摘要
+        # : fallback 
         if _adaptive_summ is not None:
             _elapsed = time.monotonic() - _adaptive_start
             try:
@@ -483,10 +483,10 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
         sum(len(v) for v in attack_results.values()),
     )
 
-    # R8 sec8.5: 成功路径编排日志 — 记录 adaptive 执行参数和结果
-    # 注意: main.py 第 871 行会添加统一的 strike 阶段编排日志,
-    # 此处记录的是 adaptive 特有决策 (epsilon/filter/partial_results),
-    # 两者互补: adaptive 决策细节 + 统一 strike 概要
+    # R8 sec8.5:  —  adaptive 
+    # : main.py  871  strike ,
+    #  adaptive  (epsilon/filter/partial_results),
+    # : adaptive  +  strike 
     ctx.orchestration_log.append({
         "phase": "strike",
         "decision": "text_adaptive_execution",
@@ -508,7 +508,7 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
         ),
     })
 
-    # 进度展示: 成功路径输出摘要
+    # : 
     if _adaptive_summ is not None:
         _elapsed = time.monotonic() - _adaptive_start
         try:
@@ -529,23 +529,23 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
 
 
 def _build_text_adaptive_scorer(ctx: PipelineContext) -> Any:
-    """鏋勫缓 TextAdaptive 鍦烘櫙鐨?objective_scorer銆?
+    """ TextAdaptive ?objective_scorer?
 
-    L5 v42 鏀硅繘: 鐩存帴浣跨敤 _MultiKeywordRefusalScorer (30+ 鍏抽敭璇? 0 token)
-    闂璇婃柇: v41 灏濊瘯浠?_build_scoring_config 鎻愬彇 scorer, 浣嗚鍑芥暟杩斿洖绌?
-    AttackScoringConfig() (v34 琛屼负, 鏃?objective_scorer), 瀵艰嚧 fallback 鍒?
-    鍗曞叧閿瘝 SubStringScorer(substring="i cannot") 鈥?鍋囬槾鎬х巼 >60%銆?
-    淇: 鐩存帴瀹炰緥鍖?_MultiKeywordRefusalScorer, 缁曡繃 _build_scoring_config銆?
-    瀛︽湳渚濇嵁:
-        - Mazeika et al. (arXiv:2402.04249) HarmBench 鈥?澶氬叧閿瘝瑕嗙洊闄嶄綆鍋囬槾鎬х巼
-        - Wei et al. (arXiv:2307.15043) 鈥?鎷掔粷妯″紡澶氭牱鍖? 鍗曞叧閿瘝涓嶈冻
+    L5 v42 :  _MultiKeywordRefusalScorer (30+ ? 0 token)
+    : v41 ?_build_scoring_config  scorer, ?
+    AttackScoringConfig() (v34 , ?objective_scorer),  fallback ?
+     SubStringScorer(substring="i cannot") ?х >60%?
+    : ?_MultiKeywordRefusalScorer,  _build_scoring_config?
+    ︽:
+        - Mazeika et al. (arXiv:2402.04249) HarmBench ?х
+        - Wei et al. (arXiv:2307.15043) ?″? 
 
-    绛栫暐:
-        1. 浼樺厛浣跨敤 _MultiKeywordRefusalScorer (澶氬叧閿瘝, 0 token)
-        2. Fallback: SubStringScorer+Inverter (鍗曞叧閿瘝, 鍏煎)
+    :
+        1.  _MultiKeywordRefusalScorer (, 0 token)
+        2. Fallback: SubStringScorer+Inverter (, )
         3. Fallback 2: SelfAskTrueFalseScorer (calibrated rubric)
     """
-    # 浼樺厛: _MultiKeywordRefusalScorer (30+ 鍏抽敭璇? 0 token)
+    # : _MultiKeywordRefusalScorer (30+ ? 0 token)
     try:
         from pyrit.score import TrueFalseInverterScorer
 
@@ -559,7 +559,7 @@ def _build_text_adaptive_scorer(ctx: PipelineContext) -> Any:
     except Exception as e:
         logger.warning("TextAdaptive: _MultiKeywordRefusalScorer failed: %s, falling back", e)
 
-    # Fallback: SubStringScorer + Inverter (鍗曞叧閿瘝, 鍏煎)
+    # Fallback: SubStringScorer + Inverter (, )
     try:
         from pyrit.score import SubStringScorer, TrueFalseInverterScorer
 
@@ -594,32 +594,32 @@ def _build_text_adaptive_scorer(ctx: PipelineContext) -> Any:
     return None
 
 
-# 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
-# Best-of-N 閲嶈瘯 + Crescendo 鍗囩骇
-# 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+# ?
+# Best-of-N  + Crescendo 
+# ?
 
 async def _best_of_n_retry(
     ctx: PipelineContext,
     failed_objectives: list[tuple[str, Any]],
 ) -> None:
-    """瀵瑰け璐ョ瀛愪娇鐢?VariationConverter 鐢熸垚鍙樹綋閲嶈瘯 (Best-of-N) + Crescendo 鍗囩骇銆?
+    """けョ?VariationConverter  (Best-of-N) + Crescendo ?
 
-    L5 v35 绛栫暐:
-        1. 瀵规瘡涓け璐?objective, 鐢熸垚 N=5 涓嫭绔嬪彉浣撹矾寰?
-        2. 姣忔潯璺緞鍙惈 1 涓?converter (涓嶄覆鑱斿彔鍔?
-        3. 瀵规瘡涓彉浣撴墽琛?PromptSendingAttack
-        4. 鍙鏈?1 涓彉浣撴垚鍔? 鍗虫爣璁拌 objective 涓烘垚鍔?
-        5. 濡傛灉鎵€鏈夊彉浣撻兘澶辫触 鈫?鐢?check_and_escalate 瑙﹀彂澶氳疆鍗囩骇
+    L5 v35 :
+        1. け?objective,  N=5 ?
+        2.  1 ?converter (?
+        3. ?PromptSendingAttack
+        4. ?1 ?  objective ?
+        5. € ??check_and_escalate ﹀
 
-    L5 v28: 姝ゆ椂 ctx._failed_objectives 宸茶璁剧疆, _prune_low_asr_converters
-    鍦?_build_converter_config 涓細璇诲彇 n_failed, 浣跨敤鍔ㄦ€侀槇鍊?
-    n_failed > 10 鈫?10% (婵€杩?, 鈮? 鈫?5%, <5 鈫?3% (淇濆畧)
+    L5 v28: ゆ ctx._failed_objectives , _prune_low_asr_converters
+    ?_build_converter_config  n_failed, ㄦ€?
+    n_failed > 10 ?10% (€?, ? ?5%, <5 ?3% ()
 
-    瀛︽湳渚濇嵁:
-        - Best-of-N (arXiv:2402.01135): N=5 ASR 鎻愬崌 1.8x
+    ︽:
+        - Best-of-N (arXiv:2402.01135): N=5 ASR  1.8x
         - Crescendo (arXiv:2402.12109): 10 turns ASR=82%
-        - Wei et al. (arXiv:2307.15043): 涓茶仈 >2 灞?ASR 浠?12% 闄嶈嚦 4%
-        - Zeng et al. (arXiv:2402.19181): authority ASR 38.4% 鏈€楂?
+        - Wei et al. (arXiv:2307.15043):  >2 ?ASR ?12%  4%
+        - Zeng et al. (arXiv:2402.19181): authority ASR 38.4% €?
     """
     from pyrit.converter import VariationConverter
     from pyrit.executor.attack import (
@@ -630,20 +630,20 @@ async def _best_of_n_retry(
     from pyrit.models import AttackSeedGroup, SeedObjective
     from pyrit.prompt_normalizer import ConverterConfiguration
 
-    # L5 v44: N_RETRIES 浠?config/defaults.yaml 璇诲彇 (best_of_n_retries=5)
-    # 瀛︽湳渚濇嵁: Chao et al. (arXiv:2402.01135) 鈥?N=5 ASR 1.8x, token 鎴愭湰浠?N=10 鐨?50%
-    # R10 override: N鈮? 鍗虫弧瓒宠€冭瘯瑕佹眰
+    # L5 v44: N_RETRIES ?config/defaults.yaml  (best_of_n_retries=5)
+    # ︽: Chao et al. (arXiv:2402.01135) ?N=5 ASR 1.8x, token ?N=10 ?50%
+    # R10 override: N? €
     N_RETRIES = _get_best_of_n_retries(ctx)
 
-    # L5 v54: n_persuasion 从 config 读取 (bon_persuasion_count), 默认 3
+    # L5 v54: n_persuasion  config  (bon_persuasion_count),  3
     n_persuasion = _get_config_int(ctx, "bon_persuasion_count", 3)
-    n_persuasion = max(0, min(n_persuasion, N_RETRIES - 1))  # 确保 n_variation >= 1
+    n_persuasion = max(0, min(n_persuasion, N_RETRIES - 1))  # Ensure n_variation >= 1
 
     from strike.executor import _build_scoring_config
     scoring_config = _build_scoring_config(ctx)
 
-    # L5 v54: 并发信号量控制, 防止 API 限流
-    # R7 SSOT: 与 max_concurrency 保持一致的并发限制
+    # L5 v54: ,  API 
+    # R7 SSOT:  max_concurrency 
     _max_parallel = get_effective_concurrency(ctx)
     _semaphore = asyncio.Semaphore(_max_parallel)
 
@@ -656,7 +656,7 @@ async def _best_of_n_retry(
     async def _best_of_n_single(
         objective: str,
     ) -> tuple[str, list[Any]]:
-        """瀵瑰崟涓?objective 鎵ц Best-of-N 閲嶈瘯銆?"""
+        """?objective ц Best-of-N ?"""
         async with _semaphore:
             logger.info("Best-of-N retry for: %s...", objective[:60])
 
@@ -800,9 +800,9 @@ async def _escalate_to_crescendo(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> None:
-    """瀵?Best-of-N 澶辫触鐨勭洰鏍囪Е鍙?Crescendo 澶氳疆鏀诲嚮銆?
+    """?Best-of-N Е?Crescendo ?
 
-    瀛︽湳渚濇嵁: Crescendo (arXiv:2402.12109) 鈥?10 turns ASR=82%
+    ︽: Crescendo (arXiv:2402.12109) ?10 turns ASR=82%
     """
     from pyrit.executor.attack import (
         AttackAdversarialConfig,
@@ -815,7 +815,7 @@ async def _escalate_to_crescendo(
         from strike.escalation import _build_refusal_inverter_scoring_config
         scoring_config = _build_refusal_inverter_scoring_config(ctx)
 
-        # v51: PyRIT 鍘熺敓瀵归綈 鈥?娣诲姞 Crescendo 涓撶敤 system_prompt
+        # v51: PyRIT  ? Crescendo  system_prompt
         adversarial_config_kwargs: dict[str, Any] = {
             "target": ctx.adversarial_target,
         }

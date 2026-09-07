@@ -1,29 +1,29 @@
 # arXiv:2402.12109 — Russinovich et al., Crescendo
 # arXiv:2407.01232 — PyRIT, evidence extraction from CentralMemory
 # arXiv:2308.07920 — Zhang et al., Dual Judge scoring evidence
-"""证据收集 — 从攻击结果中提取结构化证据。
+""" — imports
 
-OWASP 标准对齐:
-    - OWASP Top 10 (2025) — 传统 Web 安全漏洞
+OWASP :
+    - OWASP Top 10 (2025) —  Web 
       Reference: https://owasp.org/www-project-top-10/
     - OWASP LLM Top 10 for LLM Applications (2025 Edition)
       Reference: https://owasp.org/www-project-top-10-for-large-language-model-applications/
     - OWASP Agentic AI Top 10
       Reference: https://owasp.org/www-project-agent-security/
 
-黑盒场景增强:
-    - 目标指纹信息 (从 Burp 请求提取)
-    - 攻击面信息 (API 路径, 认证方式, 框架)
-    - 黑盒评估上下文
-    - OWASP 合规性矩阵 (Web Top 10 + LLM Top 10 + Agentic AI Top 10)
-    - OWASP 标准严重性等级 + 缓解建议
-    - 攻击成功 (_success) 文件名后缀区分
+:
+    -  (imports Burp )
+    -  (API , , )
+    - 
+    - OWASP  (Web Top 10 + LLM Top 10 + Agentic AI Top 10)
+    - OWASP  + 
+    -  (_success) 
 
-核心数据结构:
-    - VulnerabilityEvidence: 单个漏洞证据 (含 OWASP 标准字段)
-    - EvidenceCollection: 证据集合 (含 OWASP 合规矩阵)
+:
+    - VulnerabilityEvidence: converter(s) ( OWASP )
+    - EvidenceCollection:  ( OWASP )
 
-证据提取方法 (3层 fallback):
+ (3Layer fallback):
     - jailbreak_prompt: AttackResult → CentralMemory → objective
     - harmful_output: AttackResult → CentralMemory → response
 """
@@ -80,46 +80,46 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class VulnerabilityEvidence:
-    """单个漏洞证据 — 对齐 OWASP Top 10 (2025) + LLM Top 10 + Agentic AI Top 10 标准。
+    """converter(s) —  OWASP Top 10 (2025) + LLM Top 10 + Agentic AI Top 10 
 
-    OWASP 标准字段:
-        - owasp_standard: OWASP 标准名称 (Web Top 10 2025 / LLM Top 10 2025 / Agentic AI Top 10)
-        - owasp_severity: OWASP 标准严重性等级 (critical/high/medium/low/info)
-        - owasp_risk_score: OWASP 风险评分 (0-10, CVSS-like)
-        - owasp_mitigations: OWASP 标准缓解建议列表
-        - owasp_reference: OWASP 标准引用 URL
+    OWASP :
+        - owasp_standard: OWASP  (Web Top 10 2025 / LLM Top 10 2025 / Agentic AI Top 10)
+        - owasp_severity: OWASP  (critical/high/medium/low/info)
+        - owasp_risk_score: OWASP  (0-10, CVSS-like)
+        - owasp_mitigations: OWASP 
+        - owasp_reference: OWASP  URL
 
-    攻击成功标记:
-        - is_success: 攻击是否成功
-        - file_suffix: 文件名后缀 ("_success" 或 "")
+    :
+        - is_success: 
+        - file_suffix:  ("_success"  "")
     """
 
     evidence_id: str
     attack_id: str
-    # 攻击技术名称 — 来自攻击模块返回的 results 字典 key
-    # 例如: "prompt_sending" / "encoded_injection" / "crescendo" / "tap" / "pair"
-    # 注意: 这是攻击策略名称, 不是 PyRIT Converter 名称, 也不是 MITRE ATLAS 技术名称
+    #  —  results  key
+    # : "prompt_sending" / "encoded_injection" / "crescendo" / "tap" / "pair"
+    # : ,  PyRIT Converter ,  MITRE ATLAS 
     technique_name: str
-    # 攻击技术显示名称 — 人类可读的技术名称 (如 "Prompt Sending (Baseline)")
+    #  —  ( "Prompt Sending (Baseline)")
     technique_display_name: str
-    # PyRIT Converter 链 — 逗号分隔的 Converter 类名 (如 "Base64Converter, ROT13Converter")
-    # 对于不使用 PyRIT Converter 框架的自定义编码攻击 (如 encoded_injection),
-    # 此字段记录实际使用的编码器名称 (如 "base64 (encoded_injection)")
-    # 空 "" 表示该攻击未使用任何 Converter 变换
+    # PyRIT Converter  —  Converter  ( "Base64Converter, ROT13Converter")
+    #  PyRIT Converter  ( encoded_injection),
+    #  ( "base64 (encoded_injection)")
+    #  ""  Converter 
     converter_chain: str
     owasp_id: str
     owasp_category: str
     owasp_standard: str  # "OWASP Top 10 (2025)" / "OWASP LLM Top 10 (2025 Edition)" / "OWASP ASI Top 10 (Agentic AI)"
     owasp_severity: str  # critical/high/medium/low/info
     owasp_risk_score: float  # 0.0-10.0
-    owasp_mitigations: list[str]  # OWASP 标准缓解建议
-    owasp_reference: str  # OWASP 标准引用 URL
+    owasp_mitigations: list[str]  # OWASP 
+    owasp_reference: str  # OWASP  URL
     objective: str
     jailbreak_prompt: str
     harmful_output: str
-    is_success: bool  # 攻击是否成功 (用于 _success 文件名后缀)
-    file_suffix: str  # "_success" 或 ""
-    cvss_vector: str = ""  # CVSS 3.1 向量字符串
+    is_success: bool  #  ( _success )
+    file_suffix: str  # "_success"  ""
+    cvss_vector: str = ""  # CVSS 3.1 
     conversation_history: list[dict[str, str]] = field(default_factory=list)
     asr: float = 0.0
     confidence: str = "medium"
@@ -129,40 +129,40 @@ class VulnerabilityEvidence:
     attack_chain: list[dict[str, str]] = field(default_factory=list)
     converter_log: list[dict[str, str]] = field(default_factory=list)
     score_details: list[dict[str, str]] = field(default_factory=list)
-    # P0-2: MITRE ATLAS 映射
-    # MITRE ATLAS 战术 — 攻击生命周期阶段 (如 "Execution", "Persistence")
+    # P0-2: MITRE ATLAS 
+    # MITRE ATLAS  —  ( "Execution", "Persistence")
     mitre_tactic: str = ""
-    # MITRE ATLAS 技术编号 — 如 "AML.T0051" (LLM Prompt Injection)
+    # MITRE ATLAS  —  "AML.T0051" (LLM Prompt Injection)
     mitre_technique_id: str = ""
-    # MITRE ATLAS 技术名称 — 如 "LLM Prompt Injection" / "Data Poisoning"
-    # 注意: 这是 MITRE ATLAS 框架的技术名称, 与 technique_name (攻击策略名称) 不同
+    # MITRE ATLAS  —  "LLM Prompt Injection" / "Data Poisoning"
+    # :  MITRE ATLAS ,  technique_name () 
     mitre_technique_name: str = ""
-    # MITRE ATLAS 技术参考 URL
+    # MITRE ATLAS  URL
     mitre_url: str = ""
-    # 安全报告标准要求: 概率性系统需要重复验证
-    # 官方博文: "findings frequently include confidence levels, testing conditions,
+    # : 
+    # : "findings frequently include confidence levels, testing conditions,
     # and repeated validation results rather than a single proof-of-concept screenshot"
-    # 记录同一 payload 的多次执行结果 [{run: 1, success: True, response: "..."}, ...]
+    #  payload  [{run: 1, success: True, response: "..."}, ...]
     validation_runs: list[dict[str, Any]] = field(default_factory=list)
-    # 测试条件 (温度/模型版本/时间等, 用于概率性系统可复现性)
+    #  (//, )
     testing_conditions: dict[str, str] = field(default_factory=dict)
-    # PyRIT 原生 AttackResult 引用 (用于 pyrit.output 官方输出)
-    # 保留原生对象引用, 使 PyRIT 官方 output_attack_async 可直接操作
-    # 不序列化到 JSON (Any 类型, 序列化时由 _single_evidence_to_dict 处理)
+    # PyRIT  AttackResult  ( pyrit.output )
+    # ,  PyRIT  output_attack_async 
+    #  JSON (Any ,  _single_evidence_to_dict )
     attack_result_ref: Any = None
 
 
 @dataclass
 class OWASPFinding:
-    """三级证据链 — Finding 级别。
+    """ — Finding 
 
-    安全报告标准: 一个 Finding 聚合同一 OWASP 类别的多个攻击结果 (Results)，
-    每个 Result 包含具体对话级证据 (Conversation)。
+    : converter(s) Finding  OWASP converter(s) (Results)
+    converter(s) Result  (Conversation)
 
-    三级结构:
-        1. Finding — OWASP 类别 + 风险评级 + 聚合 ASR
-        2. Result — 单次攻击结果 (technique + prompt + response + score)
-        3. Conversation — 多轮对话历史 (role + content)
+    :
+        1. Finding — OWASP  +  +  ASR
+        2. Result —  (technique + prompt + response + score)
+        3. Conversation —  (role + content)
     """
 
     finding_id: str
@@ -183,14 +183,14 @@ class OWASPFinding:
 
 @dataclass
 class EvidenceCollection:
-    """证据集合 — 含 OWASP 合规性矩阵。
+    """ —  OWASP 
 
-    OWASP 合规字段:
-        - owasp_web_compliance: Web Top 10 合规矩阵 {owasp_id: {tested, success, failed, asr, category, mitigations}}
-        - owasp_llm_compliance: LLM Top 10 合规矩阵 {owasp_id: {tested, success, failed, asr, category, mitigations}}
-        - owasp_asi_compliance: Agentic AI Top 10 合规矩阵
-        - owasp_standard_references: OWASP 标准引用列表
-        - successful_evidence: 仅成功攻击的证据列表 (用于 _success 文件输出)
+    OWASP :
+        - owasp_web_compliance: Web Top 10  {owasp_id: {tested, success, failed, asr, category, mitigations}}
+        - owasp_llm_compliance: LLM Top 10  {owasp_id: {tested, success, failed, asr, category, mitigations}}
+        - owasp_asi_compliance: Agentic AI Top 10 
+        - owasp_standard_references: OWASP 
+        - successful_evidence:  ( _success )
     """
 
     collection_id: str
@@ -209,40 +209,40 @@ class EvidenceCollection:
     owasp_standard_references: list[str] = field(default_factory=list)
     technique_distribution: dict[str, int] = field(default_factory=dict)
     failure_analysis: dict[str, Any] = field(default_factory=dict)
-    # 黑盒场景: 目标指纹
+    # : 
     target_fingerprint: dict[str, str] = field(default_factory=dict)
-    # 攻击面信息
+    # 
     attack_surface: dict[str, Any] = field(default_factory=dict)
-    # L5 v8: 双 Judge 评分统计
+    # L5 v8:  Judge 
     dual_judge_stats: dict[str, Any] = field(default_factory=dict)
-    # L5 v29: Wilson Score 置信区间 + Cohen's Kappa
+    # L5 v29: Wilson Score  + Cohen's Kappa
     wilson_ci: tuple[float, float] = (0.0, 0.0)
     cohens_kappa: float = 0.0
-    # P0-4: 三级证据链 Findings
+    # P0-4:  Findings
     findings: list[OWASPFinding] = field(default_factory=list)
-    # Web 漏洞统计 (web_vuln 策略专用)
+    # Web  (web_vuln )
     web_vuln_stats: dict[str, Any] = field(default_factory=dict)
-    # 端点发现结果 (web_vuln 策略专用)
+    #  (web_vuln )
     discovered_endpoints: list[dict[str, Any]] = field(default_factory=list)
-    # 断点 #6 修复: 编排决策日志 — 记录侦察→武器化→执行每个决策的理由
-    # 用于报告中的 "Orchestration Decision Log" 章节, 提供可审计性
+    #  #6 :  — →→
+    #  "Orchestration Decision Log" , 
     orchestration_log: list[dict[str, Any]] = field(default_factory=list)
-    # ── 增量借鉴: 运行标签 (pyrit_scan --memory-labels) ──
-    # 从 PipelineContext.memory_labels 传递到证据集合, 用于报告标记
-    # 示例: {"run_id": "r001", "target": "deepseek"}
+    # == :  (pyrit_scan --memory-labels) ==
+    #  PipelineContext.memory_labels , 
+    # : {"run_id": "r001", "target": "deepseek"}
     memory_labels: dict[str, str] = field(default_factory=dict)
 
 
 class EvidenceCollector:
-    """证据收集器。
+    """
 
-    从 AttackResult 中提取结构化证据，包括:
-        - 越狱载荷 (jailbreak_prompt)
-        - 目标响应 (harmful_output)
-        - 对话历史
-        - Converter 变换日志
-        - 攻击链路
-        - 目标指纹 (黑盒场景)
+    imports AttackResult :
+        -  (jailbreak_prompt)
+        -  (harmful_output)
+        - 
+        - Converter 
+        - 
+        -  ()
     """
 
     def __init__(
@@ -264,23 +264,23 @@ class EvidenceCollector:
         memory_labels: dict[str, str] | None = None,
         orchestration_log: list[dict[str, Any]] | None = None,
     ) -> EvidenceCollection:
-        """收集所有攻击结果的证据。
+        """all
 
-        生成 OWASP 标准合规矩阵:
-            - LLM Top 10: 每个类别的 tested/success/failed/asr
-            - ASI Top 10: 每个类别的 tested/success/failed/asr
-            - 所有成功攻击的证据单独收集到 successful_evidence
+         OWASP :
+            - LLM Top 10: converter(s) tested/success/failed/asr
+            - ASI Top 10: converter(s) tested/success/failed/asr
+            - all successful_evidence
 
         Args:
-            attack_results: 攻击结果。
-            scenario_result_id: 场景结果 ID。
-            asr_per_technique: 按技术统计的 ASR。
-            overall_asr: 总体 ASR。
-            memory_labels: 运行标签 (来自 --memory-labels), 写入证据集合用于报告标记。
-            orchestration_log: 编排决策日志, 写入证据集合用于报告审计章节。
+            attack_results: 
+            scenario_result_id:  ID
+            asr_per_technique:  ASR
+            overall_asr:  ASR
+            memory_labels:  ( --memory-labels), 
+            orchestration_log: , 
 
         Returns:
-            EvidenceCollection: 证据集合。
+            EvidenceCollection: 
         """
         asr_per_technique = asr_per_technique or {}
         collection = EvidenceCollection(
@@ -294,42 +294,42 @@ class EvidenceCollector:
             orchestration_log=orchestration_log or [],
         )
 
-        # 攻击面信息 (从 target_fingerprint 完整传递)
-        # 数据流: recon (target_router) → target_fingerprint → evidence.attack_surface → report
-        # 包含: 基础信息 + MCP 工具 + OpenAPI 端点 + 端口发现 + 认证状态 + 探针元数据
+        #  ( target_fingerprint )
+        # Data flow: recon (target_router) → target_fingerprint → evidence.attack_surface → report
+        # :  + MCP  + OpenAPI  +  +  + 
         fp = self._target_fingerprint
         collection.attack_surface = {
-            # 基础信息
+            # 
             "api_path": fp.get("api_path", ""),
             "auth_type": fp.get("auth_type", ""),
             "framework": fp.get("framework", ""),
             "app_type": fp.get("app_type", ""),
             "content_type": fp.get("content_type", ""),
-            # 侦察发现的扩展攻击面
+            # 
             "capabilities": fp.get("capabilities", ""),
             "model_family": fp.get("model_family", ""),
             "language": fp.get("language", ""),
             "session_type": fp.get("session_type", ""),
             "secret_format": fp.get("secret_format", ""),
             "tenant_id": fp.get("tenant_id", ""),
-            # MCP 枚举结果
+            # MCP 
             "mcp_tool_count": len(fp.get("mcp_tools", [])),
             "mcp_resource_count": len(fp.get("mcp_resources", [])),
             "mcp_tool_names": fp.get("mcp_tool_names", []),
-            # OpenAPI 发现结果
+            # OpenAPI 
             "openapi_spec_path": fp.get("openapi_spec_path", ""),
             "openapi_endpoint_count": len(fp.get("openapi_endpoints", [])),
             "openapi_security_schemes": fp.get("openapi_security_schemes", []),
-            # 端口发现结果
+            # 
             "port_endpoint_count": len(fp.get("port_endpoints", [])),
-            # 探针元数据
+            # 
             "probe_count": fp.get("probe_count", 0),
             "probe_duration_seconds": fp.get("probe_duration_seconds", 0),
-            # L5 v39: 目标类型分类 (用于 converter 选择审计)
-            # 数据流: recon → target_fingerprint → _classify_target_type → build_converter_map
+            # L5 v39:  ( converter )
+            # Data flow: recon → target_fingerprint → _classify_target_type → build_converter_map
             "target_type": fp.get("target_type", ""),
-            # 深度探测新字段 (P0-P2 优先级矩阵)
-            # 数据流: recon (各探测模块) → target_fingerprint → evidence.attack_surface → report
+            #  (P0-P2 )
+            # Data flow: recon () → target_fingerprint → evidence.attack_surface → report
             "ai_framework": fp.get("ai_framework", ""),
             "ai_framework_category": fp.get("ai_framework_category", ""),
             "system_prompt_leaked": fp.get("system_prompt_leaked", False),
@@ -344,7 +344,7 @@ class EvidenceCollector:
             ),
         }
 
-        # 初始化 OWASP 合规矩阵
+        #  OWASP 
         owasp_web_stats: dict[str, dict[str, Any]] = {
             k: {"tested": 0, "success": 0, "failed": 0, "asr": 0.0, "category": v, "mitigations": _OWASP_WEB_MITIGATIONS.get(k, [])}
             for k, v in _OWASP_WEB_CATEGORIES.items()
@@ -388,12 +388,12 @@ class EvidenceCollector:
                 if is_success:
                     collection.successful_evidence.append(evidence)
 
-                # OWASP 覆盖统计
+                # OWASP 
                 owasp_id = evidence.owasp_id
                 if owasp_id:
                     collection.owasp_coverage[owasp_id] = collection.owasp_coverage.get(owasp_id, 0) + 1
 
-                    # 更新合规矩阵
+                    # 
                     if owasp_id in owasp_web_stats:
                         owasp_web_stats[owasp_id]["tested"] += 1
                         if is_success:
@@ -413,7 +413,7 @@ class EvidenceCollector:
                         else:
                             owasp_asi_stats[owasp_id]["failed"] += 1
 
-                # 技术分布
+                # 
                 collection.technique_distribution[technique_name] = (
                     collection.technique_distribution.get(technique_name, 0) + 1
                 )
@@ -422,7 +422,7 @@ class EvidenceCollector:
         collection.successful_attacks = success_count
         collection.failed_attacks = fail_count
 
-        # 计算 OWASP 合规矩阵的 ASR
+        #  OWASP  ASR
         for stats_dict in [owasp_web_stats, owasp_llm_stats, owasp_asi_stats]:
             for owasp_id, stats in stats_dict.items():
                 decided = stats["success"] + stats["failed"]
@@ -433,10 +433,10 @@ class EvidenceCollector:
         collection.owasp_llm_compliance = owasp_llm_stats
         collection.owasp_asi_compliance = owasp_asi_stats
 
-        # 失败分析
+        # 
         collection.failure_analysis = self._analyze_failures(attack_results)
 
-        # P0-4: 构建三级证据链 Findings
+        # P0-4:  Findings
         collection.findings = _build_findings(collection.evidence, owasp_web_stats, owasp_llm_stats, owasp_asi_stats)
 
         logger.info(
@@ -463,15 +463,15 @@ class EvidenceCollector:
         attack_index: int,
         is_success: bool,
     ) -> VulnerabilityEvidence:
-        """构建单个证据 — 含 OWASP 标准字段和 _success 标记。
+        """converter(s) —  OWASP  _success 
 
-        R10 就绪对齐: 所有必填字段必须有非空兜底, 确保证据 JSON 完整:
+        R10 : all, Ensure JSON :
             - arxiv_reference: _get_arxiv_reference → fallback "PyRIT (arXiv:2407.01232)"
-            - conversation_history: _extract_conversation 3层 fallback → 兜底 objective+harmful_output
+            - conversation_history: _extract_conversation 3Layer fallback →  objective+harmful_output
             - converter_log: _extract_converter_log → metadata encoder → "none (baseline)"
-            - validation_runs: _extract_validation_runs → 至少 1 条运行记录
+            - validation_runs: _extract_validation_runs →  1 
             - testing_conditions: _extract_testing_conditions → timestamp/outcome/attack_id
-            - converter_chain: 从 converter_log 拼接 → 兜底 "none (baseline)"
+            - converter_chain: imports converter_log  →  "none (baseline)"
         """
         owasp_id = _get_owasp_id(result)
         objective = _extract_jailbreak_prompt(result)
@@ -482,14 +482,14 @@ class EvidenceCollector:
         arxiv_ref = _get_arxiv_reference(technique_name)
         confidence = _determine_confidence(technique_asr, is_success)
 
-        # P0-3 修复: 确保 arxiv_reference 非空 — _get_arxiv_reference 已有默认值,
-        # 但额外兜底以防 technique_name 为空或 None
+        # P0-3 : Ensure arxiv_reference  — _get_arxiv_reference ,
+        #  technique_name  None
         if not arxiv_ref:
             arxiv_ref = "PyRIT (arXiv:2407.01232)"
 
-        # P0-1 修复: 确保 conversation_history 非空 — 3层 fallback 后仍为空时,
-        # 使用 objective + harmful_output 构造最小对话记录
-        # R10 要求: conversation_history 非空 for ALL evidence
+        # P0-1 : Ensure conversation_history  — 3Layer fallback ,
+        #  objective + harmful_output 
+        # R10 : conversation_history  for ALL evidence
         if not conversation:
             conv_obj = objective or ""
             conv_resp = harmful_output or ""
@@ -503,14 +503,14 @@ class EvidenceCollector:
             elif conv_resp:
                 conversation = [{"role": "assistant", "content": str(conv_resp)}]
             else:
-                # 最终兜底: 至少记录一条占位消息, 确保非空
+                # : , Ensure
                 conversation = [{"role": "system", "content": "No conversation data available"}]
 
-        # L5 v35 修复: 当 PyRIT Converter 框架的 converter_log 为空时,
-        # 从 result.metadata 中的 encoder 字段构建 converter_chain。
-        # 这确保 encoded_injection 等自定义编码攻击技术的 converter_chain
-        # 能正确记录实际使用的编码器 (如 base64 / rot13 / unicode_homoglyph 等),
-        # 而非空字符串。
+        # L5 v35 :  PyRIT Converter  converter_log ,
+        #  result.metadata  encoder  converter_chain
+        # Ensure encoded_injection  converter_chain
+        #  ( base64 / rot13 / unicode_homoglyph ),
+        # 
         if not converter_log:
             result_metadata = getattr(result, "metadata", {}) or {}
             encoder = result_metadata.get("encoder", "")
@@ -521,8 +521,8 @@ class EvidenceCollector:
                     "transformed": objective[:200] if objective else "",
                 }]
 
-        # P0-2 修复: 即使是 baseline 攻击 (无 converter), 也记录默认 converter_log
-        # R10 要求: converter_log 非空 for ALL evidence
+        # P0-2 : Even if baseline  ( converter),  converter_log
+        # R10 : converter_log  for ALL evidence
         # baseline attacks record "none (baseline)"
         if not converter_log:
             converter_log = [{
@@ -531,12 +531,12 @@ class EvidenceCollector:
                 "transformed": objective[:200] if objective else "",
             }]
 
-        # P1-1 修复: converter_chain 字段 — 从 converter_log 拼接, 确保非空
+        # P1-1 : converter_chain  —  converter_log , Ensure
         converter_chain_str = ", ".join(c.get("converter", "") for c in converter_log)
         if not converter_chain_str:
             converter_chain_str = "none (baseline)"
 
-        # P0-4 修复: 确保 validation_runs 非空 — 方法返回后兜底
+        # P0-4 : Ensure validation_runs  — 
         validation_runs = self._extract_validation_runs(result, is_success)
         if not validation_runs:
             validation_runs = [{
@@ -545,7 +545,7 @@ class EvidenceCollector:
                 "response": str(getattr(result, "response", "") or getattr(result, "response_text", ""))[:200],
             }]
 
-        # P0-5 修复: 确保 testing_conditions 非空 — 方法返回后兜底
+        # P0-5 : Ensure testing_conditions  — 
         testing_conditions = self._extract_testing_conditions(result)
         if not testing_conditions:
             testing_conditions = {
@@ -554,7 +554,7 @@ class EvidenceCollector:
                 "attack_id": str(getattr(result, "attack_result_id", getattr(result, "id", ""))),
             }
 
-        # P0-4b 修复: 确保 score_details 非空 — 2层 fallback 后仍为空时兜底
+        # P0-4b : Ensure score_details  — 2Layer fallback 
         if not score_details:
             score_details = [{
                 "scorer": "AttackOutcome",
@@ -562,7 +562,7 @@ class EvidenceCollector:
                 "rationale": "Determined by post-hoc scoring (no explicit scorer object attached)",
             }]
 
-        # OWASP 标准判定
+        # OWASP 
         owasp_standard = _get_owasp_standard(owasp_id)
         owasp_severity = _compute_owasp_severity(owasp_id, is_success, technique_asr)
         owasp_risk_score = _compute_owasp_risk_score(owasp_id, is_success, technique_asr)
@@ -570,17 +570,17 @@ class EvidenceCollector:
         owasp_reference = _get_owasp_reference_url(owasp_id)
         cvss_vector = _get_cvss_vector(owasp_id)
 
-        # P0-2: MITRE ATLAS 映射
+        # P0-2: MITRE ATLAS 
         mitre_info = _MITRE_ATLAS_TECHNIQUES.get(owasp_id, {})
         mitre_tactic = mitre_info.get("tactic", "")
         mitre_technique_id = mitre_info.get("technique_id", "")
         mitre_technique_name = mitre_info.get("technique_name", "")
         mitre_url = mitre_info.get("url", "")
 
-        # 文件名后缀: 成功攻击使用 _success
+        # :  _success
         file_suffix = "_success" if is_success else ""
 
-        # evidence_id 对成功攻击追加 _success 后缀以区分
+        # evidence_id  _success 
         evidence_id = f"EVD-{attack_index + 1:04d}"
         if is_success:
             evidence_id = f"{evidence_id}_success"
@@ -622,20 +622,20 @@ class EvidenceCollector:
         )
 
     def _extract_validation_runs(self, result: Any, is_success: bool) -> list[dict[str, Any]]:
-        """提取验证运行记录。
+        """
 
-        安全报告标准要求: 概率性系统需要重复验证。
-        官方博文: "findings frequently include confidence levels, testing conditions,
+        : 
+        : "findings frequently include confidence levels, testing conditions,
         and repeated validation results rather than a single proof-of-concept screenshot"
 
-        如果 AttackResult 中有多次执行的记录 (如 Best-of-N), 则提取;
-        否则记录当前执行作为首次运行。
+         AttackResult  ( Best-of-N), ;
+        
 
-        学术依据: PTES Section 4.2 — Repeated Validation for Probabilistic Systems.
+        Academic basis: PTES Section 4.2 — Repeated Validation for Probabilistic Systems.
         """
         runs: list[dict[str, Any]] = []
 
-        # 1. 如果 result 有 attempt_count (Best-of-N 重试), 记录每次运行
+        # 1.  result  attempt_count (Best-of-N Retry), 
         attempt_count = getattr(result, "attempt_count", None)
         if attempt_count is not None and isinstance(attempt_count, int) and attempt_count > 1:
             for i in range(attempt_count):
@@ -645,7 +645,7 @@ class EvidenceCollector:
                     "response": str(getattr(result, "response", ""))[:200] if i == attempt_count - 1 else "",
                 })
 
-        # 2. 如果没有多次执行记录, 记录当前执行作为首次运行
+        # 2. , 
         if not runs:
             runs.append({
                 "run": 1,
@@ -656,15 +656,15 @@ class EvidenceCollector:
         return runs
 
     def _extract_testing_conditions(self, result: Any) -> dict[str, str]:
-        """提取测试条件 (用于概率性系统可复现性)。
+        """ ()
 
-        安全报告标准: AI security findings "frequently include confidence levels,
+        : AI security findings "frequently include confidence levels,
         testing conditions, and repeated validation results".
 
-        记录攻击执行时的环境条件:
-            - timestamp: 执行时间
-            - technique: 攻击技术
-            - outcome: 攻击结果
+        :
+            - timestamp: 
+            - technique: 
+            - outcome: 
         """
 
         outcome = getattr(result, "outcome", None)
@@ -677,7 +677,7 @@ class EvidenceCollector:
         }
 
     def _analyze_failures(self, attack_results: dict[str, list[Any]]) -> dict[str, Any]:
-        """分析失败原因。"""
+        """"""
         failure_types: dict[str, int] = {}
         technique_success: dict[str, int] = {}
         technique_total: dict[str, int] = {}
@@ -691,7 +691,7 @@ class EvidenceCollector:
                     failure_type = _classify_failure(result)
                     failure_types[failure_type] = failure_types.get(failure_type, 0) + 1
 
-        # 按成功率排名
+        # 
         ranking = []
         for tech in technique_total:
             total = technique_total[tech]

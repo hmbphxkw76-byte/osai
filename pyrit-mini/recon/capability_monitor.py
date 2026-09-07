@@ -1,21 +1,21 @@
-"""Capability Drift Monitor — 攻击过程中检测目标能力变化。
+"""Capability Drift Monitor — 
 
-学术依据:
-    - Chao et al. (arXiv:2310.08419) — "自适应红队: 目标可能在攻击过程中更新护栏规则,
-护栏规则的更新可能导致前期的攻击方法失效"
-    - Anderson et al. (arXiv:2308.02678) — EvoCheck: 同一引擎的版本差异检测
-    - Perez et al. (arXiv:2202.03286) — LLMs 的动态行为变化需要持续监测
+Academic basis:
+    - Chao et al. (arXiv:2310.08419) — ": ,
+"
+    - Anderson et al. (arXiv:2308.02678) — EvoCheck: 
+    - Perez et al. (arXiv:2202.03286) — LLMs 
 
-监控策略:
-    1. 时间维度漂移 (Temporal Drift): 同一 probe 在不同时刻返回不同结果
-    2. 护栏更新 (Guardrail Update): 前期通过的策略后期被拒
-    3. 模型版本变化 (Model Version Change): model_family 发生变化
-    4. 速率限制触发 (Rate Limit): 响应时间异常增加
+:
+    1.  (Temporal Drift):  probe 
+    2.  (Guardrail Update): 
+    3.  (Model Version Change): model_family 
+    4.  (Rate Limit): 
 
-设计原则 (Rule 2: Stealth First):
-    监控行为完全通过正常测试 payload 执行 (攻击 probe),
-    不发送额外的 health check (避免增加目标警觉)。
-    仅在攻击结果出现"异常不一致"时触发深度分析。
+ (Rule 2: Stealth First):
+     payload  ( probe),
+     health check ()
+    ""
 """
 from __future__ import annotations
 
@@ -27,24 +27,24 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-# ════════════════════════════════════════════════════════════════════
-# 数据结构
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# 
+# ====================================================================
 
 
 @dataclass
 class CapabilitySnapshot:
-    """单次攻击的快照。
+    """
 
-    记录攻击执行时的所有上下文信息,
-    用于后续的漂移检测分析。
+    all,
+    
     """
     timestamp: float
     seed_name: str
     converter_name: str
-    attack_success: bool  # 评分器判定是否成功
-    refusal_detected: bool  # 是否触发护栏拒绝
-    response_time_ms: float  # 响应时间
+    attack_success: bool  # 
+    refusal_detected: bool  # 
+    response_time_ms: float  # 
     model_family: str | None = None
     status_code: int = 200
     error_type: str | None = None  # timeout / connection_error / parse_error
@@ -52,14 +52,14 @@ class CapabilitySnapshot:
 
 @dataclass
 class DriftReport:
-    """漂移检测报告。
+    """
 
-    属性:
-        has_drift: 是否检测到漂移
-        drift_type: 漂移类型 (guardrail_update / model_change / rate_limit / consistent)
-        confidence: 漂移置信度 (0.0-1.0)
-        evidence: 证据列表
-        recommendations: 调整建议
+    :
+        has_drift: 
+        drift_type:  (guardrail_update / model_change / rate_limit / consistent)
+        confidence:  (0.0-1.0)
+        evidence: 
+        recommendations: 
     """
     has_drift: bool = False
     drift_type: str = "none"
@@ -77,18 +77,18 @@ class DriftReport:
         }
 
 
-# ════════════════════════════════════════════════════════════════════
-# 能力漂移监控器
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# 
+# ====================================================================
 
 
 class CapabilityDriftMonitor:
-    """能力漂移监控器。
+    """
 
-    在攻击执行过程中记录每个 probe 的结果和能力指纹,
-    定期分析快照序列以检测目标行为是否发生漂移。
+    converter(s) probe ,
+    
 
-    使用方式:
+    Usage:
         >>> monitor = CapabilityDriftMonitor()
         >>> monitor.record_attack(attack_snapshot)
         >>> report = monitor.analyze_drift()
@@ -97,11 +97,11 @@ class CapabilityDriftMonitor:
     """
 
     def __init__(self, window_size: int = 10, drift_threshold: float = 0.3) -> None:
-        """初始化监控器。
+        """
 
         Args:
-            window_size: 滑动窗口大小 (默认 10 个快照)。
-            drift_threshold: 漂移判定阈值 (拒绝率变化超过此值判定为漂移)。
+            window_size:  ( 10 converter(s))
+            drift_threshold:  ()
         """
         self._snapshots: list[CapabilitySnapshot] = []
         self._window_size = window_size
@@ -110,29 +110,29 @@ class CapabilityDriftMonitor:
         self._initial_refusal_rate: float = 0.0
 
     def record_attack(self, snapshot: CapabilitySnapshot) -> None:
-        """记录一次攻击的执行快照。
+        """
 
-        快照会追加到时间序列末尾。
-        如果记录数量超过窗口大小, 旧快照会被丢弃。
+        
+        , 
 
         Args:
-            snapshot: 攻击执行快照。
+            snapshot: 
         """
-        # 记录初始状态
+        # 
         if len(self._snapshots) == 0:
             self._initial_model_family = snapshot.model_family
 
         self._snapshots.append(snapshot)
 
-        # 维护窗口大小
+        # 
         if len(self._snapshots) > self._window_size * 2:
             self._snapshots = self._snapshots[-self._window_size:]
 
-        # 计算初始拒绝率 (前窗口)
+        #  ()
         self._update_baseline()
 
     def _update_baseline(self) -> None:
-        """更新基线拒绝率 (基于前 N 个快照)。"""
+        """ ( N converter(s))"""
         if len(self._snapshots) < 3:
             return
 
@@ -144,16 +144,16 @@ class CapabilityDriftMonitor:
         self._initial_refusal_rate = refused / len(initial_window)
 
     def analyze_drift(self) -> DriftReport:
-        """分析快照序列, 检测能力漂移。
+        """, 
 
-        检测逻辑:
-            1. 护栏更新: 后半窗口拒绝率 > 前半窗口 + threshold
-            2. 模型变化: model_family 发生变化
-            3. 速率限制: 响应时间异常增加
-            4. 一致: 无显著漂移
+        :
+            1. :  >  + threshold
+            2. : model_family 
+            3. : 
+            4. : 
 
         Returns:
-            DriftReport 实例。
+            DriftReport 
         """
         report = DriftReport()
 
@@ -162,12 +162,12 @@ class CapabilityDriftMonitor:
             report.evidence.append(f"Only {len(self._snapshots)} snapshots, need >= 5")
             return report
 
-        # 分割窗口 (前半 vs 后半)
+        #  ( vs )
         mid = len(self._snapshots) // 2
         first_half = self._snapshots[:mid]
         second_half = self._snapshots[mid:]
 
-        # 1. 护栏更新检测
+        # 1. 
         first_refusal_rate = sum(1 for s in first_half if s.refusal_detected) / len(first_half)
         second_refusal_rate = sum(1 for s in second_half if s.refusal_detected) / len(second_half)
 
@@ -188,7 +188,7 @@ class CapabilityDriftMonitor:
             }
             return report
 
-        # 2. 模型变化检测
+        # 2. 
         model_families = {s.model_family for s in second_half if s.model_family}
         if model_families and self._initial_model_family:
             if any(mf != self._initial_model_family for mf in model_families):
@@ -205,13 +205,13 @@ class CapabilityDriftMonitor:
                 }
                 return report
 
-        # 3. 速率限制检测
+        # 3. 
         first_rt = sum(s.response_time_ms for s in first_half) / max(1, len(first_half))
         second_rt = sum(s.response_time_ms for s in second_half) / max(1, len(second_half))
 
         if second_rt > 0 and first_rt > 0:
             rt_ratio = second_rt / first_rt
-            if rt_ratio > 3.0 and second_rt > 5000:  # 响应时间翻倍且 > 5s
+            if rt_ratio > 3.0 and second_rt > 5000:  #  > 5s
                 report.has_drift = True
                 report.drift_type = "rate_limit"
                 report.confidence = min(1.0, (rt_ratio - 2.0) / 5.0)
@@ -227,11 +227,11 @@ class CapabilityDriftMonitor:
                 }
                 return report
 
-        # 4. 无显著漂移
+        # 4. 
         report.drift_type = "consistent"
         report.evidence.append("No significant drift detected in recent snapshots")
 
-        # 即使无漂移, 也提供趋势建议
+        # Even if, 
         if second_refusal_rate > first_refusal_rate:
             report.recommendations = {
                 "action": "monitor_closely",
@@ -244,7 +244,7 @@ class CapabilityDriftMonitor:
         return report
 
     def get_current_stats(self) -> dict[str, Any]:
-        """获取当前统计信息。"""
+        """"""
         if not self._snapshots:
             return {"total_snapshots": 0}
 
@@ -267,21 +267,21 @@ class CapabilityDriftMonitor:
         }
 
     def reset(self) -> None:
-        """重置监控器状态。"""
+        """"""
         self._snapshots.clear()
         self._initial_model_family = None
         self._initial_refusal_rate = 0.0
 
 
-# ════════════════════════════════════════════════════════════════════
-# 全局单例
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# 
+# ====================================================================
 
 _default_monitor: CapabilityDriftMonitor | None = None
 
 
 def get_drift_monitor() -> CapabilityDriftMonitor:
-    """获取全局 CapabilityDriftMonitor 单例。"""
+    """ CapabilityDriftMonitor """
     global _default_monitor
     if _default_monitor is None:
         _default_monitor = CapabilityDriftMonitor()

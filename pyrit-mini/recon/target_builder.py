@@ -1,30 +1,30 @@
-"""target_builder — 对齐 PyRIT 1.0.1 官方 HTTP Target 标准.
+"""target_builder —  PyRIT 1.0.1  HTTP Target .
 
-本模块构建 PyRIT 原生 Target 对象 (HTTPTarget / HTTPXAPITarget).
+ PyRIT  Target  (HTTPTarget / HTTPXAPITarget).
 
-宪法合规:
-    - 严格使用 PyRIT 原生 Target, 不自定义 HTTPTarget 子类
-    - 会话状态 (chat_id) 由 ChatIdStateManager 外部管理
-    - HTTP 请求预处理由 RequestPreprocessor 负责
+:
+    -  PyRIT  Target,  HTTPTarget 
+    -  (chat_id)  ChatIdStateManager 
+    - HTTP  RequestPreprocessor 
 
-PyRIT 1.0.1 对齐要点:
-    1. HTTPTarget._send_prompt_to_target_async 接收 normalized_conversation: list[Message]
-       → 从 message.message_pieces[0] 获取 MessagePiece
-       → MessagePiece.converted_value 是注入到 HTTP body 的 prompt 文本
+PyRIT 1.0.1 :
+    1. HTTPTarget._send_prompt_to_target_async  normalized_conversation: list[Message]
+       → imports message.message_pieces[0]  MessagePiece
+       → MessagePiece.converted_value  HTTP body  prompt 
 
-    2. TargetConfiguration + TargetCapabilities 声明目标能力:
-       - supports_multi_turn: 是否支持多轮对话
-       - supports_multi_message_pieces: 是否支持多消息片段
-       - input_modalities: 输入模态 (text/image_path/audio_path...)
-       - supports_system_prompt: 是否原生支持 system prompt
-       → 缺失能力由 ConversationNormalizationPipeline 自动适配 (ADAPT/RAISE)
+    2. TargetConfiguration + TargetCapabilities :
+       - supports_multi_turn: 
+       - supports_multi_message_pieces: 
+       - input_modalities:  (text/image_path/audio_path...)
+       - supports_system_prompt:  system prompt
+       →  ConversationNormalizationPipeline  (ADAPT/RAISE)
 
-    3. httpx.AsyncClient 复用: 官方 HTTPTarget 支持传入预配置 client
-       → 避免每次请求创建/销毁 client, 提升 ~30% 吞吐量
+    3. httpx.AsyncClient :  HTTPTarget  client
+       → / client,  ~30% 
 
-    4. callback_function 接收 httpx.Response (非 requests.Response)
+    4. callback_function  httpx.Response ( requests.Response)
 
-    5. HTTP/2 支持: 通过 http_version 检测自动启用 http2=True
+    5. HTTP/2 :  http_version  http2=True
 """
 
 from __future__ import annotations
@@ -48,36 +48,36 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# ════════════════════════════════════════════════════════════════════
-# P2-06: TLS verify 配置化 (SSOT)
-# 从 config/defaults.yaml 读取 tls_verify 配置, 统一控制 SSL 证书验证
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# P2-06: TLS verify  (SSOT)
+#  config/defaults.yaml  tls_verify ,  SSL 
+# ====================================================================
 def _get_tls_verify_default() -> bool | str:
-    """加载 TLS verify 配置 (模块初始化时调用一次)。"""
+    """Load TLS verify  ()"""
     try:
         from recon.config_loader import get_tls_verify
         return get_tls_verify()
     except Exception:
-        return True  # 默认验证证书
+        return True  # 
 
 
 _TLS_VERIFY: bool | str = _get_tls_verify_default()
 
 
-# ════════════════════════════════════════════════════════════════════
-# Chat ID 状态管理器 — 多轮攻击会话追踪
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# Chat ID  — 
+# ====================================================================
 
 class ChatIdStateManager:
-    """管理多轮攻击的会话 ID 状态 (chat_id).
+    """ ID  (chat_id).
 
-    宪法合规: 会话状态由外部管理器持有, 不侵入 PyRIT 原生 Target.
+    : ,  PyRIT  Target.
 
-    职责:
-        1. 存储当前 chat_id
-        2. 从 HTTP 响应中提取新的 chat_id
-        3. 生成包含最新 chat_id 的请求 (预处理阶段)
-        4. 触发 Target 的原始请求模板更新
+    :
+        1.  chat_id
+        2. imports HTTP  chat_id
+        3.  chat_id  ()
+        4.  Target 
     """
 
     def __init__(self, initial_chat_id: str | None = None) -> None:
@@ -89,20 +89,20 @@ class ChatIdStateManager:
         return self._chat_id
 
     def set_template(self, http_request_template: str) -> None:
-        """保存原始 HTTP 请求模板 (含 {CHAT_ID} 占位符)."""
+        """ HTTP  ( {CHAT_ID} )."""
         self._original_template = http_request_template
 
     def update_from_response(self, response: Any) -> str | None:
-        """从 HTTP 响应中提取并更新 chat_id.
+        """imports HTTP  chat_id.
 
-        候选字段名 (优先级递减):
+         ():
             Object > Id > ChatId > SessionId > ConversationId > ConvId
 
         Args:
-            response: httpx.Response 对象或文本.
+            response: httpx.Response .
 
         Returns:
-            提取到的 chat_id, 或 None.
+             chat_id,  None.
         """
         from recon.burp_parser import _extract_chat_id_from_response
 
@@ -125,13 +125,13 @@ class ChatIdStateManager:
         return new_id
 
     def preprocess_request(self, http_request: str) -> str:
-        """预处理 HTTP 请求, 替换 {CHAT_ID} 占位符.
+        """ HTTP ,  {CHAT_ID} .
 
         Args:
-            http_request: 原始 HTTP 请求字符串 (可能含 {CHAT_ID}).
+            http_request:  HTTP  ( {CHAT_ID}).
 
         Returns:
-            替换后的请求字符串.
+            .
         """
         if "{CHAT_ID}" not in http_request:
             return http_request
@@ -147,17 +147,17 @@ class ChatIdStateManager:
         return result
 
 
-# ════════════════════════════════════════════════════════════════════
-# HTTP 请求预处理器 — 在 Prompt 注入前执行
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# HTTP  —  Prompt 
+# ====================================================================
 
 class RequestPreprocessor:
-    """HTTP 请求预处理器.
+    """HTTP .
 
-    在 PyRIT 注入 Prompt 前执行以下预处理:
-        1. {CHAT_ID} 占位符替换
-        2. JSON body 安全转义 (处理控制字符)
-        3. Content-Length 头更新
+     PyRIT  Prompt :
+        1. {CHAT_ID} 
+        2. JSON body  ()
+        3. Content-Length 
     """
 
     @staticmethod
@@ -165,35 +165,35 @@ class RequestPreprocessor:
         http_request: str,
         chat_id_state: ChatIdStateManager | None = None,
     ) -> str:
-        """预处理 HTTP 请求.
+        """ HTTP .
 
         Args:
-            http_request: 原始 HTTP 请求字符串.
-            chat_id_state: Chat ID 状态管理器 (可选).
+            http_request:  HTTP .
+            chat_id_state: Chat ID  ().
 
         Returns:
-            预处理后的请求字符串.
+            .
         """
         result = http_request
 
-        # Step 1: Chat ID 替换
+        # Step 1: Chat ID 
         if chat_id_state:
             result = chat_id_state.preprocess_request(result)
 
-        # Step 2 & 3: JSON body 安全 + Content-Length
+        # Step 2 & 3: JSON body  + Content-Length
         result = RequestPreprocessor._sanitize_json_body(result)
 
         return result
 
     @staticmethod
     def _sanitize_json_body(http_request: str) -> str:
-        """确保 JSON body 的合法性和 Content-Length 正确.
+        """Ensure JSON body  Content-Length .
 
-        策略:
-            1. 解析 HTTP 请求获取 headers 和 body
-            2. 尝试解析 body 为 JSON
-            3. 如果 JSON 合法, 重新序列化 (规范化)
-            4. 更新 Content-Length 头
+        :
+            1.  HTTP  headers  body
+            2.  body  JSON
+            3.  JSON ,  ()
+            4.  Content-Length 
         """
         normalized = http_request.replace("\r\n", "\n")
         parts = normalized.split("\n\n", 1)
@@ -204,17 +204,17 @@ class RequestPreprocessor:
         if not body.strip():
             return http_request
 
-        # 尝试解析为 JSON 并重新序列化 (净化控制字符)
+        #  JSON  ()
         try:
             body_obj = json.loads(body)
-            # 重新序列化: 默认 ensure_ascii=False 保留原始字符
+            # :  ensure_ascii=False 
             sanitized_body = json.dumps(body_obj, ensure_ascii=False)
             if sanitized_body == body:
-                return http_request  # 无需更改
+                return http_request  # 
         except (json.JSONDecodeError, TypeError):
-            return http_request  # 非 JSON, 不处理
+            return http_request  #  JSON, 
 
-        # 更新 Content-Length
+        #  Content-Length
         body_bytes_len = len(sanitized_body.encode("utf-8"))
 
         header_lines = header_section.split("\n")
@@ -235,39 +235,39 @@ class RequestPreprocessor:
         return result
 
 
-# ════════════════════════════════════════════════════════════════════
-# Callback 链组装器 — 响应处理管道
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# Callback  — 
+# ====================================================================
 
 def _assemble_callback(
     parsed: ParsedBurpRequest,
     chat_id_state: ChatIdStateManager | None = None,
 ) -> Any:
-    """组装回调函数: response_parser → chat_id_extraction.
+    """: response_parser → chat_id_extraction.
 
-    PyRIT HTTPTarget 支持单一 callback_function, 此函数将多个处理步骤
-    链式组合成单一回调.
+    PyRIT HTTPTarget  callback_function, converter(s)
+    .
 
-    处理链:
-        1. 原始 httpx.Response → response_parser → 响应文本
-        2. 同时从响应中提取 chat_id → 更新 ChatIdStateManager
+    :
+        1.  httpx.Response → response_parser → 
+        2. imports chat_id →  ChatIdStateManager
 
     Args:
-        parsed: 解析后的 Burp 请求 (决定 response_parser 类型).
-        chat_id_state: Chat ID 状态管理器 (用于提取 chat_id).
+        parsed:  Burp  ( response_parser ).
+        chat_id_state: Chat ID  ( chat_id).
 
     Returns:
-        单一回调函数 (httpx.Response → str).
+         (httpx.Response → str).
     """
-    # Step 1: 选择响应解析器
+    # Step 1: 
     response_parser = _select_response_parser(parsed)
 
-    # Step 2: 提取器 (如果有 chat_id 追踪需求)
+    # Step 2:  ( chat_id )
     chat_id_extractor = None
     if parsed.has_chat_id_placeholder and chat_id_state:
 
         def chat_id_extractor(response: Any) -> None:
-            """从响应中提取 chat_id 并更新状态管理器."""
+            """imports chat_id ."""
             try:
                 text: str | None = None
                 if hasattr(response, "text") and response.text is not None:
@@ -283,14 +283,14 @@ def _assemble_callback(
             except Exception as e:
                 logger.debug("Chat ID extraction failed: %s", e)
 
-    # Step 3: 组合为单一 callback
+    # Step 3:  callback
     def combined_callback(response: Any) -> str:
-        """组合回调: 解析响应 + 提取 chat_id."""
+        """:  +  chat_id."""
         if chat_id_extractor:
             chat_id_extractor(response)
         return response_parser(response)
 
-    # 保留原始名称用于日志
+    # 
     parser_name = getattr(response_parser, "__name__", "parser")
     suffix = "+chat_id" if chat_id_extractor else ""
     combined_callback.__name__ = f"combined({parser_name}{suffix})"
@@ -298,20 +298,20 @@ def _assemble_callback(
 
 
 def _select_response_parser(parsed: ParsedBurpRequest) -> Any:
-    """选择响应解析器.
+    """.
 
-    对齐 PyRIT 1.0.1 官方回调函数:
-        - get_http_target_json_response_callback_function: JSON 路径提取
-        - get_http_target_regex_matching_callback_function: 正则匹配
-        - 自定义 SSE parser: 流式响应拼接
+     PyRIT 1.0.1 :
+        - get_http_target_json_response_callback_function: JSON 
+        - get_http_target_regex_matching_callback_function: 
+        -  SSE parser: 
 
     Args:
-        parsed: 解析后的 Burp 请求.
+        parsed:  Burp .
 
     Returns:
-        响应解析函数 (httpx.Response → str).
+         (httpx.Response → str).
     """
-    # 1. 已探测的 JSON 路径 → 官方 JSON callback
+    # 1.  JSON  →  JSON callback
     if parsed.response_json_path:
         callback = get_http_target_json_response_callback_function(
             key=parsed.response_json_path
@@ -319,23 +319,23 @@ def _select_response_parser(parsed: ParsedBurpRequest) -> Any:
         logger.debug("Using probed JSON callback with path: %s", parsed.response_json_path)
         return callback
 
-    # 2. SSE → 自定义 SSE parser
+    # 2. SSE →  SSE parser
     if parsed.is_sse:
         from recon.burp_parser import _make_sse_response_parser
         logger.debug("Using custom SSE response parser")
         return _make_sse_response_parser()
 
-    # 3. 自适应多路径 JSON parser
+    # 3.  JSON parser
     return _make_adaptive_json_parser()
 
 
 def _make_adaptive_json_parser() -> Any:
-    """创建自适应 JSON 响应解析器 — 尝试多个常见路径.
+    """ JSON  — converter(s).
 
-    覆盖的 JSON 路径 (按 API 类型排序):
-        - OpenAI 兼容: choices[0].message.content
-        - 通用 API: data.content, response, result, output
-        - 聊天 API: message, text, content, answer, reply
+     JSON  ( API ):
+        - OpenAI : choices[0].message.content
+        -  API: data.content, response, result, output
+        -  API: message, text, content, answer, reply
     """
     _CANDIDATE_PATHS: list[tuple[str, ...]] = [
         ("choices", 0, "message", "content"),
@@ -359,7 +359,7 @@ def _make_adaptive_json_parser() -> Any:
     ]
 
     def parse_response(response: Any) -> str:
-        """自适应 JSON 响应解析."""
+        """ JSON ."""
         content: bytes | str | None = None
         if hasattr(response, "content"):
             content = response.content
@@ -394,9 +394,9 @@ def _make_adaptive_json_parser() -> Any:
 
 
 def _make_sse_response_parser() -> Any:
-    """创建 SSE 流式响应解析器.
+    """ SSE .
 
-    拼接 data: 行的 JSON 内容.
+     data:  JSON .
     """
     def parse_sse_response(response: Any) -> str:
         content: bytes | str | None = None
@@ -415,7 +415,7 @@ def _make_sse_response_parser() -> Any:
         else:
             content_str = str(content)
 
-        # 拼接所有 data: 行的内容
+        #  data: 
         parts: list[str] = []
         for line in content_str.split("\n"):
             line = line.strip()
@@ -430,9 +430,9 @@ def _make_sse_response_parser() -> Any:
     return parse_sse_response
 
 
-# ════════════════════════════════════════════════════════════════════
-# HTTP Target 构建 — 对齐 PyRIT 1.0.1 TargetConfiguration
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# HTTP Target  —  PyRIT 1.0.1 TargetConfiguration
+# ====================================================================
 
 def build_http_target(
     parsed: ParsedBurpRequest,
@@ -442,41 +442,41 @@ def build_http_target(
     auto_discover_capabilities: bool = False,
     http_client: httpx.AsyncClient | None = None,
 ) -> HTTPTarget:
-    """从解析结果构建 PyRIT 原生 HTTPTarget.
+    """imports PyRIT  HTTPTarget.
 
-    宪法合规: 仅使用 PyRIT 原生 Target, 不自定义子类.
+    :  PyRIT  Target, .
 
-    对齐 PyRIT 1.0.1:
-        1. 使用原生 HTTPTarget (非子类)
-        2. 构建 TargetConfiguration 声明目标能力
-        3. 配置 httpx.AsyncClient 参数 (timeout, follow_redirects, verify)
-        4. HTTP/2 检测: 从 parsed.http_version 启用
-        5. 回调函数: 对齐官方 get_http_target_json_response_callback_function
+    Aligned with PyRIT 1.0.1:
+        1.  HTTPTarget ()
+        2.  TargetConfiguration 
+        3.  httpx.AsyncClient  (timeout, follow_redirects, verify)
+        4. HTTP/2 : imports parsed.http_version 
+        5. :  get_http_target_json_response_callback_function
 
     Args:
-        parsed: 解析后的 Burp 请求.
-        enable_multi_turn: 是否声明多轮攻击能力.
-        enable_system_prompt_adapt: 是否启用 system prompt 自适应.
-        auto_discover_capabilities: 是否运行 PyRIT 原生能力探测.
-        http_client: 预配置的 httpx.AsyncClient (复用).
+        parsed:  Burp .
+        enable_multi_turn: .
+        enable_system_prompt_adapt:  system prompt .
+        auto_discover_capabilities:  PyRIT .
+        http_client:  httpx.AsyncClient ().
 
     Returns:
-        HTTPTarget: PyRIT 原生 HTTP 目标实例.
+        HTTPTarget: PyRIT  HTTP .
     """
     from recon.burp_parser import build_raw_http_request
 
     raw_request = build_raw_http_request(parsed)
 
-    # ── Chat ID 状态管理器 ──
+    # == Chat ID  ==
     chat_id_state: ChatIdStateManager | None = None
     if parsed.has_chat_id_placeholder or parsed.chat_id:
         chat_id_state = ChatIdStateManager(initial_chat_id=parsed.chat_id)
 
-    # ── 创建共享 Client (如果未提供) ──
+    # ==  Client () ==
     shared_client = http_client
     if shared_client is None:
         http2 = "HTTP/2" in (parsed.http_version or "")
-        # P2-06: TLS verify 配置化 (SSOT) — 使用模块级缓存
+        # P2-06: TLS verify  (SSOT) — 
         shared_client = httpx.AsyncClient(
             timeout=120.0,
             follow_redirects=True,
@@ -484,16 +484,16 @@ def build_http_target(
             http2=http2,
         )
 
-    # ── Callback 链 ──
+    # == Callback  ==
     callback = _assemble_callback(parsed, chat_id_state)
 
-    # ── TargetConfiguration ──
+    # == TargetConfiguration ==
     custom_config = _build_target_configuration(
         enable_multi_turn=enable_multi_turn,
         enable_system_prompt_adapt=enable_system_prompt_adapt,
     )
 
-    # ── 构建 Target (原生 HTTPTarget) ──
+    # ==  Target ( HTTPTarget) ==
     target = HTTPTarget(
         http_request=raw_request,
         prompt_regex_string="{PROMPT}",
@@ -503,8 +503,8 @@ def build_http_target(
         custom_configuration=custom_config,
     )
 
-    # ── 附加状态管理器 (通过 target 的 __dict__ 传递) ──
-    # 注意: 这是一种轻量级方式, 将状态管理器与 target 关联, 但不侵入 target 自身逻辑
+    # ==  ( target  __dict__ ) ==
+    # : ,  target ,  target 
     target._recon_chat_id_state = chat_id_state  # type: ignore[attr-defined]
     if chat_id_state:
         chat_id_state.set_template(raw_request)
@@ -525,7 +525,7 @@ def build_http_target(
         "enabled" if chat_id_state else "disabled",
     )
 
-    # L5 v52: PyRIT 原生能力探测 (可选)
+    # L5 v52: PyRIT  ()
     if auto_discover_capabilities:
         _run_capability_discovery_sync(target)
 
@@ -537,9 +537,9 @@ def _build_target_configuration(
     enable_multi_turn: bool,
     enable_system_prompt_adapt: bool,
 ) -> TargetConfiguration | None:
-    """构建 TargetConfiguration.
+    """ TargetConfiguration.
 
-    根据 multi_turn 和 system_prompt_adapt 配置声明目标能力.
+     multi_turn  system_prompt_adapt .
     """
     from pyrit.prompt_target.common.target_capabilities import (
         CapabilityHandlingPolicy,
@@ -548,7 +548,7 @@ def _build_target_configuration(
     )
 
     if enable_multi_turn:
-        # 多轮: 声明 multi_turn + editable_history
+        # :  multi_turn + editable_history
         policy = CapabilityHandlingPolicy(
             behaviors={
                 CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.ADAPT,
@@ -566,7 +566,7 @@ def _build_target_configuration(
             policy=policy,
         )
     else:
-        # 单轮: 仅声明 text 输入
+        # :  text 
         if enable_system_prompt_adapt:
             policy = CapabilityHandlingPolicy(
                 behaviors={
@@ -585,14 +585,14 @@ def _build_target_configuration(
 
 
 def _run_capability_discovery_sync(target: HTTPTarget) -> None:
-    """同步触发 PyRIT 原生能力探测 (L5 v52).
+    """ PyRIT  (L5 v52).
 
-    由于 discover_target_capabilities_async 是异步函数,
-    但 build_http_target 是同步函数, 这里使用 asyncio.run
-    在无事件循环时触发探测。如果已在事件循环中, 则跳过.
+     discover_target_capabilities_async ,
+     build_http_target ,  asyncio.run
+    , Skip.
 
     Args:
-        target: PyRIT HTTPTarget 实例.
+        target: PyRIT HTTPTarget .
     """
     try:
         import asyncio
@@ -613,10 +613,10 @@ def _run_capability_discovery_sync(target: HTTPTarget) -> None:
 
 
 async def _async_discover_capabilities(target: HTTPTarget) -> None:
-    """异步运行 PyRIT 原生能力探测 (L5 v52).
+    """ PyRIT  (L5 v52).
 
     Args:
-        target: PyRIT HTTPTarget 实例.
+        target: PyRIT HTTPTarget .
     """
     try:
         from pyrit.prompt_target.common.discover_target_capabilities import (
@@ -647,9 +647,9 @@ async def _async_discover_capabilities(target: HTTPTarget) -> None:
         )
 
 
-# ════════════════════════════════════════════════════════════════════
-# HTTPXAPITarget 构建 — API 模式
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# HTTPXAPITarget  — API 
+# ====================================================================
 
 def build_httpx_api_target(
     parsed: ParsedBurpRequest,
@@ -662,28 +662,28 @@ def build_httpx_api_target(
     max_requests_per_minute: int | None = None,
     enable_multi_turn: bool = False,
 ) -> HTTPXAPITarget:
-    """构建 PyRIT 原生 HTTPXAPITarget — API 模式.
+    """ PyRIT  HTTPXAPITarget — API .
 
-    对齐 PyRIT 1.0.1 HTTPXAPITarget:
-        - 用于文件上传/multipart form/JSON API 场景
-        - 支持 GET/POST/PUT/DELETE/PATCH/HEAD/OPTIONS
-        - 内置文件上传 (仅 POST/PUT)
+     PyRIT 1.0.1 HTTPXAPITarget:
+        - /multipart form/JSON API 
+        -  GET/POST/PUT/DELETE/PATCH/HEAD/OPTIONS
+        -  ( POST/PUT)
 
     Args:
-        parsed: 解析后的 Burp 请求 (提取 host/auth headers).
-        method: HTTP 方法.
-        json_data: JSON body 数据.
-        form_data: Form body 数据.
-        file_path: 上传文件路径 (仅 POST/PUT).
-        params: URL query 参数.
-        max_requests_per_minute: 每分钟最大请求数.
-        enable_multi_turn: 是否支持多轮.
+        parsed:  Burp  ( host/auth headers).
+        method: HTTP .
+        json_data: JSON body .
+        form_data: Form body .
+        file_path:  ( POST/PUT).
+        params: URL query .
+        max_requests_per_minute: .
+        enable_multi_turn: .
 
     Returns:
-        HTTPXAPITarget: PyRIT 原生 API 模式目标实例.
+        HTTPXAPITarget: PyRIT  API .
 
     Raises:
-        ValueError: 如果 method 不合法或 file_path 与 method 不兼容.
+        ValueError:  method  file_path  method .
     """
     _VALID_METHODS = frozenset({"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"})
     method_upper = method.upper().strip()
@@ -702,13 +702,13 @@ def build_httpx_api_target(
     scheme = "https" if parsed.use_tls else "http"
     http_url = f"{scheme}://{parsed.host}{parsed.path}"
 
-    # 提取认证相关 headers
+    #  headers
     headers: dict[str, str] = {}
     for key, value in parsed.raw_headers:
         if key.lower() not in ("content-length", "host", "content-type"):
             headers[key] = value
 
-    # 构建 TargetConfiguration
+    #  TargetConfiguration
     custom_config = None
     if enable_multi_turn:
         from pyrit.prompt_target.common.target_capabilities import (
@@ -746,7 +746,7 @@ def build_httpx_api_target(
         max_requests_per_minute=max_requests_per_minute,
         custom_configuration=custom_config,
         timeout=120.0,
-        # P2-06: TLS verify 配置化 (SSOT)
+        # P2-06: TLS verify  (SSOT)
         verify=_TLS_VERIFY,
     )
 
@@ -763,12 +763,12 @@ def build_httpx_api_target(
     return target
 
 
-# ════════════════════════════════════════════════════════════════════
-# 向后兼容: 保留导入 (标记为 deprecated)
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# :  ( deprecated)
+# ====================================================================
 
 def __getattr__(name: str) -> Any:
-    """向后兼容层, 警告用户迁移至新 API."""
+    """Layer,  API."""
     if name == "JSONSafeHTTPTarget":
         import warnings
         warnings.warn(
@@ -777,6 +777,6 @@ def __getattr__(name: str) -> Any:
             DeprecationWarning,
             stacklevel=2,
         )
-        # 返回原生 HTTPTarget 作为替代
+        #  HTTPTarget 
         return HTTPTarget
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")

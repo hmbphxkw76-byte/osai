@@ -1,18 +1,18 @@
 # arXiv:2402.12109 — Russinovich et al., Crescendo
 # arXiv:2307.08673 — Zou et al., GCG
 # arXiv:2407.01232 — PyRIT, SequentialAttack FIRST_SUCCESS
-"""report_sections — 报告章节构建函数.
+"""report_sections — .
 
-从 generator.py 拆分而来, 负责构建报告中的各种数据章节:
-    - 热力图数据 (Technique × OWASP)
-    - 升级链仪表盘
-    - 技术有效性矩阵
-    - 评分一致性分析
-    - MITRE ATLAS 映射章节
-    - 三级证据链 Findings 章节
-    - 升级链报告章节
-    - CSV 导出
-    - ZIP 证据包打包
+imports generator.py , :
+    -  (Technique × OWASP)
+    - 
+    - 
+    - 
+    - MITRE ATLAS 
+    -  Findings 
+    - 
+    - CSV 
+    - ZIP 
 """
 
 from __future__ import annotations
@@ -34,18 +34,18 @@ def _build_heatmap_data(
     evidence: EvidenceCollection,
     evidence_list: list[VulnerabilityEvidence],
 ) -> tuple[list[str], list[dict[str, Any]]]:
-    """构建 ASR 热力图数据 (Technique × OWASP).
+    """ ASR  (Technique × OWASP).
 
     Args:
-        evidence: 证据集合.
-        evidence_list: 要包含的证据列表.
+        evidence: .
+        evidence_list: .
 
     Returns:
-        (owasp_ids, rows) 元组:
-        - owasp_ids: OWASP ID 列表 (列标题)
-        - rows: 行数据列表, 每行含 technique, cells, overall_css, overall_display
+        (owasp_ids, rows) :
+        - owasp_ids: OWASP ID  ()
+        - rows: ,  technique, cells, overall_css, overall_display
     """
-    # 收集所有 OWASP ID (按出现顺序)
+    #  OWASP ID ()
     owasp_ids_set: set[str] = set()
     tech_owasp_asr: dict[str, dict[str, tuple[int, int]]] = {}
 
@@ -95,7 +95,7 @@ def _build_heatmap_data(
 
 
 def _asr_to_css_class(asr: float) -> str:
-    """将 ASR 百分比映射为 CSS 类名."""
+    """ ASR  CSS ."""
     if asr >= 50:
         return "heat-critical"
     if asr >= 25:
@@ -106,30 +106,30 @@ def _asr_to_css_class(asr: float) -> str:
 
 
 def _build_escalation_dashboard_data(evidence: EvidenceCollection) -> list[dict[str, Any]]:
-    """构建升级链仪表盘数据.
+    """.
 
-    断点修复: 原代码使用硬编码系数 (0.82, 0.65, 0.50, 0.30) 估算各阶段 ASR,
-    导致报告中的升级链仪表盘数据与实际 ASR 不一致。
-    修复: 从 evidence 中提取真实 ASR per technique, 按技术名匹配各阶段。
+    :  (0.82, 0.65, 0.50, 0.30)  ASR,
+     ASR 
+    : imports evidence  ASR per technique, 
 
-    5 个阶段:
+    5 converter(s):
         Stage 1: Single-Turn (baseline techniques)
         Stage 2: Crescendo
         Stage 3: TAP
         Stage 4: PAIR
         Stage 5: GCG
 
-    数据源:
-        - evidence 中每个 VulnerabilityEvidence 的 technique_name + is_success
-        - 按阶段关键词匹配技术名, 计算真实 ASR
+    :
+        - evidence converter(s) VulnerabilityEvidence  technique_name + is_success
+        - ,  ASR
 
     Args:
-        evidence: 证据集合.
+        evidence: .
 
     Returns:
-        5 个阶段的仪表盘数据列表, 每个含 stage, technique, asr, asr_num, escalated.
+        5 converter(s), converter(s) stage, technique, asr, asr_num, escalated.
     """
-    # 阶段定义: (stage_name, display_technique, matching_keywords)
+    # : (stage_name, display_technique, matching_keywords)
     stage_defs = [
         ("Stage 1", "Single-Turn", ["prompt_sending", "baseline", "single"]),
         ("Stage 2", "Crescendo", ["crescendo"]),
@@ -138,12 +138,12 @@ def _build_escalation_dashboard_data(evidence: EvidenceCollection) -> list[dict[
         ("Stage 5", "GCG", ["gcg"]),
     ]
 
-    # 从 evidence 列表计算各阶段真实 ASR
+    #  evidence  ASR
     overall_asr = evidence.overall_asr
 
     stages: list[dict[str, Any]] = []
     for i, (stage_name, display_tech, keywords) in enumerate(stage_defs):
-        # 按关键词匹配技术, 收集该阶段的所有证据
+        # , 
         stage_evidence = [
             ev for ev in evidence.evidence
             if any(kw in ev.technique_name.lower() for kw in keywords)
@@ -154,13 +154,13 @@ def _build_escalation_dashboard_data(evidence: EvidenceCollection) -> list[dict[
             success = sum(1 for ev in stage_evidence if ev.is_success)
             matched_asr = (success / total * 100) if total > 0 else 0.0
         else:
-            # Stage 1 fallback: 使用总体 ASR (baseline 阶段 = 整体)
+            # Stage 1 fallback:  ASR (baseline  = )
             if i == 0:
                 matched_asr = overall_asr
             else:
                 matched_asr = 0.0
 
-        # 判断升级状态
+        # 
         if matched_asr >= 90:
             escalated = "stop"
         elif matched_asr > 0 and i < len(stage_defs) - 1:
@@ -183,20 +183,20 @@ def _build_technique_effectiveness_matrix(
     evidence: EvidenceCollection,
     evidence_list: list[VulnerabilityEvidence],
 ) -> list[str]:
-    """构建攻击技术有效性矩阵 (Markdown 行列表).
+    """ (Markdown ).
 
     Args:
-        evidence: 证据集合.
-        evidence_list: 证据列表.
+        evidence: .
+        evidence_list: .
 
     Returns:
-        Markdown 行列表 (含标题、表头、数据行).
+        Markdown  ().
     """
     lines: list[str] = []
     lines.append("## Attack Technique Effectiveness Matrix")
     lines.append("")
 
-    # 收集技术 × OWASP 的 ASR 数据
+    #  × OWASP  ASR 
     tech_data: dict[str, dict[str, dict[str, int]]] = {}
     owasp_ids_set: set[str] = set()
 
@@ -216,13 +216,13 @@ def _build_technique_effectiveness_matrix(
 
     owasp_ids = sorted(owasp_ids_set)
 
-    # 表头
+    # 
     header = "| Technique | " + " | ".join(owasp_ids) + " | Overall |"
     separator = "|-----------|" + "|".join(["---" for _ in owasp_ids]) + "|---|"
     lines.append(header)
     lines.append(separator)
 
-    # 数据行
+    # 
     for tech, owasp_data in sorted(tech_data.items()):
         cells: list[str] = []
         total_s = 0
@@ -245,16 +245,16 @@ def _build_technique_effectiveness_matrix(
 
 
 def _build_score_consistency_section(evidence: EvidenceCollection) -> list[str]:
-    """构建评分一致性分析章节 (去重摘要版).
+    """ ().
 
-    v57 优化: 当所有 Evidence 的一致性分类相同时, 合并为单行摘要,
-    避免逐行重复 (如 45 行全部 "Score | Post-hoc Dual Judge")。
+    v57 : all Evidence , ,
+     ( 45  "Score | Post-hoc Dual Judge")
 
     Args:
-        evidence: 证据集合.
+        evidence: .
 
     Returns:
-        Markdown 行列表.
+        Markdown .
     """
     from report.generator import _classify_score_consistency
 
@@ -262,7 +262,7 @@ def _build_score_consistency_section(evidence: EvidenceCollection) -> list[str]:
     lines.append("## Score Consistency Analysis")
     lines.append("")
 
-    # 收集所有 Evidence 的一致性分类
+    #  Evidence 
     consistency_map: list[tuple[str, str, str]] = []  # (evidence_id, scorer_names, consistency)
     for ev in evidence.evidence:
         score_details = ev.score_details
@@ -277,16 +277,16 @@ def _build_score_consistency_section(evidence: EvidenceCollection) -> list[str]:
         consistency = _classify_score_consistency(score_details)
         consistency_map.append((ev.evidence_id, scorer_names, consistency))
 
-    # 检查是否所有一致性分类相同
+    # 
     all_same = len({c for _, _, c in consistency_map}) == 1
     if all_same and consistency_map:
-        # 摘要模式: 所有 Evidence 的一致性相同
+        # :  Evidence 
         unique_consistency = consistency_map[0][2]
         unique_scorer = consistency_map[0][1]
         lines.append(f"All {len(consistency_map)} evidence items scored with **{unique_scorer}** — consistency: **{unique_consistency}**.")
         lines.append("")
     else:
-        # 详细模式: 存在不一致, 逐行列出
+        # : , 
         lines.append("| Evidence ID | Scorer(s) | Consistency |")
         lines.append("|-------------|-----------|-------------|")
         for eid, scorer_names, consistency in consistency_map:
@@ -297,13 +297,13 @@ def _build_score_consistency_section(evidence: EvidenceCollection) -> list[str]:
 
 
 def _finding_to_dict(finding: OWASPFinding) -> dict[str, Any]:
-    """将 Finding 对象转换为字典 (用于 JSON 序列化).
+    """ Finding  ( JSON ).
 
     Args:
-        finding: OWASPFinding 对象.
+        finding: OWASPFinding .
 
     Returns:
-        字典表示.
+        .
     """
     return {
         "finding_id": finding.finding_id,
@@ -324,21 +324,21 @@ def _finding_to_dict(finding: OWASPFinding) -> dict[str, Any]:
 
 
 def _render_attack_summary_csv(evidence: EvidenceCollection) -> str:
-    """生成攻击摘要 CSV.
+    """ CSV.
 
-    列: Evidence ID, OWASP ID, OWASP Category, Technique, Converter Chain,
+    : Evidence ID, OWASP ID, OWASP Category, Technique, Converter Chain,
         Success, ASR, MITRE ATLAS, Confidence, Severity, Risk Score
 
     Args:
-        evidence: 证据集合.
+        evidence: .
 
     Returns:
-        CSV 字符串.
+        CSV .
     """
     output = io.StringIO()
     writer = csv.writer(output)
 
-    # 表头
+    # 
     writer.writerow([
         "Evidence ID", "OWASP ID", "OWASP Category", "Technique",
         "Converter Chain", "Success", "ASR", "MITRE ATLAS",
@@ -365,22 +365,22 @@ def _render_attack_summary_csv(evidence: EvidenceCollection) -> str:
 
 
 def _render_coverage_matrix_csv(evidence: EvidenceCollection) -> str:
-    """生成 OWASP 覆盖矩阵 CSV.
+    """ OWASP  CSV.
 
-    列: OWASP ID, Category, Standard, Tested, Success, Failed, ASR
+    : OWASP ID, Category, Standard, Tested, Success, Failed, ASR
 
-    包含 LLM Top 10 和 ASI Top 10.
+     LLM Top 10  ASI Top 10.
 
     Args:
-        evidence: 证据集合.
+        evidence: .
 
     Returns:
-        CSV 字符串.
+        CSV .
     """
     output = io.StringIO()
     writer = csv.writer(output)
 
-    # 表头
+    # 
     writer.writerow(["OWASP ID", "Category", "Standard", "Tested", "Success", "Failed", "ASR"])
 
     # LLM Top 10
@@ -413,17 +413,17 @@ def _render_coverage_matrix_csv(evidence: EvidenceCollection) -> str:
 
 
 def _export_evidence_zip(output_dir: Path, evidence: EvidenceCollection) -> None:
-    """将输出目录中的所有文件打包为 ZIP 证据包.
+    """Output directoryall ZIP .
 
     Args:
-        output_dir: 输出目录.
-        evidence: 证据集合 (用于确定要打包的文件).
+        output_dir: Output directory.
+        evidence:  ().
     """
     output_dir = Path(output_dir)
     zip_path = output_dir / "evidence_package.zip"
 
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        # 遍历输出目录中的所有文件
+        # Output directory
         for file_path in output_dir.rglob("*"):
             if file_path == zip_path:
                 continue

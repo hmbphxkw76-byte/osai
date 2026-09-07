@@ -1,15 +1,15 @@
 # arXiv:2402.12109 — Russinovich et al., Crescendo
 # arXiv:2407.01232 — PyRIT, framework foundation
 # arXiv:2302.12173 — Greshake et al., PromptSendingAttack
-"""strike 鈥?鏀诲嚮鍙戦€侀樁娈点€?
+"""strike ?€€?
 
-鏀诲嚮閾捐矾绗?4 姝? 浣跨敤 PyRIT 鍘熺敓 AttackExecutor 鎵ц鏀诲嚮銆?
+?4 ?  PyRIT  AttackExecutor ц?
 
-鏍稿績妯″潡:
-    - executor: 鍗曡疆 PromptSendingAttack 澶氳矾寰勬墽琛?(FIRST_SUCCESS)
-    - arm/converter_selector: Converter 候选选择 + OWASP 优先级 (已移至 arm/ 模块)
-    - escalation: 鍗曡疆澶辫触 鈫?澶氳疆鍗囩骇 (Crescendo鈫扵AP鈫扨AIR鈫扜CG)
-    - adaptive_executor: PyRIT 鍘熺敓 TextAdaptive + Best-of-N 閲嶈瘯
+″:
+    - executor:  PromptSendingAttack ?(FIRST_SUCCESS)
+    - arm/converter_selector: Converter  + OWASP  ( arm/ )
+    - escalation:  ? (CrescendoAPAIRCG)
+    - adaptive_executor: PyRIT  TextAdaptive + Best-of-N 
 """
 
 from strike.escalation import check_and_escalate

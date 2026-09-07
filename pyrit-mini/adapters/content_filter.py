@@ -1,24 +1,24 @@
-"""ContentFilterExt — 扩展 PyRIT 原生内容过滤器标记。
+"""ContentFilterExt — Extends PyRIT native Content filter markers.
 
-对齐 PyRIT 1.0.1 架构:
-    PyRIT 1.0.1 中 ``CONTENT_FILTER_MARKERS`` 定义在
-    ``pyrit.exceptions.exception_classes`` 模块中 (frozenset)。
+Aligned with PyRIT 1.0.1 architecture:
+    In PyRIT 1.0.1, ``CONTENT_FILTER_MARKERS`` is defined in
+    ``pyrit.exceptions.exception_classes`` module (frozenset).
 
-    ``_is_content_filter_error`` 函数 (在 ``openai_error_handling`` 模块中)
-    从 ``exception_classes`` 导入 ``CONTENT_FILTER_MARKERS`` 并执行
-    子串扫描来判断是否为内容过滤错误。
+    ``_is_content_filter_error`` function (in ``openai_error_handling`` module)
+    imports ``exception_classes`` from ``CONTENT_FILTER_MARKERS`` and performs
+    substring scanning to determine if it is a content filter error.
 
-    本模块通过直接扩展 ``exception_classes.CONTENT_FILTER_MARKERS``
-    frozenset 来增强 PyRIT 原生内容过滤检测能力，无需包装函数。
+    This module directly extends ``exception_classes.CONTENT_FILTER_MARKERS``
+    frozenset to enhance PyRIT native content filter detection, no wrapper function needed.
 
-三层防御机制:
-    L1: 静态标记 (YAML 配置文件)
-    L2: 默认扩展标记 (覆盖第三方 API 中文安全标记)
-    L3: heuristic 动态发现 (从错误信息中发现新标记, 持久化缓存)
+Three-layer defense mechanism:
+    L1: Static markers (YAML configuration file)
+    L2: Default extended markers (covers third-party API Chinese security markers)
+    L3: Heuristic dynamic discovery (discover new markers from error messages, persistent cache)
 
-学术依据:
-    - PyRIT (arXiv:2407.01232) — 内容过滤检测是 target 交互的核心
-    - Greshake et al. (arXiv:2302.12173) — 目标安全系统探测
+Academic basis:
+    - PyRIT (arXiv:2407.01232) — Content filtering target 
+    - Greshake et al. (arXiv:2302.12173) — 
 """
 
 from __future__ import annotations
@@ -30,13 +30,13 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# L2: 默认扩展标记 (覆盖第三方 API, 特别是中文 LLM 服务)
-# PyRIT 原生 CONTENT_FILTER_MARKERS 已包含:
+# L2:  ( API,  LLM )
+# PyRIT  CONTENT_FILTER_MARKERS :
 #   content_filter, content_safety_violation, policy_violation, moderation_blocked
-# 这里补充第三方 API 常见的内容过滤标记
+#  API Content filtering
 _DEFAULT_EXTRA_MARKERS = frozenset(
     {
-        # 英文扩展标记
+        # 
         "security_audit_fail",
         "security_error",
         "sensitive_content",
@@ -44,23 +44,23 @@ _DEFAULT_EXTRA_MARKERS = frozenset(
         "review_blocked",
         "safety_system",
         "safety_system_triggered",
-        # 中文内容过滤标记 (国产 LLM 服务常见)
-        "违规信息",
-        "内容违规",
-        "内容包含敏感词",
-        "我无法回答",
-        "作为AI",
-        "我不能提供",
-        "敏感词",
-        "内容审核",
-        "安全拦截",
+        # Content filtering ( LLM )
+        "",
+        "",
+        "",
+        "",
+        "AI",
+        "",
+        "",
+        "",
+        "",
     }
 )
 
-# heuristic 发现的标记缓存路径
+# heuristic 
 _CACHE_PATH = Path("outputs/cache/content_filter_markers.json")
 
-# heuristic 模式: 从常见错误信息中发现新标记
+# heuristic : 
 _HEURISTIC_PATTERNS = [
     re.compile(r'"(block\w*|filter\w*|reject\w*|deny\w*)":\s*"([^"]+)"', re.IGNORECASE),
     re.compile(r'"(reason|message)":\s*"([^"]*(?:block|filter|reject|denied|violation)[^"]*)"', re.IGNORECASE),
@@ -70,29 +70,29 @@ _HEURISTIC_PATTERNS = [
 def extend_content_filter_markers(
     config_path: str | Path | None = None,
 ) -> frozenset[str]:
-    """扩展 PyRIT 原生 ``CONTENT_FILTER_MARKERS`` (三层防御)。
+    """Extends PyRIT native ``CONTENT_FILTER_MARKERS`` (three-layer defense).
 
-    对齐 PyRIT 1.0.1:
-        PyRIT 1.0.1 的 ``CONTENT_FILTER_MARKERS`` 定义在
-        ``pyrit.exceptions.exception_classes`` 模块中。
-        ``_is_content_filter_error`` (在 ``openai_error_handling`` 中) 从
-        ``exception_classes`` 导入此 frozenset。
-        直接扩展此 frozenset 即可增强所有使用它的检测逻辑。
+    Aligned with PyRIT 1.0.1:
+        PyRIT 1.0.1's ``CONTENT_FILTER_MARKERS`` is defined in
+        ``pyrit.exceptions.exception_classes`` 
+        ``_is_content_filter_error`` ( ``openai_error_handling`` ) imports
+        ``exception_classes`` from frozenset
+        Extend frozenset all
 
-    执行流程:
-        1. 加载 YAML 静态配置 (L1)
-        2. 合并默认扩展标记 (L2)
-        3. 加载上次运行发现的标记缓存 (L3)
-        4. 扩展 ``exception_classes.CONTENT_FILTER_MARKERS`` frozenset
-        5. 功能验证 — 确保扩展标记被 PyRIT 识别
+    Execution flow:
+        1. Load YAML static configuration (L1)
+        2. Merge default extended markers (L2)
+        3. Load cached markers discovered in last run (L3)
+        4. Extend ``exception_classes.CONTENT_FILTER_MARKERS`` frozenset
+        5. Functional verification - ensure extended markers are recognized by PyRIT
 
     Args:
-        config_path: YAML 配置文件路径 (可选)。
+        config_path: YAML configuration file path (optional).
 
     Returns:
-        所有扩展标记的 frozenset。
+        Frozenset of all extended markers.
     """
-    # L1: 静态配置
+    # L1: 
     static_markers: set[str] = set()
     if config_path:
         path = Path(config_path)
@@ -104,19 +104,19 @@ def extend_content_filter_markers(
                 static_markers.update(data["markers"])
             logger.info("L1: Loaded %d static markers from %s", len(static_markers), config_path)
 
-    # L2: 默认扩展标记
+    # L2: 
     all_markers = static_markers | _DEFAULT_EXTRA_MARKERS
     logger.info("L2: %d default extra markers", len(_DEFAULT_EXTRA_MARKERS))
 
-    # L3: heuristic 缓存
+    # L3: heuristic 
     cached_markers = _load_discovered_markers()
     all_markers |= cached_markers
     logger.info("L3: %d cached discovered markers", len(cached_markers))
 
-    # 扩展 PyRIT 原生 CONTENT_FILTER_MARKERS
+    #  PyRIT  CONTENT_FILTER_MARKERS
     _patch_content_filter_markers(all_markers)
 
-    # 功能验证
+    # 
     _verify_patch(all_markers)
 
     logger.info("Content filter extended with %d total markers", len(all_markers))
@@ -124,16 +124,16 @@ def extend_content_filter_markers(
 
 
 def _patch_content_filter_markers(markers: set[str]) -> None:
-    """扩展 PyRIT 原生 ``CONTENT_FILTER_MARKERS`` frozenset。
+    """Extends PyRIT native ``CONTENT_FILTER_MARKERS`` frozenset
 
-    对齐 PyRIT 1.0.1:
-        ``CONTENT_FILTER_MARKERS`` 定义在
-        ``pyrit.exceptions.exception_classes`` 模块中。
-        直接替换该模块属性为合并后的 frozenset。
+    Aligned with PyRIT 1.0.1:
+        ``CONTENT_FILTER_MARKERS`` is defined in
+        ``pyrit.exceptions.exception_classes`` 
+         frozenset
 
-        ``openai_error_handling._is_content_filter_error`` 通过
+        ``openai_error_handling._is_content_filter_error`` 
         ``from pyrit.exceptions.exception_classes import CONTENT_FILTER_MARKERS``
-        导入此集合，因此直接替换模块属性即可生效。
+        fromTherefore,
     """
     try:
         from pyrit.exceptions import exception_classes
@@ -145,17 +145,17 @@ def _patch_content_filter_markers(markers: set[str]) -> None:
     except ImportError:
         logger.warning("Could not import exception_classes for patching")
 
-    # 也补丁 handle_bad_request_exception 中的引用 (如果存在)
-    # handle_bad_request_exception 在 exception_classes 模块中,
-    # 它直接引用模块级 CONTENT_FILTER_MARKERS 变量,
-    # 所以上面的替换已经覆盖了它。
+    #  handle_bad_request_exception  ()
+    # handle_bad_request_exception  exception_classes ,
+    #  CONTENT_FILTER_MARKERS ,
+    # 
 
 
 def _verify_patch(markers: set[str]) -> None:
-    """功能验证 — 确保扩展标记被 PyRIT 识别。
+    """Functional verification - ensure extended markers are recognized by PyRIT.
 
-    对齐 PyRIT 1.0.1: 验证 ``exception_classes.CONTENT_FILTER_MARKERS``
-    已包含所有扩展标记。
+    Aligned with PyRIT 1.0.1:  ``exception_classes.CONTENT_FILTER_MARKERS``
+    allExtend
     """
     try:
         from pyrit.exceptions import exception_classes
@@ -171,13 +171,13 @@ def _verify_patch(markers: set[str]) -> None:
 
 
 def persist_discovered_markers() -> None:
-    """持久化动态发现的标记到 JSON 文件。"""
+    """Persist dynamically discovered markers to JSON file."""
     try:
         from pyrit.exceptions import exception_classes
 
         current = getattr(exception_classes, "CONTENT_FILTER_MARKERS", frozenset())
         discovered = set(current) - _DEFAULT_EXTRA_MARKERS
-        # 也排除 PyRIT 原生标记
+        #  PyRIT 
         _native_markers = frozenset(
             {
                 "content_filter",
@@ -201,7 +201,7 @@ def persist_discovered_markers() -> None:
 
 
 def _load_discovered_markers() -> set[str]:
-    """加载上次运行发现的标记缓存。"""
+    """Load cached markers discovered in last run."""
     if not _CACHE_PATH.exists():
         return set()
     try:
@@ -214,13 +214,13 @@ def _load_discovered_markers() -> set[str]:
 
 
 def discover_markers_from_error(error_str: str) -> set[str]:
-    """从错误信息中 heuristic 发现新内容过滤标记。
+    """Heuristic discovery of new content filter markers from error messages.
 
     Args:
-        error_str: 错误信息字符串。
+        error_str: Error message string.
 
     Returns:
-        新发现的标记集合。
+        Set of newly discovered markers.
     """
     discovered: set[str] = set()
     for pattern in _HEURISTIC_PATTERNS:

@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
-"""攻击工具函数 — SSOT 统一封装.
+""" — SSOT .
 
-P2 优化 (2026-09-06):
-    消除 _is_success 函数在以下位置的重复定义:
+P2  (2026-09-06):
+     _is_success :
     - utils/display_stages.py
-    - strike/executor.py (已拆分为 strike/_sequential.py)
-    - strike/escalation_chain.py (Rule 11 特殊版本, 保持独立)
-    - report/evidence_extract.py (简单版本, 保持独立)
+    - strike/executor.py ( strike/_sequential.py)
+    - strike/escalation_chain.py (Rule 11 , )
+    - report/evidence_extract.py (, )
 
-设计决策:
-    - 本模块作为攻击判断的 SSOT (Single Source of Truth)
-    - 复杂变体 (Rule 11集成, evidence_extract) 保留本地实现
-    - 延迟导入避免循环依赖
+:
+    -  SSOT (Single Source of Truth)
+    -  (Rule 11, evidence_extract) 
+    - from
 """
 from __future__ import annotations
 
@@ -19,18 +19,18 @@ from typing import Any
 
 
 def _is_success(result: Any) -> bool:
-    """判断攻击结果是否成功 (用于进度统计和摘要).
+    """ ().
 
-    SSOT 实现, 覆盖标准判断路径:
-    1. outcome 属性 (AttackOutcome.SUCCESS / FAILURE)
-    2. score_value 属性 (单值评分)
-    3. scores 属性 (多值评分列表)
+    SSOT , :
+    1. outcome  (AttackOutcome.SUCCESS / FAILURE)
+    2. score_value  ()
+    3. scores  ()
 
     Args:
-        result: AttackResult 或兼容对象.
+        result: AttackResult .
 
     Returns:
-        True 表示攻击成功, False 表示失败/未知.
+        True , False /.
     """
     outcome = getattr(result, "outcome", None)
     if outcome:

@@ -8,10 +8,10 @@ Covers:
     - _extract_server_info: MCP initialize response parsing
     - build_mcp_attack_seeds: attack seed generation from MCP enumeration
 
-学术依据:
+Academic basis:
     - Anthropic MCP Specification (2024) §3.2 — JSON-RPC methods
-    - Greshake et al. (arXiv:2302.12173) §4 — 间接提示注入
-    - Zhan et al. (arXiv:2307.00929) §3.3 — InjecAgent 参数注入
+    - Greshake et al. (arXiv:2302.12173) §4 — 
+    - Zhan et al. (arXiv:2307.00929) §3.3 — InjecAgent 
 """
 
 from __future__ import annotations

@@ -3,24 +3,24 @@
 # arXiv:2405.17350 - Mehrabi et al., TAPAttack
 # arXiv:2404.02151 - Hughes et al., BestOfN
 # arXiv:2402.14266 - SKELETONKEY, SkeletonKey
-"""AttackTechniqueFactory 娉ㄥ唽 鈥?灏嗛」鐩敾鍑绘妧鏈敞鍐屽埌 PyRIT 鍘熺敓 registry銆?
+"""AttackTechniqueFactory ㄥ ? PyRIT  registry?
 
-鍒╃敤 PyRIT 1.0.1 鍘熺敓 AttackTechniqueFactory + AttackTechniqueRegistry锛?
-灏嗛」鐩殑鏀诲嚮鎶€鏈紙PromptSending + Crescendo + TAP + PAIR + Best-of-N锛?
-娉ㄥ唽涓哄彲琚?TextAdaptive 鍦烘櫙鑷姩鍙戠幇鍜岄€夋嫨鐨勬妧鏈€?
+╃ PyRIT 1.0.1  AttackTechniqueFactory + AttackTechniqueRegistry?
+€PromptSending + Crescendo + TAP + PAIR + Best-of-N?
+ㄥ?TextAdaptive €€?
 
-瀛︽湳渚濇嵁:
-    - PyRIT (arXiv:2407.01232) 鈥?AttackTechniqueFactory + Registry 璁捐,
-      scenarios 閫氳繃 tag 鏌ヨ鑷姩鍙戠幇鎶€鏈?
-    - Chao et al. (arXiv:2310.08419) 鈥?PAIR 鑷€傚簲绛栫暐閫夋嫨
-    - Mehrotra et al. (arXiv:2312.02191) 鈥?TAP 鏍戞悳绱?
-    - Russinovich et al. (arXiv:2402.12109) 鈥?Crescendo 娓愯繘鍗囩骇
-    - Chao et al. (arXiv:2402.01135) 鈥?Best-of-N ASR 鎻愬崌 1.8x
+︽:
+    - PyRIT (arXiv:2407.01232) ?AttackTechniqueFactory + Registry ,
+      scenarios  tag ヨ€?
+    - Chao et al. (arXiv:2310.08419) ?PAIR €
+    - Mehrotra et al. (arXiv:2312.02191) ?TAP ?
+    - Russinovich et al. (arXiv:2402.12109) ?Crescendo 
+    - Chao et al. (arXiv:2402.01135) ?Best-of-N ASR  1.8x
 
-PyRIT 鍘熺敓浼樺厛 (Rule 2):
-    鏈ā鍧楁槸鑳舵按灞?鈥?灏嗛」鐩厤缃弬鏁版敞鍏?PyRIT 鍘熺敓 AttackTechniqueFactory,
-    涓嶆浛鎹换浣曞師鐢熺粍浠躲€侳actory.create() 璋冪敤鏃朵娇鐢ㄥ師鐢?PromptSendingAttack /
-    CrescendoAttack / TAPAttack / PAIRAttack 浣滀负 attack_class銆?
+PyRIT  (Rule 2):
+    ā???PyRIT  AttackTechniqueFactory,
+    €actory.create() ㄥ?PromptSendingAttack /
+    CrescendoAttack / TAPAttack / PAIRAttack  attack_class?
 """
 
 from __future__ import annotations
@@ -40,12 +40,12 @@ def register_project_techniques(
     converter_target: Any | None = None,
     config_overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """灏嗛」鐩敾鍑绘妧鏈敞鍐屽埌 PyRIT 鍘熺敓 AttackTechniqueRegistry銆?
+    """ PyRIT  AttackTechniqueRegistry?
 
-    鏋勫缓 AttackTechniqueFactory 瀹炰緥骞舵敞鍐屽埌鍏ㄥ眬 registry锛?
-    浣?TextAdaptive 鍦烘櫙鑳借嚜鍔ㄥ彂鐜板拰閫夋嫨杩欎簺鎶€鏈€?
+     AttackTechniqueFactory ㄥ registry?
+    ?TextAdaptive ㄥ€€?
 
-    鎶€鏈垪琛?(鎸?L5 浼樺厛绾?:
+    €?(?L5 ?:
         1. PromptSending (baseline, single_turn tag)
         2. Crescendo (multi_turn tag)
         3. TAP (multi_turn tag, tree search)
@@ -54,20 +54,20 @@ def register_project_techniques(
         6. RedTeaming (multi_turn tag, baseline)
         7. SkeletonKey (single_turn tag, prefix injection)
 
-    瀛︽湳渚濇嵁:
-        - PyRIT (arXiv:2407.01232) 鈥?AttackTechniqueRegistry + tag 鏌ヨ
-        - Wei et al. (arXiv:2307.15043) 鈥?鍗曡疆澶氳矾寰勭嫭绔嬫墽琛?
-        - Russinovich et al. (arXiv:2402.12109) 鈥?Crescendo ASR=82%
-        - Mehrotra et al. (arXiv:2312.02191) 鈥?TAP 鏍戞悳绱?
-        - Chao et al. (arXiv:2310.08419) 鈥?PAIR 杩唬浼樺寲
-        - Chao et al. (arXiv:2402.01135) 鈥?Best-of-N N=5 ASR 1.8x
+    ︽:
+        - PyRIT (arXiv:2407.01232) ?AttackTechniqueRegistry + tag ヨ
+        - Wei et al. (arXiv:2307.15043) ??
+        - Russinovich et al. (arXiv:2402.12109) ?Crescendo ASR=82%
+        - Mehrotra et al. (arXiv:2312.02191) ?TAP ?
+        - Chao et al. (arXiv:2310.08419) ?PAIR 
+        - Chao et al. (arXiv:2402.01135) ?Best-of-N N=5 ASR 1.8x
 
     Args:
-        adversarial_target: 澶氳疆鏀诲嚮鐨?adversarial chat target (鍙€?銆?
-        converter_target: Converter 浣跨敤鐨?LLM target (鍙€? 鐢ㄤ簬 Best-of-N)銆?
+        adversarial_target: ?adversarial chat target (€??
+        converter_target: Converter ?LLM target (€? ㄤ Best-of-N)?
 
     Returns:
-        娉ㄥ唽鐨?factory 鍚嶇О鈫抐actory 鏄犲皠瀛楀吀銆傜┖瀛楀吀琛ㄧず娉ㄥ唽澶辫触銆?
+        ㄥ?factory Оactory ┖ㄧずㄥ?
     """
     try:
         from pyrit.executor.attack import (
@@ -86,14 +86,14 @@ def register_project_techniques(
         except ImportError:
             CrescendoAttack = None  # type: ignore[assignment,misc]
     except ImportError as e:
-        logger.warning("PyRIT attack classes not available: %s 鈥?technique registration skipped", e)
+        logger.warning("PyRIT attack classes not available: %s ?technique registration skipped", e)
         return {}
 
     factories: list[AttackTechniqueFactory] = []
 
-    # 鈹€鈹€ 1. PromptSending (baseline) 鈹€鈹€
-    # arXiv:2307.15043 鈥?鍗曡疆鍩虹嚎, 澶氳矾寰勭嫭绔嬫墽琛岀殑鍩虹
-    # v51: 瀵归綈瀹樻柟 鈥?SkeletonKey 鐨?prepended_conversation 閫氳繃 execute_async 浼犲叆
+    # €€ 1. PromptSending (baseline) €€
+    # arXiv:2307.15043 ?, 
+    # v51:  ?SkeletonKey ?prepended_conversation  execute_async 
     try:
         ps_factory = AttackTechniqueFactory(
             name="PromptSending",
@@ -101,7 +101,7 @@ def register_project_techniques(
             description="Single-turn baseline attack with SkeletonKey prepended conversation (arXiv:2307.15043, arXiv:2406.18112)",
             technique_tags=[
                 "single_turn", "baseline", "default", "light",
-                # v60: 场景 tag — 通用基线技术，所有场景都适用
+                # v60:  tag — 
                 "mcp_targeted", "agent_targeted", "rag_targeted", "general",
             ],
         )
@@ -110,12 +110,12 @@ def register_project_techniques(
     except Exception as e:
         logger.warning("Failed to create PromptSending factory: %s", e)
 
-    # 鈹€鈹€ 2. Crescendo (multi-turn) 鈹€鈹€
-    # arXiv:2402.12109 鈥?Russinovich et al., 10 turns ASR=82%
-    # v51: 瀵归綈瀹樻柟 鈥?娣诲姞 Crescendo 涓撶敤 system_prompt
+    # €€ 2. Crescendo (multi-turn) €€
+    # arXiv:2402.12109 ?Russinovich et al., 10 turns ASR=82%
+    # v51:  ? Crescendo  system_prompt
     if CrescendoAttack is not None and adversarial_target is not None:
         try:
-            # v51: 灏濊瘯鍔犺浇瀹樻柟 Crescendo system_prompt
+            # v51:  Crescendo system_prompt
             crescendo_system_prompt = None
             try:
                 from pyrit.common.path import EXECUTOR_SEED_PROMPT_PATH
@@ -133,7 +133,7 @@ def register_project_techniques(
                 "description": "Multi-turn progressive escalation with official system_prompt (arXiv:2402.12109)",
                 "technique_tags": [
                     "multi_turn", "escalation", "light",
-                    "agent_targeted",  # v60: Agent 场景适用
+                    "agent_targeted",  # v60: Agent 
                 ],
                 "attack_kwargs": {
                     "max_turns": (config_overrides or {}).get("crescendo_max_turns", 10),
@@ -149,8 +149,8 @@ def register_project_techniques(
         except Exception as e:
             logger.warning("Failed to create Crescendo factory: %s", e)
 
-    # 鈹€鈹€ 3. TAP (multi-turn, tree search) 鈹€鈹€
-    # arXiv:2312.02191 鈥?Mehrotra et al., tree-of-attacks with pruning
+    # €€ 3. TAP (multi-turn, tree search) €€
+    # arXiv:2312.02191 ?Mehrotra et al., tree-of-attacks with pruning
     if adversarial_target is not None:
         try:
             _cfg = config_overrides or {}
@@ -160,7 +160,7 @@ def register_project_techniques(
                 description="Tree-of-attacks with pruning (arXiv:2312.02191)",
                 technique_tags=[
                     "multi_turn", "escalation", "tree_search",
-                    "agent_targeted",  # v60: Agent 场景适用
+                    "agent_targeted",  # v60: Agent 
                 ],
                 attack_kwargs={
                     "tree_width": _cfg.get("tap_tree_width", 4),
@@ -177,8 +177,8 @@ def register_project_techniques(
         except Exception as e:
             logger.warning("Failed to create TAP factory: %s", e)
 
-    # 鈹€鈹€ 4. PAIR (multi-turn, iterative) 鈹€鈹€
-    # arXiv:2310.08419 鈥?Chao et al., iterative adversarial prompting
+    # €€ 4. PAIR (multi-turn, iterative) €€
+    # arXiv:2310.08419 ?Chao et al., iterative adversarial prompting
     if adversarial_target is not None:
         try:
             pair_factory = AttackTechniqueFactory(
@@ -187,7 +187,7 @@ def register_project_techniques(
                 description="Iterative adversarial prompting (arXiv:2310.08419)",
                 technique_tags=[
                     "multi_turn", "escalation", "iterative",
-                    "agent_targeted",  # v60: Agent 场景适用
+                    "agent_targeted",  # v60: Agent 
                 ],
                 adversarial_chat=adversarial_target,
             )
@@ -196,9 +196,9 @@ def register_project_techniques(
         except Exception as e:
             logger.warning("Failed to create PAIR factory: %s", e)
 
-    # 鈹€鈹€ 5. Best-of-N (single-turn, variation retry) 鈹€鈹€
-    # arXiv:2402.01135 鈥?Chao et al., N=5 ASR 1.8x
-    # 浣跨敤 PromptSendingAttack 浣滀负 attack_class, converter 閰嶇疆娉ㄥ叆 VariationConverter
+    # €€ 5. Best-of-N (single-turn, variation retry) €€
+    # arXiv:2402.01135 ?Chao et al., N=5 ASR 1.8x
+    #  PromptSendingAttack  attack_class, converter ㄥ VariationConverter
     if converter_target is not None:
         try:
             from pyrit.executor.attack import AttackConverterConfig
@@ -215,7 +215,7 @@ def register_project_techniques(
                 description="Best-of-N variation retry, N=5 (arXiv:2402.01135)",
                 technique_tags=[
                     "single_turn", "variation", "best_of_n",
-                    "mcp_targeted", "rag_targeted", "general",  # v60: MCP/RAG/通用
+                    "mcp_targeted", "rag_targeted", "general",  # v60: MCP/RAG/
                 ],
                 attack_kwargs={
                     "attack_converter_config": AttackConverterConfig(
@@ -230,13 +230,13 @@ def register_project_techniques(
         except Exception as e:
             logger.warning("Failed to create BestOfN factory: %s", e)
 
-    # 鈹€鈹€ 6. RedTeaming (multi-turn baseline) 鈹€鈹€
-    # v51: PyRIT 鍘熺敓瀵归綈 鈥?娉ㄥ唽 RedTeamingAttack
-    # arXiv:2407.01232 鈥?RedTeamingAttack 鏄畼鏂规渶閫氱敤鐨?multi-turn baseline
-    # 浣跨敤 RTASystemPromptPaths.TEXT_GENERATION 浣滀负 system_prompt
+    # €€ 6. RedTeaming (multi-turn baseline) €€
+    # v51: PyRIT  ?ㄥ RedTeamingAttack
+    # arXiv:2407.01232 ?RedTeamingAttack ?multi-turn baseline
+    #  RTASystemPromptPaths.TEXT_GENERATION  system_prompt
     if adversarial_target is not None:
         try:
-            # 灏濊瘯鍔犺浇瀹樻柟 RTA system prompt
+            #  RTA system prompt
             rta_system_prompt = None
             try:
                 from pyrit.models import SeedPrompt
@@ -253,7 +253,7 @@ def register_project_techniques(
                 "description": "Multi-turn Red Teaming with RTA system prompt (arXiv:2407.01232)",
                 "technique_tags": [
                     "multi_turn", "baseline", "light",
-                    "agent_targeted",  # v60: Agent 场景适用
+                    "agent_targeted",  # v60: Agent 
                 ],
                 "attack_kwargs": {
                     "max_turns": (config_overrides or {}).get("red_teaming_max_turns", 3),
@@ -268,10 +268,10 @@ def register_project_techniques(
         except Exception as e:
             logger.warning("Failed to create RedTeaming factory: %s", e)
 
-    # 鈹€鈹? 7. SkeletonKey (single-turn, prefix injection) 鈹€鈹€
-    # arXiv:2406.18112 鈥?Hanna et al., SkeletonKey ASR 80-95%
-    # PyRIT 原生 SkeletonKeyAttack: 鑷姩鏋勯 skeleton key prompt + 妯℃嫙鎺ュ彈
-    # 浣滀负 prepended_conversation 娉ㄥ叆 (鍘熺敓鏀寔, 鏃犻渶鎵嬪姩鏋勫缓)
+    # €? 7. SkeletonKey (single-turn, prefix injection) €€
+    # arXiv:2406.18112 ?Hanna et al., SkeletonKey ASR 80-95%
+    # PyRIT  SkeletonKeyAttack:  skeleton key prompt + ℃ュ
+    #  prepended_conversation ㄥ (, )
     try:
         sk_factory = AttackTechniqueFactory(
             name="SkeletonKey",
@@ -279,7 +279,7 @@ def register_project_techniques(
             description="Single-turn SkeletonKey prefix injection (arXiv:2406.18112)",
             technique_tags=[
                 "single_turn", "prefix_injection",
-                "general",  # v60: 通用场景
+                "general",  # v60: 
             ],
         )
         factories.append(sk_factory)
@@ -287,10 +287,10 @@ def register_project_techniques(
     except Exception as e:
         logger.warning("Failed to create SkeletonKey factory: %s", e)
 
-    # ── 8. ManyShotJailbreak (single-turn, many-shot) ──
+    # == 8. ManyShotJailbreak (single-turn, many-shot) ==
     # arXiv:2402.05124 — Anthropic, Many-Shot Jailbreaking
-    # PyRIT 原生 ManyShotJailbreakAttack: 100 shots ASR 显著提升
-    # 利用模型的 in-context learning 能力绕过安全过滤
+    # PyRIT  ManyShotJailbreakAttack: 100 shots ASR 
+    #  in-context learning 
     try:
         from pyrit.executor.attack import ManyShotJailbreakAttack
 
@@ -313,9 +313,9 @@ def register_project_techniques(
     except Exception as e:
         logger.warning("Failed to create ManyShotJailbreak factory: %s", e)
 
-    # ── 9. MultiPromptSending (multi-turn, fixed sequence) ──
-    # arXiv:2407.01232 — PyRIT, 原生多轮固定序列攻击
-    # 适合"分步引导"式越狱场景, 3步引导降低目标安全防御
+    # == 9. MultiPromptSending (multi-turn, fixed sequence) ==
+    # arXiv:2407.01232 — PyRIT, 
+    # "", 3
     try:
         from pyrit.executor.attack import MultiPromptSendingAttack
 
@@ -330,9 +330,9 @@ def register_project_techniques(
     except Exception as e:
         logger.warning("Failed to create MultiPromptSending factory: %s", e)
 
-    # ── 10. ChunkedRequest (multi-turn, chunked extraction) ──
-    # arXiv:2407.01232 — PyRIT, 原生分块提取攻击
-    # 通过请求特定字符范围的信息片段, 绕过长度过滤/输出截断
+    # == 10. ChunkedRequest (multi-turn, chunked extraction) ==
+    # arXiv:2407.01232 — PyRIT, 
+    # , /
     try:
         from pyrit.executor.attack import ChunkedRequestAttack
 
@@ -353,9 +353,9 @@ def register_project_techniques(
     except Exception as e:
         logger.warning("Failed to create ChunkedRequest factory: %s", e)
 
-    # 鈹€鈹€ 娉ㄥ唽鍒板叏灞€ AttackTechniqueRegistry 鈹€鈹€
+    # €€ ㄥ€ AttackTechniqueRegistry €€
     if not factories:
-        logger.warning("No AttackTechniqueFactories created 鈥?technique registration skipped")
+        logger.warning("No AttackTechniqueFactories created ?technique registration skipped")
         return {}
 
     try:
@@ -437,29 +437,29 @@ def build_sequential_child_attacks(
     candidate_converters: list[Any],
     seed_group: Any,
 ) -> list[Any]:
-    """鏋勫缓 SequentialAttack 鐨?child attacks 鍒楄〃 鈥?鍘熺敓 FIRST_SUCCESS 澶氳矾寰勩€?
+    """ SequentialAttack ?child attacks  ? FIRST_SUCCESS €?
 
-    浣跨敤 PyRIT 鍘熺敓 SequentialAttack + SequentialChildAttack 鏇夸唬
-    executor.py 涓殑鎵嬪姩澶氳矾寰勫惊鐜€?
+     PyRIT  SequentialAttack + SequentialChildAttack 
+    executor.py €?
 
-    姣忎釜 converter 瀵瑰簲涓€涓嫭绔嬬殑 PromptSendingAttack (1 converter per path),
-    浠讳竴璺緞鎴愬姛 (FIRST_SUCCESS) 鍒欒烦杩囧悗缁矾寰勩€?
+     converter € PromptSendingAttack (1 converter per path),
+     (FIRST_SUCCESS) €?
 
-    瀛︽湳渚濇嵁:
-        - PyRIT SequentialAttack (arXiv:2407.01232) 鈥?FIRST_SUCCESS 绛栫暐
-        - Wei et al. (arXiv:2307.15043) 鈥?涓茶仈 >2 灞?ASR 浠?12% 闄嶈嚦 4%
-        - Zeng et al. (arXiv:2402.19181) 鈥?authority ASR 38.4% 鏈€楂?
-        - DrAttack (arXiv:2402.14266) 鈥?鍒嗚В閲嶇粍 ASR 40-60% 鏈€楂?
+    ︽:
+        - PyRIT SequentialAttack (arXiv:2407.01232) ?FIRST_SUCCESS 
+        - Wei et al. (arXiv:2307.15043) ? >2 ?ASR ?12%  4%
+        - Zeng et al. (arXiv:2402.19181) ?authority ASR 38.4% €?
+        - DrAttack (arXiv:2402.14266) ?В ASR 40-60% €?
 
     Args:
-        objective_target: 琚敾鍑荤殑 PyRIT PromptTarget銆?
-        scoring_config: AttackScoringConfig (FIRST_SUCCESS 杞婚噺璇勫垎)銆?
-        candidate_converters: 鍊欓€?converter 鍒楄〃 (鎸?ASR 闄嶅簭)銆?
-        seed_group: AttackSeedGroup (鍖呭惈鏀诲嚮 objective)銆?
+        objective_target:  PyRIT PromptTarget?
+        scoring_config: AttackScoringConfig (FIRST_SUCCESS )?
+        candidate_converters: €?converter  (?ASR )?
+        seed_group: AttackSeedGroup ( objective)?
 
     Returns:
-        SequentialChildAttack 鍒楄〃 (姣忎釜 converter 涓€鏉¤矾寰?銆?
-        绌哄垪琛ㄨ〃绀烘棤 converter 鎴栨瀯寤哄け璐ャ€?
+        SequentialChildAttack  ( converter €¤??
+        ㄨ converter けャ€?
     """
     try:
         from pyrit.executor.attack import (
@@ -504,24 +504,24 @@ def get_technique_class_for_adaptive(
     adversarial_target: Any | None = None,
     converter_target: Any | None = None,
 ) -> type | None:
-    """鏋勫缓鐢ㄤ簬 TextAdaptive 鍦烘櫙鐨勫姩鎬?ScenarioTechnique 绫汇€?
+    """ㄤ TextAdaptive ?ScenarioTechnique €?
 
-    灏嗛」鐩敞鍐岀殑 AttackTechniqueFactory 鍒楄〃杞崲涓?
-    ScenarioTechnique 瀛愮被, 渚?TextAdaptive 鐨?
-    EpsilonGreedyTechniqueSelector 浣跨敤銆?
+     AttackTechniqueFactory ?
+    ScenarioTechnique , ?TextAdaptive ?
+    EpsilonGreedyTechniqueSelector ?
 
-    瀛︽湳渚濇嵁:
-        - PyRIT (arXiv:2407.01232) 鈥?AttackTechniqueRegistry.build_technique_class_from_factories
-        - Chao et al. (arXiv:2310.08419) 鈥?蔚-璐績鑷€傚簲鎶€鏈€夋嫨
+    ︽:
+        - PyRIT (arXiv:2407.01232) ?AttackTechniqueRegistry.build_technique_class_from_factories
+        - Chao et al. (arXiv:2310.08419) ?-€€€
 
     Args:
-        adversarial_target: 澶氳疆鏀诲嚮鐨?adversarial chat target (鍙€?銆?
-        converter_target: Converter 浣跨敤鐨?LLM target (鍙€?銆?
+        adversarial_target: ?adversarial chat target (€??
+        converter_target: Converter ?LLM target (€??
 
     Returns:
-        鍔ㄦ€佺敓鎴愮殑 ScenarioTechnique 瀛愮被, 鎴?None (鏋勫缓澶辫触鏃?銆?
+        ㄦ€ ScenarioTechnique , ?None (??
     """
-    # R6 §6.4b: 从 defaults.yaml 加载 SSOT 配置传入
+    # R6 §6.4b:  defaults.yaml  SSOT 
     _tech_cfg: dict[str, Any] = {}
     try:
         import yaml as _yaml

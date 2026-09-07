@@ -5,13 +5,13 @@
 # arXiv:2307.08673 - Zou et al., GCG
 # arXiv:2302.12173 - Greshake et al., Indirect Prompt Injection
 # arXiv:2310.08419 - Chao et al., PAIR (Joint ASR)
-"""ASR 管理模块 — 合并 asr_stats/asr_history/asr_compute/joint_asr。
+"""ASR  —  asr_stats/asr_history/asr_compute/joint_asr
 
-本模块统一管理:
-    - ASR 统计计算 (compute_asr, compute_overall_asr, compute_wilson_score_interval)
-    - ASR 历史持久化 (save_asr_history, converter/gcg ASR history)
-    - 双 Judge 统计分析 (Cohen's Kappa, dual judge stats)
-    - 联合 ASR 统计 (multi-endpoint joint ASR)
+:
+    - ASR  (compute_asr, compute_overall_asr, compute_wilson_score_interval)
+    - ASR  (save_asr_history, converter/gcg ASR history)
+    -  Judge  (Cohen's Kappa, dual judge stats)
+    -  ASR  (multi-endpoint joint ASR)
 """
 
 from __future__ import annotations
@@ -24,27 +24,27 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# SSOT imports — 双 Judge 全局计数器仅定义在 asr_stats.py
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# SSOT imports —  Judge  asr_stats.py
+# ===============================================================================
 
-from assess.asr_stats import (  # noqa: E402 — 注释分隔符后有导入是已有模式
+from assess.asr_stats import (  # noqa: E402 — from
     _get_outcome,
     compute_overall_asr,  # noqa: F401 — SSOT in asr_stats, re-exported via __init__.py
     get_dual_judge_stats,
 )
 
-# SSOT 复用说明:
-# _get_outcome() 的 SSOT 位于 asr_stats.py — 仅 asr_manager 内部使用
-# compute_overall_asr() 的 SSOT 位于 asr_stats.py — 经 __init__.py 对外导出
+# SSOT :
+# _get_outcome()  SSOT  asr_stats.py —  asr_manager 
+# compute_overall_asr()  SSOT  asr_stats.py —  __init__.py 
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# ASR 计算函数
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# ASR 
+# ===============================================================================
 
 def compute_asr(attack_results: dict[str, list[Any]]) -> dict[str, float]:
-    """按技术统计 ASR。
+    """ ASR
 
     Args:
         attack_results: {technique_name: [AttackResult, ...]}
@@ -92,18 +92,18 @@ def compute_wilson_score_interval(
     total: int,
     confidence: float = 0.95,
 ) -> tuple[float, float]:
-    """计算 Wilson Score 置信区间。
+    """ Wilson Score 
 
-    学术依据: Wilson (1927) — 二项分布比例的置信区间
-    对于小样本 ASR 统计更准确。
+    Academic basis: Wilson (1927) — 
+     ASR 
 
     Args:
-        successes: 成功次数。
-        total: 总次数。
-        confidence: 置信度 (0.95 = 95% CI)。
+        successes: 
+        total: 
+        confidence:  (0.95 = 95% CI)
 
     Returns:
-        (lower, upper) 置信区间 [0, 100]。
+        (lower, upper)  [0, 100]
     """
     if total == 0:
         return (0.0, 0.0)
@@ -124,23 +124,23 @@ def compute_wilson_score_interval(
     return (round(lower, 1), round(upper, 1))
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 双 Judge 统计
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+#  Judge 
+# ===============================================================================
 
 def _post_hoc_judge_success(result: Any) -> bool:
-    """L5 v44: post-hoc LLM 双 Judge — OR 聚合策略。
+    """L5 v44: post-hoc LLM  Judge — OR 
 
-    当主评分器判定 failure/undecided 时, 启动双 Judge:
+     failure/undecided ,  Judge:
         Judge 1: SelfAskTrueFalseScorer (calibrated_task_achieved, lenient)
         Judge 2: TrueFalseInverterScorer(SelfAskRefusalScorer, OBJECTIVE_STRICT)
 
-    学术依据:
-        - Zhang et al. (arXiv:2308.07920) — 双 Judge 交叉验证
-        - Chao et al. (arXiv:2402.01135) — OR 策略更接近真实攻击成功率
-        - Mazeika et al. (arXiv:2402.04249) — HarmBench 评分基准
+    Academic basis:
+        - Zhang et al. (arXiv:2308.07920) —  Judge 
+        - Chao et al. (arXiv:2402.01135) — OR 
+        - Mazeika et al. (arXiv:2402.04249) — HarmBench 
     """
-    # 尝试 LLM 双 Judge
+    #  LLM  Judge
     from assess.judge_manager import _heuristic_second_judge_success, _init_judges, _run_llm_dual_judge_sync
 
     if _init_judges():
@@ -149,21 +149,21 @@ def _post_hoc_judge_success(result: Any) -> bool:
         except Exception as e:
             logger.debug("L5 v25: LLM dual judge failed: %s, falling back to heuristic", e)
 
-    # Fallback: 启发式关键词匹配
+    # Fallback: 
     return _heuristic_second_judge_success(result)
 
 
 def collect_dual_judge_stats(ctx: Any) -> dict[str, Any]:
-    """收集双 Judge 评分统计 — 委托给 asr_stats.SSOT。
+    """ Judge  —  asr_stats.SSOT
 
-    学术依据: Zhang et al. (arXiv:2308.07920) — 双 Judge 统计
-    必须反映实际评分过程中的状态, 不能从新实例获取。
+    Academic basis: Zhang et al. (arXiv:2308.07920) —  Judge 
+    , imports
 
     Args:
-        ctx: PipelineContext (包含已创建的 scorer 实例)。
+        ctx: PipelineContext ( scorer )
 
     Returns:
-        双 Judge 统计字典。
+         Judge 
     """
     stats = get_dual_judge_stats()
 
@@ -177,7 +177,7 @@ def collect_dual_judge_stats(ctx: Any) -> dict[str, Any]:
         )
         return stats
 
-    # Fallback: 尝试从 ctx.scorer 获取
+    # Fallback:  ctx.scorer 
     scorer = getattr(ctx, "scorer", None)
     if scorer and hasattr(scorer, "get_stats"):
         stats = scorer.get_stats()
@@ -187,12 +187,12 @@ def collect_dual_judge_stats(ctx: Any) -> dict[str, Any]:
     return stats
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# ASR 历史持久化
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# ASR 
+# ===============================================================================
 
 def _get_asr_history_path():
-    """动态获取 ASR 历史路径。"""
+    """ ASR """
     from arm import seed_ranker
     return seed_ranker._ASR_HISTORY_PATH
 
@@ -202,10 +202,10 @@ def save_asr_history(
     *,
     attack_results: dict[str, list[Any]] | None = None,
 ) -> None:
-    """将 ASR 历史写入 data/seeds/asr_history.json。
+    """ ASR  data/seeds/asr_history.json
 
-    学术依据: Auer et al. (arXiv:cs/0207052) — UCB1 算法
-    需要种子级 ASR 和尝试次数才能有效排序。
+    Academic basis: Auer et al. (arXiv:cs/0207052) — UCB1 
+     ASR 
     """
     from arm.seed_ranker import update_asr_history
 
@@ -294,7 +294,7 @@ def _save_converter_asr_history(
     converter_asr: dict[str, float],
     converter_attempts: dict[str, int],
 ) -> None:
-    """保存 converter 级 ASR 到历史文件。"""
+    """ converter  ASR """
     asr_history_path = _get_asr_history_path()
     if not asr_history_path.exists():
         return
@@ -335,7 +335,7 @@ def _save_gcg_suffix_asr_history(
     gcg_suffix_asr: dict[str, float],
     gcg_suffix_attempts: dict[str, int],
 ) -> None:
-    """保存 GCG 后缀级 ASR 到历史文件。"""
+    """ GCG  ASR """
     asr_history_path = _get_asr_history_path()
     if not asr_history_path.exists():
         return
@@ -372,22 +372,22 @@ def _save_gcg_suffix_asr_history(
         logger.warning("Failed to save GCG suffix ASR history: %s", e)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 联合 ASR 统计 (多 endpoint)
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+#  ASR  ( endpoint)
+# ===============================================================================
 
 def compute_joint_asr(endpoint_asrs: list[float]) -> float:
-    """计算联合 ASR — 跨 endpoint 联合概率模型。
+    """ ASR —  endpoint 
 
-    学术依据: Chao et al. (arXiv:2310.08419) — 多模型/多 endpoint 联合 ASR
-        联合 ASR = 1 - ∏(1 - ASRᵢ)
-        含义: 只要有一个 endpoint 被攻破, 整体攻击即视为成功
+    Academic basis: Chao et al. (arXiv:2310.08419) — / endpoint  ASR
+         ASR = 1 - ∏(1 - ASRᵢ)
+        : converter(s) endpoint , 
 
     Args:
-        endpoint_asrs: 各 endpoint 的 ASR 百分比列表。
+        endpoint_asrs:  endpoint  ASR 
 
     Returns:
-        联合 ASR 百分比 (0.0-100.0)。
+         ASR  (0.0-100.0)
     """
     if not endpoint_asrs:
         return 0.0
@@ -404,13 +404,13 @@ def compute_joint_asr(endpoint_asrs: list[float]) -> float:
 def build_joint_summary(
     multi_endpoint_results: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """构建多 endpoint 联合 ASR 摘要。
+    """ endpoint  ASR 
 
     Args:
-        multi_endpoint_results: 每个 endpoint 的结果字典列表。
+        multi_endpoint_results: converter(s) endpoint 
 
     Returns:
-        联合 ASR 摘要字典。
+         ASR 
     """
     endpoint_summaries: list[dict[str, Any]] = []
     endpoint_asrs: list[float] = []
@@ -451,14 +451,14 @@ def save_joint_report(
     joint_summary: dict[str, Any],
     output_dir: Path,
 ) -> Path:
-    """将联合 ASR 报告保存为 JSON 文件。
+    """ ASR  JSON 
 
     Args:
-        joint_summary: build_joint_summary 返回的联合摘要。
-        output_dir: 输出目录。
+        joint_summary: build_joint_summary 
+        output_dir: Output directory
 
     Returns:
-        JSON 文件路径。
+        JSON 
     """
     report_path = output_dir / "joint_asr_report.json"
     report_path.write_text(

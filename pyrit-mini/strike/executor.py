@@ -1,37 +1,37 @@
 # -*- coding: utf-8 -*-
 # arXiv:2302.12173 - Greshake et al., PromptSendingAttack
 # arXiv:2407.01232 - PyRIT, AttackExecutor + native attacks
-"""攻击执行器 — 使用 PyRIT 原生 AttackExecutor + PromptSendingAttack.
+""" —  PyRIT  AttackExecutor + PromptSendingAttack.
 
-黑盒 Burp 场景适配:
-    1. 单轨攻击: PromptSendingAttack + HTTPTarget + AttackScoringConfig
-    2. 通过 AttackExecutor 批量执行多个种子
-    3. 超时保护: asyncio.wait_for + 部分结果检索
+ Burp :
+    1. : PromptSendingAttack + HTTPTarget + AttackScoringConfig
+    2.  AttackExecutor converter(s)
+    3. : asyncio.wait_for + 
 
-核心调用链:
+:
     attack = PromptSendingAttack(objective_target=target, attack_scoring_config=scoring_config)
     executor = AttackExecutor(max_concurrency=N)
     result = await executor.execute_attack_from_seed_groups_async(attack=attack, seed_groups=seeds)
 
-L5 v35 多路径独立执行 (FIRST_SUCCESS 等效):
-    v34: 只保留最优单路径 (PromptSendingAttack 联叠加 bug 的临时修复).
-    v35: 依次尝试每个 converter 路径, 任一路径成功则跳过后续路径.
-         使用 SubStringScorer+TrueFalseInverterScorer 做 FIRST_SUCCESS 判断 (0 token),
-         最终 ASR 评分仍由 post-hoc 双 Judge 完成.
+L5 v35  (FIRST_SUCCESS ):
+    v34:  (PromptSendingAttack  bug ).
+    v35: converter(s) , Skip.
+          SubStringScorer+TrueFalseInverterScorer  FIRST_SUCCESS  (0 token),
+          ASR  post-hoc  Judge .
 
-    PyRIT SequentialAttack (arXiv:2407.01232) 的 FIRST_SUCCESS 策略等价实现,
-    但通过依次 execute_attack_from_seed_groups_async 更适配现有框架
+    PyRIT SequentialAttack (arXiv:2407.01232)  FIRST_SUCCESS ,
+     execute_attack_from_seed_groups_async 
 
-学术依据:
-    - PyRIT SequentialAttack (arXiv:2407.01232): FIRST_SUCCESS 策略,
-      每个 converter 路径独立执行, 任一成功即停止
-    - Wei et al. (arXiv:2307.15043): 编码串联 >2 层 ASR 从 12% 降至 4%.
-    - Zeng et al. (arXiv:2402.19181): 说服策略 authority ASR 38.4% 最高.
-    - DrAttack (arXiv:2402.14266): 分解重组 ASR 40-60% 最高.
-    - 最优路径数 3-5 条 (多路径独立执行 不叠加串联).
+Academic basis:
+    - PyRIT SequentialAttack (arXiv:2407.01232): FIRST_SUCCESS ,
+      converter(s) , 
+    - Wei et al. (arXiv:2307.15043):  >2 Layer ASR imports 12%  4%.
+    - Zeng et al. (arXiv:2402.19181):  authority ASR 38.4% .
+    - DrAttack (arXiv:2402.14266):  ASR 40-60% .
+    -  3-5  ( ).
 
-P1 优化 (2026-09-06):
-    SequentialAttack 逻辑和评分配置已拆分为子模块:
+P1  (2026-09-06):
+    SequentialAttack :
     - strike/_sequential.py: _try_native_sequential_attack + _manual_multi_path_loop
     - strike/_scoring.py: _build_scoring_config + _build_first_success_scoring_config + _MultiKeywordRefusalScorer
 """
@@ -55,16 +55,16 @@ from arm.seed_ranking import _make_seed_key  # R9: collision-resistant seed key
 from core.context import PipelineContext
 from strike._scoring import _build_first_success_scoring_config, _build_scoring_config
 
-# P1 优化: 从子模块导入 SequentialAttack 逻辑
+# P1 :  SequentialAttack 
 from strike._sequential import _manual_multi_path_loop, _try_native_sequential_attack
 from strike.adaptive_executor import _best_of_n_retry  # noqa: F401
 
-# P2 优化: _is_success 统一到 utils.attack_utils.SSOT
+# P2 : _is_success  utils.attack_utils.SSOT
 from utils.attack_utils import _is_success  # noqa: F401
 
 
 def _import_progress_funcs():
-    """延迟导入进度展示函数, 避免 display.py -> core.context 循环."""
+    """from,  display.py -> core.context ."""
     from utils.display import (
         print_converter_path_done,
         print_converter_path_start,
@@ -81,55 +81,55 @@ def _import_progress_funcs():
     )
 
 
-# V2: converter 优先级映射 (包含 RandomTranslationConverter, TranslationConverter 等)
-# 定义在 arm/converter_selector.py 的 _get_candidate_converters 函数内部
+# V2: converter  ( RandomTranslationConverter, TranslationConverter )
+#  arm/converter_selector.py  _get_candidate_converters 
 
 logger = logging.getLogger(__name__)
 
 
 async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
-    """单轨攻击执行.
+    """.
 
-    L5 v35: 多路径独立执行 (FIRST_SUCCESS 等效).
-        每条路径含 1 个 converter (不叠加串联), 依次尝试:
-        任一路径成功 (SubStringScorer+Inverter 判断) 则跳过后续路径.
-        轻量 scorer 做 FIRST_SUCCESS 判断 (0 LLM 调用),
-        最终评分仍由 post-hoc 双 Judge 完成.
+    L5 v35:  (FIRST_SUCCESS ).
+         1 converter(s) (), :
+         (SubStringScorer+Inverter ) Skip.
+         scorer  FIRST_SUCCESS  (0 LLM ),
+         post-hoc  Judge .
 
-    学术依据:
-        - PyRIT SequentialAttack (arXiv:2407.01232): FIRST_SUCCESS 策略
-        - Wei et al. (arXiv:2307.15043): 串联 >2 层 ASR 从 12% 降至 4%
-        - Zeng et al. (arXiv:2402.19181): authority ASR 38.4% 最高
+    Academic basis:
+        - PyRIT SequentialAttack (arXiv:2407.01232): FIRST_SUCCESS 
+        - Wei et al. (arXiv:2307.15043):  >2 Layer ASR imports 12%  4%
+        - Zeng et al. (arXiv:2402.19181): authority ASR 38.4% 
 
     Args:
-        ctx: 流水线上下文.
+        ctx: .
 
     Returns:
-        攻击结果字典 {technique_name: [AttackResult, ...]}.
+         {technique_name: [AttackResult, ...]}.
     """
     from pyrit.executor.attack import PromptSendingAttack
     from pyrit.executor.attack.core.attack_executor import AttackExecutor
 
-    # 生产级: 空 seeds 防御 -- 避免向 PyRIT 原生 API 传递空 seed_groups
+    # Production-grade:  seeds  --  PyRIT  API  seed_groups
     if not ctx.seeds:
         logger.warning("No seeds configured, skipping attack execution")
         ctx.attack_results["prompt_sending"] = []
         return ctx.attack_results
 
-    # 进度展示: STRIKE 阶段开始计时 (横幅由 main.py 调用)
+    # : STRIKE  ( main.py )
     _strike_start = time.monotonic()
     try:
         _banner, _path_start, _path_done, _batch_prog, _phase_summ = _import_progress_funcs()
     except Exception:
         _banner = _path_start = _path_done = _batch_prog = _phase_summ = None
 
-    # 构建 post-hoc 评分配置 (空 -- 仅由 Judge 后续评分)
+    #  post-hoc  ( --  Judge )
     post_hoc_scoring = _build_scoring_config(ctx)
 
-    # 构建 FIRST_SUCCESS 轻量评分配置 (SubStringScorer+Inverter, 0 token)
+    #  FIRST_SUCCESS  (SubStringScorer+Inverter, 0 token)
     first_success_scoring = _build_first_success_scoring_config(ctx)
 
-    # 获取候选 converter 列表 (按 ASR 降序)
+    #  converter  ( ASR )
     candidate_converters = _get_candidate_converters(ctx)
 
     from core.context import get_effective_concurrency
@@ -140,29 +140,29 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
 
     timeout = ctx.args.timeout or 3600
 
-    # 保存原始种子列表 (多路径执行会修改 ctx.seeds)
+    #  ( ctx.seeds)
     original_seeds = list(ctx.seeds)
 
     all_results: list[Any] = []
     incomplete_objectives: list[tuple[str, Any]] = []
 
     if candidate_converters:
-        # L5 v50: 原生 SequentialAttack(FIRST_SUCCESS) 替代手动多路径循环
-        # arXiv:2407.01232 -- PyRIT 原生 SequentialAttack + FIRST_SUCCESS 策略
-        # 每个 converter = 1 独立 PromptSendingAttack = 1 SequentialChildAttack 路径
-        # 任一路径成功 (SubStringScorer+Inverter) 则跳过后续路径 (0 token)
+        # L5 v50:  SequentialAttack(FIRST_SUCCESS) 
+        # arXiv:2407.01232 -- PyRIT  SequentialAttack + FIRST_SUCCESS 
+        #  converter = 1  PromptSendingAttack = 1 SequentialChildAttack 
+        #  (SubStringScorer+Inverter) Skip (0 token)
         #
-        # Rule 2 (PyRIT native first): 使用原生 SequentialAttack 替代手动循环
-        # Rule 10: SequentialChildAttack.seed_group 需逐个绑定, 大批量时 fallback 到手动循环
+        # Rule 2 (PyRIT native first):  SequentialAttack 
+        # Rule 10: SequentialChildAttack.seed_group ,  fallback 
         #
-        # 学术依据:
-        #   - PyRIT SequentialAttack (arXiv:2407.01232): FIRST_SUCCESS 策略
-        #   - Wei et al. (arXiv:2307.15043): 多路径独立执行 不叠加串联
-        #   - Zeng et al. (arXiv:2402.19181): authority ASR 38.4% 最高
-        #   - DrAttack (arXiv:2402.14266): 分解重组 ASR 40-60% 最高
+        # Academic basis:
+        #   - PyRIT SequentialAttack (arXiv:2407.01232): FIRST_SUCCESS 
+        #   - Wei et al. (arXiv:2307.15043):  
+        #   - Zeng et al. (arXiv:2402.19181): authority ASR 38.4% 
+        #   - DrAttack (arXiv:2402.14266):  ASR 40-60% 
 
-        # 尝试使用原生 SequentialAttack (小批量种子时高效)
-        # 大批量时 SequentialChildAttack.seed_group 需逐个绑定, 回退到手动循环
+        #  SequentialAttack ()
+        #  SequentialChildAttack.seed_group , 
         sequential_results = await _try_native_sequential_attack(
             ctx=ctx,
             candidate_converters=candidate_converters,
@@ -172,7 +172,7 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
         )
 
         if sequential_results is not None:
-            # 原生 SequentialAttack 成功
+            #  SequentialAttack 
             all_results, incomplete_objectives = sequential_results
             logger.info(
                 "L5 v50: Native SequentialAttack(FIRST_SUCCESS) completed: "
@@ -180,7 +180,7 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
                 len(all_results), len(incomplete_objectives),
             )
         else:
-            # Fallback: 手动多路径循环 (大批量种子场景)
+            # Fallback:  ()
             logger.info(
                 "L5 v50: Falling back to manual multi-path loop "
                 "(%d seeds too large for SequentialAttack per-seed binding)",
@@ -195,10 +195,10 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
                 original_seeds=original_seeds,
             )
 
-        # 恢复原始种子列表 (后续 escalation 需要完整种子列表)
+        #  ( escalation )
         ctx.seeds = original_seeds
     else:
-        # 无 converter: 使用原始 PromptSendingAttack
+        #  converter:  PromptSendingAttack
         logger.info("No converters configured, using raw prompts (baseline)")
         # v53: Use native PrependedConversationConfig via PromptSendingAttack constructor
         # R2 (PyRIT Native First): prepended_conversation_config controls converter
@@ -230,16 +230,16 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
             logger.warning("Attack timed out after %ds, retrieving partial results", timeout)
             await _retrieve_partial_results(ctx, "prompt_sending")
 
-            # v58: STRIKE DONE 摘要行移到 main.py 的 print_strike_report_async 之后输出.
+            # v58: STRIKE DONE  main.py  print_strike_report_async .
             ctx._strike_elapsed = time.monotonic() - _strike_start
 
             return ctx.attack_results
 
-    # 统一处理结果
+    # 
     ctx.attack_results["prompt_sending"] = all_results
     _backfill_metadata(all_results, original_seeds, converter_names=_get_converter_names(candidate_converters))
 
-    # 去重 incomplete_objectives (多路径模式下同一目标可能多次失败)
+    #  incomplete_objectives ()
     seen_objectives: set[str] = set()
     unique_incomplete: list[tuple[str, Any]] = []
     for obj, res in incomplete_objectives:
@@ -255,10 +255,10 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
         len(incomplete_objectives),
     )
 
-    # 记录失败的目标用于升级
+    # 
     ctx._failed_objectives = [obj for obj, _ in unique_incomplete]
 
-    # Best-of-N 重试
+    # Best-of-N Retry
     if ctx._failed_objectives and ctx.converter_target:
         logger.info(
             "Best-of-N retry: %d failed objectives, generating variations...",
@@ -266,9 +266,9 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
         )
         await _best_of_n_retry(ctx, unique_incomplete)
 
-    # L5 v48: 跨端口发现的额外汇总目标攻击
-    # 学术依据: Arbis et al. (arXiv:2306.01943) S4.5 -- 跨端口端点发现
-    # 对 port_expander 发现的端口端点执行额外攻击, 结果合并到 attack_results
+    # L5 v48: 
+    # Academic basis: Arbis et al. (arXiv:2306.01943) S4.5 -- 
+    #  port_expander ,  attack_results
     extra_targets = getattr(ctx, "extra_objective_targets", {})
     if extra_targets:
         logger.info(
@@ -305,9 +305,9 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
             except Exception as e:
                 logger.warning("L5 v48: Port %d attack failed: %s", port, e)
 
-    # v58: STRIKE DONE 摘要行移到 main.py 的 print_strike_report_async 之后输出,
-    # 确保攻击者先看到成功 payload 展示, 再看到完成摘要.
-    # executor 内部仅记录 elapsed time 供后续使用.
+    # v58: STRIKE DONE  main.py  print_strike_report_async ,
+    # Ensure payload , .
+    # executor  elapsed time .
     ctx._strike_elapsed = time.monotonic() - _strike_start
 
     return ctx.attack_results
@@ -343,17 +343,17 @@ def _backfill_metadata(
     *,
     converter_names: str = "",
 ) -> None:
-    """从种子 metadata 回填 owasp_id 到 AttackResult.metadata.
+    """imports metadata  owasp_id  AttackResult.metadata.
 
-    PyRIT AttackExecutor 不会自动将 SeedObjective.metadata 传递到
-    AttackResult.metadata. 此函数在攻击完成后自动回填.
+    PyRIT AttackExecutor  SeedObjective.metadata 
+    AttackResult.metadata. .
 
-    匹配策略 (3层 fallback):
-        1. 精确匹配 objective 前 100 字符
-        2. 模糊匹配 objective 前 30 字符 (converter 可能修改了文本)
-        3. 按索引顺序匹配 (结果顺序与种子顺序一致)
+     (3Layer fallback):
+        1.  objective  100 
+        2.  objective  30  (converter )
+        3.  ()
     """
-    # 构建 objective -> metadata 映射
+    #  objective -> metadata 
     obj_to_metadata: dict[str, dict[str, Any]] = {}
     metadata_list: list[dict[str, Any]] = []
     for group in seed_groups:
@@ -368,17 +368,17 @@ def _backfill_metadata(
     for idx, result in enumerate(results):
         existing_metadata = getattr(result, "metadata", {}) or {}
         if existing_metadata.get("owasp_id"):
-            continue  # 已有 owasp_id, 跳过
+            continue  #  owasp_id, Skip
 
         objective = getattr(result, "objective", "") or ""
         obj_key = _make_seed_key(objective)
 
-        # 1. 精确匹配
+        # 1. 
         seed_metadata = obj_to_metadata.get(obj_key)
 
         # 2. R9: SHA256 hash precise match is sufficient, fuzzy match replaced by index fallback
 
-        # 3. 按索引匹配 (结果顺序与种子顺序一致)
+        # 3.  ()
         if not seed_metadata and idx < len(metadata_list):
             seed_metadata = metadata_list[idx]
 
@@ -513,11 +513,11 @@ def _build_prepended_conversation_config(ctx: PipelineContext) -> Any:
 
 
 async def _retrieve_partial_results(ctx: PipelineContext, technique_name: str) -> None:
-    """超时后从 CentralMemory 检索部分结果.
+    """imports CentralMemory .
 
     Args:
-        ctx: 流水线上下文.
-        technique_name: 技术名称.
+        ctx: .
+        technique_name: .
     """
     from pyrit.memory import CentralMemory
 
@@ -536,32 +536,32 @@ async def _retrieve_partial_results(ctx: PipelineContext, technique_name: str) -
 
 
 def _create_objective_scorer(ctx: PipelineContext) -> Any:
-    """创建主评估器 -- L5 v21 回归到 PyRIT 原生 SelfAskTrueFalseScorer.
+    """ -- L5 v21  PyRIT  SelfAskTrueFalseScorer.
 
     .. deprecated:: L5 v34
-        此函数不再被 _build_scoring_config 调用.
-        v34 改用空 AttackScoringConfig(), 所有评分由 post-hoc 双 Judge 完成.
-        保留此函数仅供 post-hoc fallback 路径 (_post_hoc_judge_success) 间接使用.
+         _build_scoring_config .
+        v34  AttackScoringConfig(), all post-hoc  Judge .
+         post-hoc fallback  (_post_hoc_judge_success) .
 
-    L5 v21: 回归原因
-        AdaptiveDualJudgeScorer 内部调用 self._first_judge.score_async() 时,
-        PyRIT Scorer 基类会自动将 score 插入 memory (add_scores_to_memory).
-        然后 AdaptiveDualJudgeScorer 返回修改后的同一 score 对象,
-        AttackExecutor 再次调用 add_scores_to_memory 时触发
+    L5 v21: 
+        AdaptiveDualJudgeScorer  self._first_judge.score_async() ,
+        PyRIT Scorer  score  memory (add_scores_to_memory).
+         AdaptiveDualJudgeScorer  score ,
+        AttackExecutor  add_scores_to_memory 
         IntegrityError: UNIQUE constraint failed: ScoreEntries.id.
 
-        这是 PyRIT 1.0.1 的 Scorer 基类设计限制 -- 子 scorer 和父 scorer
-        不能同时对同一个 prompt_request_response_id 插入多条 score.
+         PyRIT 1.0.1's Scorer  --  scorer  scorer
+        converter(s) prompt_request_response_id  score.
 
-        解决方案: 直接使用原生 SelfAskTrueFalseScorer, 避免嵌套 scorer 的
-        重复插入问题. 单 Judge 虽然误判率略高 (~15-25%), 但流水线能正常运行.
+        :  SelfAskTrueFalseScorer,  scorer 
+        .  Judge  (~15-25%), .
 
-    学术依据:
-        - Zheng et al. (arXiv:2306.05685): LLM-as-a-Judge 单 Judge 基线
-        - Zhang et al. (arXiv:2308.07920): 双 Judge 可降误判率 但需要
-          PyRIT 支持 scorer 嵌套不重复插入 (当前版本 1.0.1 不支持)
+    Academic basis:
+        - Zheng et al. (arXiv:2306.05685): LLM-as-a-Judge  Judge 
+        - Zhang et al. (arXiv:2308.07920):  Judge  
+          PyRIT  scorer  ( 1.0.1 )
     """
-    # L5 v21: 直接使用 PyRIT 原生 SelfAskTrueFalseScorer
+    # L5 v21:  PyRIT  SelfAskTrueFalseScorer
     if ctx.scoring_target:
         try:
             from pathlib import Path
@@ -595,7 +595,7 @@ def _create_objective_scorer(ctx: PipelineContext) -> Any:
         except Exception as e:
             logger.warning("Failed to create SelfAskTrueFalseScorer: %s, falling back", e)
 
-    # Fallback: 反转 RefusalScorer
+    # Fallback:  RefusalScorer
     if ctx.adversarial_target:
         try:
             from pyrit.score import SelfAskRefusalScorer, TrueFalseInverterScorer
@@ -611,22 +611,22 @@ def _create_objective_scorer(ctx: PipelineContext) -> Any:
 
 
 def _create_auxiliary_scorers(ctx: PipelineContext) -> list[Any]:
-    """创建辅助评估器列表.
+    """.
 
     .. deprecated:: L5 v34
-        此函数不再被 _build_scoring_config 调用.
-        v34 改用空 AttackScoringConfig(), 所有评分由 post-hoc 双 Judge 完成.
-        保留此函数仅供未来恢复富评分器模式时参考.
+         _build_scoring_config .
+        v34  AttackScoringConfig(), all post-hoc  Judge .
+        .
 
-    L5 策略:
-        - SelfAskLikertScorer: Likert 量表评分 (1-5级), 提供更精细的评估
-        - 效果: 与主评估器交叉验证, 降低误判率
+    L5 :
+        - SelfAskLikertScorer: Likert  (1-5), 
+        - : , 
 
     Args:
-        ctx: 流水线上下文.
+        ctx: .
 
     Returns:
-        辅助评估器列表 (空列表表示无辅助评估器).
+         ().
     """
     scorers: list[Any] = []
 

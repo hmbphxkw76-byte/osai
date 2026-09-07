@@ -1,17 +1,17 @@
-"""report — 结果输出和证据收集阶段。
+"""report — 
 
-攻击链路第 6 步: 收集证据, 生成 evidence JSON + PoC 脚本 + Markdown/HTML 报告。
+ 6 : ,  evidence JSON + PoC  + Markdown/HTML 
 
-核心模块:
-    - evidence: 证据收集 (VulnerabilityEvidence + EvidenceCollection)
-    - generator: 报告生成协调器 (MD + HTML + JSON + PoC + CSV + ZIP + SARIF)
-    - pyrit_native_output: PyRIT 官方 output 适配层 (原生 pretty + markdown)
-    - owasp_constants: OWASP 标准常量 + MITRE ATLAS 映射
-    - owasp_mapping: OWASP ID 映射 + 严重性计算
-    - poc_generator: PyRIT 原生 PoC 脚本生成
-    - report_markdown: Markdown 报告生成
-    - report_html: HTML 报告生成
-    - sarif_report: SARIF 2.1 格式报告
+Core modules:
+    - evidence:  (VulnerabilityEvidence + EvidenceCollection)
+    - generator:  (MD + HTML + JSON + PoC + CSV + ZIP + SARIF)
+    - pyrit_native_output: PyRIT  output Layer ( pretty + markdown)
+    - owasp_constants: OWASP  + MITRE ATLAS 
+    - owasp_mapping: OWASP ID  + 
+    - poc_generator: PyRIT  PoC 
+    - report_markdown: Markdown 
+    - report_html: HTML 
+    - sarif_report: SARIF 2.1 
 """
 
 from report.evidence import EvidenceCollection, EvidenceCollector

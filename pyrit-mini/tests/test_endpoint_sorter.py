@@ -1,9 +1,9 @@
 """Tests for endpoint_sorter — multi-endpoint priority sorting.
 
 Covers attack chain step ① (recon):
-    Endpoint 优先级排序 — 按能力指纹排序 (MCP > function_calling > RAG > workflow > chat)
+    Endpoint  —  (MCP > function_calling > RAG > workflow > chat)
 
-arXiv:2302.12173 — Greshake et al., Indirect Prompt Injection (五步方法论)
+arXiv:2302.12173 — Greshake et al., Indirect Prompt Injection ()
 arXiv:2406.12609 — Lattner et al., Parallel multi-strategy scoring
 """
 

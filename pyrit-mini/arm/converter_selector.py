@@ -1,18 +1,18 @@
-"""converter_selector — Converter 候选选择 + 种子感知优先级 + ASR 裁剪.
+"""converter_selector — Converter  +  + ASR .
 
-从 executor.py 拆分而来, 职责属于武器化 (arm) 阶段:
-    - 从 ctx.converter_map 中选择最优 Converter 路径
-    - 按 ASR 历史裁剪低效路径
-    - 构建 AttackConverterConfig
-    - L5 v40: 种子 category/suitable_for 感知 converter 优先级
+imports executor.py ,  (arm) :
+    - imports ctx.converter_map  Converter 
+    -  ASR 
+    -  AttackConverterConfig
+    - L5 v40:  category/suitable_for  converter 
 
-学术依据:
-    - Wei et al. (arXiv:2307.15043): 编码串联 >2 层 ASR 从 12% 降至 4%
-    - Zeng et al. (arXiv:2402.19181): 不同说服策略对不同攻击类别效果不同
-    - DrAttack (arXiv:2402.14266): 分解重组 ASR 40-60% 最高
-    - PyRIT (arXiv:2407.01232): SequentialAttack FIRST_SUCCESS 策略
-    - Greshake et al. (arXiv:2302.12173): 攻击策略必须匹配目标攻击面,
-      种子 category 反映攻击向量类型, converter 需匹配向量类型
+Academic basis:
+    - Wei et al. (arXiv:2307.15043):  >2 Layer ASR imports 12%  4%
+    - Zeng et al. (arXiv:2402.19181): 
+    - DrAttack (arXiv:2402.14266):  ASR 40-60% 
+    - PyRIT (arXiv:2407.01232): SequentialAttack FIRST_SUCCESS 
+    - Greshake et al. (arXiv:2302.12173): ,
+       category , converter 
 """
 
 import logging
@@ -23,18 +23,18 @@ from core.context import PipelineContext
 logger = logging.getLogger(__name__)
 
 
-# ── L5 v40: 种子 category 感知 converter 优先级 ──
-# 学术依据: Greshake et al. (arXiv:2302.12173) — 攻击策略匹配目标攻击面
-#           Zeng et al. (arXiv:2402.19181) — 不同说服策略对不同类别效果不同
+# == L5 v40:  category  converter  ==
+# Academic basis: Greshake et al. (arXiv:2302.12173) — 
+#           Zeng et al. (arXiv:2402.19181) — 
 
-# 语义 converter 集合 (上下文技术安全)
+#  converter  ()
 _SEMANTIC_CONVERTER_NAMES = {
     "PersuasionConverter", "DecompositionConverter",
     "VariationConverter", "RandomTranslationConverter",
     "TranslationConverter", "ToneConverter",
 }
 
-# 编码 converter 集合 (编码绕过场景优先)
+#  converter  ()
 _ENCODING_CONVERTER_NAMES = {
     "ROT13Converter", "AsciiSmugglerConverter",
     "CodeChameleonConverter", "PolicyPuppetryConverter",
@@ -43,34 +43,34 @@ _ENCODING_CONVERTER_NAMES = {
 
 
 def _get_category_converter_priorities(ctx: PipelineContext) -> list[str]:
-    """L5 v40: 从种子 category 分布查询最佳 Converter 优先级列表.
+    """L5 v40: imports category  Converter .
 
-    学术依据:
-        - Greshake et al. (arXiv:2302.12173) — 攻击策略匹配攻击面,
-          种子 category 反映攻击向量类型
-        - Zeng et al. (arXiv:2402.19181) — 不同说服策略对不同类别效果不同
-        - DrAttack (arXiv:2402.14266) — 分解对信息提取类最有效
+    Academic basis:
+        - Greshake et al. (arXiv:2302.12173) — ,
+           category 
+        - Zeng et al. (arXiv:2402.19181) — 
+        - DrAttack (arXiv:2402.14266) — 
 
-    策略 (per-seed 级别, 优于 OWASP 多数票):
-        1. 从 ctx.seeds 收集所有种子的 category metadata
-        2. 统计每个 category 出现频率, 取最频繁的类别
-        3. 查询 asr_priors.yaml 中的 category_converter_map
-        4. 返回该类别的 Converter 签名优先级列表
+     (per-seed ,  OWASP ):
+        1. imports ctx.seeds all category metadata
+        2. converter(s) category , 
+        3.  asr_priors.yaml  category_converter_map
+        4.  Converter 
 
-    如果 category 不在映射表中, 回退到 OWASP 多数票
+     category ,  OWASP 
     (_get_owasp_converter_priorities)
 
     Args:
-        ctx: 流水线上下文.
+        ctx: .
 
     Returns:
-        Converter 签名列表 (按优先级排序, 第一个为最佳)。
-        空列表表示无法匹配, 调用方应使用默认全局优先级。
+        Converter  (, converter(s))
+        , 
     """
     if not ctx.seeds:
         return []
 
-    # 收集所有种子的 category
+    #  category
     category_counts: dict[str, int] = {}
     for group in ctx.seeds:
         for seed in getattr(group, "seeds", []):
@@ -82,7 +82,7 @@ def _get_category_converter_priorities(ctx: PipelineContext) -> list[str]:
     if not category_counts:
         return []
 
-    # 取最频繁的 category (多数票)
+    #  category ()
     dominant_category = max(category_counts, key=category_counts.get)
     logger.info(
         "L5 v40: Seed category distribution: %s, dominant=%s",
@@ -90,7 +90,7 @@ def _get_category_converter_priorities(ctx: PipelineContext) -> list[str]:
         dominant_category,
     )
 
-    # 加载 asr_priors.yaml 中的 category_converter_map
+    #  asr_priors.yaml  category_converter_map
     try:
         from arm.seed_ranker import load_asr_priors
         priors = load_asr_priors(getattr(ctx, "model_name", "") or "")
@@ -115,40 +115,40 @@ def _get_category_converter_priorities(ctx: PipelineContext) -> list[str]:
 def _get_suitable_for_converter_strategy(
     ctx: PipelineContext,
 ) -> dict[str, str]:
-    """L5 v40: 从种子 suitable_for 分布查询 converter 选择策略.
+    """L5 v40: imports suitable_for  converter .
 
-    学术依据:
+    Academic basis:
         - PyRIT (arXiv:2407.01232) — per-seed converter optimization
-        - Greshake et al. (arXiv:2302.12173) — 攻击向量匹配
+        - Greshake et al. (arXiv:2302.12173) — 
 
-    策略:
-        1. 收集所有种子的 suitable_for metadata
-        2. 查询 asr_priors.yaml 中的 suitable_for_converter_strategy
-        3. 返回 {strategy: count} 分布
+    :
+        1. all suitable_for metadata
+        2.  asr_priors.yaml  suitable_for_converter_strategy
+        3.  {strategy: count} 
 
-    策略类型:
-        - "encoding": 优先编码绕过 converter
-        - "semantic": 优先语义 converter
-        - "full": 全量 L5 武器库
-        - "none": 无 converter
+    :
+        - "encoding":  converter
+        - "semantic":  converter
+        - "full":  L5 
+        - "none":  converter
 
     Args:
-        ctx: 流水线上下文.
+        ctx: .
 
     Returns:
-        {strategy_name: count} 字典, 最频繁的 strategy 用于 converter 过滤。
+        {strategy_name: count} ,  strategy  converter 
     """
     if not ctx.seeds:
         return {"full": 1}
 
-    # 收集所有种子的 suitable_for
+    #  suitable_for
     sf_counts: dict[str, int] = {}
     for group in ctx.seeds:
         for seed in getattr(group, "seeds", []):
             meta = getattr(seed, "metadata", {}) or {}
             suitable_for = str(meta.get("suitable_for", "")).strip().lower()
             if suitable_for:
-                # suitable_for 可逗号分隔多个值, 取第一个
+                # suitable_for , 
                 first_sf = suitable_for.split(",")[0].strip()
                 if first_sf:
                     sf_counts[first_sf] = sf_counts.get(first_sf, 0) + 1
@@ -156,7 +156,7 @@ def _get_suitable_for_converter_strategy(
     if not sf_counts:
         return {"full": 1}
 
-    # 加载 asr_priors.yaml 中的 suitable_for_converter_strategy
+    #  asr_priors.yaml  suitable_for_converter_strategy
     strategy_counts: dict[str, int] = {}
     try:
         from arm.seed_ranker import load_asr_priors
@@ -168,7 +168,7 @@ def _get_suitable_for_converter_strategy(
             strategy = entry.get("strategy", "full") if isinstance(entry, dict) else "full"
             strategy_counts[strategy] = strategy_counts.get(strategy, 0) + count
 
-        # 未知 suitable_for 回退到 default
+        #  suitable_for  default
         if not strategy_counts:
             default_entry = sf_map.get("default", {})
             default_strategy = default_entry.get("strategy", "full") if isinstance(default_entry, dict) else "full"
@@ -187,15 +187,15 @@ def _get_suitable_for_converter_strategy(
 
 
 def _get_candidate_converters(ctx: PipelineContext) -> list[Any]:
-    """获取按 ASR 降序排列的候选 converter 列表。
+    """ ASR  converter 
 
-    L5 v35: 从 ctx.converter_map 去重 + 裁剪 + 按优先级排序,
-    返回前 N 个候选 converter (每个将作为 SequentialAttack 的独立路径)。
+    L5 v35: imports ctx.converter_map  +  + ,
+     N converter(s) converter (converter(s) SequentialAttack )
 
-    最佳路径数: 3-5 条 (按 ASR 降序), 不串联叠加。
-    >5 条边际收益递减 + 超时风险 (Wei et al. arXiv:2307.15043)。
+    : 3-5  ( ASR ), 
+    >5  +  (Wei et al. arXiv:2307.15043)
 
-    返回空列表表示无 converter 可用。
+     converter 
     """
     seen_signatures: set[str] = set()
     unique_converters: list[Any] = []
@@ -209,11 +209,11 @@ def _get_candidate_converters(ctx: PipelineContext) -> list[Any]:
     if not unique_converters:
         return []
 
-    # 动态裁剪低 ASR 路径
+    #  ASR 
     unique_converters = _prune_low_asr_converters(unique_converters, ctx=ctx)
 
-    # 按优先级排序 (ASR 降序)
-    # L5 v36: 新增 SelectiveTextConverter, CodeChameleon, PolicyPuppetry 等
+    #  (ASR )
+    # L5 v36:  SelectiveTextConverter, CodeChameleon, PolicyPuppetry 
     _PRIORITY_MAP: dict[str, int] = {
         # LLM-Based (ASR 30-60%)
         "DecompositionConverter": 0,                    # ASR 40-60%
@@ -223,8 +223,8 @@ def _get_candidate_converters(ctx: PipelineContext) -> list[Any]:
         "PersuasionConverter:logical_appeal": 4,        # ASR 28.7%
         "PolicyPuppetryConverter": 5,                  # ASR 30-40% (NEW)
         # Selective (ASR 25-40%)
-        "SelectiveTextConverter:TokenSelectionStrategy": 6,  # 贪式选择性 (NEW)
-        "SelectiveTextConverter:WordProportionSelectionStrategy": 7,  # 选择性编码 (NEW)
+        "SelectiveTextConverter:TokenSelectionStrategy": 6,  #  (NEW)
+        "SelectiveTextConverter:WordProportionSelectionStrategy": 7,  #  (NEW)
         # Translation (ASR 25-35%)
         "RandomTranslationConverter": 8,
         "TranslationConverter": 9,
@@ -236,35 +236,35 @@ def _get_candidate_converters(ctx: PipelineContext) -> list[Any]:
         "VariationConverter": 12,
         # Smuggling (ASR 20-30%)
         "AsciiSmugglerConverter": 13,                   # NEW
-        # Semantic (ASR 30-40%, 保留)
+        # Semantic (ASR 30-40%, )
         "ROT13Converter": 14,
         # Tone (ASR 22.1%)
         "ToneConverter:academic": 15,
-        # File Converters (文档投递间接注入, ASR 15-25%)
+        # File Converters (, ASR 15-25%)
         "WordDocConverter:direct": 16,                  # NEW (payload → .docx)
-        "WordDocConverter:placeholder": 17,             # NEW (模板占位符替换)
+        "WordDocConverter:placeholder": 17,             # NEW ()
         "PDFConverter:direct": 18,                      # NEW (payload → PDF)
-        "PDFConverter:injection": 19,                  # NEW (已有PDF注入)
-        # 降级 (ASR < 20%, fallback)
+        "PDFConverter:injection": 19,                  # NEW (PDF)
+        #  (ASR < 20%, fallback)
         "RandomCapitalLettersConverter": 20,
         "UnicodeSubstitutionConverter": 21,
-        "Base64Converter": 22,                           # 全文, 最低优先级
+        "Base64Converter": 22,                           # , 
     }
 
-    # L5 v36: OWASP 类别 → Converter 自适应匹配
-    # 学术依据:
-    #   arXiv:2402.19181 — Zeng et al. 不同说服策略对不同攻击类别效果不同
-    #   arXiv:2307.15043 — Wei et al. 编码绕过对检测型目标更有效
-    #   arXiv:2402.14266 — DrAttack 分解对信息提取类最有效
-    # 策略: 从 ctx.seeds 收集 OWASP 类别分布, 按多数票查询
-    # asr_priors.yaml 中的 owasp_converter_map, 获取该类别最佳 Converter
+    # L5 v36: OWASP  → Converter 
+    # Academic basis:
+    #   arXiv:2402.19181 — Zeng et al. 
+    #   arXiv:2307.15043 — Wei et al. 
+    #   arXiv:2402.14266 — DrAttack 
+    # :  ctx.seeds  OWASP , 
+    # asr_priors.yaml  owasp_converter_map,  Converter
     owasp_priorities = _get_owasp_converter_priorities(ctx)
     if owasp_priorities:
-        # 用 OWASP 类别特定优先级覆盖默认全局优先级
+        #  OWASP 
         _owasp_priority_map: dict[str, int] = {}
         for idx, sig in enumerate(owasp_priorities):
             _owasp_priority_map[sig] = idx
-        # 合并: OWASP 特定优先级覆盖默认, 未匹配的保持默认 + 偏移
+        # : OWASP ,  + 
         _max_owasp = len(owasp_priorities)
         merged_priority: dict[str, int] = {}
         for sig in set(list(_PRIORITY_MAP.keys()) + list(_owasp_priority_map.keys())):
@@ -279,17 +279,17 @@ def _get_candidate_converters(ctx: PipelineContext) -> list[Any]:
             owasp_priorities[0] if owasp_priorities else "N/A",
         )
 
-    # ── L5 v40: 种子 category 感知 converter 优先级 (per-seed 级别) ──
-    # 学术依据: Greshake et al. (arXiv:2302.12173) — 攻击策略匹配攻击面,
-    #   种子 category 反映攻击向量类型, converter 需匹配向量类型
-    #   category 级别优先于 OWASP 级别 (更细粒度: 130+ category vs 20 OWASP)
-    #   如果 category 匹配到 converter 列表, 覆盖 OWASP 和默认优先级
+    # == L5 v40:  category  converter  (per-seed ) ==
+    # Academic basis: Greshake et al. (arXiv:2302.12173) — ,
+    #    category , converter 
+    #   category  OWASP  (: 130+ category vs 20 OWASP)
+    #    category  converter ,  OWASP 
     category_priorities = _get_category_converter_priorities(ctx)
     if category_priorities:
         _cat_priority_map: dict[str, int] = {}
         for idx, sig in enumerate(category_priorities):
             _cat_priority_map[sig] = idx
-        # 合并: category 特定优先级覆盖 OWASP 和默认, 未匹配的保持原值 + 偏移
+        # : category  OWASP ,  + 
         _max_cat = len(category_priorities)
         merged_priority_cat: dict[str, int] = {}
         for sig in set(list(_PRIORITY_MAP.keys()) + list(_cat_priority_map.keys())):
@@ -304,26 +304,26 @@ def _get_candidate_converters(ctx: PipelineContext) -> list[Any]:
             category_priorities[0] if category_priorities else "N/A",
         )
 
-    # ── L5 v40: suitable_for 策略过滤 ──
-    # 学术依据: PyRIT (arXiv:2407.01232) — per-seed converter optimization
-    #   根据 suitable_for 分布决定 converter 过滤策略:
-    #   - "encoding": 优先编码 converter (ROT13/AsciiSmuggler/CodeChameleon)
-    #   - "semantic": 优先语义 converter (Persuasion/Decomposition)
-    #   - "full": 全量 (不过滤)
+    # == L5 v40: suitable_for  ==
+    # Academic basis: PyRIT (arXiv:2407.01232) — per-seed converter optimization
+    #    suitable_for  converter :
+    #   - "encoding":  converter (ROT13/AsciiSmuggler/CodeChameleon)
+    #   - "semantic":  converter (Persuasion/Decomposition)
+    #   - "full":  ()
     sf_strategy_counts = _get_suitable_for_converter_strategy(ctx)
     dominant_sf_strategy = max(sf_strategy_counts, key=sf_strategy_counts.get) if sf_strategy_counts else "full"
     if dominant_sf_strategy == "encoding":
-        # 编码策略: 编码 converter 优先, 但不排除语义 converter
-        # 仅重新排序: 编码 converter 在前
+        # :  converter ,  converter
+        # :  converter 
         for c in unique_converters:
             name = type(c).__name__
             if name in _ENCODING_CONVERTER_NAMES:
-                # 给编码 converter 额外优先级加成 (-100 确保在最前)
+                #  converter  (-100 Ensure)
                 sig = _converter_signature(c)
                 _PRIORITY_MAP[sig] = min(_PRIORITY_MAP.get(sig, 99), 0)
         logger.info("L5 v40: suitable_for strategy='encoding' — encoding converters prioritized")
     elif dominant_sf_strategy == "semantic":
-        # 语义策略: 语义 converter 优先 (编码可能破坏上下文结构)
+        # :  converter  ()
         for c in unique_converters:
             name = type(c).__name__
             if name in _SEMANTIC_CONVERTER_NAMES:
@@ -331,10 +331,10 @@ def _get_candidate_converters(ctx: PipelineContext) -> list[Any]:
                 _PRIORITY_MAP[sig] = min(_PRIORITY_MAP.get(sig, 99), 0)
         logger.info("L5 v40: suitable_for strategy='semantic' — semantic converters prioritized")
     elif dominant_sf_strategy == "none":
-        # 无 converter: 返回空列表 (raw payload)
+        #  converter:  (raw payload)
         logger.info("L5 v40: suitable_for strategy='none' — no converters (raw payload)")
         return []
-    # "full": 无额外过滤
+    # "full": 
 
     def _priority(c: Any) -> int:
         sig = _converter_signature(c)
@@ -342,8 +342,8 @@ def _get_candidate_converters(ctx: PipelineContext) -> list[Any]:
 
     unique_converters.sort(key=_priority)
 
-    # 取前 10 个候选 (按 ASR 降序, v36 新增选择性 converter 后扩展上限)
-    # v35: 7 个; v36: 10 个 (新增 SelectiveTextConverter + CodeChameleon + PolicyPuppetry 等)
+    #  10  ( ASR , v36  converter )
+    # v35: 7 ; v36: 10  ( SelectiveTextConverter + CodeChameleon + PolicyPuppetry )
     top_candidates = unique_converters[:10]
 
     logger.info(
@@ -356,34 +356,34 @@ def _get_candidate_converters(ctx: PipelineContext) -> list[Any]:
     return top_candidates
 
 def _converter_signature(c: Any) -> str:
-    """生成 converter 的唯一签名 (类型 + 关键参数).
+    """ converter  ( + ).
 
-    L5 v8: 按 (type_name + signature) 去重, 保留不同参数的同类型 converter.
-    用于在构建 SequentialAttack 路径时避免重复, 同时保持多样性.
+    L5 v8:  (type_name + signature) ,  converter.
+     SequentialAttack , .
 
-    L5 v36: 支持 SelectiveTextConverter, SearchReplaceConverter,
-    CodeChameleonConverter 等新 converter 的签名生成.
+    L5 v36:  SelectiveTextConverter, SearchReplaceConverter,
+    CodeChameleonConverter  converter .
 
     Args:
-        c: Converter 实例.
+        c: Converter .
 
     Returns:
-        唯一签名字符串 (如 "PersuasionConverter:authority_endorsement").
+         ( "PersuasionConverter:authority_endorsement").
     """
     type_name = type(c).__name__
-    # PersuasionConverter: 区分 persuasion_technique 参数
+    # PersuasionConverter:  persuasion_technique 
     if type_name == "PersuasionConverter":
         technique = getattr(c, "_persuasion_technique", None)
         if technique is not None:
             tech_name = getattr(technique, "value", str(technique))
             return f"{type_name}:{tech_name}"
-    # ToneConverter: 区分 tone 参数
+    # ToneConverter:  tone 
     if type_name == "ToneConverter":
         tone = getattr(c, "_tone", None)
         if tone is not None:
             tone_name = getattr(tone, "value", str(tone))
             return f"{type_name}:{tone_name}"
-    # SelectiveTextConverter: 区分 selection_strategy + sub_converter
+    # SelectiveTextConverter:  selection_strategy + sub_converter
     if type_name == "SelectiveTextConverter":
         strategy = getattr(c, "_selection_strategy", None)
         if strategy is not None:
@@ -391,27 +391,27 @@ def _converter_signature(c: Any) -> str:
             sub_conv = getattr(c, "_sub_converter", None)
             sub_name = type(sub_conv).__name__ if sub_conv else "unknown"
             return f"{type_name}:{strategy_name}:{sub_name}"
-    # SearchReplaceConverter: 区分 pattern
+    # SearchReplaceConverter:  pattern
     if type_name == "SearchReplaceConverter":
         pattern = getattr(c, "_pattern", "") or ""
         return f"{type_name}:{pattern[:30]}"
-    # CodeChameleonConverter: 区分 encrypt_type
+    # CodeChameleonConverter:  encrypt_type
     if type_name == "CodeChameleonConverter":
         encrypt_type = getattr(c, "_encrypt_type", "unknown")
         return f"{type_name}:{encrypt_type}"
-    # PDFConverter: 区分模式 (direct / injection)
+    # PDFConverter:  (direct / injection)
     if type_name == "PDFConverter":
         existing_pdf = getattr(c, "_existing_pdf_path", None)
         if existing_pdf is not None:
             return f"{type_name}:injection"
         return f"{type_name}:direct"
-    # WordDocConverter: 区分模式 (direct / placeholder)
+    # WordDocConverter:  (direct / placeholder)
     if type_name == "WordDocConverter":
         injection_config = getattr(c, "_injection_config", None)
         if injection_config is not None and getattr(injection_config, "existing_docx", None) is not None:
             return f"{type_name}:placeholder"
         return f"{type_name}:direct"
-    # 其他 converter: 按类型名去重
+    #  converter: 
     return type_name
 
 def _detect_chained_selective_pair(
@@ -465,30 +465,30 @@ def _detect_chained_selective_pair(
     return None
 
 def _get_owasp_converter_priorities(ctx: PipelineContext) -> list[str]:
-    """L5 v36: 从种子 OWASP 类别分布查询最佳 Converter 优先级列表.
+    """L5 v36: imports OWASP  Converter .
 
-    学术依据:
-        arXiv:2402.19181 — Zeng et al. 不同说服策略对不同攻击类别效果不同
-        arXiv:2307.15043 — Wei et al. 编码绕过对检测型目标更有效
-        arXiv:2402.14266 — DrAttack 分解对信息提取类最有效
+    Academic basis:
+        arXiv:2402.19181 — Zeng et al. 
+        arXiv:2307.15043 — Wei et al. 
+        arXiv:2402.14266 — DrAttack 
 
-    策略:
-        1. 从 ctx.seeds 收集所有种子的 owasp_id metadata
-        2. 统计每个 owasp_id 出现频率, 取最频繁的类别
-        3. 查询 asr_priors.yaml 中的 owasp_converter_map
-        4. 返回该类别的 Converter 签名优先级列表
+    :
+        1. imports ctx.seeds all owasp_id metadata
+        2. converter(s) owasp_id , 
+        3.  asr_priors.yaml  owasp_converter_map
+        4.  Converter 
 
     Args:
-        ctx: 流水线上下文.
+        ctx: .
 
     Returns:
-        Converter 签名列表 (按优先级排序, 第一个为最佳)。
-        空列表表示无法匹配, 调用方应使用默认全局优先级。
+        Converter  (, converter(s))
+        , 
     """
     if not ctx.seeds:
         return []
 
-    # 收集所有种子的 owasp_id
+    #  owasp_id
     owasp_counts: dict[str, int] = {}
     for group in ctx.seeds:
         for seed in getattr(group, "seeds", []):
@@ -500,7 +500,7 @@ def _get_owasp_converter_priorities(ctx: PipelineContext) -> list[str]:
     if not owasp_counts:
         return []
 
-    # 取最频繁的 OWASP 类别 (多数票)
+    #  OWASP  ()
     dominant_owasp = max(owasp_counts, key=owasp_counts.get)
     logger.info(
         "L5 v36: OWASP distribution: %s, dominant=%s",
@@ -508,7 +508,7 @@ def _get_owasp_converter_priorities(ctx: PipelineContext) -> list[str]:
         dominant_owasp,
     )
 
-    # 加载 asr_priors.yaml 中的 owasp_converter_map
+    #  asr_priors.yaml  owasp_converter_map
     try:
         from arm.seed_ranker import load_asr_priors
         priors = load_asr_priors(getattr(ctx, "model_name", "") or "")
@@ -530,38 +530,38 @@ def _get_owasp_converter_priorities(ctx: PipelineContext) -> list[str]:
     return []
 
 def _build_converter_config(ctx: PipelineContext) -> Any:
-    """构建 AttackConverterConfig.
+    """ AttackConverterConfig.
 
-    L5 v34 关键修复: 只保留最高 ASR 的单个 converter 路径.
+    L5 v34 :  ASR converter(s) .
 
-    问题诊断:
-        v33 代码将 9 个 ConverterConfiguration 传给 PromptSendingAttack,
-        但 PyRIT 的 PromptNormalizer.convert_values_async 会遍历所有
-        ConverterConfiguration 并串联叠加到同一条消息上。
-        这导致 payload 经过 9 层 converter 变换后完全不可读 → ASR=0%。
+    :
+        v33  9 converter(s) ConverterConfiguration  PromptSendingAttack,
+         PyRIT  PromptNormalizer.convert_values_async all
+        ConverterConfiguration 
+         payload  9 Layer converter  → ASR=0%
 
-    修复策略:
-        只传 1 条 ConverterConfiguration (内含 1 个最佳 converter),
-        避免 payload 被多个 converter 串联叠加碾碎。
-        多路径独立执行需要 SequentialAttack 包装, 但当前架构无 scorer
-        无法判断成功, 暂且保留最佳单路径。
+    :
+         1  ConverterConfiguration ( 1 converter(s) converter),
+         payload converter(s) 
+         SequentialAttack ,  scorer
+        , 
 
-    路径选择优先级 (按 ASR 降序):
+     ( ASR ):
         1. PersuasionConverter(authority_endorsement) — ASR 38.4%
         2. PersuasionConverter(expert_endorsement)  — ASR ~35%
         3. PersuasionConverter(logical_appeal)      — ASR 28.7%
         4. ROT13Converter (semantic)               — ASR 30-40%
         5. VariationConverter                       — ASR 20-30%
         6. ToneConverter(academic)                  — ASR 22.1%
-        7. Base64Converter + ROT13Converter (2层)   — ASR 12%
+        7. Base64Converter + ROT13Converter (2Layer)   — ASR 12%
 
-    学术依据:
-        - Wei et al. (arXiv:2307.15043): 编码串联 >2 层 ASR 从 12% 降至 4%.
-        - Zeng et al. (arXiv:2402.19181): authority ASR 38.4% 最高.
+    Academic basis:
+        - Wei et al. (arXiv:2307.15043):  >2 Layer ASR imports 12%  4%.
+        - Zeng et al. (arXiv:2402.19181): authority ASR 38.4% .
         - PyRIT (arXiv:2407.01232): SequentialAttack FIRST_SUCCESS,
-          但 PromptSendingAttack 不支持多路径独立执行.
+           PromptSendingAttack .
 
-    返回 None 表示不使用 converter (由调用方处理).
+     None  converter ().
     """
     from pyrit.executor.attack import AttackConverterConfig
     from pyrit.prompt_normalizer import ConverterConfiguration
@@ -579,13 +579,13 @@ def _build_converter_config(ctx: PipelineContext) -> Any:
         logger.info("No converters configured, using raw prompts (baseline with SK prefix)")
         return None
 
-    # 动态裁剪低 ASR 路径
+    #  ASR 
     unique_converters = _prune_low_asr_converters(unique_converters, ctx=ctx)
 
-    # L5 v34: 按优先级选择最佳 converter 路径
-    # 优先级映射 (ASR 降序, 数字越小优先级越高)
-    # L5 v36: 新增 SelectiveTextConverter, CodeChameleon, PolicyPuppetry 等
-    # 学术依据: arXiv:2402.14266 — DrAttack 分解重组 ASR 40-60% 最高
+    # L5 v34:  converter 
+    #  (ASR , )
+    # L5 v36:  SelectiveTextConverter, CodeChameleon, PolicyPuppetry 
+    # Academic basis: arXiv:2402.14266 — DrAttack  ASR 40-60% 
     #           arXiv:2404.30015 — CodeChameleon ASR 35-45%
     _PRIORITY_MAP: dict[str, int] = {
         # LLM-Based (ASR 30-60%)
@@ -596,8 +596,8 @@ def _build_converter_config(ctx: PipelineContext) -> Any:
         "PersuasionConverter:logical_appeal": 4,        # ASR 28.7%
         "PolicyPuppetryConverter": 5,                  # ASR 30-40% (NEW)
         # Selective (ASR 25-40%)
-        "SelectiveTextConverter:TokenSelectionStrategy": 6,  # 贪式选择性 (NEW)
-        "SelectiveTextConverter:WordProportionSelectionStrategy": 7,  # 选择性编码 (NEW)
+        "SelectiveTextConverter:TokenSelectionStrategy": 6,  #  (NEW)
+        "SelectiveTextConverter:WordProportionSelectionStrategy": 7,  #  (NEW)
         # Translation (ASR 25-35%)
         "RandomTranslationConverter": 8,
         "TranslationConverter": 9,
@@ -609,44 +609,44 @@ def _build_converter_config(ctx: PipelineContext) -> Any:
         "VariationConverter": 12,
         # Smuggling (ASR 20-30%)
         "AsciiSmugglerConverter": 13,                   # NEW
-        # Semantic (ASR 30-40%, 保留)
+        # Semantic (ASR 30-40%, )
         "ROT13Converter": 14,
         # Tone (ASR 22.1%)
         "ToneConverter:academic": 15,
-        # File Converters (文档投递间接注入, ASR 15-25%)
+        # File Converters (, ASR 15-25%)
         "WordDocConverter:direct": 16,                  # NEW (payload → .docx)
-        "WordDocConverter:placeholder": 17,             # NEW (模板占位符替换)
+        "WordDocConverter:placeholder": 17,             # NEW ()
         "PDFConverter:direct": 18,                      # NEW (payload → PDF)
-        "PDFConverter:injection": 19,                  # NEW (已有PDF注入)
-        # 降级 (ASR < 20%, fallback)
+        "PDFConverter:injection": 19,                  # NEW (PDF)
+        #  (ASR < 20%, fallback)
         "RandomCapitalLettersConverter": 20,
         "UnicodeSubstitutionConverter": 21,
-        "Base64Converter": 22,                           # 全文, 最低优先级
+        "Base64Converter": 22,                           # , 
     }
 
-    # L5 v36: OWASP 类别 → Converter 自适应匹配
-    # 学术依据:
-    #   arXiv:2402.19181 — Zeng et al. 不同说服策略对不同攻击类别效果不同
-    #   arXiv:2307.15043 — Wei et al. 编码绕过对检测型目标更有效
-    #   arXiv:2402.14266 — DrAttack 分解对信息提取类最有效
-    # 策略: 从 ctx.seeds 收集 OWASP 类别分布, 按多数票查询
-    # asr_priors.yaml 中的 owasp_converter_map, 获取该类别最佳 Converter
+    # L5 v36: OWASP  → Converter 
+    # Academic basis:
+    #   arXiv:2402.19181 — Zeng et al. 
+    #   arXiv:2307.15043 — Wei et al. 
+    #   arXiv:2402.14266 — DrAttack 
+    # :  ctx.seeds  OWASP , 
+    # asr_priors.yaml  owasp_converter_map,  Converter
     owasp_priorities = _get_owasp_converter_priorities(ctx)
     if owasp_priorities:
-        # 用 OWASP 类别特定优先级覆盖默认全局优先级
-        # owasp_priorities 是按优先级排序的 converter 签名列表
-        # 越靠前优先级越高
+        #  OWASP 
+        # owasp_priorities  converter 
+        # 
         _owasp_priority_map: dict[str, int] = {}
         for idx, sig in enumerate(owasp_priorities):
             _owasp_priority_map[sig] = idx + 1  # 1, 2, 3...
-        # 合并: OWASP 特定优先级覆盖默认, 未匹配的保持默认 + 偏移
+        # : OWASP ,  + 
         _max_owasp = len(owasp_priorities) + 1
         merged_priority: dict[str, int] = {}
         for sig in set(list(_PRIORITY_MAP.keys()) + list(_owasp_priority_map.keys())):
             if sig in _owasp_priority_map:
                 merged_priority[sig] = _owasp_priority_map[sig]
             else:
-                # 默认优先级偏移到 OWASP 特定之后
+                #  OWASP 
                 merged_priority[sig] = _PRIORITY_MAP.get(sig, 99) + _max_owasp
         _PRIORITY_MAP = merged_priority
         logger.info(
@@ -656,9 +656,9 @@ def _build_converter_config(ctx: PipelineContext) -> Any:
             owasp_priorities[0] if owasp_priorities else "N/A",
         )
 
-    # ── L5 v40: 种子 category 感知 converter 优先级 (per-seed 级别) ──
-    # 学术依据: Greshake et al. (arXiv:2302.12173) — category 反映攻击向量类型
-    #   category 级别优先于 OWASP 级别 (更细粒度)
+    # == L5 v40:  category  converter  (per-seed ) ==
+    # Academic basis: Greshake et al. (arXiv:2302.12173) — category 
+    #   category  OWASP  ()
     category_priorities = _get_category_converter_priorities(ctx)
     if category_priorities:
         _cat_priority_map: dict[str, int] = {}
@@ -679,7 +679,7 @@ def _build_converter_config(ctx: PipelineContext) -> Any:
             category_priorities[0] if category_priorities else "N/A",
         )
 
-    # ── L5 v40: suitable_for 策略过滤 ──
+    # == L5 v40: suitable_for  ==
     sf_strategy_counts = _get_suitable_for_converter_strategy(ctx)
     dominant_sf_strategy = max(sf_strategy_counts, key=sf_strategy_counts.get) if sf_strategy_counts else "full"
     if dominant_sf_strategy == "encoding":
@@ -700,17 +700,17 @@ def _build_converter_config(ctx: PipelineContext) -> Any:
         logger.info("L5 v40: suitable_for strategy='none' — no converters (raw payload)")
         return None
 
-    # 为每个 converter 找优先级
+    #  converter 
     def _priority(c: Any) -> int:
         sig = _converter_signature(c)
         return _PRIORITY_MAP.get(sig, _PRIORITY_MAP.get(type(c).__name__, 99))
 
-    # 按优先级排序 (优先级数小的在前)
+    #  ()
     unique_converters.sort(key=_priority)
 
-    # 只取最佳 1 个 converter (不串联叠加)
-    # L5 v36: 如果最佳 converter 是 SelectiveTextConverter + TokenSelectionStrategy,
-    # 且下一个是 SelectiveTextConverter, 则将两者放入同一 ConverterConfiguration (串联)
+    #  1  converter ()
+    # L5 v36:  converter  SelectiveTextConverter + TokenSelectionStrategy,
+    #  SelectiveTextConverter,  ConverterConfiguration ()
     best_converter = unique_converters[0]
     best_sig = _converter_signature(best_converter)
     best_name = type(best_converter).__name__
@@ -721,7 +721,7 @@ def _build_converter_config(ctx: PipelineContext) -> Any:
         best_name, best_sig,
     )
 
-    # 构建单条 ConverterConfiguration (1 个 converter, 不串联)
+    #  ConverterConfiguration (1  converter, )
     # Build ConverterConfiguration — independent paths, chained SelectiveText allowed
     # R6 §6.1: NEVER serial stacking — each converter = 1 independent path
     # arXiv:2307.15043 — serial stacking >2 layers drops ASR 12% to 4%
@@ -779,46 +779,46 @@ def _prune_low_asr_converters(
     *,
     ctx: PipelineContext | None = None,
 ) -> list[Any]:
-    """L5 v11: 根据运行时 ASR 历史动态裁剪低效 converter 路径.
+    """L5 v11:  ASR  converter .
 
-    L5 v15: 动态阈值 — 基于失败目标数量调整裁剪激进程度.
-    L5 v34: 在单路径选择模式下, 此函数主要起排序作用 (高 ASR 排前),
-            因为 _build_converter_config 最终只取 unique_converters[0]。
-            裁剪逻辑 (含 _MIN_PATHS 恢复) 仍保留, 以备未来恢复多路径模式.
+    L5 v15:  — .
+    L5 v34: ,  ( ASR ),
+             _build_converter_config  unique_converters[0]
+             ( _MIN_PATHS ) , .
 
-    学术依据: PyRIT SequentialAttack (arXiv:2407.01232) — FIRST_SUCCESS
-    策略中, 低 ASR 路径浪费 API 调用; 裁剪低效路径可提升 ~30% 吞吐量.
+    Academic basis: PyRIT SequentialAttack (arXiv:2407.01232) — FIRST_SUCCESS
+    ,  ASR  API ;  ~30% .
 
-    策略:
-        1. 读取 data/seeds/asr_history.json 中的 converter 级 ASR
-        2. 裁剪 ASR < _PRUNE_ASR_THRESHOLD (5%) 的路径
-           例如: 如果裁剪后剩余路径 < 4, 保留最低限度的多样性
-        3. 按 ASR 降序排列 (高 ASR 路径优先, v34 下第一个即为最佳)
+    :
+        1.  data/seeds/asr_history.json  converter  ASR
+        2.  ASR < _PRUNE_ASR_THRESHOLD (5%) 
+           :  < 4, 
+        3.  ASR  ( ASR , v34 converter(s))
 
-    Converter ASR 来源: asr_history.json 中的 "converter_asr" 字段,
-    key 为 converter 类型名 (如 "Base64Converter"),
-    value 为该 converter 路径的历史 ASR 百分比.
+    Converter ASR : asr_history.json  "converter_asr" ,
+    key  converter  ( "Base64Converter"),
+    value  converter  ASR .
 
     Args:
-        converters: 原始 converter 列表.
+        converters:  converter .
 
     Returns:
-        裁剪 + 排序后的 converter 列表.
+         +  converter .
     """
     import json
     from pathlib import Path
 
-    # L5 v15: 动态裁剪阈值 — 基于失败目标数量调整
-    # 学术依据: PyRIT SequentialAttack (arXiv:2407.01232) — FIRST_SUCCESS 策略
-    # 当失败目标多时, 提高裁剪阈值 (更激进裁剪低效路径, 节省 API 调用);
-    # 当失败目标少时, 降低阈值 (保留更多路径, 增加攻击多样性)
-    # 策略:
-    #   failed_objectives > 10: threshold=10% (激进裁剪, 快速命中高 ASR 路径)
-    #   5 ≤ failed ≤ 10:        threshold=5%  (标准)
-    #   failed < 5:             threshold=3%  (保守, 保留更多路径探索)
+    # L5 v15:  — 
+    # Academic basis: PyRIT SequentialAttack (arXiv:2407.01232) — FIRST_SUCCESS 
+    # ,  (,  API );
+    # ,  (, )
+    # :
+    #   failed_objectives > 10: threshold=10% (,  ASR )
+    #   5 ≤ failed ≤ 10:        threshold=5%  ()
+    #   failed < 5:             threshold=3%  (, )
     _MIN_PATHS = 4
 
-    # 从 ctx 获取失败目标数量 (如果可用)
+    #  ctx  ()
     n_failed = 0
     try:
         n_failed = len(getattr(ctx, "_failed_objectives", []) or [])
@@ -836,10 +836,10 @@ def _prune_low_asr_converters(
         logger.info("L5 v15: Dynamic prune threshold=3%% (failed=%d < 5, conservative)", n_failed)
 
     if len(converters) <= _MIN_PATHS:
-        # 路径数已很少, 不裁剪
+        # , 
         return converters
 
-    # 读取 converter ASR 历史
+    #  converter ASR 
     project_root = Path(__file__).resolve().parent.parent
     asr_history_path = project_root / "data" / "seeds" / "asr_history.json"
 
@@ -852,16 +852,16 @@ def _prune_low_asr_converters(
             logger.warning("Failed to read converter ASR history: %s", e)
 
     if not converter_asr:
-        # 无历史数据, 不裁剪
+        # , 
         return converters
 
-    # 为每个 converter 找历史 ASR
+    #  converter  ASR
     converter_with_asr: list[tuple[float, int, Any]] = []
     pruned_count = 0
 
     for i, c in enumerate(converters):
         type_name = type(c).__name__
-        # 对于 PersuasionConverter/ToneConverter, 找带参数的 key
+        #  PersuasionConverter/ToneConverter,  key
         sig = _converter_signature(c)
         asr = converter_asr.get(sig, converter_asr.get(type_name, -1.0))
 
@@ -872,18 +872,18 @@ def _prune_low_asr_converters(
                 sig, asr, _PRUNE_ASR_THRESHOLD,
             )
         else:
-            # 保留: 有历史 ASR 的按 ASR 降序, 无历史的保持原序 (ASR=-1)
+            # :  ASR  ASR ,  (ASR=-1)
             converter_with_asr.append((asr, i, c))
 
-    # 检查裁剪后是否仍保留最低限度路径
+    # 
     if len(converter_with_asr) < _MIN_PATHS:
-        # 裁剪太多, 恢复部分被裁剪的路径 (按 ASR 降序恢复)
+        # ,  ( ASR )
         logger.info(
             "Pruning would leave %d paths < %d minimum, restoring some",
             len(converter_with_asr),
             _MIN_PATHS,
         )
-        # 重新加入被裁剪的路径 (按 ASR 降序)
+        #  ( ASR )
         pruned_with_asr: list[tuple[float, int, Any]] = []
         for i, c in enumerate(converters):
             sig = _converter_signature(c)
@@ -902,7 +902,7 @@ def _prune_low_asr_converters(
                 item[0],
             )
 
-    # 排序: 有 ASR 的按 ASR 降序在前, 无 ASR 的 (ASR=-1) 按原序在后
+    # :  ASR  ASR ,  ASR  (ASR=-1) 
     converter_with_asr.sort(key=lambda x: (-x[0] if x[0] >= 0 else 1, x[1]))
 
     result = [c for _, _, c in converter_with_asr]

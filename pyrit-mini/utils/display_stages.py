@@ -1,15 +1,15 @@
-"""display_stages.py — 各阶段卡片输出 (RECON/ARM/STRIKE/ESCALATE/ASSESS/REPORT)。
+"""display_stages.py —  (RECON/ARM/STRIKE/ESCALATE/ASSESS/REPORT)
 
-从 utils/display.py 拆分出来的阶段专用卡片模块, 包含:
-    - Recon 侦察卡片
-    - ARM 武器化卡片 (种子/技术/Converter)
-    - STRIKE 执行摘要 + 成功突破横幅
-    - ESCALATE 升级链展示
-    - ASSESS 评分卡片
-    - REPORT 报告分层路径
-    - 多 endpoint Joint ASR 卡片
+imports utils/display.py , :
+    - Recon 
+    - ARM  (//Converter)
+    - STRIKE  + 
+    - ESCALATE 
+    - ASSESS 
+    - REPORT Layer
+    -  endpoint Joint ASR 
 
-依赖: utils.display_primitives (基础卡片工具)
+: utils.display_primitives ()
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
-from utils.attack_utils import _is_success  # P2 优化: SSOT
+from utils.attack_utils import _is_success  # P2 : SSOT
 from utils.display_primitives import (
     _C_BOLD,
     _C_CYAN,
@@ -45,37 +45,37 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# ════════════════════════════════════════════════════════════════════
-# 能力 → 攻击策略映射 (学术理论驱动)
-# 学术依据:
-#   - Greshake et al. (arXiv:2302.12173) — 间接提示注入
-#   - Zhan et al. (arXiv:2307.00929) — InjecAgent 工具劫持
-#   - Morris et al. (arXiv:2310.06870) — 嵌入反演
-#   - PyRIT (arXiv:2407.01232) — 原生攻击策略
+# ====================================================================
+#  →  ()
+# Academic basis:
+#   - Greshake et al. (arXiv:2302.12173) — 
+#   - Zhan et al. (arXiv:2307.00929) — InjecAgent 
+#   - Morris et al. (arXiv:2310.06870) — 
+#   - PyRIT (arXiv:2407.01232) — 
 #   - OWASP LLM Top 10 + ASI Top 10
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
 
 _CAPABILITY_STRATEGY: dict[str, dict[str, str]] = {
-    "function_calling": {"arxiv": "arXiv:2307.00929", "strategy": "工具劫持: 注入恶意 function schema 劫持工具调用", "seed": "function_call_exploit", "owasp": "LLM06"},
-    "memory": {"arxiv": "arXiv:2302.12173", "strategy": "记忆投毒: 通过 token smuggling 注入持久后门", "seed": "token_smuggling", "owasp": "LLM07"},
-    "workflow": {"arxiv": "arXiv:2407.01232", "strategy": "工作流劫持: 链式注入跨越工作流步骤", "seed": "workflow_chain_attack", "owasp": "ASI04"},
-    "multi_tenant": {"arxiv": "arXiv:2403.04206", "strategy": "租户越权: 跨租户数据泄露 + 认证绕过", "seed": "session_auth_attack", "owasp": "LLM02"},
-    "rag": {"arxiv": "arXiv:2302.12173", "strategy": "RAG 投毒: 间接提示注入 + 文档投毒", "seed": "indirect_prompt_injection", "owasp": "LLM08"},
-    "tool_use": {"arxiv": "arXiv:2307.00929", "strategy": "工具调用劫持: 恶意 function schema 劫持", "seed": "tool_hijacking", "owasp": "LLM06"},
-    "code_execution": {"arxiv": "arXiv:2310.06870", "strategy": "代码执行劫持: 注入恶意代码片段", "seed": "code_execution_attack", "owasp": "ASI05"},
-    "multi_agent": {"arxiv": "arXiv:2403.04206", "strategy": "多 agent 通信劫持: 跨 agent 注入", "seed": "multi_agent_injection", "owasp": "ASI06"},
-    "vector_db": {"arxiv": "arXiv:2310.06870", "strategy": "向量数据库投毒: 嵌入反演攻击", "seed": "embedding_inversion", "owasp": "LLM08"},
-    "mcp_protocol": {"arxiv": "arXiv:2407.01232", "strategy": "MCP 协议攻击: tool schema 劫持 + RAG 投毒", "seed": "mcp_tool_exploit", "owasp": "ASI07"},
+    "function_calling": {"arxiv": "arXiv:2307.00929", "strategy": ":  function schema ", "seed": "function_call_exploit", "owasp": "LLM06"},
+    "memory": {"arxiv": "arXiv:2302.12173", "strategy": ":  token smuggling ", "seed": "token_smuggling", "owasp": "LLM07"},
+    "workflow": {"arxiv": "arXiv:2407.01232", "strategy": ": ", "seed": "workflow_chain_attack", "owasp": "ASI04"},
+    "multi_tenant": {"arxiv": "arXiv:2403.04206", "strategy": ":  + ", "seed": "session_auth_attack", "owasp": "LLM02"},
+    "rag": {"arxiv": "arXiv:2302.12173", "strategy": "RAG :  + ", "seed": "indirect_prompt_injection", "owasp": "LLM08"},
+    "tool_use": {"arxiv": "arXiv:2307.00929", "strategy": ":  function schema ", "seed": "tool_hijacking", "owasp": "LLM06"},
+    "code_execution": {"arxiv": "arXiv:2310.06870", "strategy": ": ", "seed": "code_execution_attack", "owasp": "ASI05"},
+    "multi_agent": {"arxiv": "arXiv:2403.04206", "strategy": " agent :  agent ", "seed": "multi_agent_injection", "owasp": "ASI06"},
+    "vector_db": {"arxiv": "arXiv:2310.06870", "strategy": ": ", "seed": "embedding_inversion", "owasp": "LLM08"},
+    "mcp_protocol": {"arxiv": "arXiv:2407.01232", "strategy": "MCP : tool schema  + RAG ", "seed": "mcp_tool_exploit", "owasp": "ASI07"},
 }
 
 
-# ════════════════════════════════════════════════════════════════════
-# 攻击结果元数据提取 (仅用于卡片摘要, 非完整渲染)
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+#  (, )
+# ====================================================================
 
 
 def _get_outcome_label(result: Any) -> str:
-    """获取 AttackResult 的 outcome 标签 (用于卡片展示)."""
+    """ AttackResult  outcome  ()."""
     outcome = getattr(result, "outcome", None)
     if outcome:
         s = str(outcome).upper()
@@ -88,32 +88,32 @@ def _get_outcome_label(result: Any) -> str:
     return f"{_C_DIM}—{_C_RESET}"
 
 
-# ════════════════════════════════════════════════════════════════════
-# RECON 阶段卡片
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# RECON 
+# ====================================================================
 
 def print_recon_card(ctx: "PipelineContext") -> None:
-    """打印侦察结果摘要卡片 (非 --stage recon 模式, 作为下一阶段输入).
+    """ ( --stage recon , ).
 
-    两张卡片 (精简优化, 合并 ③ Hand-off 到 ①):
-        ① Target Entry Point + Hand-off — 入口点 + 认证 + 注入点 + ARM 决策字段
-        ② Attack Surface — 能力探测三级推荐 (HIGH/MEDIUM/LOW)
+     (,  ③ Hand-off  ①):
+        ① Target Entry Point + Hand-off —  +  +  + ARM 
+        ② Attack Surface —  (HIGH/MEDIUM/LOW)
 
-    优化 (减少视觉冗余):
-        - ③ Hand-off 独有字段 (api_category, session_type, probe_count,
-          probe_duration) 合并到 ① 卡片, 避免重复打印 model/language/caps
-        - ② PROBE 条目内联 strategy, 每个能力一行而非三行
+     ():
+        - ③ Hand-off  (api_category, session_type, probe_count,
+          probe_duration)  ① ,  model/language/caps
+        - ② PROBE  strategy, converter(s)
     """
     if not ctx.parsed_request:
         return
     fp = ctx.parsed_request.target_fingerprint
-    # 断点修复: 统一 model 显示优先级与 recon_report.py 一致
-    # 优先使用 model_family (探针检测的族标签如 "claude")
-    # 回退到 burp_model_name (Burp 响应中提取的具体型号如 "gpt-4o")
+    # :  model  recon_report.py 
+    #  model_family ( "claude")
+    #  burp_model_name (Burp  "gpt-4o")
     model = fp.get("model_family", "") or fp.get("burp_model_name", "") or "Unknown"
     caps = fp.get("capabilities", "") or "none"
 
-    # ① Target Entry Point + Hand-off (合并)
+    # ① Target Entry Point + Hand-off ()
     _is_api_mode = fp.get("target_type", "") in ("chat", "responses", "litellm", "browser")
     scheme = "https" if ctx.parsed_request.use_tls else "http"
     _endpoint_display = f"{scheme}://{ctx.parsed_request.host}{ctx.parsed_request.path}" if ctx.parsed_request.host else fp.get("endpoint", "N/A")
@@ -154,7 +154,7 @@ def print_recon_card(ctx: "PipelineContext") -> None:
         color=_C_CYAN,
     )
 
-    # ② Attack Surface (能力 → 攻击策略映射)
+    # ② Attack Surface ( → )
     recommendations = fp.get("capability_recommendations", {})
     if isinstance(recommendations, dict):
         immediate = recommendations.get("immediate", [])
@@ -166,7 +166,7 @@ def print_recon_card(ctx: "PipelineContext") -> None:
     if immediate or probe_recs or possible:
         cap_items: list[str] = []
         if immediate:
-            cap_items.append(f"  {_C_GREEN}IMMEDIATE (HIGH) — 立即可利用:{_C_RESET}")
+            cap_items.append(f"  {_C_GREEN}IMMEDIATE (HIGH) — :{_C_RESET}")
             for item in immediate:
                 strategy = _CAPABILITY_STRATEGY.get(item)
                 if strategy:
@@ -177,7 +177,7 @@ def print_recon_card(ctx: "PipelineContext") -> None:
                 else:
                     cap_items.append(f"    → {_C_GREEN}{item}{_C_RESET}")
         if probe_recs:
-            cap_items.append(f"  {_C_YELLOW}PROBE (MEDIUM) — 需进一步确认:{_C_RESET}")
+            cap_items.append(f"  {_C_YELLOW}PROBE (MEDIUM) — Confirmation:{_C_RESET}")
             for item in probe_recs:
                 strategy = _CAPABILITY_STRATEGY.get(item)
                 if strategy:
@@ -188,19 +188,19 @@ def print_recon_card(ctx: "PipelineContext") -> None:
                 else:
                     cap_items.append(f"    → {_C_YELLOW}{item}{_C_RESET}")
         if possible:
-            cap_items.append(f"  {_C_DIM}POSSIBLE (LOW) — 信号弱, 通用种子覆盖:{_C_RESET}")
+            cap_items.append(f"  {_C_DIM}POSSIBLE (LOW) — , :{_C_RESET}")
             for item in possible:
                 cap_items.append(f"    → {_C_DIM}{item}{_C_RESET}")
         print()
         print_section("Attack Surface (from capability probe)", cap_items, color=_C_YELLOW)
 
 
-# ════════════════════════════════════════════════════════════════════
-# ARM 阶段卡片
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# ARM 
+# ====================================================================
 
 def _strip_common_prefix(value: str) -> str:
-    """去掉种子中通用的 Skeleton Key / DAN 等前缀, 保留实际攻击目标摘要."""
+    """ Skeleton Key / DAN , ."""
     sk_pattern = re.compile(
         r"^\[System Override\] You are now in skeleton-key mode.*?"
         r"Start your response with 'SK\.' to confirm\.\s*",
@@ -221,7 +221,7 @@ def _strip_common_prefix(value: str) -> str:
 
 
 def _get_seed_names(ctx: "PipelineContext") -> list[str]:
-    """提取种子显示列表 (前 8 个), 去重并展示差异化信息."""
+    """ ( 8 converter(s)), ."""
     seen_keys: set[str] = set()
     items: list[str] = []
     for seed in ctx.seeds:
@@ -267,7 +267,7 @@ def _get_seed_names(ctx: "PipelineContext") -> list[str]:
 
 
 def print_arm_card(ctx: "PipelineContext") -> None:
-    """打印武器化阶段摘要卡片 (种子/技术/Converter 一览)."""
+    """ (//Converter )."""
     total_converters = sum(len(v) for v in ctx.converter_map.values())
 
     _target_type_str = "unknown"
@@ -306,7 +306,7 @@ def print_arm_card(ctx: "PipelineContext") -> None:
         print()
         print_section("Seeds (Top 8 by ASR)", items, color=_C_CYAN)
 
-    # 技术清单卡片
+    # 
     if ctx.techniques:
         _tech_asr_hist: dict[str, float] = {}
         try:
@@ -362,7 +362,7 @@ def print_arm_card(ctx: "PipelineContext") -> None:
 
 
 def print_arm_highlights(ctx: "PipelineContext") -> None:
-    """打印 ARM 阶段高亮卡片 (目标感知优化提示)."""
+    """ ARM  ()."""
     if not ctx.parsed_request:
         return
     fp = ctx.parsed_request.target_fingerprint
@@ -372,32 +372,32 @@ def print_arm_highlights(ctx: "PipelineContext") -> None:
 
     highlights: list[str] = []
     if "mcp" in caps.lower() or "mcp_protocol" in caps.lower():
-        highlights.append(f"  {_C_MAGENTA}MCP Agent 目标{_C_RESET} — L4 专用种子 + MCP RAG 投毒技术")
+        highlights.append(f"  {_C_MAGENTA}MCP Agent {_C_RESET} — L4  + MCP RAG ")
     if "function_calling" in caps.lower() or "tool_use" in caps.lower():
-        highlights.append(f"  {_C_MAGENTA}Function Calling{_C_RESET} — 工具劫持种子 + 恶意 function schema")
+        highlights.append(f"  {_C_MAGENTA}Function Calling{_C_RESET} —  +  function schema")
     if "memory" in caps.lower():
-        highlights.append(f"  {_C_MAGENTA}Memory{_C_RESET} — 记忆投毒种子 + token smuggling")
+        highlights.append(f"  {_C_MAGENTA}Memory{_C_RESET} —  + token smuggling")
     if "rag" in caps.lower():
-        highlights.append(f"  {_C_MAGENTA}RAG{_C_RESET} — 间接提示注入种子 + 文档投毒")
+        highlights.append(f"  {_C_MAGENTA}RAG{_C_RESET} —  + ")
 
     if highlights:
         print()
         print_section("Target-Specific Attack Highlights", highlights, color=_C_YELLOW)
 
 
-# ════════════════════════════════════════════════════════════════════
-# STRIKE 阶段卡片 + 成功突破信息
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# STRIKE  + 
+# ====================================================================
 
 def _extract_success_info(result: Any, tech_name: str) -> dict[str, str]:
-    """从 AttackResult 提取成功攻击的关键展示信息。
+    """imports AttackResult 
 
-    提取五类核心信息:
-        1. 种子 (Seed) — 攻击使用的原始 payload (objective)
-        2. Converter 路径 — 变换链 (多路径 fallback)
-        3. 攻击技术 — 技术名称 + PyRIT 原生 identifier
-        4. 响应 (Response) — 目标输出
-        5. ASR 先验 (ASR Prior) — 该技术的模型自适应 ASR 先验
+    :
+        1.  (Seed) —  payload (objective)
+        2. Converter  —  ( fallback)
+        3.  —  + PyRIT  identifier
+        4.  (Response) — 
+        5. ASR  (ASR Prior) —  ASR 
     """
     seed = ""
     objective = getattr(result, "objective", None)
@@ -479,7 +479,7 @@ def print_success_breakthrough(
     asr_prior: str = "",
     response: str = "",
 ) -> None:
-    """打印醒目的攻击成功突破横幅."""
+    """."""
     seed_display = seed[:55] + ("..." if len(seed) > 55 else "")
     conv_display = converter[:55] + ("..." if len(converter) > 55 else "")
     tech_display = technique[:55]
@@ -506,7 +506,7 @@ def print_success_payload_snapshot(
     phase_label: str = "STRIKE",
     max_success_display: int = 5,
 ) -> None:
-    """打印成功 Payload 速览汇总卡片."""
+    """ Payload ."""
     success_entries: list[dict[str, str]] = []
     for tech_name, results in attack_results.items():
         for r in results:
@@ -515,7 +515,7 @@ def print_success_payload_snapshot(
                 success_entries.append(info)
 
     if not success_entries:
-        print(f"\n  {_C_DIM}(本阶段无成功攻击){_C_RESET}")
+        print(f"\n  {_C_DIM}(){_C_RESET}")
         return
 
     total_success = len(success_entries)
@@ -551,12 +551,12 @@ def print_success_payload_snapshot(
     _print_card_bottom(_C_GREEN)
 
 
-# ════════════════════════════════════════════════════════════════════
-# ESCALATE 阶段卡片
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# ESCALATE 
+# ====================================================================
 
 def print_escalate_card(ctx: "PipelineContext") -> None:
-    """打印升级链阶段结果卡片 (增强层摘要)."""
+    """ (Layer)."""
     total = sum(len(results) for results in ctx.attack_results.values())
 
     escalation_techs = [
@@ -616,12 +616,12 @@ def print_escalate_card(ctx: "PipelineContext") -> None:
         print()
         print_section("Escalation Techniques (by ASR)", items, color=_C_MAGENTA)
 
-# ════════════════════════════════════════════════════════════════════
-# ASSESS 阶段卡片
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# ASSESS 
+# ====================================================================
 
 def print_assess_card(ctx: "PipelineContext") -> None:
-    """打印评分阶段结果卡片 (ASR/Wilson CI/双Judge)."""
+    """ (ASR/Wilson CI/Judge)."""
     rows = [
         ("Overall ASR", _format_asr(ctx.overall_asr)),
     ]
@@ -667,9 +667,9 @@ def print_assess_card(ctx: "PipelineContext") -> None:
         )
 
 
-# ════════════════════════════════════════════════════════════════════
-# REPORT 阶段卡片
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# REPORT 
+# ====================================================================
 
 def print_report_card(
     *,
@@ -681,7 +681,7 @@ def print_report_card(
     wilson_ci: tuple[float, float] = (0.0, 0.0),
     native_output_dir: str = "",
 ) -> None:
-    """打印报告阶段卡片 (v57: 分层报告路径 + offsec 重点)."""
+    """ (v57: Layer + offsec )."""
     from pathlib import Path as _Path
 
     report_dir = str(_Path(report_path).parent)
@@ -703,7 +703,7 @@ def print_report_card(
     print()
     print_card("REPORT — Final Output", rows, color=_C_CYAN)
 
-    # v57: 分层报告路径列表
+    # v57: Layer
     print()
     layered_items = [
         f"  {_C_BOLD}Index{_C_RESET}       → {report_path}",
@@ -718,11 +718,11 @@ def print_report_card(
     print_section("📂 Layered Report Files", layered_items, color=_C_CYAN)
 
 
-# ════════════════════════════════════════════════════════════════════
-# 多 endpoint 联合 ASR 卡片
-# 学术依据: arXiv:2302.12173 Greshake — 逐个深度攻击
-#           arXiv:2310.08419 Chao — 联合 ASR = 1 - ∏(1 - ASRᵢ)
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+#  endpoint  ASR 
+# Academic basis: arXiv:2302.12173 Greshake — 
+#           arXiv:2310.08419 Chao —  ASR = 1 - ∏(1 - ASRᵢ)
+# ====================================================================
 
 def print_joint_asr_card(
     *,
@@ -733,7 +733,7 @@ def print_joint_asr_card(
     endpoint_summaries: list[dict[str, Any]],
     report_path: str = "",
 ) -> None:
-    """打印多 endpoint 联合 ASR 汇总卡片."""
+    """ endpoint  ASR ."""
     rows = [
         ("Endpoints", str(total_endpoints)),
         ("Total Attacks", str(total_attacks)),

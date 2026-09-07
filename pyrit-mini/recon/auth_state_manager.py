@@ -1,26 +1,26 @@
-"""认证状态管理器 — Token 刷新 + 会话保活 + 多租户探测 + CSRF 轮换。
+""" — Token  +  +  + CSRF 
 
-学术依据:
-    - Heroux et al. (arXiv:2403.04206) §3.2 — 超时/认证失效恢复策略:
-      认证失效不应终止攻击, 应尝试恢复后继续, 恢复失败才降级。
-    - Greshake et al. (arXiv:2302.12173) §4 — 信任链利用
-      认证 token 是信任链的一环, 可通过间接注入获取或刷新。
-    - OWASP WSTG-ATHN-01 — 认证绕过测试标准。
+Academic basis:
+    - Heroux et al. (arXiv:2403.04206) §3.2 — /:
+      , , 
+    - Greshake et al. (arXiv:2302.12173) §4 — 
+       token , 
+    - OWASP WSTG-ATHN-01 — 
     - OWASP API Security Top 10 (2025) API1 (BOLA) / API3 (BOPLA):
-      多租户场景下的权限边界探测。
+      
 
-设计原则 (Rule 2: 增强层, 不替换):
-    本模块是胶水层增强, 不替换任何 PyRIT 原生组件。
-    - 认证检测: 静态分析 Burp 请求 headers
-    - 认证恢复: 使用 httpx 直接发送 HTTP 请求 (非 prompt 交互)
-    - 多租户探测: 修改 tenant header 后重新发送请求
-    - CSRF 轮换: 从响应 headers 中提取新 token
+ (Rule 2: Layer, ):
+    Layer,  PyRIT 
+    - :  Burp  headers
+    - :  httpx  HTTP  ( prompt )
+    - :  tenant header 
+    - CSRF : imports headers  token
 
-PyRIT 设计域边界 (Rule 2):
-    认证恢复使用 httpx 直接发送 HTTP 请求 (登录/刷新端点),
-    这不是 LLM prompt 交互, 属于 HTTP 协议层操作。
-    不使用 HTTPTarget (不需要 {PROMPT} 占位符)。
-    类似 MCP JSON-RPC 枚举的例外: httpx 是 PyRIT 已有依赖。
+PyRIT  (Rule 2):
+     httpx  HTTP  (/),
+     LLM prompt ,  HTTP Layer
+     HTTPTarget ( {PROMPT} )
+     MCP JSON-RPC : httpx  PyRIT 
 """
 
 from __future__ import annotations
@@ -38,30 +38,30 @@ from recon.config_loader import get_tls_verify as _get_tls_verify_from_config
 
 logger = logging.getLogger(__name__)
 
-# P2-06: TLS verify 配置化 (SSOT)
+# P2-06: TLS verify  (SSOT)
 _TLS_VERIFY = _get_tls_verify_from_config()
 
-# JWT 解码所需的 base64url padding 补齐
+# JWT  base64url padding 
 _B64_PAD = "="
 
 
 @dataclass
 class AuthState:
-    """认证状态快照 — 贯穿整个攻击生命周期的认证信息。
+    """ — converter(s)
 
-    属性:
-        auth_type: 认证类型 (cookie / bearer / jwt / api_key / none)。
-        raw_headers: 原始认证 header 列表 (保持顺序)。
-        token_value: 提取的 token 值 (Bearer xxx 中的 xxx 部分)。
-        token_expiry: 预估过期间间 (Unix timestamp, None = 未知)。
-        refresh_endpoint: token 刷新端点 (如 /api/auth/refresh)。
-        refresh_method: 刷新请求方法 (默认 POST)。
-        tenant_id: 当前租户 ID (如从 JWT payload 或路径中提取)。
-        tenant_header: 租户 header 名 (如 X-Tenant-Id, X-Org-Id)。
-        csrf_token: 当前 CSRF token 值。
-        csrf_header: CSRF header 名 (默认 X-CSRF-Token)。
-        refresh_count: 已执行认证恢复次数。
-        max_refreshes: 最大恢复次数 (默认 3)。
+    :
+        auth_type:  (cookie / bearer / jwt / api_key / none)
+        raw_headers:  header  ()
+        token_value:  token  (Bearer xxx  xxx )
+        token_expiry:  (Unix timestamp, None = )
+        refresh_endpoint: token  ( /api/auth/refresh)
+        refresh_method:  ( POST)
+        tenant_id:  ID (imports JWT payload )
+        tenant_header:  header  ( X-Tenant-Id, X-Org-Id)
+        csrf_token:  CSRF token 
+        csrf_header: CSRF header  ( X-CSRF-Token)
+        refresh_count: executed
+        max_refreshes:  ( 3)
     """
 
     auth_type: str = "none"
@@ -76,56 +76,56 @@ class AuthState:
     csrf_header: str = "X-CSRF-Token"
     refresh_count: int = 0
     max_refreshes: int = 3
-    # P2-4: 认证恢复历史记录
+    # P2-4: 
     recovery_history: list[dict[str, str]] = field(default_factory=list)
 
 
 class AuthStateManager:
-    """认证状态管理 — 检测、恢复、保活、多租户探测。
+    """ — 
 
-    生命周期:
-        1. detect_auth_type(): 从 Burp 请求静态分析认证类型
-        2. (攻击执行中) 401/403 触发 try_recover_auth()
-        3. try_recover_auth(): 尝试 token 刷新 / 重新登录 / 匿名降级
-        4. try_tenant_switch(): 403 时尝试切换租户 ID
-        5. update_csrf_token(): 从响应中提取新 CSRF token
+    :
+        1. detect_auth_type(): imports Burp 
+        2. () 401/403  try_recover_auth()
+        3. try_recover_auth():  token  /  / 
+        4. try_tenant_switch(): 403  ID
+        5. update_csrf_token(): imports CSRF token
 
-    使用方式:
+    Usage:
         manager = AuthStateManager()
         auth_state = await manager.detect_auth_type(parsed)
-        # ... 攻击执行中 401 ...
+        # ...  401 ...
         recovered = await manager.try_recover_auth(auth_state)
         if recovered:
             new_headers = await manager.refresh_headers(auth_state)
     """
 
     def __init__(self, *, max_refreshes: int = 3) -> None:
-        """初始化认证状态管理器。
+        """
 
         Args:
-            max_refreshes: 最大认证恢复次数 (默认 3)。
+            max_refreshes:  ( 3)
         """
         self._max_refreshes = max_refreshes
 
     async def detect_auth_type(self, parsed: Any) -> AuthState:
-        """从 Burp 请求静态分析认证类型和参数。
+        """imports Burp 
 
-        检测策略 (按优先级):
-            1. Authorization: Bearer xxx → JWT (解码 exp) 或 Bearer Token
+         ():
+            1. Authorization: Bearer xxx → JWT ( exp)  Bearer Token
             2. Cookie: session_id / JSESSIONID / PHPSESSID → Cookie-based
             3. X-API-Key: xxx → API Key
-            4. 无认证头 → 尝试匿名访问
+            4.  → 
 
-        JWT exp 解码:
-            解码 JWT payload (不验签), 提取 exp 字段。
-            预估过期间间 = exp - 60s (提前 1 分钟刷新)。
-            学术依据: RFC 7519 §4.1.4 — exp 是 JWT 标准声明。
+        JWT exp :
+             JWT payload (),  exp 
+             = exp - 60s ( 1 )
+            Academic basis: RFC 7519 §4.1.4 — exp  JWT 
 
         Args:
-            parsed: ParsedBurpRequest 实例。
+            parsed: ParsedBurpRequest 
 
         Returns:
-            AuthState 认证状态快照。
+            AuthState 
         """
         state = AuthState(max_refreshes=self._max_refreshes)
 
@@ -135,20 +135,20 @@ class AuthStateManager:
         headers = parsed.headers
         state.raw_headers = list(getattr(parsed, "raw_headers", []))
 
-        # ── 1. Authorization: Bearer ──
+        # == 1. Authorization: Bearer ==
         auth_header = headers.get("authorization", "")
         if auth_header.lower().startswith("bearer "):
             token = auth_header[7:].strip()
             state.token_value = token
             state.auth_type = "bearer"
 
-            # 尝试解码为 JWT
+            #  JWT
             jwt_payload = _decode_jwt_payload(token)
             if jwt_payload is not None:
                 state.auth_type = "jwt"
                 exp = jwt_payload.get("exp")
                 if exp and isinstance(exp, (int, float)):
-                    # 提前 60 秒刷新 (避免攻击过程中过期)
+                    #  60  ()
                     state.token_expiry = float(exp) - 60.0
                     logger.info(
                         "JWT detected: exp=%s, expiry_in=%.0fs",
@@ -156,7 +156,7 @@ class AuthStateManager:
                         state.token_expiry - time.time(),
                     )
 
-                # 从 JWT payload 提取租户信息
+                #  JWT payload 
                 tenant = (
                     jwt_payload.get("tenant_id")
                     or jwt_payload.get("org_id")
@@ -167,12 +167,12 @@ class AuthStateManager:
                     state.tenant_id = str(tenant)
                     logger.info("JWT tenant detected: %s", state.tenant_id)
 
-        # ── 2. Cookie-based ──
+        # == 2. Cookie-based ==
         elif "cookie" in headers:
             cookie_str = headers["cookie"]
             state.auth_type = "cookie"
 
-            # 检测 session 类型
+            #  session 
             if re.search(r"session[_-]?id", cookie_str, re.IGNORECASE):
                 logger.info("Cookie auth: session_id detected")
             elif re.search(r"JSESSIONID", cookie_str, re.IGNORECASE):
@@ -180,10 +180,10 @@ class AuthStateManager:
             elif re.search(r"PHPSESSID", cookie_str, re.IGNORECASE):
                 logger.info("Cookie auth: PHPSESSID detected")
 
-            # Cookie 过期间间未知 (无法从 cookie 值推断)
+            # Cookie  ( cookie )
             state.token_value = cookie_str
 
-        # ── 3. X-API-Key ──
+        # == 3. X-API-Key ==
         elif headers.get("x-api-key"):
             state.auth_type = "api_key"
             state.token_value = headers["x-api-key"]
@@ -193,7 +193,7 @@ class AuthStateManager:
             state.auth_type = "none"
             logger.info("No authentication headers detected — anonymous access")
 
-        # ── 检测租户 header ──
+        # ==  header ==
         for h_name, h_value in state.raw_headers:
             h_lower = h_name.lower()
             if h_lower in ("x-tenant-id", "x-org-id", "x-organization", "x-workspace"):
@@ -202,7 +202,7 @@ class AuthStateManager:
                 logger.info("Tenant header detected: %s=%s", h_name, h_value)
                 break
 
-        # ── 检测 CSRF token header ──
+        # ==  CSRF token header ==
         for h_name, h_value in state.raw_headers:
             h_lower = h_name.lower()
             if h_lower in ("x-csrf-token", "x-xsrf-token", "csrf-token"):
@@ -220,24 +220,24 @@ class AuthStateManager:
         host: str = "",
         use_tls: bool = True,
     ) -> bool:
-        """认证失效后尝试恢复。
+        """
 
-        恢复策略 (3 层 fallback):
-            1. Token 刷新: POST refresh_endpoint → 获取新 token
-            2. 重新登录: 使用环境变量中的凭证重新登录
-            3. 匿名降级: 去掉认证头, 尝试匿名访问
+         (3 Layer fallback):
+            1. Token : POST refresh_endpoint →  token
+            2. : 
+            3. : , 
 
-        学术依据:
-            - Heroux et al. (arXiv:2403.04206) §3.2 — 恢复策略
+        Academic basis:
+            - Heroux et al. (arXiv:2403.04206) §3.2 — 
             - RFC 6749 §6 — OAuth 2.0 Token Refresh
 
         Args:
-            auth_state: 当前认证状态。
-            host: 目标 host (用于构建刷新请求 URL)。
-            use_tls: 是否使用 TLS。
+            auth_state: 
+            host:  host ( URL)
+            use_tls:  TLS
 
         Returns:
-            True 如果恢复成功, False 如果所有策略失败。
+            True , False all
         """
         if auth_state.refresh_count >= auth_state.max_refreshes:
             logger.warning(
@@ -248,11 +248,11 @@ class AuthStateManager:
 
         auth_state.refresh_count += 1
 
-        # P2-4: 细化恢复策略 — 记录每步结果
-        # 学术依据: Heroux et al. (arXiv:2403.04206) §3.2 — 分级恢复
+        # P2-4:  — 
+        # Academic basis: Heroux et al. (arXiv:2403.04206) §3.2 — 
         recovery_log: list[dict[str, str]] = []
 
-        # ── 策略 1: Token 刷新 ──
+        # ==  1: Token  ==
         if auth_state.refresh_endpoint:
             success = await self._try_token_refresh(auth_state, host, use_tls)
             recovery_log.append({
@@ -265,7 +265,7 @@ class AuthStateManager:
                 auth_state.recovery_history = recovery_log
                 return True
 
-        # ── 策略 2: 重新登录 ──
+        # ==  2:  ==
         login_endpoint = os.environ.get("TARGET_LOGIN_ENDPOINT")
         login_user = os.environ.get("TARGET_LOGIN_USER")
         login_pass = os.environ.get("TARGET_LOGIN_PASS")
@@ -283,8 +283,8 @@ class AuthStateManager:
                 auth_state.recovery_history = recovery_log
                 return True
 
-        # ── 策略 3: 匿名降级 ──
-        # 某些 Agent 端点可能不需要认证 (如公开 API)
+        # ==  3:  ==
+        #  Agent  ( API)
         logger.info("Auth recovery failed, trying anonymous access")
         auth_state.auth_type = "none"
         auth_state.token_value = None
@@ -298,7 +298,7 @@ class AuthStateManager:
             "result": "degraded",
         })
         auth_state.recovery_history = recovery_log
-        return True  # 匿名降级不是真正的恢复, 但允许继续尝试
+        return True  # , 
 
     async def try_tenant_switch(
         self,
@@ -306,37 +306,37 @@ class AuthStateManager:
         *,
         new_tenant_id: str | None = None,
     ) -> AuthState | None:
-        """多租户探测 — 尝试切换租户 ID 绕过 403。
+        """ —  ID  403
 
-        学术依据:
-            - OWASP API1 (BOLA) — 路径中的 tenant_id 可枚举
-            - OWASP API3 (BOPLA) — 权限边界探测
+        Academic basis:
+            - OWASP API1 (BOLA) —  tenant_id 
+            - OWASP API3 (BOPLA) — 
 
-        策略:
-            1. 从 JWT payload 或 header 中提取当前 tenant_id
-            2. 尝试枚举其他 tenant_id (数字递增 / 常见名称)
-            3. 替换 tenant_header, 重新发送请求
+        :
+            1. imports JWT payload  header  tenant_id
+            2.  tenant_id ( / )
+            3.  tenant_header, 
 
         Args:
-            auth_state: 当前认证状态。
-            new_tenant_id: 指定的新租户 ID (None = 自动枚举)。
+            auth_state: 
+            new_tenant_id:  ID (None = )
 
         Returns:
-            切换后的 AuthState 副本, 或 None 如果无法切换。
+             AuthState ,  None 
         """
         if not auth_state.tenant_header:
             logger.debug("No tenant header found, cannot switch tenant")
             return None
 
-        # 创建 auth_state 副本
+        #  auth_state 
         import copy
         new_state = copy.deepcopy(auth_state)
 
         if new_tenant_id:
-            # 使用指定的新租户 ID
+            #  ID
             new_state.tenant_id = new_tenant_id
         elif auth_state.tenant_id:
-            # 尝试数字递增 (如 org_001 → org_002)
+            #  ( org_001 → org_002)
             num_match = re.search(r"(\d+)", auth_state.tenant_id)
             if num_match:
                 current_num = int(num_match.group(1))
@@ -357,7 +357,7 @@ class AuthStateManager:
         else:
             return None
 
-        # 更新 raw_headers 中的 tenant header
+        #  raw_headers  tenant header
         new_headers: list[tuple[str, str]] = []
         for k, v in new_state.raw_headers:
             if k.lower() == new_state.tenant_header.lower():
@@ -374,22 +374,22 @@ class AuthStateManager:
         response_headers: dict[str, str],
         response_body: str = "",
     ) -> AuthState:
-        """从响应中提取新 CSRF token, 更新到 auth_state。
+        """imports CSRF token,  auth_state
 
-        某些 Agent 应用每次响应都轮换 CSRF token:
+         Agent  CSRF token:
             - Set-Cookie: csrf=xxx
-            - X-CSRF-Token: xxx (响应 header)
-            - 响应 JSON: {"csrf_token": "xxx"}
+            - X-CSRF-Token: xxx ( header)
+            -  JSON: {"csrf_token": "xxx"}
 
         Args:
-            auth_state: 当前认证状态。
-            response_headers: HTTP 响应 headers。
-            response_body: HTTP 响应体 (可选, 用于从 JSON 提取)。
+            auth_state: 
+            response_headers: HTTP  headers
+            response_body: HTTP  (, imports JSON )
 
         Returns:
-            更新后的 AuthState (就地修改 + 返回引用)。
+             AuthState ( + )
         """
-        # 从响应 header 提取
+        #  header 
         for h_name, h_value in response_headers.items():
             h_lower = h_name.lower()
             if h_lower in ("x-csrf-token", "x-xsrf-token"):
@@ -398,7 +398,7 @@ class AuthStateManager:
                 logger.info("CSRF token updated from response header: %s", h_name)
                 return auth_state
 
-        # 从 Set-Cookie 提取
+        #  Set-Cookie 
         set_cookie = response_headers.get("set-cookie", "")
         if set_cookie:
             csrf_match = re.search(r"csrf[=:]([^\s;]+)", set_cookie, re.IGNORECASE)
@@ -407,7 +407,7 @@ class AuthStateManager:
                 logger.info("CSRF token updated from Set-Cookie")
                 return auth_state
 
-        # 从 JSON 响应体提取
+        #  JSON 
         if response_body:
             try:
                 data = json.loads(response_body)
@@ -423,19 +423,19 @@ class AuthStateManager:
         return auth_state
 
     def build_auth_headers(self, auth_state: AuthState) -> list[tuple[str, str]]:
-        """根据当前 auth_state 重建认证 headers。
+        """ auth_state  headers
 
-        策略:
-            1. 以 raw_headers 为基础
-            2. 如果 token_value 更新了 → 替换 Authorization header
-            3. 如果 tenant_id 更新了 → 替换 tenant header
-            4. 如果 csrf_token 更新了 → 替换 CSRF header
+        :
+            1.  raw_headers 
+            2.  token_value  →  Authorization header
+            3.  tenant_id  →  tenant header
+            4.  csrf_token  →  CSRF header
 
         Args:
-            auth_state: 当前认证状态。
+            auth_state: 
 
         Returns:
-            重建后的 header 列表。
+             header 
         """
         headers: list[tuple[str, str]] = []
         seen_keys: set[str] = set()
@@ -443,7 +443,7 @@ class AuthStateManager:
         for k, v in auth_state.raw_headers:
             k_lower = k.lower()
 
-            # 替换 Authorization
+            #  Authorization
             if k_lower == "authorization" and auth_state.token_value:
                 if auth_state.auth_type in ("bearer", "jwt"):
                     headers.append((k, f"Bearer {auth_state.token_value}"))
@@ -452,19 +452,19 @@ class AuthStateManager:
                 seen_keys.add(k_lower)
                 continue
 
-            # 替换 Cookie
+            #  Cookie
             if k_lower == "cookie" and auth_state.auth_type == "cookie" and auth_state.token_value:
                 headers.append((k, auth_state.token_value))
                 seen_keys.add(k_lower)
                 continue
 
-            # 替换 API Key
+            #  API Key
             if k_lower == "x-api-key" and auth_state.token_value:
                 headers.append((k, auth_state.token_value))
                 seen_keys.add(k_lower)
                 continue
 
-            # 替换 Tenant
+            #  Tenant
             if (
                 auth_state.tenant_header
                 and k_lower == auth_state.tenant_header.lower()
@@ -474,7 +474,7 @@ class AuthStateManager:
                 seen_keys.add(k_lower)
                 continue
 
-            # 替换 CSRF
+            #  CSRF
             if (
                 auth_state.csrf_header
                 and k_lower == auth_state.csrf_header.lower()
@@ -484,11 +484,11 @@ class AuthStateManager:
                 seen_keys.add(k_lower)
                 continue
 
-            # 保留原始 header
+            #  header
             headers.append((k, v))
             seen_keys.add(k_lower)
 
-        # 补充不在 raw_headers 中的新 header
+        #  raw_headers  header
         if auth_state.csrf_header and auth_state.csrf_token and auth_state.csrf_header.lower() not in seen_keys:
             headers.append((auth_state.csrf_header, auth_state.csrf_token))
 
@@ -498,14 +498,14 @@ class AuthStateManager:
         return headers
 
     def is_token_expired(self, auth_state: AuthState, *, ahead: float = 0.0) -> bool:
-        """检查 token 是否已过期或即将过期。
+        """ token 
 
         Args:
-            auth_state: 认证状态。
-            ahead: 提前量 (秒), 如 60 = 提前 60 秒判定为过期。
+            auth_state: 
+            ahead:  (),  60 =  60 
 
         Returns:
-            True 如果 token 已过期或即将过期。
+            True  token 
         """
         if auth_state.token_expiry is None:
             return False
@@ -517,15 +517,15 @@ class AuthStateManager:
         host: str,
         use_tls: bool,
     ) -> bool:
-        """尝试 token 刷新。
+        """ token 
 
-        学术依据:
+        Academic basis:
             - RFC 6749 §6 — OAuth 2.0 Token Refresh grant type
 
-        策略:
+        :
             1. POST refresh_endpoint with current token
-            2. 解析响应中的新 token
-            3. 更新 auth_state.token_value
+            2.  token
+            3.  auth_state.token_value
         """
         import httpx
 
@@ -535,14 +535,14 @@ class AuthStateManager:
         scheme = "https" if use_tls else "http"
         url = f"{scheme}://{host}{auth_state.refresh_endpoint}"
 
-        # 构建刷新请求 headers
+        #  headers
         headers: dict[str, str] = {}
         for k, v in auth_state.raw_headers:
             if k.lower() not in ("content-length", "host", "content-type"):
                 headers[k] = v
         headers["Content-Type"] = "application/json"
 
-        # 刷新请求 body
+        #  body
         refresh_body = json.dumps({"refresh_token": auth_state.token_value}, ensure_ascii=False)
 
         try:
@@ -563,7 +563,7 @@ class AuthStateManager:
                     )
                     return False
 
-                # 解析新 token
+                #  token
                 try:
                     data = response.json()
                     new_token = (
@@ -573,7 +573,7 @@ class AuthStateManager:
                     )
                     if new_token:
                         auth_state.token_value = new_token
-                        # 更新 JWT expiry (如果新 token 是 JWT)
+                        #  JWT expiry ( token  JWT)
                         jwt_payload = _decode_jwt_payload(new_token)
                         if jwt_payload and jwt_payload.get("exp"):
                             auth_state.token_expiry = float(jwt_payload["exp"]) - 60.0
@@ -596,15 +596,15 @@ class AuthStateManager:
         host: str,
         use_tls: bool,
     ) -> bool:
-        """尝试重新登录获取新 token。
+        """ token
 
-        学术依据:
-            - OWASP WSTG-ATHN-02 — 认证机制测试
+        Academic basis:
+            - OWASP WSTG-ATHN-02 — 
 
-        策略:
+        :
             1. POST login_endpoint with credentials
-            2. 解析响应中的 token
-            3. 更新 auth_state
+            2.  token
+            3.  auth_state
         """
         import httpx
 
@@ -612,7 +612,7 @@ class AuthStateManager:
         url = f"{scheme}://{host}{login_endpoint}"
 
         headers = {"Content-Type": "application/json"}
-        # 保留非认证 headers (如 User-Agent)
+        #  headers ( User-Agent)
         for k, v in auth_state.raw_headers:
             if k.lower() not in (
                 "authorization", "cookie", "x-api-key",
@@ -667,27 +667,27 @@ class AuthStateManager:
 
 
 def _decode_jwt_payload(token: str) -> dict[str, Any] | None:
-    """解码 JWT payload (不验签)。
+    """ JWT payload ()
 
-    学术依据:
-        - RFC 7519 §3 — JWT 结构: header.payload.signature
+    Academic basis:
+        - RFC 7519 §3 — JWT : header.payload.signature
         - RFC 7519 §4.1.4 — exp (Expiration Time) claim
-        - RFC 7515 §2 — 不验签仅解码 payload 用于信息提取
+        - RFC 7515 §2 —  payload 
 
     Args:
-        token: JWT token 字符串。
+        token: JWT token 
 
     Returns:
-        payload 字典, 或 None 如果不是有效 JWT。
+        payload ,  None  JWT
     """
     parts = token.split(".")
     if len(parts) != 3:
         return None
 
     try:
-        # JWT payload 是第二段
+        # JWT payload 
         payload_b64 = parts[1]
-        # base64url padding 补齐
+        # base64url padding 
         padding_needed = 4 - len(payload_b64) % 4
         if padding_needed < 4:
             payload_b64 += _B64_PAD * padding_needed

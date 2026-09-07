@@ -1,19 +1,19 @@
-"""攻击执行器公共抽象基类 — 提取 priority_scheduler 和 adaptive_executor 的共享逻辑.
+""" —  priority_scheduler  adaptive_executor .
 
-L-03: 重构目标
-    消除两个执行器模块间重复的配置加载、并发管理、错误处理代码.
+L-03: 
+    converter(s)LoadError handling.
 
-共享模式:
+:
     1. SSOT config loading (ctx.args > config/defaults.yaml > module defaults)
     2. Semaphore-guarded parallel asyncio.gather
     3. Unified error handling pattern (TimeoutError, IntegrityError, generic)
     4. Progress display integration
     5. Orchestration log recording
 
-学术依据:
-    - Lattner et al. (arXiv:2406.12609) — 高价值策略优先级
-    - Auer et al. (arXiv:cs/0207052) — UCB1 排序
-    - PyRIT TextAdaptive (arXiv:2407.01232) — 自适应技术选择
+Academic basis:
+    - Lattner et al. (arXiv:2406.12609) — 
+    - Auer et al. (arXiv:cs/0207052) — UCB1 
+    - PyRIT TextAdaptive (arXiv:2407.01232) — 
 """
 
 from __future__ import annotations
@@ -28,10 +28,10 @@ from core.context import PipelineContext, get_effective_concurrency
 
 logger = logging.getLogger(__name__)
 
-# 项目根目录 (strike/ 上升两级)
+#  (strike/ )
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# 通用类型
+# 
 T = TypeVar("T")
 
 
@@ -43,23 +43,23 @@ def load_ssot_config(
     validator: Callable[[Any], bool] | None = None,
     transformer: Callable[[Any], T] | None = None,
 ) -> T:
-    """SSOT 配置加载器 — 统一从 config/defaults.yaml 和 ctx.args 读取.
+    """SSOT Load — imports config/defaults.yaml  ctx.args .
 
-    优先级: ctx.args > config/defaults.yaml > 模块默认值
+    : ctx.args > config/defaults.yaml > 
 
     Args:
-        key: 配置键名.
-        default: 默认值.
-        ctx: PipelineContext (可选, 用于优先级覆盖).
-        validator: 验证函数, 无效值时回退到 default.
-        transformer: 类型转换函数 (如 float(), int()).
+        key: .
+        default: .
+        ctx: PipelineContext (, ).
+        validator: ,  default.
+        transformer:  ( float(), int()).
 
     Returns:
-        配置值 (已类型转换).
+         ().
     """
     value = default
 
-    # 优先级 1: ctx.args 命令行覆盖
+    #  1: ctx.args 
     if ctx is not None:
         args = getattr(ctx, "args", None)
         if args is not None:
@@ -72,7 +72,7 @@ def load_ssot_config(
                     key, arg_val,
                 )
 
-    # 优先级 2: config/defaults.yaml
+    #  2: config/defaults.yaml
     try:
         import yaml
         config_path = _PROJECT_ROOT / "config" / "defaults.yaml"
@@ -97,7 +97,7 @@ def load_ssot_config_float(
     min_val: float | None = None,
     max_val: float | None = None,
 ) -> float:
-    """SSOT 配置加载器 (float 专用, 支持范围校验)."""
+    """SSOT Load (float , )."""
     def _validator(v: Any) -> bool:
         if not isinstance(v, (int, float)):
             return False
@@ -122,7 +122,7 @@ def load_ssot_config_int(
     *,
     min_val: int | None = None,
 ) -> int:
-    """SSOT 配置加载器 (int 专用, 支持最小值校验)."""
+    """SSOT Load (int , )."""
     def _validator(v: Any) -> bool:
         if not isinstance(v, (int, float)):
             return False
@@ -146,22 +146,22 @@ async def safe_async_execute(
     on_timeout: Callable[[], Coroutine[Any, Any, T]] | None = None,
     on_integrity_error: Callable[[], T] | None = None,
 ) -> T | None:
-    """安全异步执行 — 统一错误处理模式.
+    """ — Error handling.
 
-    处理异常类型:
-        1. asyncio.TimeoutError → 调用 on_timeout 回调
-        2. IntegrityError / Unique Constraint → 调用 on_integrity_error 回调
-        3. 其他 Exception → 记录 warning 并返回 None
+    :
+        1. asyncio.TimeoutError →  on_timeout 
+        2. IntegrityError / Unique Constraint →  on_integrity_error 
+        3.  Exception →  warning  None
 
     Args:
-        coro: 要执行的协程.
-        context: 上下文描述 (用于错误日志).
-        timeout: 超时秒数 (默认无超时).
-        on_timeout: 超时回调.
-        on_integrity_error: 完整性错误回调.
+        coro: .
+        context:  ().
+        timeout:  ().
+        on_timeout: .
+        on_integrity_error: .
 
     Returns:
-        执行结果, 或 None (失败时).
+        ,  None ().
     """
     try:
         if timeout is not None:
@@ -196,20 +196,20 @@ async def safe_async_execute(
 
 
 class ParallelGatherHelper:
-    """并行 Gather 辅助器 — 提供 semaphore 控制的 asyncio.gather.
+    """ Gather  —  semaphore  asyncio.gather.
 
-    使用模式:
+    :
         async with ParallelGatherHelper(ctx, max_concurrency=5) as helper:
             results = await helper.gather(runner1(...), runner2(...))
 
-    特性:
-        - 自动从 ctx 获取 max_concurrency
-        - 信号量控制并发
-        - 统一异常处理 (return_exceptions=True, 过滤 None)
-        - 编排日志自动记录
+    :
+        - imports ctx  max_concurrency
+        - 
+        -  (return_exceptions=True,  None)
+        - 
 
-    注意: 这是辅助工具类, 并非 PyRIT AttackExecutor.
-    Rule R2 合规: 不包装 execute_attack_from_seed_groups_async.
+    : ,  PyRIT AttackExecutor.
+    Rule R2 :  execute_attack_from_seed_groups_async.
     """
 
     def __init__(
@@ -219,12 +219,12 @@ class ParallelGatherHelper:
         *,
         semaphore: asyncio.Semaphore | None = None,
     ):
-        """初始化并行 gather 辅助器.
+        """ gather .
 
         Args:
-            ctx: 流水线上下文.
-            max_concurrency: 最大并发数 (默认从 ctx 读取).
-            semaphore: 外部传入的信号量 (可选).
+            ctx: .
+            max_concurrency:  (imports ctx ).
+            semaphore:  ().
         """
         self.ctx = ctx
         self.semaphore = semaphore or asyncio.Semaphore(
@@ -247,14 +247,14 @@ class ParallelGatherHelper:
         *coros: Coroutine[Any, Any, T],
         context: str = "parallel_attack",
     ) -> list[T]:
-        """并行执行所有协程, 过滤异常结果.
+        """all, .
 
         Args:
-            *coros: 协程列表.
-            context: 上下文描述 (用于日志).
+            *coros: .
+            context:  ().
 
         Returns:
-            过滤 None 后的结果列表.
+             None .
         """
         if not coros:
             return []
@@ -275,7 +275,7 @@ class ParallelGatherHelper:
 
         raw_results = await _semaphore_gather()
 
-        # 过滤 None 和异常
+        #  None 
         results: list[T] = []
         for r in raw_results:
             if r is None or isinstance(r, BaseException):
@@ -290,24 +290,24 @@ class ParallelGatherHelper:
 
 
 def compute_asr_from_results(attack_results: dict[str, Any]) -> float:
-    """统一 ASR 计算 — 计算成功结果占总结果的百分比.
+    """ ASR  — .
 
     Args:
-        attack_results: {technique_name: [AttackResult, ...]} 或 {technique_name: ASR%}.
+        attack_results: {technique_name: [AttackResult, ...]}  {technique_name: ASR%}.
 
     Returns:
-        ASR 百分比 (0-100).
+        ASR  (0-100).
     """
     if not attack_results:
         return 0.0
 
     values = list(attack_results.values())
 
-    # 纯 float 格式: {technique: ASR%}
+    #  float : {technique: ASR%}
     if all(isinstance(v, (int, float)) for v in values):
         return sum(values) / len(values)
 
-    # AttackResult 列表格式
+    # AttackResult 
     total = sum(len(v) for v in values)
     if total == 0:
         return 0.0
@@ -332,7 +332,7 @@ def compute_asr_from_results(attack_results: dict[str, Any]) -> float:
 
 
 def format_elapsed(seconds: float) -> str:
-    """格式化时间间隔为可读字符串."""
+    """."""
     if seconds < 60:
         return f"{seconds:.1f}s"
     minutes = int(seconds // 60)

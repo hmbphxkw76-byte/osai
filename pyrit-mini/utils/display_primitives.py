@@ -1,12 +1,12 @@
-"""display_primitives.py — 终端卡片基础工具 + Banner/状态输出。
+"""display_primitives.py —  + Banner/
 
-从 utils/display.py 拆分出来的基础工具模块, 包含:
-    - ANSI 色彩常量 + Windows 终端兼容
-    - 边框字符 + 卡片绘制原语
-    - Banner / Phase / Status / Error 输出
-    - ASR 可视化辅助函数
+imports utils/display.py , :
+    - ANSI  + Windows 
+    -  + 
+    - Banner / Phase / Status / Error 
+    - ASR 
 
-依赖: 无外部依赖, 纯 Python 标准库。
+: ,  Python 
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# ── 色彩常量 (Windows Terminal / ANSI 兼容) ──
+# ==  (Windows Terminal / ANSI ) ==
 _C_RESET = "\033[0m"
 _C_BOLD = "\033[1m"
 _C_DIM = "\033[2m"
@@ -31,10 +31,10 @@ _C_BLUE = "\033[94m"
 _C_CYAN = "\033[96m"
 _C_MAGENTA = "\033[95m"
 
-# 尝试启用 Windows ANSI 支持 + UTF-8 stdout
+#  Windows ANSI  + UTF-8 stdout
 import sys as _sys  # noqa: E402
 
-# 强制 stdout/stderr 使用 UTF-8 (Windows GBK 终端兼容)
+#  stdout/stderr  UTF-8 (Windows GBK )
 for _stream in (_sys.stdout, _sys.stderr):
     if hasattr(_stream, "reconfigure"):
         try:
@@ -51,41 +51,41 @@ if _sys.platform == "win32":
     except Exception:
         pass
 
-# ── 边框字符 ──
+# ==  ==
 _TOP_LEFT = "╔"
 _TOP_RIGHT = "╗"
 _BOTTOM_LEFT = "╚"
 _BOTTOM_RIGHT = "╝"
-_H = "═"
+_H = "="
 _V = "║"
-_H_LIGHT = "─"
+_H_LIGHT = "="
 
 _WIDTH = 72
-_INNER = _WIDTH - 4  # 内容区宽度 (减去两边 "║ " 和 " ║")
+_INNER = _WIDTH - 4  #  ( "║ "  " ║")
 
 
-# ════════════════════════════════════════════════════════════════════
-# 基础卡片工具
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+# 
+# ====================================================================
 
-# 匹配 ANSI 转义序列 (\033[...m), 用于计算视觉宽度时跳过
+#  ANSI  (\033[...m), Skip
 _ANSI_RE = re.compile(r"\033\[[0-9;]*m")
 
 
 def _visual_width(text: str) -> int:
-    """计算文本视觉宽度 (中文字符算 2, 跳过 ANSI 转义码)."""
+    """ ( 2, Skip ANSI )."""
     import unicodedata
 
-    # 去掉 ANSI 颜色码后再计算视觉宽度
+    #  ANSI 
     clean = _ANSI_RE.sub("", text)
     return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in clean)
 
 
 def _truncate_to_width(text: str, width: int = _INNER) -> str:
-    """将文本截断到指定视觉宽度 (保留 ANSI 转义码)."""
+    """ ( ANSI )."""
     import unicodedata
 
-    # 分离 ANSI 转义序列和纯文本
+    #  ANSI 
     parts = _ANSI_RE.split(text)
     result = ""
     visual_w = 0
@@ -93,15 +93,15 @@ def _truncate_to_width(text: str, width: int = _INNER) -> str:
         if not part:
             continue
         if part.startswith("\033["):
-            result += part  # ANSI 码不计入宽度
+            result += part  # ANSI 
             continue
-        # 逐字符添加, 中文字符算 2
+        # ,  2
         for ch in part:
             cw = 2 if unicodedata.east_asian_width(ch) in "WF" else 1
             if visual_w + cw >= width:
-                # 只在确有后续内容时加省略号 (留 1 宽度给 …)
+                #  ( 1  …)
                 result += f"{_C_DIM}…{_C_RESET}"
-                visual_w = width - 1  # … 占 1 宽度
+                visual_w = width - 1  # …  1 
                 return result
             result += ch
             visual_w += cw
@@ -109,7 +109,7 @@ def _truncate_to_width(text: str, width: int = _INNER) -> str:
 
 
 def _pad_line(text: str, width: int = _INNER) -> str:
-    """将文本填充到指定宽度 (超宽时截断)."""
+    """ ()."""
     vw = _visual_width(text)
     if vw > width:
         text = _truncate_to_width(text, width)
@@ -119,7 +119,7 @@ def _pad_line(text: str, width: int = _INNER) -> str:
 
 
 def _card_line(text: str, color: str = "") -> str:
-    """生成一行卡片内容 (带边框)."""
+    """ ()."""
     padded = _pad_line(text)
     if color:
         return f"{_V} {color}{padded}{_C_RESET} {_V}"
@@ -127,19 +127,19 @@ def _card_line(text: str, color: str = "") -> str:
 
 
 def _print_card_top(color: str = "") -> None:
-    """打印卡片顶边."""
+    """."""
     tl = _TOP_LEFT + _H * _INNER + _TOP_RIGHT
     print(f"{color}{tl}{_C_RESET}" if color else tl)
 
 
 def _print_card_bottom(color: str = "") -> None:
-    """打印卡片底边."""
+    """."""
     bl = _BOTTOM_LEFT + _H * _INNER + _BOTTOM_RIGHT
     print(f"{color}{bl}{_C_RESET}" if color else bl)
 
 
 def _print_card_sep() -> None:
-    """打印卡片内分隔线."""
+    """."""
     print(f"{_V} {_H_LIGHT * _INNER} {_V}")
 
 
@@ -150,13 +150,13 @@ def print_card(
     color: str = "",
     title_color: str = "",
 ) -> None:
-    """打印卡片式信息块.
+    """.
 
     Args:
-        title: 卡片标题.
-        rows: [(label, value), ...] 键值对列表.
-        color: 整体色调 (边框/值).
-        title_color: 标题色调.
+        title: .
+        rows: [(label, value), ...] .
+        color:  (/).
+        title_color: .
     """
     border_color = color or title_color
     _print_card_top(border_color)
@@ -169,7 +169,7 @@ def print_card(
 
 
 def print_section(title: str, items: list[str], *, color: str = "") -> None:
-    """打印列表式卡片 (无键值对, 只有标题 + 条目列表)."""
+    """ (,  + )."""
     border_color = color or _C_BOLD
     _print_card_top(border_color)
     print(_card_line(title, border_color))
@@ -180,23 +180,23 @@ def print_section(title: str, items: list[str], *, color: str = "") -> None:
     _print_card_bottom(border_color)
 
 
-# ════════════════════════════════════════════════════════════════════
-# 状态 + 阶段输出
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
+#  + 
+# ====================================================================
 
 
 def print_banner() -> None:
-    """打印启动 Banner."""
+    """ Banner."""
     print(f"""
-{_C_CYAN}{_C_BOLD}╔══════════════════════════════════════════════════════╗
+{_C_CYAN}{_C_BOLD}╔======================================================╗
 ║           PyRIT-Strike v2.0.0                        ║
 ║     Burp → Attack → Report — One-Click Pipeline      ║
-╚══════════════════════════════════════════════════════╝{_C_RESET}
+╚======================================================╝{_C_RESET}
 """)
 
 
 def print_phase(phase: str, description: str) -> None:
-    """打印阶段标题 (v57: 带阶段分隔条的醒目标题)."""
+    """ (v57: )."""
     phase_colors = {
         "RECON": _C_CYAN,
         "ARM": _C_BLUE,
@@ -207,7 +207,7 @@ def print_phase(phase: str, description: str) -> None:
         "INIT": _C_DIM,
     }
     color = phase_colors.get(phase, _C_BOLD)
-    sep = "═" * 60
+    sep = "=" * 60
     print()
     print(f"  {color}{sep}{_C_RESET}")
     print(f"  {color}► [{phase}] {_C_RESET}{_C_BOLD}{description}{_C_RESET}")
@@ -221,13 +221,13 @@ def print_status(
     *,
     ok: bool | None = None,
 ) -> None:
-    """打印状态行 (单行, 带图标).
+    """ (, ).
 
     Args:
-        phase: 阶段名.
-        status: 状态标签.
-        message: 描述.
-        ok: None=中性, True=绿色, False=红色.
+        phase: .
+        status: .
+        message: .
+        ok: None=, True=, False=.
     """
     if ok is True:
         tag = f"{_C_GREEN}✓{_C_RESET}"
@@ -242,7 +242,7 @@ def print_status(
 
 
 def print_error(message: str) -> None:
-    """打印错误卡片."""
+    """."""
     print()
     _print_card_top(_C_RED)
     print(_card_line(f"{_C_RED}{_C_BOLD}✗ ERROR{_C_RESET}", _C_RED))
@@ -253,11 +253,11 @@ def print_error(message: str) -> None:
 
 
 def _asr_color(asr: float) -> str:
-    """ASR 值对应颜色 — 攻击者视角 (高 ASR = 红色危险).
+    """ASR  —  ( ASR = ).
 
-    红队最佳实践: 攻击者视角中高 ASR 是 "好结果" (攻击成功),
-    但从安全角度看是 "危险" (目标被攻破), 统一用红色突出。
-    低 ASR = 绿色 (目标防御有效), 中间 = 黄色/青色。
+    :  ASR  "" (),
+    imports "" (), 
+     ASR =  (),  = /
     """
     if asr >= 70:
         return _C_RED
@@ -269,16 +269,16 @@ def _asr_color(asr: float) -> str:
 
 
 def _format_asr(asr: float) -> str:
-    """格式化 ASR 值 (带颜色, 攻击者视角)."""
+    """ ASR  (, )."""
     c = _asr_color(asr)
     return f"{c}{asr:.1f}%{_C_RESET}"
 
 
 def _asr_bar(asr: float, width: int = 20) -> str:
-    """ASR 可视化进度条 (攻击者视角).
+    """ASR  ().
 
-    格式: ████████░░░░░░░░░░░░ 40.0%
-    颜色随 ASR 值变化 (高=红, 低=绿)。
+    : ████████░░░░░░░░░░░░ 40.0%
+     ASR  (=, =)
     """
     c = _asr_color(asr)
     filled = int(asr / 100 * width)
@@ -287,17 +287,17 @@ def _asr_bar(asr: float, width: int = 20) -> str:
 
 
 def _get_converter_chain_names(converters: list[Any], *, max_display: int = 5) -> str:
-    """获取 converter 链名称 (独立路径编号).
+    """ converter  ().
 
-    L5 v39: 将 converter 列表格式化为可读字符串，带编号路径。
-    提升自 display_stages → primitives，消除 display_params 的跨模块私有导入。
+    L5 v39:  converter 
+     display_stages → primitives display_params from
 
     Args:
-        converters: Converter 实例列表.
-        max_display: 最大显示数量，超出时显示 "+N more".
+        converters: Converter .
+        max_display:  "+N more".
 
     Returns:
-        格式化的 converter 链描述字符串.
+         converter .
     """
     if not converters:
         return "(raw, no converters)"

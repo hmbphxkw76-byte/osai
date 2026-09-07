@@ -1,15 +1,15 @@
-"""辅助函数 — orchestrator 阶段的通用工具函数.
+""" — orchestrator .
 
-从 core/orchestrator.py 提取的辅助函数, 包括:
-    - Burp 列表解析与模式检测
-    - Endpoint 排序 / 头部 / 结果输出
-    - Memory labels / dynamic initializers 注册
-    - Endpoint 状态重置
-    - Target profile 提取
-    - Auth recovery log 提取
-    - 编排日志记录 (recon / arm)
-    - 联合 ASR 汇总输出
-    - 双 Judge 统计日志输出
+imports core/orchestrator.py , :
+    - Burp 
+    - Endpoint  /  / 
+    - Memory labels / dynamic initializers 
+    - Endpoint 
+    - Target profile 
+    - Auth recovery log 
+    -  (recon / arm)
+    -  ASR 
+    -  Judge 
 """
 
 from __future__ import annotations
@@ -26,13 +26,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Burp 解析 + 模式检测
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# Burp  + 
+# ===============================================================================
 
 
 def _resolve_burp_list(args: Any) -> list[str]:
-    """从 CLI 参数解析 burp_list."""
+    """imports CLI Parameter parsing burp_list."""
     burp_list: list[str] = getattr(args, "_burp_list", None)
     if burp_list is None:
         burp_val = args.burp
@@ -44,7 +44,7 @@ def _resolve_burp_list(args: Any) -> list[str]:
 
 
 def _detect_non_burp_mode(args: Any) -> bool:
-    """检测是否为非 Burp 路径 (LiteLLM/OpenAI API/Browser)."""
+    """ Burp  (LiteLLM/OpenAI API/Browser)."""
     return bool(
         getattr(args, "litellm_model", None) or os.environ.get("LITELLM_MODEL")
         or (getattr(args, "target_api_endpoint", None) and getattr(args, "target_api_key", None))
@@ -52,13 +52,13 @@ def _detect_non_burp_mode(args: Any) -> bool:
     )
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 # Memory Labels + Dynamic Initializers
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 
 
 async def _setup_memory_labels(ctx: "PipelineContext") -> None:
-    """将运行标签写入 CentralMemory."""
+    """ CentralMemory."""
     if not ctx.memory_labels:
         return
     try:
@@ -75,7 +75,7 @@ async def _setup_memory_labels(ctx: "PipelineContext") -> None:
 
 
 async def _re_set_memory_labels(ctx: "PipelineContext", burp_name: str) -> None:
-    """为每个 endpoint 重新设置 memory labels (setup_environment 后调用)."""
+    """converter(s) endpoint  memory labels (setup_environment )."""
     try:
         from pyrit.memory import CentralMemory
         _ep_memory = CentralMemory.get_memory_instance()
@@ -87,7 +87,7 @@ async def _re_set_memory_labels(ctx: "PipelineContext", burp_name: str) -> None:
 
 
 async def _register_dynamic_initializers(ctx: "PipelineContext") -> None:
-    """动态注册 Initializer (--add-initializer)."""
+    """ Initializer (--add-initializer)."""
     initializer_specs = getattr(ctx.args, "initializer_specs", None)
     if initializer_specs:
         from core.initializer_registry import register_initializers_async
@@ -95,13 +95,13 @@ async def _register_dynamic_initializers(ctx: "PipelineContext") -> None:
         logger.info("Registered %d dynamic initializer(s)", len(initializer_specs))
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Endpoint 状态重置
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# Endpoint 
+# ===============================================================================
 
 
 def _reset_endpoint_state(ctx: "PipelineContext") -> None:
-    """重置 ctx 状态 (每个 endpoint 独立攻击)."""
+    """ ctx  (converter(s) endpoint )."""
     ctx.parsed_request = None
     ctx.objective_target = None
     ctx.multi_turn_target = None
@@ -120,7 +120,7 @@ def _reset_endpoint_state(ctx: "PipelineContext") -> None:
     ctx._mcp_dynamic_seeds = []
     ctx.scenario_result = None
 
-    # 重置 assess 阶段的全局统计计数器
+    #  assess 
     try:
         from assess.asr_stats import _reset_dual_judge_stats
         _reset_dual_judge_stats()
@@ -133,22 +133,22 @@ def _reset_endpoint_state(ctx: "PipelineContext") -> None:
         pass
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Endpoint 输出
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# Endpoint 
+# ===============================================================================
 
 
 def _print_endpoint_sort_results(sorted_endpoints: list[dict[str, Any]]) -> None:
-    """输出 endpoint 排序结果."""
+    """ endpoint ."""
     from utils.display import _C_BOLD, _C_RESET
     print()
-    print(f"{_C_BOLD}{'═' * 60}{_C_RESET}")
-    print(f"{_C_BOLD}  ► [RECON] Endpoint 优先级排序 (能力指纹){_C_RESET}")
+    print(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
+    print(f"{_C_BOLD}  ► [RECON] Endpoint  (){_C_RESET}")
     _files_str = ", ".join(
         __import__("pathlib").Path(ep['burp_path']).name for ep in sorted_endpoints
     )
     print(f"  config/burp/ — {_files_str}")
-    print(f"{_C_BOLD}{'═' * 60}{_C_RESET}")
+    print(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
     for i, ep in enumerate(sorted_endpoints):
         caps_str = ", ".join(sorted(ep["capabilities"])) if ep["capabilities"] else "chat"
         print(
@@ -158,26 +158,26 @@ def _print_endpoint_sort_results(sorted_endpoints: list[dict[str, Any]]) -> None
 
 
 def _print_endpoint_header(idx: int, total: int, burp_name: str) -> None:
-    """输出 endpoint 开始头部."""
+    """ endpoint ."""
     from utils.display import _C_BOLD, _C_RESET
     print()
-    print(f"{_C_BOLD}{'═' * 60}{_C_RESET}")
+    print(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
     print(f"{_C_BOLD}  Endpoint {idx + 1}/{total}: {burp_name}{_C_RESET}")
-    print(f"{_C_BOLD}{'═' * 60}{_C_RESET}")
+    print(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 联合 ASR 汇总输出
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+#  ASR 
+# ===============================================================================
 
 
 def _print_joint_asr_summary(joint_summary: dict[str, Any], report_path: "Path") -> None:
-    """输出联合 ASR 汇总."""
+    """ ASR ."""
     from utils.display import _C_BOLD, _C_RESET, print_joint_asr_card
     print()
-    print(f"{_C_BOLD}{'═' * 60}{_C_RESET}")
+    print(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
     print(f"{_C_BOLD}  Joint ASR Summary — Multi-Endpoint Deep Attack{_C_RESET}")
-    print(f"{_C_BOLD}{'═' * 60}{_C_RESET}")
+    print(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
     print_joint_asr_card(
         joint_asr=joint_summary["joint_asr"],
         total_endpoints=joint_summary["total_endpoints"],
@@ -188,13 +188,13 @@ def _print_joint_asr_summary(joint_summary: dict[str, Any], report_path: "Path")
     )
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 # Target Profile + ARM Target Type
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 
 
 def _extract_target_profile(ctx: "PipelineContext") -> tuple[str | None, str | None, str | None]:
-    """从目标指纹提取语言 + 能力 + 模型族."""
+    """imports +  + ."""
     target_language = None
     target_capabilities = None
     target_model_family = None
@@ -212,7 +212,7 @@ def _extract_target_profile(ctx: "PipelineContext") -> tuple[str | None, str | N
 
 
 def _get_arm_target_type(ctx: "PipelineContext") -> str:
-    """获取 ARM 阶段的目标类型描述."""
+    """ ARM ."""
     if not ctx.parsed_request:
         return "unknown"
     _fp = ctx.parsed_request.target_fingerprint
@@ -226,13 +226,13 @@ def _get_arm_target_type(ctx: "PipelineContext") -> str:
     return "http_api"
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 编排日志记录
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# 
+# ===============================================================================
 
 
 def _record_recon_orchestration(ctx: "PipelineContext") -> None:
-    """记录侦察阶段的编排决策."""
+    """."""
     if ctx.parsed_request:
         _fp = ctx.parsed_request.target_fingerprint
         ctx.orchestration_log.append({
@@ -267,14 +267,14 @@ def _record_recon_orchestration(ctx: "PipelineContext") -> None:
                 ),
             },
             "reasoning": (
-                "三层探测 (被动指纹 + 主动能力 + 深度能力) + Burp 响应模型信息提取 + "
-                "MCP 枚举 + OpenAPI 发现 + 端口发现 + 认证状态管理 + "
-                "AI 框架指纹识别 + System Prompt 泄露探测 + "
-                "模型族 API 行为指纹 + 向量数据库确认 + MCP 工具安全分析 完成"
+                "Layer ( +  + ) + Burp  + "
+                "MCP  + OpenAPI  +  +  + "
+                "AI  + System Prompt  + "
+                " API  + Confirmation + MCP  "
             ),
         })
     else:
-        # 非Burp路径: 仍需记录 recon 决策，确保编排日志完整性
+        # Burp:  recon Ensure
         _recon_mode = "unknown"
         _recon_endpoint = ""
         if getattr(ctx.args, "litellm_model", None) or os.environ.get("LITELLM_MODEL"):
@@ -298,7 +298,7 @@ def _record_recon_orchestration(ctx: "PipelineContext") -> None:
                 "language": "",
                 "target_type": _recon_mode,
             },
-            "reasoning": f"非Burp路径 ({_recon_mode}) — 直接创建原生Target, 无需HTTP解析",
+            "reasoning": f"Burp ({_recon_mode}) — Target, HTTP",
         })
 
 
@@ -308,7 +308,7 @@ def _record_arm_seed_orchestration(
     target_capabilities: str | None,
     target_model_family: str | None,
 ) -> None:
-    """记录 ARM 阶段种子选取的编排决策."""
+    """ ARM ."""
     _synergy_info = {}
     if ctx.synergy_config:
         _synergy_info = {
@@ -331,26 +331,26 @@ def _record_arm_seed_orchestration(
         },
         "output": {"seed_count": len(ctx.seeds)},
         "reasoning": (
-            f"基于能力指纹自动追加定向种子 (capabilities={target_capabilities or 'none'})"
-            + (f", 协同分析: surface={ctx.synergy_config.attack_surface}, conf={ctx.synergy_config.confidence:.2f}"
+            f" (capabilities={target_capabilities or 'none'})"
+            + (f", : surface={ctx.synergy_config.attack_surface}, conf={ctx.synergy_config.confidence:.2f}"
                if ctx.synergy_config else "")
         ),
     })
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 结果提取
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# 
+# ===============================================================================
 
 
 def _get_result_outcome(result: Any) -> str:
-    """获取攻击结果的 outcome (内联简版, 避免循环导入)."""
+    """ outcome (, from)."""
     from assess.asr_stats import _get_outcome
     return _get_outcome(result)
 
 
 def _extract_auth_recovery_log(ctx: "PipelineContext") -> list[dict[str, str]]:
-    """提取认证恢复历史."""
+    """."""
     auth_recovery_log: list[dict[str, str]] = []
     try:
         _target = ctx.objective_target
@@ -363,20 +363,20 @@ def _extract_auth_recovery_log(ctx: "PipelineContext") -> list[dict[str, str]]:
     return auth_recovery_log
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 双 Judge 统计日志 (含 T0 运行时告警)
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+#  Judge  ( T0 )
+# ===============================================================================
 
 
 def _log_dual_judge_stats(dual_judge_stats: dict[str, Any]) -> None:
-    """输出双 Judge 统计日志 + T0 假阳性率运行时告警.
+    """ Judge  + T0 .
 
-    生产级监控:
-        - 双 Judge 一致性统计 (Cohen's Kappa)
-        - OR 聚合假阳性追踪
-        - T0 启发式预过滤 ScorerMetrics
-        - **运行时告警**: FPR/FNR 超阈值时记录 WARNING 日志,
-          提示操作员 T0 启发式可能需要校准
+    Production-grade:
+        -  Judge  (Cohen's Kappa)
+        - OR 
+        - T0  ScorerMetrics
+        - ****: FPR/FNR  WARNING ,
+           T0 
     """
     kappa = dual_judge_stats.get("cohens_kappa", 0)
     logging.info(
@@ -403,7 +403,7 @@ def _log_dual_judge_stats(dual_judge_stats: dict[str, Any]) -> None:
             or_stats.get("j2_only_success", 0),
             or_stats.get("potential_false_positive_rate", 0.0),
         )
-    # T0 ScorerMetrics log + 运行时告警
+    # T0 ScorerMetrics log + 
     sm = dual_judge_stats.get("scorer_metrics", {})
     if sm and sm.get("num_responses", 0) > 0:
         logging.info(
@@ -416,7 +416,7 @@ def _log_dual_judge_stats(dual_judge_stats: dict[str, Any]) -> None:
             sm.get("recall", 0.0),
         )
 
-    # ═══ T0 假阳性率运行时告警 (生产级监控) ═══
+    # === T0  (Production-grade) ===
     _T0_MAX_FPR = 10.0
     _T0_MAX_FNR = 10.0
     _T0_MIN_SAMPLE_SIZE = 20

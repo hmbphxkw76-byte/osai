@@ -1,14 +1,14 @@
-"""assess — 评分判定阶段。
+"""assess — Scoring phase.
 
-攻击链路第 5 步: 对攻击结果进行评分, 计算 ASR, 双 Judge 交叉验证。
+Attack pipeline step 5: Score attack results, calculate ASR, dual Judge cross-validation.
 
-核心模块 (SSOT):
-    - score_pipeline: 评分管线 (响应解析 + 异步预计算, 原 precompute + response_parser 合并)
-    - asr_manager: ASR 统一管理 (统计 + 历史 + 联合 ASR, 原 asr_compute + asr_history + joint_asr 合并)
-    - asr_stats: 双 Judge 统计 + Cohen's Kappa + Wilson Score CI (全局计数器 SSOT)
-    - scorer: 评分器注册 (AdaptiveDualJudgeScorer + fallback)
-    - adaptive_dual_judge: 自适应双 Judge (高置信度直接返回)
-    - judge_manager: LLM 双判 + 仲裁 + 并发式判
+Core modules (SSOT):
+    - score_pipeline: Scoring pipeline (response parsing + async precompute, merged from precompute + response_parser)
+    - asr_manager: ASR unified management (statistics + history + joint ASR, merged from asr_compute + asr_history + joint_asr)
+    - asr_stats: Dual Judge statistics + Cohen's Kappa + Wilson Score CI (global counter SSOT)
+    - scorer: Scorer registration (AdaptiveDualJudgeScorer + fallback)
+    - adaptive_dual_judge: Adaptive dual Judge (high confidence direct return)
+    - judge_manager: LLM dual judging + arbitration + concurrent judging
 """
 
 from assess.asr_manager import (

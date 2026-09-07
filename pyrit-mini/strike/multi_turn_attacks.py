@@ -1,21 +1,21 @@
 # arXiv:2402.01135 — Chao et al., Best-of-N (N=5 ASR 1.8x)
 # arXiv:2402.12109 — Russinovich et al., Crescendo
 # arXiv:2302.12173 — Greshake et al., PromptSendingAttack
-"""multi_turn_attacks — 多轮攻击策略模块。
+"""multi_turn_attacks — 
 
-提供 Best-of-N 等多轮攻击的异步包装函数。
-使用 VariationConverter + PersuasionConverter 生成 N 个独立变体,
-通过 PyRIT 原生 PromptSendingAttack 并行执行, 任一成功即标记为成功.
+ Best-of-N 
+ VariationConverter + PersuasionConverter  N converter(s),
+ PyRIT  PromptSendingAttack , .
 
-数据流:
+Data flow:
     escalation_chain.py → run_best_of_n_attack() → _best_of_n_retry()
-    → ctx.attack_results["best_of_n_retry"] → assess 阶段评分
+    → ctx.attack_results["best_of_n_retry"] → assess 
 
-学术依据:
+Academic basis:
     - Best-of-N (arXiv:2402.01135): N=5 ASR 1.8x
-    - Wei et al. (arXiv:2307.15043): 串联 >2 层 ASR 从 12% 降至 4%
-      → 每 ConverterConfiguration 仅 1 个 converter (不变量 I1)
-    - Zeng et al. (arXiv:2402.19181): Persuasion authority ASR 38.4% 最高
+    - Wei et al. (arXiv:2307.15043):  >2 Layer ASR imports 12%  4%
+      →  ConverterConfiguration  1 converter(s) ( I1)
+    - Zeng et al. (arXiv:2402.19181): Persuasion authority ASR 38.4% 
 """
 
 from __future__ import annotations
@@ -35,25 +35,25 @@ async def run_best_of_n_attack(
     objectives: list[str],
     n: int = 5,
 ) -> dict[str, list[Any]]:
-    """Best-of-N 采样攻击包装.
+    """Best-of-N .
 
-    对每个 objective, 生成 N 个独立 converter 变体路径,
-    通过 PyRIT 原生 PromptSendingAttack 并行执行.
-    任一变体成功即标记该 objective 为成功.
+    converter(s) objective,  N converter(s) converter ,
+     PyRIT  PromptSendingAttack .
+     objective .
 
     Args:
-        ctx: 流水线上下文, 需包含 objective_target, converter_target, scoring_config.
-        objectives: 失败目标列表 (需要 Best-of-N 重试的 objective 字符串).
-        n: Best-of-N 变体数量 (默认 5, 从 config/defaults.yaml best_of_n_retries 读取).
+        ctx: ,  objective_target, converter_target, scoring_config.
+        objectives:  ( Best-of-N Retry objective ).
+        n: Best-of-N  ( 5, imports config/defaults.yaml best_of_n_retries ).
 
     Returns:
-        dict[str, list[Any]]: {objective: [AttackResult, ...]} 格式的结果字典,
-        成功攻击返回完整结果列表, 失败攻击返回空列表.
+        dict[str, list[Any]]: {objective: [AttackResult, ...]} ,
+        , .
 
-    学术依据: Chao et al. (arXiv:2402.01135) — N=5 ASR 1.8x
+    Academic basis: Chao et al. (arXiv:2402.01135) — N=5 ASR 1.8x
 
-    C2 合规: 此函数仅作为 wrapper 委托给 _best_of_n_retry 实现,
-    不添加任何内容过滤或安全护栏, ASR 至上.
+    C2 :  wrapper  _best_of_n_retry ,
+    Content filtering, ASR .
     """
     if not objectives:
         logger.info("Best-of-N: no objectives to retry, returning empty")
@@ -65,35 +65,35 @@ async def run_best_of_n_attack(
 
     logger.info("Best-of-N: launching retry for %d objectives (n=%d)", len(objectives), n)
 
-    # 构造 failed_objectives 格式: list[tuple[str, Any]]
-    # _best_of_n_retry 期望 (objective, last_result) 元组格式
+    #  failed_objectives : list[tuple[str, Any]]
+    # _best_of_n_retry  (objective, last_result) 
     failed_objectives: list[tuple[str, Any]] = [(obj, None) for obj in objectives]
 
     try:
-        # 委托给 adaptive_executor._best_of_n_retry (已有完整实现)
-        # 该函数会修改 ctx.attack_results, 添加 "best_of_n_retry" 键
+        #  adaptive_executor._best_of_n_retry ()
+        #  ctx.attack_results,  "best_of_n_retry" 
         from strike.adaptive_executor import _best_of_n_retry
 
-        # 使用自定义的 n (覆盖配置默认值)
-        # _best_of_n_retry 内部通过 _get_best_of_n_retries 读取配置,
-        # 但 n 参数影响并行变体数, 我们通过设置 ctx._best_of_n_override 传入
+        #  n ()
+        # _best_of_n_retry  _get_best_of_n_retries ,
+        #  n ,  ctx._best_of_n_override 
         setattr(ctx, "_best_of_n_override", n)
         await _best_of_n_retry(ctx, failed_objectives)
-        # 清理临时属性
+        # 
         if hasattr(ctx, "_best_of_n_override"):
             delattr(ctx, "_best_of_n_override")
 
-        # 收集结果: 从 ctx.attack_results["best_of_n_retry"] 按 objective 分组
+        # :  ctx.attack_results["best_of_n_retry"]  objective 
         bon_results = ctx.attack_results.get("best_of_n_retry", [])
         results_by_objective: dict[str, list[Any]] = {}
 
         for result in bon_results:
-            # 提取 objective (从原始 prompt 或 metadata)
+            #  objective ( prompt  metadata)
             objective_value = _extract_objective_from_result(result)
             if objective_value:
                 results_by_objective.setdefault(objective_value, []).append(result)
 
-        # 确保所有 objectives 都有条目 (即使失败)
+        # Ensure all objectives  (Even if)
         for obj in objectives:
             if obj not in results_by_objective:
                 results_by_objective[obj] = []
@@ -110,22 +110,22 @@ async def run_best_of_n_attack(
         return {obj: [] for obj in objectives}
     except Exception as e:
         logger.error("Best-of-N: execution failed: %s", e, exc_info=True)
-        # R-H2 合规: 不静默吞错, 返回空结果但保留日志记录
+        # R-H2 compliant: Do not silently swallow errors, 
         return {obj: [] for obj in objectives}
 
 
 def _extract_objective_from_result(result: Any) -> str | None:
-    """从攻击结果中提取 objective 值.
+    """imports objective .
 
-    PyRIT 的 AttackResult 包含.conversation_id 和原始 prompt,
-    通过 seed_prompt_value 或首位 prompt 提取 objective.
+    PyRIT  AttackResult .conversation_id  prompt,
+     seed_prompt_value  prompt  objective.
     """
-    # 尝试从 seed_prompt_value 提取
+    #  seed_prompt_value 
     seed_prompt = getattr(result, "seed_prompt_value", None)
     if seed_prompt:
         return seed_prompt
 
-    # 尝试从 conversation 提取
+    #  conversation 
     conversation = getattr(result, "conversation", None)
     if conversation and hasattr(conversation, "messages"):
         messages = conversation.messages
@@ -135,7 +135,7 @@ def _extract_objective_from_result(result: Any) -> str | None:
             if content:
                 return content
 
-    # 尝试从原始 prompt 提取
+    #  prompt 
     original_prompt = getattr(result, "original_prompt_value", None)
     if original_prompt:
         return original_prompt
