@@ -1,4 +1,4 @@
-""" —  escalation_level1/2/3.py 
+""" - escalation_level1/2/3.py 
 
 :
     Level 1: CoT Hijack, , MTOS , Skeleton Key seed 
@@ -6,21 +6,21 @@
     Level 3: , native attacks, clustering, LLM judge rescore
 
 Academic basis:
-    - Greshake et al. (arXiv:2302.12173) — PromptSendingAttack
-    - Russinovich et al. (arXiv:2404.01833) — CrescendoAttack
-    - Mehrabi et al. (arXiv:2405.17350) — TAPAttack
-    - Zou et al. (arXiv:2302.12173) — GCG
-    - SKELETONKEY (arXiv:2402.14266) — SkeletonKey
-    - Hughes et al. (arXiv:2404.02151) — BestOfN
-    - Russinovich et al. (arXiv:2402.12109) — Crescendo
-    - Chao et al. (arXiv:2310.08419) — PAIR/CAIR
-    - Mehrotra et al. (arXiv:2312.02191) — TAP
-    - Zou et al. (arXiv:2307.08673) — GCG
-    - Lattner et al. (arXiv:2406.12609) — Parallel escalation
-    - Hanna et al. (arXiv:2406.18112) — SkeletonKey
-    - Wei et al. (arXiv:2307.10292) — CoT Hijack
-    - Morris et al. (arXiv:2310.06870) — Embedding Inversion
-    - Eidam et al. (arXiv:2407.16924) — A2A Rogue Agent
+    - Greshake et al. (arXiv:2302.12173) - PromptSendingAttack
+    - Russinovich et al. (arXiv:2404.01833) - CrescendoAttack
+    - Mehrabi et al. (arXiv:2405.17350) - TAPAttack
+    - Zou et al. (arXiv:2302.12173) - GCG
+    - SKELETONKEY (arXiv:2402.14266) - SkeletonKey
+    - Hughes et al. (arXiv:2404.02151) - BestOfN
+    - Russinovich et al. (arXiv:2402.12109) - Crescendo
+    - Chao et al. (arXiv:2310.08419) - PAIR/CAIR
+    - Mehrotra et al. (arXiv:2312.02191) - TAP
+    - Zou et al. (arXiv:2307.08673) - GCG
+    - Lattner et al. (arXiv:2406.12609) - Parallel escalation
+    - Hanna et al. (arXiv:2406.18112) - SkeletonKey
+    - Wei et al. (arXiv:2307.10292) - CoT Hijack
+    - Morris et al. (arXiv:2310.06870) - Embedding Inversion
+    - Eidam et al. (arXiv:2407.16924) - A2A Rogue Agent
 """
 
 import asyncio
@@ -34,19 +34,19 @@ logger = logging.getLogger(__name__)
 
 
 # ===================================================================
-# Level 1:  ( escalation_level1.py)
+# Level 1: ( escalation_level1.py)
 # ===================================================================
 
 async def _run_cot_hijack(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
-    """ CoT 
+ """ CoT 
 
     L5 v12 : 
      LLM  Chain-of-Thought 
 
-    Academic basis: Wei et al. (arXiv:2307.10292) — CoT  ASR 45-60%
+    Academic basis: Wei et al. (arXiv:2307.10292) - CoT  ASR 45-60%
     : 
     
 
@@ -56,15 +56,15 @@ async def _run_cot_hijack(
 
     Returns:
         CoT 
-    """
+ """
     from strike.many_shot_cot_executor import run_many_shot_cot_attack
 
     try:
-        # L5 v36: suitable_for  + technique_name='cot_hijack' 
+ # L5 v36: suitable_for + technique_name='cot_hijack' 
         cot_objectives = _filter_by_suitable_for(objectives, ctx, "cot_hijack")
         mtos_objectives = _apply_mtos_ranking(cot_objectives, ctx, technique_name="cot_hijack")
         results = await run_many_shot_cot_attack(ctx, mtos_objectives)
-        # Normalize key for escalation chain compatibility
+ # Normalize key for escalation chain compatibility
         if 'many_shot_jailbreak' in results and 'cot_hijack' not in results:
             results['cot_hijack'] = results['many_shot_jailbreak']
         logger.info(
@@ -81,12 +81,12 @@ async def _run_crescendo(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
-    """ Crescendo  (PyRIT )
+ """ Crescendo (PyRIT )
 
     Crescendo , imports,
     (backtrack)
 
-    Academic basis: Russinovich et al. (arXiv:2402.12109) — 10 turns ASR=82%
+    Academic basis: Russinovich et al. (arXiv:2402.12109) - 10 turns ASR=82%
 
     Args:
         ctx: 
@@ -94,7 +94,7 @@ async def _run_crescendo(
 
     Returns:
         Crescendo  {"crescendo": [results]}
-    """
+ """
     from pyrit.executor.attack import (
         AttackAdversarialConfig,
         CrescendoAttack,
@@ -158,12 +158,12 @@ async def _run_tap(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
-    """ TAP  (PyRIT )
+ """ TAP (PyRIT )
 
     TAP (Tree of Attacks with Pruning)  prompt ,
     
 
-    Academic basis: Mehrotra et al. (arXiv:2312.02191) — TAP ASR >80%
+    Academic basis: Mehrotra et al. (arXiv:2312.02191) - TAP ASR >80%
 
     Args:
         ctx: 
@@ -171,7 +171,7 @@ async def _run_tap(
 
     Returns:
         TAP  {"tap": [results]}
-    """
+ """
     from pyrit.executor.attack.multi_turn.tree_of_attacks import (
         TAPAttack,
         TAPAttackScoringConfig,
@@ -237,12 +237,12 @@ async def _run_pair(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
-    """ PAIR  (PyRIT )
+ """ PAIR (PyRIT )
 
     PAIR (Prompt Automatic Iterative Refinement)  attacker LLM
      prompt, 
 
-    Academic basis: Chao et al. (arXiv:2310.08419) — PAIR ASR >60%
+    Academic basis: Chao et al. (arXiv:2310.08419) - PAIR ASR >60%
 
     Args:
         ctx: 
@@ -250,7 +250,7 @@ async def _run_pair(
 
     Returns:
         PAIR  {"pair": [results]}
-    """
+ """
     from pyrit.executor.attack.multi_turn.tree_of_attacks import (
         PAIRAttack,
         TAPAttackScoringConfig,
@@ -315,12 +315,12 @@ async def _run_red_teaming(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
-    """ Red Teaming  (PyRIT )
+ """ Red Teaming (PyRIT )
 
     RedTeamingAttack  prompt ,
      L1 
 
-    Academic basis: PyRIT  RedTeamingAttack — 
+    Academic basis: PyRIT  RedTeamingAttack - 
 
     Args:
         ctx: 
@@ -328,7 +328,7 @@ async def _run_red_teaming(
 
     Returns:
         Red Teaming  {"red_teaming": [results]}
-    """
+ """
     from pyrit.executor.attack import (
         AttackAdversarialConfig,
         RedTeamingAttack,
@@ -391,18 +391,18 @@ def _filter_by_suitable_for(
     ctx: PipelineContext,
     technique_name: str,
 ) -> list[str]:
-    """L5 v36:  suitable_for 
+ """L5 v36: suitable_for 
 
-    Academic basis: Chao et al. (arXiv:2310.08419) — 
+    Academic basis: Chao et al. (arXiv:2310.08419) - 
      multiturn_targets.prompt converter(s)
     suitable_for  ( "crescendo" / "tap" / "red_teaming")
      API 
 
     :
-        1.  suitable_for  → 
-        2.  suitable_for  → 
-        3.  suitable_for  →  (, all)
-        4.  →  (, )
+        1.  suitable_for  -> 
+        2.  suitable_for  -> 
+        3.  suitable_for  ->  (, all)
+        4.  ->  (, )
 
     Args:
         objectives: 
@@ -411,7 +411,7 @@ def _filter_by_suitable_for(
 
     Returns:
         
-    """
+ """
     if not objectives:
         return objectives
 
@@ -444,7 +444,7 @@ def _filter_by_suitable_for(
 
     if len(result) < len(objectives):
         logger.info(
-            "L5 v36: suitable_for filter for '%s': %d → %d objectives "
+            "L5 v36: suitable_for filter for '%s': %d -> %d objectives "
             "(filtered out %d unsuitable)",
             technique_name,
             len(objectives),
@@ -461,12 +461,12 @@ def _apply_mtos_ranking(
     *,
     technique_name: str = "",
 ) -> list[str]:
-    """L5 v16:  MTOS 
+ """L5 v16: MTOS 
 
     ,  Crescendo / TAP / PAIR 
      ctx ,  ()
 
-    Academic basis: Chao et al. (arXiv:2310.08419) — 
+    Academic basis: Chao et al. (arXiv:2310.08419) - 
      ASR  (Crescendo/TAP/PAIR )
 
     L5 v36:  technique_name ,  technique_seed_asr ,
@@ -480,7 +480,7 @@ def _apply_mtos_ranking(
 
     Returns:
          MTOS  ( MTOS )
-    """
+ """
     if not objectives:
         return objectives
 
@@ -559,7 +559,7 @@ def _build_skeleton_key_seed_groups(
     *,
     ctx: PipelineContext | None = None,
 ) -> list[Any]:
-    """ Skeleton Key  seed groups,  MTOS 
+ """ Skeleton Key seed groups, MTOS 
 
     L5 v15 MTOS :
          ctx,  rank_seeds_for_multi_turn  MTOS
@@ -576,7 +576,7 @@ def _build_skeleton_key_seed_groups(
 
     Returns:
          Skeleton Key  seed groups
-    """
+ """
     from pyrit.models import AttackSeedGroup, SeedObjective
 
     if ctx is not None:
@@ -617,11 +617,11 @@ def _build_skeleton_key_seed_groups(
 
 
 # ===================================================================
-# Level 2:  ( escalation_level2.py)
+# Level 2: ( escalation_level2.py)
 # ===================================================================
 
 def _create_fallback_fsts(ctx: PipelineContext) -> Any:
-    """ fallback FloatScaleThresholdScorer for TAP/PAIR
+ """ fallback FloatScaleThresholdScorer for TAP/PAIR
 
     TAP/PAIR  FloatScaleThresholdScorer
      scorer ,  fallback
@@ -631,7 +631,7 @@ def _create_fallback_fsts(ctx: PipelineContext) -> Any:
 
     Returns:
         FloatScaleThresholdScorer 
-    """
+ """
     from pyrit.models import SeedPrompt
     from pyrit.score import (
         FloatScaleThresholdScorer,
@@ -652,7 +652,7 @@ def _create_fallback_fsts(ctx: PipelineContext) -> Any:
             SelfAskScaleScorer.SystemPaths.RED_TEAMER_SYSTEM_PROMPT.value
         ),
     )
-    # L5 v34: threshold 0.3→0.2, TAP ASR=0%  v34 
+ # L5 v34: threshold 0.3->0.2, TAP ASR=0% v34 
     return FloatScaleThresholdScorer(
         scorer=scale_scorer,
         threshold=0.2,
@@ -660,7 +660,7 @@ def _create_fallback_fsts(ctx: PipelineContext) -> Any:
 
 
 def _build_refusal_inverter_scoring_config(ctx: PipelineContext) -> Any:
-    """
+ """
 
     L5 v39 :  LLM 
 
@@ -669,10 +669,10 @@ def _build_refusal_inverter_scoring_config(ctx: PipelineContext) -> Any:
         calibrated rubric 
 
     Academic basis:
-        - Chao et al. (arXiv:2310.08419) — PAIR 
-        - Russinovich et al. (arXiv:2402.12109) — Crescendo 
-        - Mehrotra et al. (arXiv:2312.02191) — TAP 
-    """
+        - Chao et al. (arXiv:2310.08419) - PAIR 
+        - Russinovich et al. (arXiv:2402.12109) - Crescendo 
+        - Mehrotra et al. (arXiv:2312.02191) - TAP 
+ """
     from pyrit.executor.attack import AttackScoringConfig
 
     calibrated_rubric_path = (
@@ -717,7 +717,7 @@ def _build_refusal_inverter_scoring_config(ctx: PipelineContext) -> Any:
         except Exception as e:
             logger.warning("L5 v39: Failed to create calibrated scorer: %s, falling back to empty", e)
 
-    # Fallback:  RefusalScorer ( scoring_target )
+ # Fallback: RefusalScorer ( scoring_target )
     if ctx.adversarial_target:
         try:
             from pyrit.score import SelfAskRefusalScorer, TrueFalseInverterScorer
@@ -739,12 +739,12 @@ def _build_refusal_inverter_scoring_config(ctx: PipelineContext) -> Any:
 
 
 async def _retrieve_partial_results(ctx: PipelineContext, technique_name: str) -> None:
-    """imports CentralMemory 
+ """imports CentralMemory 
 
     Args:
         ctx: 
         technique_name: 
-    """
+ """
     from pyrit.memory import CentralMemory
 
     memory = CentralMemory.get_memory_instance()
@@ -762,12 +762,12 @@ async def _retrieve_partial_results(ctx: PipelineContext, technique_name: str) -
 
 
 def _get_partial_from_memory(ctx: PipelineContext, technique_name: str) -> list[Any]:
-    """L5 v10: imports CentralMemory 
+ """L5 v10: imports CentralMemory 
 
      _retrieve_partial_results ,  ctx
     
 
-    Academic basis: Heroux et al. (arXiv:2403.04206) — 
+    Academic basis: Heroux et al. (arXiv:2403.04206) - 
 
     Args:
         ctx: 
@@ -775,7 +775,7 @@ def _get_partial_from_memory(ctx: PipelineContext, technique_name: str) -> list[
 
     Returns:
          ()
-    """
+ """
     try:
         from pyrit.memory import CentralMemory
 
@@ -798,14 +798,14 @@ async def _run_gcg(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
-    """ GCG 
+ """ GCG 
 
     L5 v8 : 
      adversarial LLM  (GCG ),  objective 
 
-    L5 v25:  — all (objective × suffix) 
+    L5 v25:  - all (objective x suffix) 
 
-    Academic basis: Zou et al. (arXiv:2307.08673) — GCG ASR 60-88% on GPT-4
+    Academic basis: Zou et al. (arXiv:2307.08673) - GCG ASR 60-88% on GPT-4
 
     Args:
         ctx: 
@@ -813,7 +813,7 @@ async def _run_gcg(
 
     Returns:
         GCG 
-    """
+ """
     from pyrit.executor.attack import PromptSendingAttack
     from pyrit.executor.attack.core.attack_executor import AttackExecutor
     from pyrit.models import AttackSeedGroup, SeedObjective
@@ -828,7 +828,7 @@ async def _run_gcg(
         mtos_objectives = _apply_mtos_ranking(gcg_objectives, ctx, technique_name="gcg")
 
         async def _gcg_single_objective(obj: str) -> list[Any]:
-            """converter(s) objective all GCG , converter(s)"""
+ """converter(s) objective all GCG , converter(s)"""
             adaptive_suffixes = list(enumerate(gcg_suffixes))
             for idx, suffix in adaptive_suffixes:
                 gcg_payload = obj + "\n" + suffix
@@ -880,7 +880,7 @@ async def _run_gcg(
                         )
                         return list(executor_result.completed_results)
 
-                    # L5 v26:  — 
+ # L5 v26: - 
                     if executor_result.incomplete_objectives:
                         failed_response = ""
                         for r in getattr(executor_result, "completed_results", []):
@@ -944,15 +944,15 @@ async def _run_cair(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
-    """⚠️ STUB — imports (P0-2, REV-06)
+ """⚠️ STUB - imports (P0-2, REV-06)
 
     CAIR (Context-Aware Iterative Refinement)  PAIR ,
      (safety/ethical/legal/capability/generic),
     
 
     Academic basis:
-        - Chao et al. (arXiv:2310.08419) — PAIR/CAIR 
-        - Lattner et al. (arXiv:2406.12609) — 
+        - Chao et al. (arXiv:2310.08419) - PAIR/CAIR 
+        - Lattner et al. (arXiv:2406.12609) - 
 
     : stub  T0-2 (),
     imports escalation.py L2 , 
@@ -963,7 +963,7 @@ async def _run_cair(
 
     Returns:
          ()
-    """
+ """
     from strike.cair import run_cair_attack
 
     results: dict[str, list[Any]] = {}
@@ -1013,9 +1013,9 @@ async def _run_cair(
     return results
 
 
-# GCG  ( gcg_generator )
+# GCG ( gcg_generator )
 def _generate_gcg_suffix_pool(ctx: PipelineContext) -> list[str]:
-    """ GCG  ( + LLM )"""
+ """ GCG ( + LLM )"""
     from strike.gcg_generator import generate_gcg_suffix_pool
     return generate_gcg_suffix_pool(ctx)
 
@@ -1023,7 +1023,7 @@ def _generate_gcg_suffix_pool(ctx: PipelineContext) -> list[str]:
 def _reorder_gcg_suffixes_for_partial(
     suffixes: list[tuple[int, str]], current_idx: int,
 ) -> list[tuple[int, str]]:
-    """L5 v26:  — """
+ """L5 v26: - """
     from strike.gcg_generator import reorder_gcg_suffixes_for_partial
     return reorder_gcg_suffixes_for_partial(suffixes, current_idx)
 
@@ -1031,20 +1031,20 @@ def _reorder_gcg_suffixes_for_partial(
 def _reorder_gcg_suffixes_for_refusal(
     suffixes: list[tuple[int, str]], current_idx: int,
 ) -> list[tuple[int, str]]:
-    """L5 v26:  — """
+ """L5 v26: - """
     from strike.gcg_generator import reorder_gcg_suffixes_for_refusal
     return reorder_gcg_suffixes_for_refusal(suffixes, current_idx)
 
 
 # ===================================================================
-# Level 3:  ( escalation_level3.py)
+# Level 3: ( escalation_level3.py)
 # ===================================================================
 
 def _is_success(result) -> bool:
-    """Check if attack result is successful.
+ """Check if attack result is successful.
 
     Rule 11 integration:  _precomputed_outcome cache
-    """
+ """
     cached = getattr(result, "_precomputed_outcome", None)
     if isinstance(cached, str):
         return cached == "success"
@@ -1061,7 +1061,7 @@ def _is_success(result) -> bool:
 
 
 def _get_objective(result) -> str:
-    """Get objective from attack result."""
+ """Get objective from attack result."""
     return getattr(result, "objective", "") or ""
 
 
@@ -1069,7 +1069,7 @@ def _select_still_failed(
     attack_results: dict[str, list[Any]],
     original_failed: list[str],
 ) -> list[str]:
-    """imports
+ """imports
 
     L5 v11: 
 
@@ -1079,7 +1079,7 @@ def _select_still_failed(
 
     Returns:
         
-    """
+ """
     succeeded_objectives: set[str] = set()
 
     for results in attack_results.values():
@@ -1107,10 +1107,10 @@ async def _run_multi_model_escalation(
     objectives: list[str],
     extra_targets: list[Any],
 ) -> dict[str, list[Any]]:
-    """L5 v11: 
+ """L5 v11: 
 
-    Academic basis: Chao et al. (arXiv:2310.08419) —  LLM  prompt 
-     ASR  ~20% ( P = 1 - ∏(1-p_i))
+    Academic basis: Chao et al. (arXiv:2310.08419) -  LLM  prompt 
+     ASR  ~20% ( P = 1 - Prod(1-p_i))
 
     :
         1.  N converter(s) extra adversarial targets
@@ -1125,7 +1125,7 @@ async def _run_multi_model_escalation(
 
     Returns:
         
-    """
+ """
     from pyrit.executor.attack import AttackAdversarialConfig
     from pyrit.executor.attack.core.attack_executor import AttackExecutor
     from pyrit.executor.attack.multi_turn.pair import PAIRAttack
@@ -1145,7 +1145,7 @@ async def _run_multi_model_escalation(
         adversarial_target: Any,
         objs: list[str],
     ) -> list[Any]:
-        """converter(s) PAIR """
+ """converter(s) PAIR """
         if not objs:
             return []
 
@@ -1234,7 +1234,7 @@ async def _run_skeleton_key_native(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
-    """PyRIT  SkeletonKeyAttack """
+ """PyRIT SkeletonKeyAttack """
     try:
         from strike.native_attacks import run_skeleton_key_native
         return await run_skeleton_key_native(ctx, objectives)
@@ -1247,7 +1247,7 @@ async def _run_multi_prompt_sending(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
-    """PyRIT  MultiPromptSendingAttack """
+ """PyRIT MultiPromptSendingAttack """
     try:
         from strike.multi_prompt_attack import run_multi_prompt_sending_attack
         return await run_multi_prompt_sending_attack(ctx, objectives)
@@ -1260,7 +1260,7 @@ async def _run_chunked_request(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
-    """PyRIT  ChunkedRequestAttack """
+ """PyRIT ChunkedRequestAttack """
     try:
         from strike.chunked_attack import run_chunked_request_attack
         return await run_chunked_request_attack(ctx, objectives)
@@ -1273,7 +1273,7 @@ async def _run_mcp_rag_attacks(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
-    """MCP/RAG """
+ """MCP/RAG """
     try:
         from strike.mcp_rag_attack import run_mcp_rag_attacks
         return await run_mcp_rag_attacks(ctx, objectives)
@@ -1286,7 +1286,7 @@ async def _run_best_of_n(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
-    """P0-1: Best-of-N """
+ """P0-1: Best-of-N """
     try:
         from strike.adaptive_executor import _get_best_of_n_retries
         n_retries = _get_best_of_n_retries(ctx)
@@ -1301,17 +1301,17 @@ async def _run_encoded_injection(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
-    """⚠️ STUB — imports (P0-2, REV-06)
+ """⚠️ STUB - imports (P0-2, REV-06)
 
     Encoded Injection  Base64/ROT13/Unicode 
-    Academic basis: Zou et al. (arXiv:2307.08673) §4.5 — ASR +10-20%
+    Academic basis: Zou et al. (arXiv:2307.08673) Sec4.5 - ASR +10-20%
 
     : stub  T0-2 (),
     imports escalation.py L2 , 
 
     Returns:
          ()
-    """
+ """
     return {}
 
 
@@ -1319,7 +1319,7 @@ async def _run_rogue_agent(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
-    """A2A  Agent """
+ """A2A Agent """
     try:
         from strike.rogue_agent import run_rogue_agent_attacks
         return await run_rogue_agent_attacks(ctx, objectives)
@@ -1332,7 +1332,7 @@ async def _run_embedding_inversion(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
-    """"""
+ """"""
     try:
         from strike.embedding_inversion import run_embedding_inversion_attacks
         return await run_embedding_inversion_attacks(ctx, objectives)
@@ -1345,9 +1345,9 @@ def _select_still_failed_clustered(
     attack_results: dict[str, list[Any]],
     original_failed: list[str],
 ) -> list[str]:
-    """P1-4:  — 
+ """P1-4: - 
 
-    Academic basis: Chao et al. (arXiv:2310.08419) §3.4 — 
+    Academic basis: Chao et al. (arXiv:2310.08419) Sec3.4 - 
         , Retry
 
     :
@@ -1356,7 +1356,7 @@ def _select_still_failed_clustered(
         3.  refusal_type 
         4.  Top-1 
         5. 
-    """
+ """
     still_failed = _select_still_failed(attack_results, original_failed)
 
     if len(still_failed) <= 3:
@@ -1397,7 +1397,7 @@ def _select_still_failed_clustered(
             )
 
         logger.info(
-            "P1-4 clustered: %d still-failed → %d representatives (from %d clusters)",
+            "P1-4 clustered: %d still-failed -> %d representatives (from %d clusters)",
             len(still_failed),
             len(representatives),
             len(clusters),
@@ -1414,7 +1414,7 @@ async def _llm_judge_rescore(
     ctx: PipelineContext,
     attack_results: dict[str, list[Any]],
 ) -> int:
-    """L5 v55: post-hoc LLM-as-a-Judge  —  precompute_outcomes_async.
+ """L5 v55: post-hoc LLM-as-a-Judge - precompute_outcomes_async.
 
      (v55):  PyRIT  precompute_outcomes_async (T0  + Dual Judge )
 
@@ -1423,7 +1423,7 @@ async def _llm_judge_rescore(
         2. T0  (0 token) /
         3. Dual Judge (J1+J2) , OR , 
         4. 
-    """
+ """
     try:
         from assess.score_pipeline import precompute_outcomes_async
         await precompute_outcomes_async(attack_results, score_all=False, reset_stats=False)

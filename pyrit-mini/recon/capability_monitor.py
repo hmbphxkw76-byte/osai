@@ -1,10 +1,10 @@
-"""Capability Drift Monitor — 
+"""Capability Drift Monitor - 
 
 Academic basis:
-    - Chao et al. (arXiv:2310.08419) — ": ,
+    - Chao et al. (arXiv:2310.08419) - ": ,
 "
-    - Anderson et al. (arXiv:2308.02678) — EvoCheck: 
-    - Perez et al. (arXiv:2202.03286) — LLMs 
+    - Anderson et al. (arXiv:2308.02678) - EvoCheck: 
+    - Perez et al. (arXiv:2202.03286) - LLMs 
 
 :
     1.  (Temporal Drift):  probe 
@@ -34,11 +34,11 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class CapabilitySnapshot:
-    """
+ """
 
     all,
     
-    """
+ """
     timestamp: float
     seed_name: str
     converter_name: str
@@ -52,7 +52,7 @@ class CapabilitySnapshot:
 
 @dataclass
 class DriftReport:
-    """
+ """
 
     :
         has_drift: 
@@ -60,7 +60,7 @@ class DriftReport:
         confidence:  (0.0-1.0)
         evidence: 
         recommendations: 
-    """
+ """
     has_drift: bool = False
     drift_type: str = "none"
     confidence: float = 0.0
@@ -83,7 +83,7 @@ class DriftReport:
 
 
 class CapabilityDriftMonitor:
-    """
+ """
 
     converter(s) probe ,
     
@@ -94,15 +94,15 @@ class CapabilityDriftMonitor:
         >>> report = monitor.analyze_drift()
         >>> if report.has_drift:
         ...     handle_drift(report)
-    """
+ """
 
     def __init__(self, window_size: int = 10, drift_threshold: float = 0.3) -> None:
-        """
+ """
 
         Args:
             window_size:  ( 10 converter(s))
             drift_threshold:  ()
-        """
+ """
         self._snapshots: list[CapabilitySnapshot] = []
         self._window_size = window_size
         self._drift_threshold = drift_threshold
@@ -110,29 +110,29 @@ class CapabilityDriftMonitor:
         self._initial_refusal_rate: float = 0.0
 
     def record_attack(self, snapshot: CapabilitySnapshot) -> None:
-        """
+ """
 
         
         , 
 
         Args:
             snapshot: 
-        """
-        # 
+ """
+ # 
         if len(self._snapshots) == 0:
             self._initial_model_family = snapshot.model_family
 
         self._snapshots.append(snapshot)
 
-        # 
+ # 
         if len(self._snapshots) > self._window_size * 2:
             self._snapshots = self._snapshots[-self._window_size:]
 
-        #  ()
+ # ()
         self._update_baseline()
 
     def _update_baseline(self) -> None:
-        """ ( N converter(s))"""
+ """ ( N converter(s))"""
         if len(self._snapshots) < 3:
             return
 
@@ -144,7 +144,7 @@ class CapabilityDriftMonitor:
         self._initial_refusal_rate = refused / len(initial_window)
 
     def analyze_drift(self) -> DriftReport:
-        """, 
+ """, 
 
         :
             1. :  >  + threshold
@@ -154,7 +154,7 @@ class CapabilityDriftMonitor:
 
         Returns:
             DriftReport 
-        """
+ """
         report = DriftReport()
 
         if len(self._snapshots) < 5:
@@ -162,12 +162,12 @@ class CapabilityDriftMonitor:
             report.evidence.append(f"Only {len(self._snapshots)} snapshots, need >= 5")
             return report
 
-        #  ( vs )
+ # ( vs )
         mid = len(self._snapshots) // 2
         first_half = self._snapshots[:mid]
         second_half = self._snapshots[mid:]
 
-        # 1. 
+ # 1. 
         first_refusal_rate = sum(1 for s in first_half if s.refusal_detected) / len(first_half)
         second_refusal_rate = sum(1 for s in second_half if s.refusal_detected) / len(second_half)
 
@@ -176,7 +176,7 @@ class CapabilityDriftMonitor:
             report.drift_type = "guardrail_update"
             report.confidence = min(1.0, (second_refusal_rate - first_refusal_rate) * 2)
             report.evidence.append(
-                f"Refusal rate increased: {first_refusal_rate:.0%} → {second_refusal_rate:.0%} "
+                f"Refusal rate increased: {first_refusal_rate:.0%} -> {second_refusal_rate:.0%} "
                 f"(threshold: {self._drift_threshold:.0%})"
             )
             report.recommendations = {
@@ -188,7 +188,7 @@ class CapabilityDriftMonitor:
             }
             return report
 
-        # 2. 
+ # 2. 
         model_families = {s.model_family for s in second_half if s.model_family}
         if model_families and self._initial_model_family:
             if any(mf != self._initial_model_family for mf in model_families):
@@ -196,7 +196,7 @@ class CapabilityDriftMonitor:
                 report.drift_type = "model_change"
                 report.confidence = 0.85
                 report.evidence.append(
-                    f"Model family changed: '{self._initial_model_family}' → '{model_families}'"
+                    f"Model family changed: '{self._initial_model_family}' -> '{model_families}'"
                 )
                 report.recommendations = {
                     "action": "reidentify_and_remap_seeds",
@@ -205,18 +205,18 @@ class CapabilityDriftMonitor:
                 }
                 return report
 
-        # 3. 
+ # 3. 
         first_rt = sum(s.response_time_ms for s in first_half) / max(1, len(first_half))
         second_rt = sum(s.response_time_ms for s in second_half) / max(1, len(second_half))
 
         if second_rt > 0 and first_rt > 0:
             rt_ratio = second_rt / first_rt
-            if rt_ratio > 3.0 and second_rt > 5000:  #  > 5s
+            if rt_ratio > 3.0 and second_rt > 5000:  # > 5s
                 report.has_drift = True
                 report.drift_type = "rate_limit"
                 report.confidence = min(1.0, (rt_ratio - 2.0) / 5.0)
                 report.evidence.append(
-                    f"Response time increased: {first_rt:.0f}ms → {second_rt:.0f}ms "
+                    f"Response time increased: {first_rt:.0f}ms -> {second_rt:.0f}ms "
                     f"(ratio: {rt_ratio:.1f}x)"
                 )
                 report.recommendations = {
@@ -227,11 +227,11 @@ class CapabilityDriftMonitor:
                 }
                 return report
 
-        # 4. 
+ # 4. 
         report.drift_type = "consistent"
         report.evidence.append("No significant drift detected in recent snapshots")
 
-        # Even if, 
+ # Even if, 
         if second_refusal_rate > first_refusal_rate:
             report.recommendations = {
                 "action": "monitor_closely",
@@ -244,7 +244,7 @@ class CapabilityDriftMonitor:
         return report
 
     def get_current_stats(self) -> dict[str, Any]:
-        """"""
+ """"""
         if not self._snapshots:
             return {"total_snapshots": 0}
 
@@ -267,7 +267,7 @@ class CapabilityDriftMonitor:
         }
 
     def reset(self) -> None:
-        """"""
+ """"""
         self._snapshots.clear()
         self._initial_model_family = None
         self._initial_refusal_rate = 0.0
@@ -281,7 +281,7 @@ _default_monitor: CapabilityDriftMonitor | None = None
 
 
 def get_drift_monitor() -> CapabilityDriftMonitor:
-    """ CapabilityDriftMonitor """
+ """ CapabilityDriftMonitor """
     global _default_monitor
     if _default_monitor is None:
         _default_monitor = CapabilityDriftMonitor()

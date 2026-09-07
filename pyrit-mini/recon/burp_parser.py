@@ -1,4 +1,4 @@
-"""Burp Suite HTTP  → PyRIT  HTTPTarget 
+"""Burp Suite HTTP -> PyRIT HTTPTarget 
 
 :
     - sse_parser: SSE 
@@ -45,27 +45,27 @@ logger = logging.getLogger(__name__)
 
 # ====================================================================
 # P1-05: TargetFingerprint Schema 
-# Academic basis: C3  — dict[str, str] ,
-#  typo ( "chat_id" vs "chatid")  (str/int/bool )
-#  2024-2025  Python AI 
+# Academic basis: C3 - dict[str, str] ,
+# typo ( "chat_id" vs "chatid") (str/int/bool )
+# 2024-2025 Python AI 
 # ====================================================================
 
 
 @dataclass
 class TargetFingerprint:
-    """ —  Schema, 
+ """ - Schema, 
 
     :
-        Phase 1 (parse-time):  ``burp_parser._parse_raw_http`` 
+        Phase 1 (parse-time):  ''burp_parser._parse_raw_http'' 
             (HTTP , )
         Phase 2 (probe-time):  (capability_detector/target_router) 
             (,  None /  / False)
 
-    :  ``get`` / ``__getitem__`` / ``__setitem__`` , 
-     ``fp["key"]`` ,  attribute 
-    """
+    :  ''get'' / ''__getitem__'' / ''__setitem__'' , 
+     ''fp["key"]'' ,  attribute 
+ """
 
-    # == Phase 1: HTTP  (, _extract_fingerprint ) ==
+ # == Phase 1: HTTP (, _extract_fingerprint ) ==
     framework: str = "Unknown"
     api_path: str = ""
     host: str = ""
@@ -74,21 +74,21 @@ class TargetFingerprint:
     app_type: str = "Web Application"
     api_category: str = "chat"
 
-    # == Phase 1: HTTP  (, _parse_raw_http ) ==
+ # == Phase 1: HTTP (, _parse_raw_http ) ==
     ai_framework: str | None = None
     ai_framework_category: str | None = None
     chat_id: str | None = None
     burp_model_name: str | None = None
     has_model_list: bool = False
 
-    # == Phase 2:  (capability_detector / target_router ) ==
+ # == Phase 2: (capability_detector / target_router ) ==
     language: str | None = None
     model_family: str | None = None
     capabilities: list[str] = field(default_factory=list)
     probe_count: int = 0
     probe_duration_seconds: float = 0.0
 
-    # == Phase 2:  (target_router ) ==
+ # == Phase 2: (target_router ) ==
     mcp_tools: list[str] = field(default_factory=list)
     mcp_resources: list[str] = field(default_factory=list)
     mcp_prompts: list[str] = field(default_factory=list)
@@ -100,43 +100,43 @@ class TargetFingerprint:
     original_prompt: str | None = None
     session_type: str | None = None
 
-    # ==  (, ) ==
+ # == (, ) ==
     extra: dict[str, Any] = field(default_factory=dict)
 
     def get(self, key: str, default: Any = None) -> Any:
-        """ dict.get()"""
+ """ dict.get()"""
         if hasattr(self, key) and not key.startswith("_"):
             val = getattr(self, key)
             return val if val is not None else default
         return self.extra.get(key, default)
 
     def __getitem__(self, key: str) -> Any:
-        """ dict[key] """
+ """ dict[key] """
         if hasattr(self, key) and not key.startswith("_"):
             return getattr(self, key)
         return self.extra[key]
 
     def __setitem__(self, key: str, value: Any) -> None:
-        """ dict[key] = value  attribute,  extra"""
+ """ dict[key] = value attribute, extra"""
         if hasattr(self, key) and not key.startswith("_"):
             setattr(self, key, value)
         else:
             self.extra[key] = value
 
     def to_dict(self) -> dict[str, Any]:
-        """ JSON  ()"""
+ """ JSON ()"""
         from dataclasses import asdict
 
         result = asdict(self)
         extra = result.pop("extra", {})
         result.update(extra)
-        #  None /  / False, 
+ # None / / False, 
         return {k: v for k, v in result.items() if v not in (None, "", [], False, 0, 0.0)}
 
 
 @dataclass
 class ParsedBurpRequest:
-    """ Burp """
+ """ Burp """
 
     method: str
     url: str
@@ -166,7 +166,7 @@ class ParsedBurpRequest:
 
 
 def parse_burp_request(file_path: str | Path) -> ParsedBurpRequest:
-    """ Burp  HTTP 
+ """ Burp HTTP 
 
     ::
 
@@ -188,13 +188,13 @@ def parse_burp_request(file_path: str | Path) -> ParsedBurpRequest:
     Raises:
         FileNotFoundError: 
         ValueError: HTTP 
-    """
+ """
     raw = Path(file_path).read_text(encoding="utf-8", errors="replace")
     return _parse_raw_http(raw)
 
 
 def build_raw_http_request(parsed: ParsedBurpRequest) -> str:
-    """ HTTP  (CRLF )"""
+ """ HTTP (CRLF )"""
     lines = [f"{parsed.method} {parsed.path} {parsed.http_version}"]
 
     for key, value in parsed.raw_headers:
@@ -219,13 +219,13 @@ def build_raw_http_request(parsed: ParsedBurpRequest) -> str:
 
 
 def _parse_raw_http(raw: str) -> ParsedBurpRequest:
-    """ HTTP 
+ """ HTTP 
 
     L5 v19 :  Burp  header  body ,
      body  header
 
     P2-20 :  Burp  HTTP  (Request + Response)
-    """
+ """
     normalized = raw.replace("\r\n", "\n")
 
     request_section, response_section = _split_request_response(normalized)
@@ -244,7 +244,7 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
     path = request_line[1]
     http_version = request_line[2]
 
-    #  header ( + )
+ # header ( + )
     headers: dict[str, str] = {}
     raw_headers: list[tuple[str, str]] = []
     body_from_headers: list[str] = []
@@ -281,7 +281,7 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
     use_tls = infer_tls(path, headers)
     full_url = build_full_url(path, host, use_tls)
 
-    # SSE  (3 Layer)
+ # SSE (3 Layer)
     accept_header = headers.get("accept", "")
     is_sse = "text/event-stream" in accept_header
     if not is_sse and body:
@@ -300,10 +300,10 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
                 is_sse = True
                 break
 
-    # API  ( api_classifier)
+ # API ( api_classifier)
     api_category = detect_api_category(path, body)
 
-    #  prompt  ()
+ # prompt ()
     original_prompt_value: str | None = None
     if api_category == "chat" and body and "{PROMPT}" not in body:
         original_prompt_value = extract_original_prompt_value(body)
@@ -313,7 +313,7 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
                 original_prompt_value[:80],
             )
 
-    #  + 
+ # + 
     has_placeholder = "{PROMPT}" in body or "{PROMPT}" in path
     if not has_placeholder and body and api_category == "chat":
         body = inject_prompt_placeholder(body)
@@ -325,17 +325,17 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
             path,
         )
 
-    #  ( fingerprint )
+ # ( fingerprint )
     fingerprint = _extract_fingerprint(headers, path, host, response_section)
     fingerprint.api_category = api_category
 
-    #  Response  ID
+ # Response ID
     chat_id: str | None = None
     chat_id_field: str | None = None
     has_chat_id_placeholder = False
     initial_chat_id_from_body: str | None = None
 
-    #  Burp Response 
+ # Burp Response 
     burp_model_name: str | None = None
     burp_model_list: str | None = None
 
@@ -353,7 +353,7 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
             logger.info("Extracted model list from Burp Response (length=%d)", len(burp_model_list))
             fingerprint.extra["burp_model_list"] = "yes"
 
-    #  Request body  ID and inject into {CHAT_ID} 
+ # Request body ID and inject into {CHAT_ID} 
     if body:
         try:
             orig_body_data = json.loads(body)
@@ -407,7 +407,7 @@ def _extract_fingerprint(
     host: str,
     response_section: str | None = None,
 ) -> TargetFingerprint:
-    """imports HTTP  (Phase 1 )"""
+ """imports HTTP (Phase 1 )"""
     server = headers.get("server", "")
     x_powered = headers.get("x-powered-by", "")
     if "next" in (server + x_powered).lower():
@@ -436,7 +436,7 @@ def _extract_fingerprint(
 
     content_type = headers.get("content-type", "unknown")
 
-    # 
+ # 
     path_lower = path.lower()
     if "/challenges/" in path_lower or "/scenarios/" in path_lower or "/arena/" in path_lower:
         app_type = "Testing/Arena"
@@ -449,7 +449,7 @@ def _extract_fingerprint(
     else:
         app_type = "Web Application"
 
-    # AI /SDK  ( fingerprint )
+ # AI /SDK ( fingerprint )
     ai_fw: str | None = None
     ai_fw_cat: str | None = None
     if response_section:
@@ -471,10 +471,10 @@ def _extract_fingerprint(
 
 
 def _split_request_response(normalized: str) -> tuple[str, str | None]:
-    """ Burp  HTTP  Request  Response 
+ """ Burp HTTP Request Response 
 
-     ``HTTP/<digit>``  Response 
-    """
+     ''HTTP/<digit>''  Response 
+ """
     lines = normalized.split("\n")
 
     response_start_idx: int | None = None
@@ -498,7 +498,7 @@ def _split_request_response(normalized: str) -> tuple[str, str | None]:
     return request_section, response_section
 
 
-#  ID  ()
+# ID ()
 _CHAT_ID_FIELD_NAMES = frozenset({
     "chatid", "chat_id", "chatidvalue", "chatsessionid", "chat_session_id",
     "sessionid", "session_id", "sessionidvalue",

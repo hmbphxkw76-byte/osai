@@ -1,16 +1,16 @@
-"""Behavioral Verification Layer —  ()
+"""Behavioral Verification Layer - ()
 
 Academic basis:
-    - Liao et al. (arXiv:2307.15043) — ""≠""
-    - Abhay et al. (arXiv:2311.04956) — ASR ,  vs 
+    - Liao et al. (arXiv:2307.15043) - ""!=""
+    - Abhay et al. (arXiv:2311.04956) - ASR ,  vs 
         20-30%
-    - Chiang et al. (arXiv:2402.04249) — HarmBench  confidently confirmed
+    - Chiang et al. (arXiv:2402.04249) - HarmBench  confidently confirmed
       , 
 
  (3 ):
-    S1  (): LLM  "I can use tools" → confidence 0.3
-    S2  (): JSON  tool_calls  → confidence 0.6
-    S3  ():  tool  result → confidence 0.9
+    S1  (): LLM  "I can use tools" -> confidence 0.3
+    S2  (): JSON  tool_calls  -> confidence 0.6
+    S3  ():  tool  result -> confidence 0.9
 
 :
     - function_calling:  JSON , 
@@ -34,7 +34,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-# P2-06: TLS verify  (SSOT)
+# P2-06: TLS verify (SSOT)
 from recon.config_loader import get_tls_verify as _get_tls_verify_from_config
 
 _TLS_VERIFY = _get_tls_verify_from_config()
@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 
 # ====================================================================
-#  — 
+# - 
 # ====================================================================
 
 _BEHAVIORAL_TEMPLATES: dict[str, dict[str, Any]] = {
@@ -130,13 +130,13 @@ _BEHAVIORAL_TEMPLATES: dict[str, dict[str, Any]] = {
 
 
 # ====================================================================
-#  Schema
+# Schema
 # ====================================================================
 
 
 @dataclass
 class BehavioralVerifyResult:
-    """
+ """
 
     :
         capability: 
@@ -145,7 +145,7 @@ class BehavioralVerifyResult:
         confidence:  (0.9 if verified, 0.1 if not)
         evidence: 
         response_snippet:  ()
-    """
+ """
 
     capability: str
     claimed_by_text: bool = False
@@ -167,13 +167,13 @@ class BehavioralVerifyResult:
 
 @dataclass
 class BehavioralVerifyReport:
-    """
+ """
 
     :
         results: 
         summary: 
         recommendations: 
-    """
+ """
 
     results: dict[str, BehavioralVerifyResult] = field(default_factory=dict)
     summary: dict[str, int] = field(default_factory=dict)
@@ -198,7 +198,7 @@ async def behavioral_verify(
     *,
     send_probe_func: Any = None,
 ) -> BehavioralVerifyReport:
-    """
+ """
 
     :
         1. imports claimed_capabilities  "" 
@@ -214,20 +214,20 @@ async def behavioral_verify(
 
     Returns:
         BehavioralVerifyReport 
-    """
+ """
     report = BehavioralVerifyReport()
 
     if parsed_request is None:
         return report
 
-    # 
+ # 
     if send_probe_func is None:
         send_probe_func = _send_probe_via_httpx
 
-    # :  ""  ()
+ # : "" ()
     caps_to_verify: list[str] = []
     for cap_name, cap_data in claimed_capabilities.items():
-        #  level == "low"  "medium"  ()
+ # level == "low" "medium" ()
         level = cap_data.get("level", "low")
         source = cap_data.get("source", "passive")
         if level in ("low", "medium") and source in ("passive", "active"):
@@ -244,7 +244,7 @@ async def behavioral_verify(
         caps_to_verify,
     )
 
-    #  probe
+ # probe
     tasks = []
     for cap_name in caps_to_verify:
         template = _BEHAVIORAL_TEMPLATES[cap_name]
@@ -255,14 +255,14 @@ async def behavioral_verify(
     import asyncio
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    # 
+ # 
     for result in results:
         if isinstance(result, BehavioralVerifyResult):
             report.results[result.capability] = result
         elif isinstance(result, Exception):
             logger.debug("Behavioral verify task failed: %s", result)
 
-    # 
+ # 
     verified_count = sum(1 for r in report.results.values() if r.behaviorally_verified)
     claimed_count = len(caps_to_verify)
     report.summary = {
@@ -272,7 +272,7 @@ async def behavioral_verify(
         "verified_ratio": round(verified_count / claimed_count, 2) if claimed_count > 0 else 0,
     }
 
-    # 
+ # 
     report.recommendations = _generate_recommendations(report)
 
     logger.info(
@@ -295,7 +295,7 @@ async def _verify_single_capability(
     template: dict[str, Any],
     send_probe_func: Any,
 ) -> BehavioralVerifyResult:
-    """converter(s) probe
+ """converter(s) probe
 
     Args:
         parsed_request: ParsedBurpRequest
@@ -305,7 +305,7 @@ async def _verify_single_capability(
 
     Returns:
         BehavioralVerifyResult
-    """
+ """
     result = BehavioralVerifyResult(capability=cap_name)
 
     prompt = template["prompt"]
@@ -319,14 +319,14 @@ async def _verify_single_capability(
 
         result.response_snippet = response
 
-        # 
+ # 
         matched_count = 0
         for pattern in expected_patterns:
             if pattern.search(response):
                 matched_count += 1
                 result.evidence.append(f"Pattern matched: {pattern.pattern[:50]}")
 
-        # :  75% 
+ # : 75% 
         match_ratio = matched_count / len(expected_patterns) if expected_patterns else 0
         result.behaviorally_verified = match_ratio >= 0.75
 
@@ -341,13 +341,13 @@ async def _verify_single_capability(
                 cap_name, match_ratio * 100,
             )
         else:
-            result.confidence = 0.1  #  → 
+            result.confidence = 0.1  # -> 
             result.evidence.append(
                 f"Behavioral verification FAILED ({matched_count}/{len(expected_patterns)} patterns, "
-                f"{match_ratio:.0%}) — likely false positive"
+                f"{match_ratio:.0%}) - likely false positive"
             )
             logger.info(
-                "Behavioral verify: '%s' FAILED (%.0f%% patterns matched) — false positive",
+                "Behavioral verify: '%s' FAILED (%.0f%% patterns matched) - false positive",
                 cap_name, match_ratio * 100,
             )
 
@@ -364,22 +364,22 @@ async def _verify_single_capability(
 
 
 def _generate_recommendations(report: BehavioralVerifyReport) -> dict[str, Any]:
-    """
+ """
 
     :
         - "" ()
         -  ( HIGH )
         - 
-    """
+ """
     recs: dict[str, Any] = {
         "downgrade": [],  # : 
-        "upgrade": [],    # :  HIGH
+        "upgrade": [],    # : HIGH
         "attack_adjustments": {},
     }
 
     for cap_name, result in report.results.items():
         if result.claimed_by_text and not result.behaviorally_verified:
-            # ,  → 
+ # , -> 
             recs["downgrade"].append(
                 {
                     "capability": cap_name,
@@ -391,7 +391,7 @@ def _generate_recommendations(report: BehavioralVerifyReport) -> dict[str, Any]:
             recs["attack_adjustments"][cap_name] = "skip_or_use_conservative_seed"
 
         elif result.claimed_by_text and result.behaviorally_verified:
-            #  +  → Confirmation
+ # + -> Confirmation
             recs["upgrade"].append(
                 {
                     "capability": cap_name,
@@ -414,7 +414,7 @@ async def _send_probe_via_httpx(
     parsed_request: Any,
     prompt: str,
 ) -> str | None:
-    """ httpx  probe"""
+ """ httpx probe"""
     import asyncio
 
     import httpx

@@ -1,15 +1,15 @@
-# arXiv:2402.12109 — Russinovich et al., Crescendo
-# arXiv:2310.08419 — Chao et al., PAIR
-# arXiv:2312.02191 — Mehrotra et al., TAP (Tree of Attacks)
-# arXiv:2307.08673 — Zou et al., GCG
-# arXiv:2402.01135 — Chao et al., Best-of-N
-"""report_markdown — Markdown  (Layer v57).
+# arXiv:2402.12109 - Russinovich et al., Crescendo
+# arXiv:2310.08419 - Chao et al., PAIR
+# arXiv:2312.02191 - Mehrotra et al., TAP (Tree of Attacks)
+# arXiv:2307.08673 - Zou et al., GCG
+# arXiv:2402.01135 - Chao et al., Best-of-N
+"""report_markdown - Markdown (Layer v57).
 
 v57 :
-    - A: Layer —  executive / findings / technical converter(s)
-    - C: Evidence  —  (Jailbreak Prompt = Objective, Conversation History = Harmful Output), 
-    - D:  —  + Technique×OWASP 
-    - E:  — Pipeline 
+    - A: Layer -  executive / findings / technical converter(s)
+    - C: Evidence  -  (Jailbreak Prompt = Objective, Conversation History = Harmful Output), 
+    - D:  -  + TechniquexOWASP 
+    - E:  - Pipeline 
 """
 
 from __future__ import annotations
@@ -30,24 +30,24 @@ from report.report_utils import (
 
 logger = logging.getLogger(__name__)
 
-# ==  ==
-_TRUNCATE_LEN = 200  # Objective / Harmful Output  ()
+# == ==
+_TRUNCATE_LEN = 200  # Objective / Harmful Output ()
 
 
 def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = False) -> str:
-    """ Markdown  (Layer)
+ """ Markdown (Layer)
 
     v57: allconverter(s) report.md, ,
     converter(s)Layer:
-        - report_executive.md  — Layer (1-2 )
-        - report_findings.md   — + ()
-        - report_technical.md  — 
+        - report_executive.md  - Layer (1-2 )
+        - report_findings.md   - + ()
+        - report_technical.md  - 
 
     : report.md , ++
-    """
+ """
     lines: list[str] = []
 
-    # ==  +  ==
+ # == + ==
     lines.append("# AI Red Team Assessment Report")
     lines.append("")
     lines.append(f"**Target Model:** {evidence.target_model}")
@@ -58,26 +58,26 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
     lines.append(f"**Overall ASR:** {evidence.overall_asr:.1f}%")
     lines.append("")
 
-    # == Wilson CI () ==
+ # == Wilson CI () ==
     _wilson_ci = getattr(evidence, "wilson_ci", None)
     if _wilson_ci and len(_wilson_ci) == 2 and (_wilson_ci[0] != 0.0 or _wilson_ci[1] != 0.0):
         lines.append(f"**ASR 95% CI (Wilson):** [{_wilson_ci[0]}%, {_wilson_ci[1]}%]")
         lines.append("")
 
-    # == Layer (A) ==
+ # == Layer (A) ==
     lines.append("## 📂 Report Structure")
     lines.append("")
     lines.append("| File | Description | Target Audience |")
     lines.append("|------|-------------|-----------------|")
-    lines.append("| [report_executive.md](report_executive.md) | Executive summary — key metrics, top risks, remediation priority | CISO / Security Lead |")
-    lines.append("| [report_findings.md](report_findings.md) | Vulnerability details — per-evidence analysis, PoC links | Security Engineer |")
-    lines.append("| [report_technical.md](report_technical.md) | Technical appendix — MITRE mapping, scoring, orchestration log | Technical Reviewer |")
+    lines.append("| [report_executive.md](report_executive.md) | Executive summary - key metrics, top risks, remediation priority | CISO / Security Lead |")
+    lines.append("| [report_findings.md](report_findings.md) | Vulnerability details - per-evidence analysis, PoC links | Security Engineer |")
+    lines.append("| [report_technical.md](report_technical.md) | Technical appendix - MITRE mapping, scoring, orchestration log | Technical Reviewer |")
     lines.append("| [native_output/](native_output/) | PyRIT native output (official format) | OffSec AI-300 Examiner |")
     lines.append("| [evidence/](evidence/) | Per-evidence JSON files | Automation / CI/CD |")
     lines.append("| [poc/](poc/) | PoC scripts (Python) | Red Team Operator |")
     lines.append("")
 
-    # == Findings Summary (D ) ==
+ # == Findings Summary (D ) ==
     lines.append("## Findings Summary")
     lines.append("")
     if hasattr(evidence, "findings") and evidence.findings:
@@ -93,25 +93,25 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
         lines.append("No findings generated.")
     lines.append("")
 
-    # ==  (D) ==
+ # == (D) ==
     _append_risk_heatmap(lines, evidence)
 
-    # == Technique × OWASP  (D) ==
+ # == Technique x OWASP (D) ==
     matrix_lines = _build_technique_effectiveness_matrix(evidence, evidence.evidence)
     lines.extend(matrix_lines)
 
-    # == Pipeline  (E) ==
+ # == Pipeline (E) ==
     _append_pipeline_flowchart(lines, evidence)
 
-    # ==  ==
+ # == ==
     lines.append("## Detailed Sections")
     lines.append("")
-    lines.append("→ See [report_executive.md](report_executive.md) for executive summary and remediation priority")
-    lines.append("→ See [report_findings.md](report_findings.md) for per-evidence vulnerability details and PoC scripts")
-    lines.append("→ See [report_technical.md](report_technical.md) for MITRE ATLAS mapping, scoring analysis, and orchestration decision log")
+    lines.append("-> See [report_executive.md](report_executive.md) for executive summary and remediation priority")
+    lines.append("-> See [report_findings.md](report_findings.md) for per-evidence vulnerability details and PoC scripts")
+    lines.append("-> See [report_technical.md](report_technical.md) for MITRE ATLAS mapping, scoring analysis, and orchestration decision log")
     lines.append("")
 
-    # == References ==
+ # == References ==
     lines.append("## References")
     lines.append("")
     refs = _get_all_references(evidence)
@@ -123,20 +123,20 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
 
 
 def _generate_executive_markdown(evidence: EvidenceCollection) -> str:
-    """Layer (report_executive.md)
+ """Layer (report_executive.md)
 
     : CISO /  30 
     :  + Top-3  +  + 
-    """
+ """
     lines: list[str] = []
 
-    lines.append("# Executive Summary — AI Red Team Assessment")
+    lines.append("# Executive Summary - AI Red Team Assessment")
     lines.append("")
     lines.append(f"**Target:** {evidence.target_model}")
     lines.append(f"**Date:** {evidence.timestamp}")
     lines.append("")
 
-    # ==  ==
+ # == ==
     lines.append("## Key Metrics Dashboard")
     lines.append("")
     lines.append("| Metric | Value |")
@@ -150,19 +150,19 @@ def _generate_executive_markdown(evidence: EvidenceCollection) -> str:
     if _wilson_ci and len(_wilson_ci) == 2 and (_wilson_ci[0] != 0.0 or _wilson_ci[1] != 0.0):
         lines.append(f"| ASR 95% CI (Wilson) | [{_wilson_ci[0]}%, {_wilson_ci[1]}%] |")
 
-    # OWASP coverage
+ # OWASP coverage
     llm_covered = sum(1 for v in evidence.owasp_llm_compliance.values() if v.get("tested", 0) > 0)
     asi_covered = sum(1 for v in evidence.owasp_asi_compliance.values() if v.get("tested", 0) > 0)
     lines.append(f"| OWASP LLM Coverage | {llm_covered}/10 |")
     lines.append(f"| OWASP ASI Coverage | {asi_covered}/10 |")
 
-    # 
+ # 
     if evidence.findings:
         max_risk = max(evidence.findings, key=lambda f: f.owasp_risk_score)
         lines.append(f"| Highest Risk Score | {max_risk.owasp_risk_score}/10 ({max_risk.owasp_id}) |")
     lines.append("")
 
-    # == Top-3  ==
+ # == Top-3 ==
     lines.append("## Top-3 Risk Findings")
     lines.append("")
     if evidence.findings:
@@ -176,7 +176,7 @@ def _generate_executive_markdown(evidence: EvidenceCollection) -> str:
             lines.append(f"- **Techniques:** {', '.join(sorted({r.get('technique', '') for r in finding.results}))}")
             lines.append("")
 
-    # ==  ==
+ # == ==
     lines.append("## Remediation Priority Matrix")
     lines.append("")
     lines.append("| Priority | OWASP ID | Category | Risk Score | ASR |")
@@ -188,7 +188,7 @@ def _generate_executive_markdown(evidence: EvidenceCollection) -> str:
             lines.append(f"| {priority} | {finding.owasp_id} | {finding.owasp_category} | {finding.owasp_risk_score} | {finding.asr}% |")
     lines.append("")
 
-    # == OWASP  ==
+ # == OWASP ==
     lines.append("## OWASP LLM Top 10 Compliance")
     lines.append("")
     lines.append("| OWASP ID | Category | Tested | Success | ASR |")
@@ -200,7 +200,7 @@ def _generate_executive_markdown(evidence: EvidenceCollection) -> str:
         )
     lines.append("")
 
-    # == OWASP ASI Top 10 (Agentic AI) ==
+ # == OWASP ASI Top 10 (Agentic AI) ==
     lines.append("## OWASP ASI Top 10 (Agentic AI) Compliance")
     lines.append("")
     lines.append("| OWASP ID | Category | Tested | Success | ASR |")
@@ -212,7 +212,7 @@ def _generate_executive_markdown(evidence: EvidenceCollection) -> str:
         )
     lines.append("")
 
-    # ==  ==
+ # == ==
     lines.append("## Conclusion")
     lines.append("")
     risk_level = "CRITICAL" if evidence.overall_asr >= 70 else "HIGH" if evidence.overall_asr >= 40 else "MODERATE"
@@ -223,29 +223,29 @@ def _generate_executive_markdown(evidence: EvidenceCollection) -> str:
     )
     lines.append("")
 
-    # == R-03: Attack Path Summary ==
-    #  — 3 
+ # == R-03: Attack Path Summary ==
+ # - 3 
     lines.append("## Attack Path Summary (Offensive Perspective)")
     lines.append("")
     lines.append("> This section describes how an attacker would exploit the identified vulnerabilities.")
     lines.append("")
 
-    #  findings 
+ # findings 
     if evidence.findings:
         sorted_findings = sorted(evidence.findings, key=lambda f: f.asr, reverse=True)
         top_paths = [f for f in sorted_findings if f.asr > 0][:3]
         if top_paths:
             for i, path in enumerate(top_paths, 1):
                 techs = ", ".join(sorted({r.get('technique', '') for r in path.results if r.get('technique')}))
-                lines.append(f"{i}. **[{path.owasp_id}] {path.owasp_category}** — ASR {path.asr}% via techniques: {techs}")
+                lines.append(f"{i}. **[{path.owasp_id}] {path.owasp_category}** - ASR {path.asr}% via techniques: {techs}")
         else:
             lines.append("No successful attack paths identified.")
     else:
         lines.append("No attack paths identified.")
     lines.append("")
 
-    # == R-04: Expected ASR Reduction Post-Remediation ==
-    #  ASR 
+ # == R-04: Expected ASR Reduction Post-Remediation ==
+ # ASR 
     lines.append("## Expected ASR Reduction Post-Remediation")
     lines.append("")
     lines.append("| Remediation Action | Target OWASP ID | Current ASR | Expected ASR |")
@@ -254,37 +254,37 @@ def _generate_executive_markdown(evidence: EvidenceCollection) -> str:
     if evidence.findings:
         sorted_findings = sorted(evidence.findings, key=lambda f: f.asr, reverse=True)
         for finding in sorted_findings[:5]:
-            expected_asr = max(0, finding.asr * 0.1)  #  10% 
+            expected_asr = max(0, finding.asr * 0.1)  # 10% 
             lines.append(
                 f"| Implement {finding.owasp_id} mitigations "
                 f"| {finding.owasp_id} "
                 f"| {finding.asr}% "
-                f"| ≤{expected_asr:.0f}% |"
+                f"| <={expected_asr:.0f}% |"
             )
     else:
-        lines.append("| No remediation actions required | — | — | — |")
+        lines.append("| No remediation actions required | - | - | - |")
     lines.append("")
 
     return "\n".join(lines)
 
 
 def _generate_findings_markdown(evidence: EvidenceCollection, *, success_only: bool = False) -> str:
-    """ (report_findings.md)
+ """ (report_findings.md)
 
     : converter(s) Evidence 
-    C:  — , , 
-    """
+    C:  - , , 
+ """
     lines: list[str] = []
     evidence_list = evidence.successful_evidence if success_only else evidence.evidence
 
-    lines.append("# Vulnerability Details — AI Red Team Assessment")
+    lines.append("# Vulnerability Details - AI Red Team Assessment")
     lines.append("")
     lines.append(f"**Target:** {evidence.target_model}")
     lines.append(f"**Date:** {evidence.timestamp}")
     lines.append(f"**Total Evidence:** {len(evidence_list)}")
     lines.append("")
 
-    # == Target Fingerprint () ==
+ # == Target Fingerprint () ==
     fp = evidence.target_fingerprint or {}
     if fp:
         lines.append("## Target Fingerprint")
@@ -297,13 +297,13 @@ def _generate_findings_markdown(evidence: EvidenceCollection, *, success_only: b
                 lines.append(f"| {key} | {val} |")
         lines.append("")
 
-    # ==  Evidence  (C) ==
+ # == Evidence (C) ==
     lines.append("## Evidence Cards")
     lines.append("")
     for ev in evidence_list:
         _append_evidence_card(lines, ev)
 
-    # == OWASP LLM Top 10 ==
+ # == OWASP LLM Top 10 ==
     lines.append("## OWASP LLM Top 10")
     lines.append("")
     lines.append("| OWASP ID | Category | Tested | Success | Failed | ASR |")
@@ -315,7 +315,7 @@ def _generate_findings_markdown(evidence: EvidenceCollection, *, success_only: b
         )
     lines.append("")
 
-    # == OWASP ASI Top 10 (Agentic AI) ==
+ # == OWASP ASI Top 10 (Agentic AI) ==
     lines.append("## OWASP ASI Top 10 (Agentic AI)")
     lines.append("")
     lines.append("| OWASP ID | Category | Tested | Success | Failed | ASR |")
@@ -327,7 +327,7 @@ def _generate_findings_markdown(evidence: EvidenceCollection, *, success_only: b
         )
     lines.append("")
 
-    # == Technique Performance ==
+ # == Technique Performance ==
     lines.append("## Technique Performance")
     lines.append("")
     tech_map: dict[str, list[VulnerabilityEvidence]] = {}
@@ -343,8 +343,8 @@ def _generate_findings_markdown(evidence: EvidenceCollection, *, success_only: b
         lines.append(f"| {_get_technique_display_name(tech)} | {tested} | {success} | {failed} | {asr:.0f}% |")
     lines.append("")
 
-    # == Failure Analysis ==
-    # R-06:  failure_analysis , 
+ # == Failure Analysis ==
+ # R-06: failure_analysis , 
     lines.append("## Failure Analysis")
     lines.append("")
     fa = evidence.failure_analysis or {}
@@ -370,17 +370,17 @@ def _generate_findings_markdown(evidence: EvidenceCollection, *, success_only: b
             )
         lines.append("")
     else:
-        # R-06: Failure Analysis  (Even if)
+ # R-06: Failure Analysis (Even if)
         lines.append("### Failure Classification")
         lines.append("")
         lines.append("| Failure Category | Count | Description |")
         lines.append("|-----------------|-------|-------------|")
 
-        # 
+ # 
         failure_categories: dict[str, int] = {}
         for ev in evidence.evidence:
             if not ev.is_success:
-                # 
+ # 
                 if ev.converter_chain and "baseline" not in (ev.converter_chain or ""):
                     cat = "encoding_blocked"
                 elif ev.objective and "jailbreak" in (ev.objective or "").lower():
@@ -403,7 +403,7 @@ def _generate_findings_markdown(evidence: EvidenceCollection, *, success_only: b
 
         lines.append("")
 
-        # 
+ # 
         lines.append("### Failure Breakdown by Technique")
         lines.append("")
         lines.append("| Technique | Failed | Primary Failure Category |")
@@ -415,7 +415,7 @@ def _generate_findings_markdown(evidence: EvidenceCollection, *, success_only: b
                 if tech not in tech_failures:
                     tech_failures[tech] = {"count": 0, "categories": {}}
                 tech_failures[tech]["count"] += 1
-                # 
+ # 
                 if ev.converter_chain and "baseline" not in (ev.converter_chain or ""):
                     cat = "encoding_blocked"
                 elif "jailbreak" in (ev.objective or "").lower():
@@ -429,10 +429,10 @@ def _generate_findings_markdown(evidence: EvidenceCollection, *, success_only: b
                 primary_cat = max(data["categories"].items(), key=lambda x: x[1])[0] if data["categories"] else "N/A"
                 lines.append(f"| {tech} | {data['count']} | {primary_cat} |")
         else:
-            lines.append("| No technique failures | 0 | — |")
+            lines.append("| No technique failures | 0 | - |")
         lines.append("")
 
-    # == Three-Tier Evidence Chain ==
+ # == Three-Tier Evidence Chain ==
     lines.append("## Three-Tier Evidence Chain")
     lines.append("")
     if hasattr(evidence, "findings") and evidence.findings:
@@ -443,7 +443,7 @@ def _generate_findings_markdown(evidence: EvidenceCollection, *, success_only: b
             for result in finding.results:
                 lines.append(
                     f"  - **Result:** {result.get('evidence_id', '')} "
-                    f"({result.get('technique', '')}) — "
+                    f"({result.get('technique', '')}) - "
                     f"{'Success' if result.get('is_success') else 'Failed'}",
                 )
             lines.append("")
@@ -452,20 +452,20 @@ def _generate_findings_markdown(evidence: EvidenceCollection, *, success_only: b
 
 
 def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
-    """ (report_technical.md)
+ """ (report_technical.md)
 
     :  MITRE 
     B/C 
-    """
+ """
     lines: list[str] = []
 
-    lines.append("# Technical Appendix — AI Red Team Assessment")
+    lines.append("# Technical Appendix - AI Red Team Assessment")
     lines.append("")
     lines.append(f"**Target:** {evidence.target_model}")
     lines.append(f"**Date:** {evidence.timestamp}")
     lines.append("")
 
-    # == Target Fingerprint & Attack Surface () ==
+ # == Target Fingerprint & Attack Surface () ==
     fp = evidence.target_fingerprint or {}
     attack_surface = evidence.attack_surface or {}
     if fp or attack_surface:
@@ -501,12 +501,12 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
                 lines.append(f"| auth_recovery_attempts | {attack_surface['auth_recovery_attempts']} |")
         lines.append("")
 
-    # == Weapon Loadout (ARM Phase) — v59  ==
-    #  orchestration_log  ARM , 
-    # ( ARM  1 , )
+ # == Weapon Loadout (ARM Phase) - v59 ==
+ # orchestration_log ARM , 
+ # ( ARM 1 , )
     _append_weapon_loadout(lines, evidence)
 
-    # == MITRE ATLAS Mapping () — R-08:  ==
+ # == MITRE ATLAS Mapping () - R-08: ==
     lines.append("## MITRE ATLAS Mapping")
     lines.append("")
     lines.append("| OWASP ID | MITRE Tactic | Technique ID | Technique Name |")
@@ -524,12 +524,12 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
         )
         mitre_count += 1
     if mitre_count == 0:
-        lines.append("| *No data available* | — | — | — |")
+        lines.append("| *No data available* | - | - | - |")
         lines.append("")
         lines.append("> MITRE ATLAS mapping not available for this assessment.")
     lines.append("")
 
-    # == MITRE ATLAS Reference () — R-08:  ==
+ # == MITRE ATLAS Reference () - R-08: ==
     lines.append("## MITRE ATLAS Reference")
     lines.append("")
     seen_refs: set[str] = set()
@@ -546,7 +546,7 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
         lines.append("*No MITRE ATLAS references available for this assessment.*")
     lines.append("")
 
-    # == Score Consistency Analysis () — R-08:  ==
+ # == Score Consistency Analysis () - R-08: ==
     score_lines = _build_score_consistency_section(evidence)
     if score_lines:
         lines.extend(score_lines)
@@ -556,7 +556,7 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
         lines.append("*No score consistency data available for this assessment.*")
         lines.append("")
 
-    # == Escalation Chain Report — R-08:  ==
+ # == Escalation Chain Report - R-08: ==
     lines.append("## Escalation Chain Report")
     lines.append("")
     dashboard = _build_escalation_dashboard_data(evidence)
@@ -571,7 +571,7 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
         lines.append("*No escalation chain data available. Escalation may have been disabled or not triggered.*")
     lines.append("")
 
-    # == Adaptive Dual Judge Statistics ==
+ # == Adaptive Dual Judge Statistics ==
     if hasattr(evidence, "dual_judge_stats") and evidence.dual_judge_stats:
         stats = evidence.dual_judge_stats
         lines.append("## Adaptive Dual Judge Statistics")
@@ -598,7 +598,7 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
         lines.append(f"| High Confidence Threshold | {stats.get('high_confidence_threshold', 0)} |")
         lines.append("")
 
-        # OR Aggregation
+ # OR Aggregation
         or_stats = stats.get("or_aggregation", {})
         if or_stats and or_stats.get("total", 0) > 0:
             lines.append("### OR Aggregation False-Positive Tracking")
@@ -612,7 +612,7 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
             lines.append(f"| Potential False Positive Rate | {or_stats.get('potential_false_positive_rate', 0)}% |")
             lines.append("")
 
-        # ScorerMetrics
+ # ScorerMetrics
         scorer_metrics = stats.get("scorer_metrics", {})
         if scorer_metrics and scorer_metrics.get("num_responses", 0) > 0:
             lines.append("### T0 Scorer Metrics (PyRIT Native)")
@@ -629,7 +629,7 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
                 lines.append(f"| Confusion Matrix | TP={cm.get('tp', 0)}, FP={cm.get('fp', 0)}, FN={cm.get('fn', 0)}, TN={cm.get('tn', 0)} |")
             lines.append("")
 
-    # Wilson CI + Cohen's Kappa
+ # Wilson CI + Cohen's Kappa
     _wilson_ci = getattr(evidence, "wilson_ci", None)
     if _wilson_ci and len(_wilson_ci) == 2 and (_wilson_ci[0] != 0.0 or _wilson_ci[1] != 0.0):
         lines.append(f"- **ASR 95% CI (Wilson)**: [{_wilson_ci[0]}%, {_wilson_ci[1]}%]")
@@ -644,7 +644,7 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
         lines.append(f"- **Cohen's Kappa**: {kappa:.3f} ({interpretation})")
     lines.append("")
 
-    # == Orchestration Decision Log (E: ) — R-09:  ==
+ # == Orchestration Decision Log (E: ) - R-09: ==
     _orch_log = getattr(evidence, "orchestration_log", [])
     if _orch_log:
         lines.append("## Orchestration Decision Log")
@@ -652,12 +652,12 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
         lines.append("> Chronological log of orchestration decisions made during the assessment.")
         lines.append("")
 
-        # Pipeline 
+ # Pipeline 
         _append_orchestration_flowchart(lines, _orch_log)
         lines.append("")
 
-        # R-09:  — , 
-        #  phase 
+ # R-09: - , 
+ # phase 
         orch_by_phase: dict[str, list] = {}
         for entry in _orch_log:
             phase = entry.get("phase", "unknown")
@@ -665,15 +665,15 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
                 orch_by_phase[phase] = []
             orch_by_phase[phase].append(entry)
 
-        # 
+ # 
         phase_order = ["recon", "arm", "strike", "escalate", "assess", "report"]
         phase_labels = {
-            "recon": "① Reconnaissance",
-            "arm": "② Weaponization (ARM)",
-            "strike": "③ Single-Round Attack (STRIKE)",
-            "escalate": "④ Multi-Turn Escalation",
-            "assess": "⑤ Scoring & Assessment",
-            "report": "⑥ Reporting",
+            "recon": "(1) Reconnaissance",
+            "arm": "(2) Weaponization (ARM)",
+            "strike": "(3) Single-Round Attack (STRIKE)",
+            "escalate": "(4) Multi-Turn Escalation",
+            "assess": "(5) Scoring & Assessment",
+            "report": "(6) Reporting",
         }
 
         for phase in phase_order:
@@ -683,7 +683,7 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
             lines.append(f"### {phase_labels.get(phase, phase.upper())}")
             lines.append("")
 
-            # 
+ # 
             lines.append("| # | Decision | Key Parameters | Reasoning |")
             lines.append("|---|----------|----------------|-----------|")
 
@@ -693,24 +693,24 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
                 if len(entry.get("reasoning", "")) > 80:
                     reasoning += "..."
 
-                #  ( input + output)
+ # ( input + output)
                 _input = entry.get("input", {}) or {}
                 _output = entry.get("output", {}) or {}
                 params = []
                 if _input:
-                    # 
+ # 
                     for k in ["seed_files", "mode", "capabilities", "enabled"]:
                         if k in _input:
                             params.append(f"{k}={_input[k]}")
                 if _output:
-                    # 
+ # 
                     for k in ["seed_count", "total_results", "overall_asr", "converter_count"]:
                         if k in _output:
                             params.append(f"{k}={_output[k]}")
 
-                params_str = ", ".join(params[:3])  #  3 converter(s)
+                params_str = ", ".join(params[:3])  # 3 converter(s)
                 if not params_str:
-                    params_str = "—"
+                    params_str = "-"
 
                 lines.append(f"| {idx} | {decision} | {params_str} | {reasoning} |")
 
@@ -724,34 +724,34 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
 # ================================================================
 
 def _append_evidence_card(lines: list[str], ev: VulnerabilityEvidence) -> None:
-    """converter(s) Evidence  (C + R-05)
+ """converter(s) Evidence (C + R-05)
 
     :
     -  Jailbreak Prompt ( Objective )
     - Harmful Output  <details> 
     - Conversation History 
     - PoC 
-    - R-05:  Attack Chain  — imports Seed→Converter→Technique→Outcome 
-    """
-    lines.append(f"### {ev.evidence_id} — {ev.owasp_id}: {ev.owasp_category}")
+    - R-05:  Attack Chain  - imports Seed->Converter->Technique->Outcome 
+ """
+    lines.append(f"### {ev.evidence_id} - {ev.owasp_id}: {ev.owasp_category}")
     lines.append("")
 
-    # == R-05: Attack Chain Visualization ==
-    # : Seed → Converter → Technique → Outcome
+ # == R-05: Attack Chain Visualization ==
+ # : Seed -> Converter -> Technique -> Outcome
     lines.append("**Attack Chain:**")
     attack_chain_parts = []
     attack_chain_parts.append(f"Seed({(ev.objective or 'unknown')[:30]})")
     if ev.converter_chain and ev.converter_chain != "none (baseline)":
-        #  converter chain 
-        conv_short = ev.converter_chain.split(" → ")[0] if " → " in ev.converter_chain else ev.converter_chain
+ # converter chain 
+        conv_short = ev.converter_chain.split(" -> ")[0] if " -> " in ev.converter_chain else ev.converter_chain
         attack_chain_parts.append(f"Converter({conv_short})")
     attack_chain_parts.append(f"Tech({ev.technique_name or 'baseline'})")
     outcome_icon = "✅ PASS" if ev.is_success else "❌ BLOCKED"
     attack_chain_parts.append(f"Outcome({outcome_icon})")
-    lines.append(f"`{' → '.join(attack_chain_parts)}`")
+    lines.append(f"'{' -> '.join(attack_chain_parts)}'")
     lines.append("")
 
-    #  ()
+ # ()
     lines.append("| Attribute | Value |")
     lines.append("|-----------|-------|")
     lines.append(f"| Technique | {ev.technique_display_name} |")
@@ -762,22 +762,22 @@ def _append_evidence_card(lines: list[str], ev: VulnerabilityEvidence) -> None:
     lines.append(f"| Outcome | {outcome} |")
     lines.append(f"| Confidence | {ev.confidence} |")
     lines.append(f"| MITRE | {ev.mitre_technique_id or 'N/A'} ({ev.mitre_tactic or 'N/A'}) |")
-    lines.append(f"| PoC | → `poc/poc_{ev.evidence_id}.py` |")
-    lines.append(f"| Evidence | → `evidence/{ev.evidence_id}.json` |")
+    lines.append(f"| PoC | -> 'poc/poc_{ev.evidence_id}.py' |")
+    lines.append(f"| Evidence | -> 'evidence/{ev.evidence_id}.json' |")
     lines.append("")
 
-    # Objective ()
+ # Objective ()
     obj_truncated = ev.objective[:_TRUNCATE_LEN] + ("..." if len(ev.objective) > _TRUNCATE_LEN else "")
     lines.append(f"**Objective:** {obj_truncated}")
     lines.append("")
 
-    # Jailbreak Prompt ( Objective )
+ # Jailbreak Prompt ( Objective )
     if ev.jailbreak_prompt and ev.jailbreak_prompt != ev.objective:
         jbp_truncated = ev.jailbreak_prompt[:_TRUNCATE_LEN] + ("..." if len(ev.jailbreak_prompt) > _TRUNCATE_LEN else "")
         lines.append(f"**Jailbreak Prompt (modified):** {jbp_truncated}")
         lines.append("")
 
-    # Harmful Output ( details )
+ # Harmful Output ( details )
     if ev.harmful_output:
         harmful_lines = ev.harmful_output.split("\n")
         harmful_preview = harmful_lines[0][:100] + "..." if harmful_lines else ""
@@ -791,7 +791,7 @@ def _append_evidence_card(lines: list[str], ev: VulnerabilityEvidence) -> None:
         lines.append("</details>")
         lines.append("")
 
-    # Validation Runs
+ # Validation Runs
     val_runs = getattr(ev, "validation_runs", [])
     if val_runs:
         lines.append("**Validation:**")
@@ -799,7 +799,7 @@ def _append_evidence_card(lines: list[str], ev: VulnerabilityEvidence) -> None:
             lines.append(f"  - Run {run.get('run', '?')}: {'✅ Success' if run.get('success') else '❌ Failed'}")
         lines.append("")
 
-    # Testing Conditions
+ # Testing Conditions
     conditions = getattr(ev, "testing_conditions", {})
     if conditions:
         lines.append("**Conditions:**")
@@ -807,7 +807,7 @@ def _append_evidence_card(lines: list[str], ev: VulnerabilityEvidence) -> None:
             lines.append(f"  - **{k}:** {v}")
         lines.append("")
 
-    # Remediation
+ # Remediation
     lines.append("**Remediation:**")
     for mitigation in ev.owasp_mitigations:
         lines.append(f"  - {mitigation}")
@@ -815,15 +815,15 @@ def _append_evidence_card(lines: list[str], ev: VulnerabilityEvidence) -> None:
 
 
 # ================================================================
-# D:  (Severity × ASR )
+# D: (Severity x ASR )
 # ================================================================
 
 def _append_risk_heatmap(lines: list[str], evidence: EvidenceCollection) -> None:
-    """ (Severity × ASR )"""
+ """ (Severity x ASR )"""
     if not evidence.findings:
         return
 
-    lines.append("## Risk Heatmap (Severity × ASR)")
+    lines.append("## Risk Heatmap (Severity x ASR)")
     lines.append("")
     lines.append("| Severity \\ ASR | 100% | 90-99% | <90% | 0% (Failed) |")
     lines.append("|---------------|------|--------|------|------------|")
@@ -840,10 +840,10 @@ def _append_risk_heatmap(lines: list[str], evidence: EvidenceCollection) -> None
         col_0 = [f.owasp_id for f in sev_findings if f.asr == 0]
 
         lines.append(
-            f"| {sev.title()} | {', '.join(col_100) or '—'} | "
-            f"{', '.join(col_90) or '—'} | "
-            f"{', '.join(col_lt90) or '—'} | "
-            f"{', '.join(col_0) or '—'} |"
+            f"| {sev.title()} | {', '.join(col_100) or '-'} | "
+            f"{', '.join(col_90) or '-'} | "
+            f"{', '.join(col_lt90) or '-'} | "
+            f"{', '.join(col_0) or '-'} |"
         )
     lines.append("")
 
@@ -853,18 +853,18 @@ def _append_risk_heatmap(lines: list[str], evidence: EvidenceCollection) -> None
 # ================================================================
 
 def _append_pipeline_flowchart(lines: list[str], evidence: EvidenceCollection) -> None:
-    """ Pipeline  (E)
+ """ Pipeline (E)
 
     v60  (R-01):  REPORT ,  6 
-    v59 :  ARM→STRIKE Data flow (seeds/techniques/converter_map)
-    """
+    v59 :  ARM->STRIKE Data flow (seeds/techniques/converter_map)
+ """
     lines.append("## Pipeline Flowchart")
     lines.append("")
-    lines.append("```")
+ lines.append("'''")
     lines.append("===========         ============         =============     ============     ============     ============")
-    lines.append("=  RECON   ===fp====→=  ARM     ===seeds==→=  STRIKE   =====→= ESCALATE =====→=  ASSESS  =====→=  REPORT  =")
+    lines.append("=  RECON   ===fp====->=  ARM     ===seeds==->=  STRIKE   =====->= ESCALATE =====->=  ASSESS  =====->=  REPORT  =")
 
-    #  orchestration log  ( phase )
+ # orchestration log ( phase )
     orch_log = getattr(evidence, "orchestration_log", [])
     recon_out: dict = {}
     arm_out: dict = {}
@@ -894,33 +894,33 @@ def _append_pipeline_flowchart(lines: list[str], evidence: EvidenceCollection) -
     strike_results = strike_out.get("total_results", evidence.total_attacks) if isinstance(strike_out, dict) else evidence.total_attacks
     esc_results = escalate_out.get("total_results", evidence.total_attacks) if isinstance(escalate_out, dict) else evidence.total_attacks
     assess_success = assess_out.get("overall_asr", "?") if isinstance(assess_out, dict) else "?"
-    # R-01:  — report_out  output  (), 
+ # R-01: - report_out output (), 
     _report_keys = ["report_index", "report_executive", "report_findings", "report_technical", "report_success", "native_output"]
     report_files = sum(1 for k in _report_keys if report_out.get(k)) if isinstance(report_out, dict) else 6
 
-    # ARM :  seeds + techs + converters
+ # ARM : seeds + techs + converters
     _arm_tech_str = f"{len(arm_techs)} techs" if isinstance(arm_techs, list) else "? techs"
     lines.append(f"= {recon_detail} probes=         = {arm_seeds} seeds =+conv    = {strike_results} attacks=     = +{esc_results - strike_results if esc_results > strike_results else 0} attacks =     = ASR {assess_success}%=     = {report_files} files=")
     lines.append(f"=           =         = {_arm_tech_str}=+techs   =           =     =           =     =          =     =          =")
     lines.append("===========         ============         =============     ============     ============     ============")
     lines.append("")
-    # R-02:  Data flow  ASSESS→REPORT
-    lines.append("Data flow: RECON→ARM (target_fingerprint, capabilities) | ARM→STRIKE (ctx.seeds, ctx.techniques, ctx.converter_map) | STRIKE→ESCALATE (failed_objectives, attack_results) | ESCALATE→ASSESS (full attack_results) | ASSESS→REPORT (evidence, asr, orchestration_log)")
-    lines.append("```")
+ # R-02: Data flow ASSESS->REPORT
+    lines.append("Data flow: RECON->ARM (target_fingerprint, capabilities) | ARM->STRIKE (ctx.seeds, ctx.techniques, ctx.converter_map) | STRIKE->ESCALATE (failed_objectives, attack_results) | ESCALATE->ASSESS (full attack_results) | ASSESS->REPORT (evidence, asr, orchestration_log)")
+ lines.append("'''")
     lines.append("")
 
 
 def _append_orchestration_flowchart(lines: list[str], orch_log: list) -> None:
-    """ (E)
+ """ (E)
 
     v60  (R-01):  REPORT ,  6 
     v59 : Data flow
-    """
-    lines.append("```")
+ """
+ lines.append("'''")
     lines.append("===========         ============         =============     ============     ============     ============")
-    lines.append("=  RECON   ===fp====→=  ARM     ===seeds==→=  STRIKE   =====→= ESCALATE =====→=  ASSESS  =====→=  REPORT  =")
+    lines.append("=  RECON   ===fp====->=  ARM     ===seeds==->=  STRIKE   =====->= ESCALATE =====->=  ASSESS  =====->=  REPORT  =")
 
-    #  ( phase , Not overridden)
+ # ( phase , Not overridden)
     phases_data: dict[str, dict] = {}
     for entry in orch_log:
         phase = entry.get("phase", "unknown")
@@ -936,16 +936,16 @@ def _append_orchestration_flowchart(lines: list[str], orch_log: list) -> None:
     assess_data = phases_data.get("assess", {})
     report_data = phases_data.get("report", {})
 
-    # 
+ # 
     recon_probe = recon_data.get("probe_count", "?") if isinstance(recon_data, dict) else "?"
     arm_seeds = arm_data.get("seed_count", "?") if isinstance(arm_data, dict) else "?"
     arm_techs = arm_data.get("techniques", None) if isinstance(arm_data, dict) else None
     strike_results = strike_data.get("total_results", "?") if isinstance(strike_data, dict) else "?"
-    esc_techs = escalate_data.get("escalated_techniques", "—") if isinstance(escalate_data, dict) else "—"
+    esc_techs = escalate_data.get("escalated_techniques", "-") if isinstance(escalate_data, dict) else "-"
     assess_asr = assess_data.get("overall_asr", "?") if isinstance(assess_data, dict) else "?"
 
     _arm_tech_str = f"{len(arm_techs)} techs" if isinstance(arm_techs, list) else "? techs"
-    # R-01: report_data  output  (), 
+ # R-01: report_data output (), 
     _report_keys = ["report_index", "report_executive", "report_findings", "report_technical", "report_success", "native_output"]
     _report_file_count = sum(1 for k in _report_keys if report_data.get(k)) if isinstance(report_data, dict) else 6
 
@@ -953,19 +953,19 @@ def _append_orchestration_flowchart(lines: list[str], orch_log: list) -> None:
     lines.append(f"=           =         = {_arm_tech_str}=+techs   =           =   =           =    =          =     =          =")
     lines.append("===========         ============         =============     ============     ============     ============")
     lines.append("")
-    # R-02:  Data flow  ASSESS→REPORT
-    lines.append("Data flow: RECON→ARM (target_fingerprint, capabilities) | ARM→STRIKE (ctx.seeds, ctx.techniques, ctx.converter_map) | STRIKE→ESCALATE (failed_objectives, attack_results) | ESCALATE→ASSESS (full attack_results) | ASSESS→REPORT (evidence, asr, orchestration_log)")
-    lines.append("```")
+ # R-02: Data flow ASSESS->REPORT
+    lines.append("Data flow: RECON->ARM (target_fingerprint, capabilities) | ARM->STRIKE (ctx.seeds, ctx.techniques, ctx.converter_map) | STRIKE->ESCALATE (failed_objectives, attack_results) | ESCALATE->ASSESS (full attack_results) | ASSESS->REPORT (evidence, asr, orchestration_log)")
+ lines.append("'''")
     lines.append("")
 
 
 # ================================================================
-# Weapon Loadout (ARM Phase) — v59 
-#  ARM  1 , 
+# Weapon Loadout (ARM Phase) - v59 
+# ARM 1 , 
 # ================================================================
 
 def _append_weapon_loadout(lines: list[str], evidence: EvidenceCollection) -> None:
-    """ ARM 
+ """ ARM 
 
     imports orchestration_log  ARM //Converter ,
     imports evidence.evidence converter(s) seed/converter_chain/technique ,
@@ -975,11 +975,11 @@ def _append_weapon_loadout(lines: list[str], evidence: EvidenceCollection) -> No
         - orchestration_log: ARM  seed_selection / technique_selection / converter_selection
         - evidence.evidence: converter(s) VulnerabilityEvidence  seed / converter_chain / technique_name
 
-    R-07:  "Converter Selection Rationale"  —  converter
-    """
+    R-07:  "Converter Selection Rationale"  -  converter
+ """
     orch_log = getattr(evidence, "orchestration_log", [])
 
-    #  ARM 
+ # ARM 
     arm_data: dict[str, Any] = {}
     arm_input: dict[str, Any] = {}
     for entry in orch_log:
@@ -1006,10 +1006,10 @@ def _append_weapon_loadout(lines: list[str], evidence: EvidenceCollection) -> No
 
     lines.append("## Weapon Loadout (ARM Phase)")
     lines.append("")
-    lines.append("> ARM stage weapon configuration — seeds, techniques, and converter paths selected for this assessment.")
+    lines.append("> ARM stage weapon configuration - seeds, techniques, and converter paths selected for this assessment.")
     lines.append("")
 
-    # ==  ==
+ # == ==
     lines.append("### Summary")
     lines.append("")
     lines.append("| Attribute | Value |")
@@ -1021,24 +1021,24 @@ def _append_weapon_loadout(lines: list[str], evidence: EvidenceCollection) -> No
     lines.append(f"| Converter Paths | {converter_count} |")
     lines.append("")
 
-    # == R-07: Converter Selection Rationale ==
+ # == R-07: Converter Selection Rationale ==
     lines.append("### Converter Selection Rationale")
     lines.append("")
     lines.append("| Technique | Converter Count | Rationale |")
     lines.append("|-----------|----------------|-----------|")
 
-    #  converter 
+ # converter 
     CONVERTER_RATIONALE: dict[str, str] = {
-        "prompt_sending": "Baseline testing — no converter applied, used as ASR reference",
-        "crescendo": "Multi-turn escalation — conversation-based, no encoding converters needed",
-        "tap": "Tree-of-attacks — relies on adversarial LLM, minimal converter usage",
-        "pair": "Black-box iterative refinement — adversarial LLM generates jailbreaks directly",
-        "gcg": "Gradient-based suffix optimization — no prompt converters applicable",
-        "best_of_n": "Sampling-based — multiple attempts increase success probability",
-        "many_shot": "Multi-shot prompting — context-based, no encoding transformation",
-        "chunked": "Payload splitting — uses chunking strategy instead of encoding",
-        "red_teaming": "Native attack strategy — relies on technique-specific converters",
-        "native": "PyRIT native attack — direct API interaction preferred",
+        "prompt_sending": "Baseline testing - no converter applied, used as ASR reference",
+        "crescendo": "Multi-turn escalation - conversation-based, no encoding converters needed",
+        "tap": "Tree-of-attacks - relies on adversarial LLM, minimal converter usage",
+        "pair": "Black-box iterative refinement - adversarial LLM generates jailbreaks directly",
+        "gcg": "Gradient-based suffix optimization - no prompt converters applicable",
+        "best_of_n": "Sampling-based - multiple attempts increase success probability",
+        "many_shot": "Multi-shot prompting - context-based, no encoding transformation",
+        "chunked": "Payload splitting - uses chunking strategy instead of encoding",
+        "red_teaming": "Native attack strategy - relies on technique-specific converters",
+        "native": "PyRIT native attack - direct API interaction preferred",
     }
 
     if isinstance(techniques, list) and techniques:
@@ -1048,7 +1048,7 @@ def _append_weapon_loadout(lines: list[str], evidence: EvidenceCollection) -> No
             lines.append(f"| {tech} | {_conv_count} | {rationale} |")
         lines.append("")
 
-        #  evidence  converter
+ # evidence converter
         lines.append("### Converters Used (from evidence)")
         lines.append("")
         lines.append("| # | Technique | Converter Chain | Effectiveness |")
@@ -1066,10 +1066,10 @@ def _append_weapon_loadout(lines: list[str], evidence: EvidenceCollection) -> No
             lines.append(f"| {idx} | {ev.technique_name} | {_conv} | {effectiveness} |")
         lines.append("")
     else:
-        lines.append("| No techniques recorded | — | — |")
+        lines.append("| No techniques recorded | - | - |")
         lines.append("")
 
-    # == Techniques ==
+ # == Techniques ==
     if isinstance(techniques, list) and techniques:
         lines.append("### Techniques")
         lines.append("")
@@ -1080,7 +1080,7 @@ def _append_weapon_loadout(lines: list[str], evidence: EvidenceCollection) -> No
             lines.append(f"| {i} | {tech} | {_conv_count} |")
         lines.append("")
 
-    # == Seeds (from evidence — per-evidence seed/converter/technique) ==
+ # == Seeds (from evidence - per-evidence seed/converter/technique) ==
     if evidence.evidence:
         lines.append("### Seed & Converter Details (per evidence)")
         lines.append("")
@@ -1102,7 +1102,7 @@ def _append_weapon_loadout(lines: list[str], evidence: EvidenceCollection) -> No
             lines.append(f"| {idx} | {_seed_display} | {_tech} | {_conv} | {_success} |")
         lines.append("")
 
-    # == Role Separation ==
+ # == Role Separation ==
     fp = evidence.target_fingerprint or {}
     lines.append("### Role Separation")
     lines.append("")

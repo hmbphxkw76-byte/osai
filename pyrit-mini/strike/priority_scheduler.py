@@ -1,20 +1,20 @@
-# arXiv:2406.12609 — Lattner et al., Parallel multi-strategy scoring
-# arXiv:cs/0207052 — Auer et al., UCB1 bandit algorithm
-# arXiv:2310.08419 — Chao et al., PAIR adaptive strategy selection
-# arXiv:2407.01232 — PyRIT, FIRST_SUCCESS strategy
-""" —  FIRST_SUCCESS + UCB imports converter Extend
+# arXiv:2406.12609 - Lattner et al., Parallel multi-strategy scoring
+# arXiv:cs/0207052 - Auer et al., UCB1 bandit algorithm
+# arXiv:2310.08419 - Chao et al., PAIR adaptive strategy selection
+# arXiv:2407.01232 - PyRIT, FIRST_SUCCESS strategy
+""" - FIRST_SUCCESS + UCB imports converter Extend
 
 Academic basis:
-    - Lattner et al. (arXiv:2406.12609) — ,  60-80% token
-    - Auer et al. (arXiv:cs/0207052) — UCB1 , -
-    - Chao et al. (arXiv:2310.08419) —  ASR = 1 - ∏(1 - ASRᵢ),  ASR 
-    - PyRIT SequentialAttack (arXiv:2407.01232) — FIRST_SUCCESS imports converter Extend
+    - Lattner et al. (arXiv:2406.12609) - ,  60-80% token
+    - Auer et al. (arXiv:cs/0207052) - UCB1 , -
+    - Chao et al. (arXiv:2310.08419) -  ASR = 1 - Prod(1 - ASRi),  ASR 
+    - PyRIT SequentialAttack (arXiv:2407.01232) - FIRST_SUCCESS imports converter Extend
 
 :
     1.  ASR //
     2. ,  ( prior )
     3.  (post_l1_exit_threshold)
-    4.  ASR >=  → Skip ( token)
+    4.  ASR >=  -> Skip ( token)
     5. ε-:  prior  ()
 """
 
@@ -30,8 +30,8 @@ from core.context import PipelineContext
 
 logger = logging.getLogger(__name__)
 
-# ==  ASR  ==
-# asr_priors.yaml  technique_asr 
+# == ASR ==
+# asr_priors.yaml technique_asr 
 _TECHNIQUE_PRIOR_KEY: dict[str, str] = {
     "red_teaming": "red_teaming",
     "crescendo": "crescendo",
@@ -55,23 +55,23 @@ _TECHNIQUE_PRIOR_KEY: dict[str, str] = {
 # L-01: UCB1 
 # UCB1 : score = avg_reward + C * sqrt(ln(N) / n_i)
 # C :
-#   C=0.0:  (, )
-#   C=0.1:  (, )
-#   C=1.0:  UCB1 (, Auer et al.)
-#   C>1.0:  ()
+# C=0.0: (, )
+# C=0.1: (, )
+# C=1.0: UCB1 (, Auer et al.)
+# C>1.0: ()
 #
-# : ctx.args.ucb_exploration_factor > config/defaults.yaml >  0.1
+# : ctx.args.ucb_exploration_factor > config/defaults.yaml > 0.1
 _DEFAULT_UCB_EXPLORATION_FACTOR: float = 0.1
 
-# L-01: UCB1  ( ctx.args / config/defaults.yaml )
+# L-01: UCB1 ( ctx.args / config/defaults.yaml )
 _UCB_CONFIG_KEY: str = "ucb_exploration_factor"
 
 
 def _get_ucb_exploration_factor(ctx: Any | None = None) -> float:
-    """ UCB1  C — .
+ """ UCB1 C - .
 
     Academic basis: Auer et al. (arXiv:cs/0207052)
-        C = sqrt(2) ≈ 1.414 ,  C 
+        C = sqrt(2) ~= 1.414 ,  C 
          C  token .
 
     Args:
@@ -79,8 +79,8 @@ def _get_ucb_exploration_factor(ctx: Any | None = None) -> float:
 
     Returns:
         UCB1  C ( 0.1).
-    """
-    #  1: ctx.args 
+ """
+ # 1: ctx.args 
     if ctx is not None:
         _args = getattr(ctx, "args", None)
         if _args is not None:
@@ -89,7 +89,7 @@ def _get_ucb_exploration_factor(ctx: Any | None = None) -> float:
                 logger.debug("L-01: UCB1 C=%.3f from args", float(_c))
                 return float(_c)
 
-    #  2: config/defaults.yaml
+ # 2: config/defaults.yaml
     try:
         import yaml
         from pathlib import Path
@@ -117,7 +117,7 @@ def _compute_ucb_score(
     *,
     c: float | None = None,
 ) -> float:
-    """ UCB1  — .
+ """ UCB1 - .
 
     UCB1 :
         UCB1_score = avg_reward + C * sqrt(ln(N) / n_i)
@@ -140,30 +140,30 @@ def _compute_ucb_score(
 
     Returns:
         UCB1  ().
-    """
+ """
     import math
 
     if c is None:
         c = _DEFAULT_UCB_EXPLORATION_FACTOR
 
-    # :  ()
+ # : ()
     if tech_experiments == 0:
         return float('inf')
 
-    #  (C=0): 
+ # (C=0): 
     if c == 0.0:
         return prior_asr
 
-    # UCB1 
-    avg_reward = prior_asr / 100.0  #  [0, 1]
+ # UCB1 
+    avg_reward = prior_asr / 100.0  # [0, 1]
     exploration_bonus = c * math.sqrt(math.log(total_experiments) / tech_experiments)
-    ucb_score = (avg_reward + exploration_bonus) * 100.0  #  0-100 
+    ucb_score = (avg_reward + exploration_bonus) * 100.0  # 0-100 
 
     return ucb_score
 
 
 def _get_model_family(ctx: PipelineContext) -> str:
-    """imports ctx  ( ASR )."""
+ """imports ctx ( ASR )."""
     if ctx is not None and ctx.parsed_request:
         mf = ctx.parsed_request.target_fingerprint.get("model_family", "")
         if mf:
@@ -177,11 +177,11 @@ def _rank_techniques_by_prior(
     *,
     use_ucb: bool = True,
 ) -> list[tuple[str, float]]:
-    """ ASR  ( UCB1 ) ,  (technique_name, prior_asr) .
+ """ ASR ( UCB1 ) , (technique_name, prior_asr) .
 
     Academic basis:
-        - Auer et al. (arXiv:cs/0207052) — UCB1 
-        - Chao et al. (arXiv:2310.08419) —  ASR 
+        - Auer et al. (arXiv:cs/0207052) - UCB1 
+        - Chao et al. (arXiv:2310.08419) -  ASR 
 
      (3 Layer fallback):
         1. technique_asr[prior_key][model_family] ()
@@ -198,7 +198,7 @@ def _rank_techniques_by_prior(
 
     Returns:
          prior ( UCB1 )  (technique_name, prior_asr) .
-    """
+ """
     from arm.seed_ranking import get_technique_asr_prior, get_technique_experiment_count
 
     model_name = _get_model_family(ctx)
@@ -209,11 +209,11 @@ def _rank_techniques_by_prior(
         prior_key = _TECHNIQUE_PRIOR_KEY.get(tech, tech)
         prior = get_technique_asr_prior(prior_key, model_name)
         if prior == 0.0:
-            # fallback: 
+ # fallback: 
             prior = get_technique_asr_prior(tech, model_name)
 
-        # L-01:  UCB1  ()
-        ucb_score = prior  # :  prior 
+ # L-01: UCB1 ()
+        ucb_score = prior  # : prior 
         if use_ucb and ucb_c > 0.0:
             try:
                 tech_exp_count = get_technique_experiment_count(prior_key, model_name)
@@ -223,12 +223,12 @@ def _rank_techniques_by_prior(
                 ))
                 ucb_score = _compute_ucb_score(prior, total_exp, tech_exp_count, c=ucb_c)
             except Exception:
-                # UCB1  prior 
+ # UCB1 prior 
                 pass
 
         ranked.append((tech, prior, ucb_score))
 
-    #  UCB1  ( prior) 
+ # UCB1 ( prior) 
     ranked.sort(key=lambda x: x[2], reverse=True)
 
     logger.info(
@@ -238,12 +238,12 @@ def _rank_techniques_by_prior(
         ", ".join(f"{t}={p:.0f}%(ucb={u:.1f})" for t, p, u in ranked),
     )
 
-    #  (tech, prior) , 
+ # (tech, prior) , 
     return [(tech, prior) for tech, prior, _ in ranked]
 
 
 def _get_total_experiment_count(techniques: list[str], model_name: str) -> int:
-    """all ( UCB1 ).
+ """all ( UCB1 ).
 
     Args:
         techniques: .
@@ -251,14 +251,14 @@ def _get_total_experiment_count(techniques: list[str], model_name: str) -> int:
 
     Returns:
         .
-    """
+ """
     from arm.seed_ranking import get_technique_experiment_count
 
     total = 0
     for tech in techniques:
         prior_key = _TECHNIQUE_PRIOR_KEY.get(tech, tech)
         total += get_technique_experiment_count(prior_key, model_name)
-    return max(1, total)  #  1,  log(0)
+    return max(1, total)  # 1, log(0)
 
 
 def _partition_into_batches(
@@ -267,11 +267,11 @@ def _partition_into_batches(
     high_threshold: float = 60.0,
     low_threshold: float = 40.0,
 ) -> list[list[tuple[str, float]]]:
-    """ prior //.
+ """ prior //.
 
     Academic basis:
-        - Lattner et al. (arXiv:2406.12609) — , 
-        - Chao et al. (arXiv:2310.08419) —  ASR 
+        - Lattner et al. (arXiv:2406.12609) - , 
+        - Chao et al. (arXiv:2310.08419) -  ASR 
 
     :
         -  1 ( prior >= high_threshold): , 
@@ -289,9 +289,9 @@ def _partition_into_batches(
 
     Returns:
         ,  (technique_name, prior_asr) .
-    """
+ """
     if len(ranked) <= 2:
-        # , 
+ # , 
         return [ranked]
 
     batch_high: list[tuple[str, float]] = []
@@ -330,22 +330,22 @@ async def _execute_priority_batches(
     low_threshold: float = 40.0,
     epsilon: float = 0.1,
     base_attack_results: dict[str, list[Any]] | None = None,
-    # L-02: Circuit Breaker  — 
+ # L-02: Circuit Breaker - 
     circuit_breaker_check: Callable[[str, Any | None], bool] | None = None,
     circuit_breaker_record: Callable[[str, bool, Any | None], None] | None = None,
 ) -> dict[str, list[Any]]:
-    """.
+ """.
 
     Academic basis:
-        - Lattner et al. (arXiv:2406.12609) — , 
-        - PyRIT SequentialAttack (arXiv:2407.01232) — FIRST_SUCCESS Extend
-        - Auer et al. (arXiv:cs/0207052) — ε--
+        - Lattner et al. (arXiv:2406.12609) - , 
+        - PyRIT SequentialAttack (arXiv:2407.01232) - FIRST_SUCCESS Extend
+        - Auer et al. (arXiv:cs/0207052) - ε--
 
     Execution flow:
         1.  ASR 
         2. //
-        3.  1  →  ASR ≥ exit_threshold? → 
-        4.  2  () →  → 
+        3.  1  ->  ASR >= exit_threshold? -> 
+        4.  2  () ->  -> 
         5.  3  ()
         6. ε-: epsilon  3 converter(s) 1
 
@@ -373,38 +373,38 @@ async def _execute_priority_batches(
 
     Returns:
          {technique_name: [AttackResult, ...]} .
-    """
+ """
     if not techniques or not failed_objectives:
         return {}
 
-    # 1.  ASR 
+ # 1. ASR 
     ranked = _rank_techniques_by_prior(techniques, ctx)
 
-    # 2. ε-: epsilon  prior 
+ # 2. ε-: epsilon prior 
     if len(ranked) > 2 and random.random() < epsilon:
-        #  prior 
+ # prior 
         lowest_tech, lowest_prior = ranked[-1]
-        # , 
+ # , 
         ranked = [(lowest_tech, lowest_prior)] + [
             (t, p) for t, p in ranked if t != lowest_tech
         ]
         logger.info(
-            "Priority scheduler: ε-greedy exploration — promoted '%s' (prior=%.0f%%) to batch 1",
+            "Priority scheduler: ε-greedy exploration - promoted '%s' (prior=%.0f%%) to batch 1",
             lowest_tech, lowest_prior,
         )
 
-    # 3. 
+ # 3. 
     batches = _partition_into_batches(
         ranked,
         high_threshold=high_threshold,
         low_threshold=low_threshold,
     )
 
-    # 4. 
+ # 4. 
     all_results: dict[str, list[Any]] = {}
     remaining_objectives = list(failed_objectives)
 
-    # v58:  — 
+ # v58: - 
     try:
         from utils.display import (
             _load_tech_asr_data,
@@ -450,7 +450,7 @@ async def _execute_priority_batches(
             len(remaining_objectives),
         )
 
-        # v57:  —  Seeds → Converters → Scorer
+ # v57: - Seeds -> Converters -> Scorer
         try:
             from utils.display import print_escalation_tech_start
             for tech_name in batch_techs:
@@ -465,31 +465,31 @@ async def _execute_priority_batches(
         except Exception:
             pass
 
-        # 
+ # 
         _batch_start_time = time.monotonic()
 
         async def _safe_run(
             tech_name: str,
             runner: Callable[[PipelineContext, list[str]], Coroutine[Any, Any, dict[str, list[Any]]]],
         ) -> dict[str, list[Any]]:
-            """,  Circuit Breaker (L-02)."""
-            # L-02: Circuit Breaker 
+ """, Circuit Breaker (L-02)."""
+ # L-02: Circuit Breaker 
             if circuit_breaker_check is not None and circuit_breaker_check(tech_name, ctx):
                 logger.warning(
-                    "L-02: Priority scheduler skipping '%s' — circuit breaker is OPEN",
+                    "L-02: Priority scheduler skipping '%s' - circuit breaker is OPEN",
                     tech_name,
                 )
                 return {}
 
             try:
                 result = await runner(ctx, remaining_objectives)
-                # L-02:  ()
+ # L-02: ()
                 if circuit_breaker_record is not None:
                     success = bool(result and any(result.values()))
                     circuit_breaker_record(tech_name, success, ctx)
                 return result
             except Exception as e:
-                # L-02: 
+ # L-02: 
                 if circuit_breaker_record is not None:
                     circuit_breaker_record(tech_name, False, ctx)
                 logger.warning("Priority scheduler: '%s' failed: %s", tech_name, e)
@@ -514,11 +514,11 @@ async def _execute_priority_batches(
         batch_results = await asyncio.gather(*coros, return_exceptions=False)
         _batch_elapsed = time.monotonic() - _batch_start_time
 
-        # v57: 
+ # v57: 
         try:
             from utils.display import print_escalation_tech_done
             for tech_name in batch_tech_names:
-                # : all_results ,  batch_results 
+ # : all_results , batch_results 
                 _tech_success = 0
                 _tech_count = 0
                 for result_dict in batch_results:
@@ -538,16 +538,16 @@ async def _execute_priority_batches(
         except Exception:
             pass
 
-        # 
+ # 
         for result_dict in batch_results:
             if isinstance(result_dict, dict):
                 for tech, results in result_dict.items():
                     if results:
                         all_results.setdefault(tech, []).extend(results)
 
-        #  ()
+ # ()
         if batch_idx < len(batches) - 1:
-            #  B/C : ASR  { + } 
+ # B/C : ASR { + } 
             combined_results = dict(base_attack_results) if base_attack_results else {}
             for tech, results in all_results.items():
                 if tech in combined_results:
@@ -558,7 +558,7 @@ async def _execute_priority_batches(
             from strike.escalation import _compute_overall_asr
             cumulative_asr = _compute_overall_asr(combined_results)
 
-            #  ()
+ # ()
             from strike.escalation import _select_failed_objectives
             still_failed = _select_failed_objectives(ctx, combined_results)
             remaining_objectives = still_failed
@@ -575,12 +575,12 @@ async def _execute_priority_batches(
             if cumulative_asr >= exit_threshold:
                 logger.info(
                     "Priority scheduler: cumulative ASR %.1f%% >= exit threshold %.1f%% "
-                    "— skipping remaining batches (saves ~40-50%% token/time "
+                    "- skipping remaining batches (saves ~40-50%% token/time "
                     "per arXiv:2406.12609)",
                     cumulative_asr,
                     exit_threshold,
                 )
-                # v58: 
+ # v58: 
                 try:
                     from utils.display import print_batch_exit_card
                     print_batch_exit_card(
@@ -592,7 +592,7 @@ async def _execute_priority_batches(
                     )
                 except Exception:
                     pass
-                # 
+ # 
                 ctx.orchestration_log.append({
                     "phase": "escalate",
                     "decision": "priority_batch_early_exit",
@@ -614,7 +614,7 @@ async def _execute_priority_batches(
                 })
                 break
             else:
-                # v58:  (CONTINUE)
+ # v58: (CONTINUE)
                 try:
                     from utils.display import print_batch_exit_card
                     print_batch_exit_card(

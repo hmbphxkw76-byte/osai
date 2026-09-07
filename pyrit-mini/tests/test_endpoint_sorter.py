@@ -1,10 +1,10 @@
-"""Tests for endpoint_sorter — multi-endpoint priority sorting.
+"""Tests for endpoint_sorter - multi-endpoint priority sorting.
 
-Covers attack chain step ① (recon):
-    Endpoint  —  (MCP > function_calling > RAG > workflow > chat)
+Covers attack chain step (1) (recon):
+    Endpoint  -  (MCP > function_calling > RAG > workflow > chat)
 
-arXiv:2302.12173 — Greshake et al., Indirect Prompt Injection ()
-arXiv:2406.12609 — Lattner et al., Parallel multi-strategy scoring
+arXiv:2302.12173 - Greshake et al., Indirect Prompt Injection ()
+arXiv:2406.12609 - Lattner et al., Parallel multi-strategy scoring
 """
 
 from __future__ import annotations
@@ -20,10 +20,10 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 
 class TestCapabilityDetection:
-    """Test capability signal detection from Burp files."""
+ """Test capability signal detection from Burp files."""
 
     def test_detect_mcp_from_mcp05(self):
-        """mcp05.txt should detect MCP capability."""
+ """mcp05.txt should detect MCP capability."""
         from recon.endpoint_sorter import _detect_capabilities_from_burp
 
         burp_path = str(_PROJECT_ROOT / "config" / "burp" / "mcp05.txt")
@@ -34,7 +34,7 @@ class TestCapabilityDetection:
         assert "mcp" in caps or "function_calling" in caps
 
     def test_detect_mcp_from_mcp09(self):
-        """mcp09.txt should detect MCP or shadow_mcp capability."""
+ """mcp09.txt should detect MCP or shadow_mcp capability."""
         from recon.endpoint_sorter import _detect_capabilities_from_burp
 
         burp_path = str(_PROJECT_ROOT / "config" / "burp" / "mcp09.txt")
@@ -45,7 +45,7 @@ class TestCapabilityDetection:
         assert "mcp" in caps or "function_calling" in caps
 
     def test_detect_chat_from_mm05(self):
-        """mm05.txt (basic chat) should have low priority."""
+ """mm05.txt (basic chat) should have low priority."""
         from recon.endpoint_sorter import _detect_capabilities_from_burp
 
         burp_path = str(_PROJECT_ROOT / "config" / "burp" / "mm05.txt")
@@ -53,13 +53,13 @@ class TestCapabilityDetection:
             pytest.skip("config/burp/mm05.txt not present")
 
         caps = _detect_capabilities_from_burp(burp_path)
-        # mm05 is a basic chat endpoint — may have some signals
-        # but should not have MCP or function_calling
-        # (it does have session_auth from Cookie header though)
+ # mm05 is a basic chat endpoint - may have some signals
+ # but should not have MCP or function_calling
+ # (it does have session_auth from Cookie header though)
         assert "mcp" not in caps
 
     def test_detect_nonexistent_file_returns_empty(self):
-        """Nonexistent file should return empty set (non-fatal)."""
+ """Nonexistent file should return empty set (non-fatal)."""
         from recon.endpoint_sorter import _detect_capabilities_from_burp
 
         caps = _detect_capabilities_from_burp("nonexistent_file.txt")
@@ -67,53 +67,53 @@ class TestCapabilityDetection:
 
 
 class TestPriorityScoring:
-    """Test priority score computation."""
+ """Test priority score computation."""
 
     def test_mcp_highest_priority(self):
-        """MCP should have highest priority score."""
+ """MCP should have highest priority score."""
         from recon.endpoint_sorter import _compute_priority_score
 
         score = _compute_priority_score({"mcp"})
         assert score == 100
 
     def test_function_calling_high_priority(self):
-        """function_calling should have high priority score."""
+ """function_calling should have high priority score."""
         from recon.endpoint_sorter import _compute_priority_score
 
         score = _compute_priority_score({"function_calling"})
         assert score == 90
 
     def test_rag_medium_priority(self):
-        """RAG should have medium-high priority score."""
+ """RAG should have medium-high priority score."""
         from recon.endpoint_sorter import _compute_priority_score
 
         score = _compute_priority_score({"rag"})
         assert score == 80
 
     def test_workflow_lower_priority(self):
-        """workflow should have lower priority than RAG."""
+ """workflow should have lower priority than RAG."""
         from recon.endpoint_sorter import _compute_priority_score
 
         score = _compute_priority_score({"workflow"})
         assert score == 70
 
     def test_chat_lowest_priority(self):
-        """Empty capabilities (chat) should have lowest priority."""
+ """Empty capabilities (chat) should have lowest priority."""
         from recon.endpoint_sorter import _compute_priority_score
 
         score = _compute_priority_score(set())
         assert score == 10
 
     def test_mixed_capabilities_takes_highest(self):
-        """Mixed capabilities should take the highest score."""
+ """Mixed capabilities should take the highest score."""
         from recon.endpoint_sorter import _compute_priority_score
 
         score = _compute_priority_score({"chat", "rag", "mcp"})
-        # MCP is highest at 100
+ # MCP is highest at 100
         assert score == 100
 
     def test_priority_order_mcp_above_rag_above_chat(self):
-        """Verify the expected priority order: MCP > RAG > chat."""
+ """Verify the expected priority order: MCP > RAG > chat."""
         from recon.endpoint_sorter import _compute_priority_score
 
         mcp_score = _compute_priority_score({"mcp"})
@@ -124,13 +124,13 @@ class TestPriorityScoring:
 
 
 class TestEndpointSorting:
-    """Test multi-endpoint sorting."""
+ """Test multi-endpoint sorting."""
 
     def test_sort_endpoints_mcp_first(self):
-        """MCP endpoint should be sorted first."""
+ """MCP endpoint should be sorted first."""
         from recon.endpoint_sorter import sort_endpoints_by_priority
 
-        # Use actual burp files if they exist
+ # Use actual burp files if they exist
         mm05 = str(_PROJECT_ROOT / "config" / "burp" / "mm05.txt")
         mcp05 = str(_PROJECT_ROOT / "config" / "burp" / "mcp05.txt")
 
@@ -139,12 +139,12 @@ class TestEndpointSorting:
 
         result = sort_endpoints_by_priority([mm05, mcp05])
 
-        # mcp05 should be first (higher priority)
+ # mcp05 should be first (higher priority)
         assert result[0]["burp_name"] == "mcp05"
         assert result[0]["priority_score"] > result[1]["priority_score"]
 
     def test_sort_returns_list_of_dicts(self):
-        """sort_endpoints_by_priority should return list of dicts."""
+ """sort_endpoints_by_priority should return list of dicts."""
         from recon.endpoint_sorter import sort_endpoints_by_priority
 
         mcp05 = str(_PROJECT_ROOT / "config" / "burp" / "mcp05.txt")
@@ -160,7 +160,7 @@ class TestEndpointSorting:
         assert "capabilities" in result[0]
 
     def test_sort_burp_list_returns_paths(self):
-        """sort_burp_list_by_priority should return list of paths."""
+ """sort_burp_list_by_priority should return list of paths."""
         from recon.endpoint_sorter import sort_burp_list_by_priority
 
         mcp05 = str(_PROJECT_ROOT / "config" / "burp" / "mcp05.txt")
@@ -172,19 +172,19 @@ class TestEndpointSorting:
         result = sort_burp_list_by_priority([mm05, mcp05])
         assert isinstance(result, list)
         assert len(result) == 2
-        # All elements should be strings (file paths)
+ # All elements should be strings (file paths)
         assert all(isinstance(p, str) for p in result)
-        # mcp05 should be first
+ # mcp05 should be first
         assert Path(result[0]).stem == "mcp05"
 
     def test_sort_stable_for_same_priority(self):
-        """Endpoints with same priority should be sorted by filename."""
+ """Endpoints with same priority should be sorted by filename."""
         from recon.endpoint_sorter import sort_endpoints_by_priority
 
         mm05 = str(_PROJECT_ROOT / "config" / "burp" / "mm05.txt")
         if not Path(mm05).exists():
             pytest.skip("config/burp/mm05.txt not present")
 
-        # Same file twice — should sort by name (stable)
+ # Same file twice - should sort by name (stable)
         result = sort_endpoints_by_priority([mm05, mm05])
         assert len(result) == 2

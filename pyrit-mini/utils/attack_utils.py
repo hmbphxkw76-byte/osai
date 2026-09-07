@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-""" — SSOT .
+""" - SSOT .
 
 P2  (2026-09-06):
      _is_success :
@@ -19,7 +19,7 @@ from typing import Any
 
 
 def _is_success(result: Any) -> bool:
-    """ ().
+ """ ().
 
     SSOT , :
     1. outcome  (AttackOutcome.SUCCESS / FAILURE)
@@ -31,7 +31,7 @@ def _is_success(result: Any) -> bool:
 
     Returns:
         True , False /.
-    """
+ """
     outcome = getattr(result, "outcome", None)
     if outcome:
         outcome_str = str(outcome).lower()

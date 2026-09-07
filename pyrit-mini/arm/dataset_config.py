@@ -1,19 +1,19 @@
-"""PyRIT  CompoundDatasetAttackConfiguration ??
+"""PyRIT CompoundDatasetAttackConfiguration ?X?
 
-︽:
+[:
     - PyRIT (arXiv:2407.01232) ?Microsoft,  Scenario + Dataset 
-    - CompoundDatasetAttackConfiguration: В€€?
-      ? ?
+    - CompoundDatasetAttackConfiguration: XBEUREUR?
+      XX? XXX?
 
 PyRIT  (Rule 2: ):
-    - :  OWASP ?max_dataset_size, ‘у
-    - :  filters (?{"harm_categories": ["cyber"]})
-    - : , ?
-    - : /, PyRIT ?
+    - X:  OWASP ?max_dataset_size, 'u
+    - X: X filters (?{"harm_categories": ["cyber"]})
+    - : X, X?
+    - X: /X, PyRIT ?
 
-    ?seed_ranker.py (ASR ) ,
-    ā?PyRIT ? ?seed_ranker,
-    ?TextAdaptive ㄥ€?
+    ?seed_ranker.py (ASR ) XX,
+    Xa?PyRIT ? ?seed_ranker,
+    ?TextAdaptive XengEUR?
 """
 
 from __future__ import annotations
@@ -31,20 +31,20 @@ def build_compound_dataset_config(
     seed_names: str,
     max_seeds: int = 25,
 ) -> Any | None:
-    """ PyRIT  CompoundDatasetAttackConfiguration?
+ """ PyRIT CompoundDatasetAttackConfiguration?
 
-    ?(data/seeds/*.prompt) ㄥ?PyRIT Memory ?
+    XX?(data/seeds/*.prompt) eng?PyRIT Memory X?
      CompoundDatasetAttackConfiguration ?
 
-    ? ¤€?
+    X? XXXXEUR?
 
     Args:
-        seed_names:  (?"elite_jailbreaks,asi_top10")?
-        max_seeds: ㄥ?
+        seed_names: X (?"elite_jailbreaks,asi_top10")?
+        max_seeds: eng?
 
     Returns:
         CompoundDatasetAttackConfiguration , ?None (??
-    """
+ """
     try:
         from pyrit.scenario import (
             CompoundDatasetAttackConfiguration,
@@ -59,10 +59,10 @@ def build_compound_dataset_config(
         logger.warning("No seed names provided for compound dataset config")
         return None
 
-    # :  max_seeds
+ # XX: max_seeds
     per_dataset_size = max(1, max_seeds // len(names))
 
-    # ?? inline seeds (?Memory ㄥ)
+ # X?? inline seeds (?Memory eng)
     child_configs: list[DatasetAttackConfiguration] = []
     for name in names:
         seed_path = _SEEDS_DIR / f"{name}.prompt"
@@ -113,23 +113,23 @@ def build_text_adaptive_dataset_config(
     seed_names: str,
     max_seeds: int = 25,
 ) -> Any | None:
-    """ TextAdaptive €?
+ """ TextAdaptive XEUR?
 
-    TextAdaptive €?DatasetAttackConfiguration ,
-    ?CompoundDatasetAttackConfiguration ?
-    DatasetAttackConfiguration ()?
+    TextAdaptive EUR?DatasetAttackConfiguration ,
+    X?CompoundDatasetAttackConfiguration ?
+    DatasetAttackConfiguration (X)?
 
     Args:
-        seed_names: ?
-        max_seeds: ㄥ?
+        seed_names: X?
+        max_seeds: eng?
 
     Returns:
         DatasetAttackConfiguration , ?None (??
-    """
+ """
     names = [s.strip() for s in seed_names.split(",") if s.strip()]
 
     if len(names) <= 1:
-        # ? €?DatasetAttackConfiguration
+ # X? EUR?DatasetAttackConfiguration
         name = names[0] if names else "elite_jailbreaks"
         seed_path = _SEEDS_DIR / f"{name}.prompt"
         if not seed_path.exists():
@@ -150,6 +150,6 @@ def build_text_adaptive_dataset_config(
             logger.warning("Failed to build simple dataset config: %s", e)
             return None
 
-    # ?  CompoundDatasetAttackConfiguration
+ # X? CompoundDatasetAttackConfiguration
     return build_compound_dataset_config(seed_names, max_seeds)
 

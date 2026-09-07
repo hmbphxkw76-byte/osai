@@ -1,25 +1,25 @@
-# arXiv:2402.12109 — Russinovich et al., Crescendo
-# arXiv:2402.19181 — Zeng et al., Persuasion
-# arXiv:2402.01135 — Chao et al., Best-of-N
-# arXiv:2312.02191 — Mehrotra et al., TAP
-# arXiv:2310.08419 — Chao et al., PAIR
-"""€€ ??Burp ?
+# arXiv:2402.12109 - Russinovich et al., Crescendo
+# arXiv:2402.19181 - Zeng et al., Persuasion
+# arXiv:2402.01135 - Chao et al., Best-of-N
+# arXiv:2312.02191 - Mehrotra et al., TAP
+# arXiv:2310.08419 - Chao et al., PAIR
+"""EUREUR ??Burp ?
 
-€?(HTTPTarget €?:
-    - prompt_sending:  (€?
-    - many_shot: ず?( adversarial)
-    - skeleton_key: ㄦ ( adversarial)
+EUR?(HTTPTarget EUR?:
+    - prompt_sending:  (EUR?
+    - many_shot: zu?( adversarial)
+    - skeleton_key: er ( adversarial)
     - role_play:  ( adversarial)
     - context_compliance: ?
 
-€?(€?adversarial_target):
+EUR?(EUR?adversarial_target):
     - crescendo:  (max_turns from defaults.yaml)
     - tap: ?(tree_width from defaults.yaml, depth from defaults.yaml)
     - pair: 
     - red_teaming: 
 
-ㄦ: HTTPTarget ゅ?  adversarial LLM
-       prompt € HTTPTarget €?
+er: HTTPTarget yu?  adversarial LLM
+       prompt EUR HTTPTarget EUR?
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# €?(HTTPTarget €? ?adversarial)
+# EUR?(HTTPTarget EUR? ?adversarial)
 SINGLE_TURN_TECHNIQUES = [
     "prompt_sending",
     "many_shot",
@@ -39,7 +39,7 @@ SINGLE_TURN_TECHNIQUES = [
     "flip",
 ]
 
-# €?(€?adversarial_target  prompt)
+# EUR?(EUR?adversarial_target prompt)
 MULTI_TURN_TECHNIQUES = [
     "crescendo_simulated",
     "tap",
@@ -48,7 +48,7 @@ MULTI_TURN_TECHNIQUES = [
     "best_of_n_jailbreak",
 ]
 
-# PyRIT €ㄦ
+# PyRIT EURer
 # L5 v38: "adaptive_text" ?TextAdaptive 
 _AVAILABLE_TECHNIQUES = {
     "prompt_sending",
@@ -76,23 +76,23 @@ def select_techniques(
     mode: str = "auto",
     has_adversarial: bool = True,
 ) -> list[str]:
-    """€€?
+ """EUREUR?
 
     Args:
-        mode: €€″?
-            - "auto": €?+ €?( adversarial ?
+        mode: EUREUR"?
+            - "auto": EUR?+ EUR?( adversarial ?
             - "single": ?
             - "multi": ?
-            - "adaptive": PyRIT  TextAdaptive  (-greedy €)
+            - "adaptive": PyRIT  TextAdaptive  (-greedy EUR)
             - "tap,crescendo": ?
-        has_adversarial: ?adversarial target (€??
+        has_adversarial: ?adversarial target (EUR??
 
     Returns:
-        €ㄣ€?
-    """
-    # L5 v38: "adaptive" ″ ?PyRIT  TextAdaptive 
-    # €€,  ["adaptive_text"] ,
-    # main.py ?techniques=="adaptive"  text_adaptive_executor.py
+        EURuEUR?
+ """
+ # L5 v38: "adaptive" " ?PyRIT TextAdaptive 
+ # EUREUR, ["adaptive_text"] ,
+ # main.py ?techniques=="adaptive" text_adaptive_executor.py
     if mode == "adaptive":
         logger.info("Technique mode: adaptive (PyRIT native TextAdaptive scenario)")
         return ["adaptive_text"]
@@ -112,17 +112,17 @@ def select_techniques(
         _validate_techniques(MULTI_TURN_TECHNIQUES)
         return list(MULTI_TURN_TECHNIQUES)
 
-    # €?()
+ # EUR?()
     techniques = [t.strip() for t in mode.split(",") if t.strip()]
     _validate_techniques(techniques)
     return techniques
 
 
 def _validate_techniques(techniques: list[str]) -> None:
-    """€?PyRIT €?"""
+ """EUR?PyRIT EUR?"""
     invalid = [t for t in techniques if t not in _AVAILABLE_TECHNIQUES]
     if invalid:
-        # INFO :  pipeline.log,  ()
+ # INFO : pipeline.log, ()
         logger.info(
             "Techniques not in PyRIT native catalog (will be attempted): %s. "
             "Available: %s",
@@ -132,15 +132,15 @@ def _validate_techniques(techniques: list[str]) -> None:
 
 
 def is_multi_turn_technique(technique_name: str) -> bool:
-    """ゆ€?
+ """yuEUR?
 
     Args:
-        technique_name: €€?
+        technique_name: EUREUR?
 
     Returns:
-        True €?
-    """
-    # L5 v38: "adaptive_text" €? ?TextAdaptive 
+        True EUR?
+ """
+ # L5 v38: "adaptive_text" EUR? ?TextAdaptive 
     if technique_name == "adaptive_text":
         return False
     return technique_name in MULTI_TURN_TECHNIQUES
@@ -150,16 +150,16 @@ def filter_by_adversarial(
     techniques: list[str],
     has_adversarial: bool,
 ) -> list[str]:
-    """?adversarial target €€?
+ """?adversarial target EUREUR?
 
-    ?adversarial Щゅ€?
-    """
+    ?adversarial SchyuEUR?
+ """
     if has_adversarial:
         return techniques
     filtered = [t for t in techniques if not is_multi_turn_technique(t)]
     if len(filtered) < len(techniques):
         removed = [t for t in techniques if is_multi_turn_technique(t)]
-        # INFO: , 
+ # INFO: , 
         logger.info(
             "Removed multi-turn techniques (no adversarial target): %s",
             removed,
@@ -167,13 +167,13 @@ def filter_by_adversarial(
     return filtered
 
 
-# €€  #2 : ?€€
+# EUREUR #2 : ?EUREUR
 
-#  ?€?
-# ︽? €?
+# ?EUR?
+# [? EUR?
 _CAPABILITY_TECHNIQUE_MAP: dict[str, list[str]] = {
     "mcp": ["context_compliance"],
-    "mcp_protocol": ["context_compliance"],  #  —  mcp
+    "mcp_protocol": ["context_compliance"],  # - mcp
     "rag": ["context_compliance"],
     "function_calling": ["context_compliance"],
     "tool_hijack": ["context_compliance"],
@@ -181,13 +181,13 @@ _CAPABILITY_TECHNIQUE_MAP: dict[str, list[str]] = {
     "workflow": ["context_compliance"],
     "session_auth": ["context_compliance"],
     "memory": ["context_compliance"],
-    "multi_tenant": ["context_compliance"],  #  — 
-    #  —  recon_report.py _CAPABILITY_STRATEGY 
+    "multi_tenant": ["context_compliance"],  # - 
+ # - recon_report.py _CAPABILITY_STRATEGY 
     "a2a_protocol": ["context_compliance"],
     "embedding_rag": ["context_compliance"],
-    # 
+ # 
     "a2a": ["context_compliance"],
-    # P1-2: OpenAPI  → 
+ # P1-2: OpenAPI -> 
     "openapi": ["context_compliance"],
     "openapi_auth": ["context_compliance"],
 }
@@ -197,20 +197,20 @@ def augment_techniques_by_capability(
     techniques: list[str],
     capabilities: str | None,
 ) -> list[str]:
-    """€?( #2 ).
+ """EUR?( #2 ).
 
-    ︽: Greshake et al. (arXiv:2302.12173) ?
-    ラ€ MCP/RAG/Agent ? 
-    context_compliance ?Agent €?
+    [: Greshake et al. (arXiv:2302.12173) ?
+    raEUR MCP/RAG/Agent ? 
+    context_compliance ?Agent EUR?
 
     Args:
-        techniques: €ㄣ€?
+        techniques: EURuEUR?
         capabilities:  (, ?"mcp,rag,function_calling")?
-            None ┖ㄣ€?
+            None +uEUR?
 
     Returns:
-        €?()?
-    """
+        EUR?()?
+ """
     if not capabilities:
         return techniques
 

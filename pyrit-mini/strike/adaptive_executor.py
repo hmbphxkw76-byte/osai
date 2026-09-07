@@ -1,4 +1,4 @@
-""" —  2 converter(s)
+""" - 2 converter(s)
 
 :
     - text_adaptive_executor.py: PyRIT  TextAdaptive Scenario
@@ -7,15 +7,15 @@
 v60 : ,  synergy_config.technique_tags 
 
 Data flow:
-    synergy_config.technique_tags → adaptive_technique_filter → TextAdaptive
+    synergy_config.technique_tags -> adaptive_technique_filter -> TextAdaptive
 
 Academic basis:
-    - Greshake et al. (arXiv:2302.12173) — PromptSendingAttack
-    - Russinovich et al. (arXiv:2404.01833) — CrescendoAttack
-    - Hughes et al. (arXiv:2404.02151) — BestOfN
-    - PyRIT TextAdaptive (arXiv:2407.01232) — ε-
-    - Chao et al. (arXiv:2402.01135) — Best-of-N, N=5 ASR  1.8x
-    - Crescendo (arXiv:2402.12109) — 10 turns ASR=82%
+    - Greshake et al. (arXiv:2302.12173) - PromptSendingAttack
+    - Russinovich et al. (arXiv:2404.01833) - CrescendoAttack
+    - Hughes et al. (arXiv:2404.02151) - BestOfN
+    - PyRIT TextAdaptive (arXiv:2407.01232) - ε-
+    - Chao et al. (arXiv:2402.01135) - Best-of-N, N=5 ASR  1.8x
+    - Crescendo (arXiv:2402.12109) - 10 turns ASR=82%
 
 PyRIT  (Rule 2):
      PyRIT  TextAdaptive + PromptSendingAttack 
@@ -38,7 +38,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _adaptive_outcome_success(result: Any) -> bool:
-    """ (,  executor._is_success )."""
+ """ (, executor._is_success )."""
     outcome = getattr(result, "outcome", None)
     if outcome:
         outcome_str = str(outcome).lower()
@@ -65,18 +65,18 @@ def _adaptive_outcome_success(result: Any) -> bool:
 
 
 def _get_best_of_n_retries(ctx: Any | None = None) -> int:
-    """L5 v44: imports config/defaults.yaml  ctx.args  best_of_n_retries .
+ """L5 v44: imports config/defaults.yaml ctx.args best_of_n_retries .
 
     :  ctx, imports ctx.args  --config-file 
-    Data flow: config.py (scoring.best_of_n_retries) → args → ctx.args → 
+    Data flow: config.py (scoring.best_of_n_retries) -> args -> ctx.args -> 
 
-    Academic basis: Chao et al. (arXiv:2402.01135) — N=5 ASR 1.8x, token  N=10  50%
-    R10 override: N≥5 
+    Academic basis: Chao et al. (arXiv:2402.01135) - N=5 ASR 1.8x, token  N=10  50%
+    R10 override: N>=5 
 
     Returns:
         best_of_n_retries  ( 5, )
-    """
-    # :  ctx.args  --config-file 
+ """
+ # : ctx.args --config-file 
     if ctx is not None:
         _args = getattr(ctx, "args", None)
         if _args is not None:
@@ -102,21 +102,21 @@ def _get_best_of_n_retries(ctx: Any | None = None) -> int:
 
 
 def _load_adaptive_config(ctx: Any | None = None) -> dict[str, Any]:
-    """v53: Read all adaptive scenario config from config/defaults.yaml in one I/O.
+ """v53: Read all adaptive scenario config from config/defaults.yaml in one I/O.
 
-    R8 §8.1 Production-Grade: single YAML read per invocation (no repeated I/O).
+    R8 Sec8.1 Production-Grade: single YAML read per invocation (no repeated I/O).
     R7 SSOT: all adaptive parameters sourced from config/defaults.yaml.
 
     :  ctx, imports ctx.args  --config-file 
-    Data flow: config.py (adaptive section) → args → ctx.args → 
+    Data flow: config.py (adaptive section) -> args -> ctx.args -> 
     : ctx.args (--config-file) > config/defaults.yaml > PyRIT 
 
     Returns dict with keys: epsilon, random_seed, max_attempts, technique_filter.
     Each value falls back to PyRIT official default if config unavailable.
 
-    PyRIT official defaults (arXiv:2407.01232 §4):
+    PyRIT official defaults (arXiv:2407.01232 Sec4):
         epsilon=0.2, random_seed=42, max_attempts=3, technique_filter=None
-    """
+ """
     defaults: dict[str, Any] = {
         "epsilon": 0.2,
         "random_seed": 42,
@@ -124,7 +124,7 @@ def _load_adaptive_config(ctx: Any | None = None) -> dict[str, Any]:
         "technique_filter": None,
     }
 
-    # :  ctx.args  --config-file 
+ # : ctx.args --config-file 
     if ctx is not None:
         _args = getattr(ctx, "args", None)
         if _args is not None:
@@ -156,7 +156,7 @@ def _load_adaptive_config(ctx: Any | None = None) -> dict[str, Any]:
         if not isinstance(config, dict):
             return defaults
 
-        # epsilon (float, clamped to [0.0, 1.0])
+ # epsilon (float, clamped to [0.0, 1.0])
         _eps = config.get("adaptive_epsilon", defaults["epsilon"])
         if isinstance(_eps, (int, float)) and 0.0 <= float(_eps) <= 1.0:
             defaults["epsilon"] = float(_eps)
@@ -166,12 +166,12 @@ def _load_adaptive_config(ctx: Any | None = None) -> dict[str, Any]:
                 _eps, defaults["epsilon"],
             )
 
-        # random_seed (int)
+ # random_seed (int)
         _seed = config.get("adaptive_random_seed", defaults["random_seed"])
         if isinstance(_seed, int):
             defaults["random_seed"] = _seed
 
-        # max_attempts (int, >=1)
+ # max_attempts (int, >=1)
         _ma = config.get("adaptive_max_attempts", defaults["max_attempts"])
         if isinstance(_ma, int) and _ma >= 1:
             defaults["max_attempts"] = _ma
@@ -181,7 +181,7 @@ def _load_adaptive_config(ctx: Any | None = None) -> dict[str, Any]:
                 _ma, defaults["max_attempts"],
             )
 
-        # technique_filter (list[str] | None)
+ # technique_filter (list[str] | None)
         _tf = config.get("adaptive_technique_filter", None)
         if _tf is None:
             pass  # keep None default
@@ -200,25 +200,25 @@ def _load_adaptive_config(ctx: Any | None = None) -> dict[str, Any]:
 
 
 # ?
-# TextAdaptive Scenario ?-€€€
+# TextAdaptive Scenario ?-EUREUREUR
 # ?
 
 async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
-    """ PyRIT  TextAdaptive ц?
+ """ PyRIT TextAdaptive ts?
 
-    L5 v50:  ?ㄥ AttackTechniqueFactory ?PyRIT registry,
-    ?TextAdaptive  Crescendo/TAP/PAIR/BestOfN €?
+    L5 v50:  ?eng AttackTechniqueFactory ?PyRIT registry,
+    ?TextAdaptive  Crescendo/TAP/PAIR/BestOfN EUR?
 
     TextAdaptive :
-        1. ?objective €?(epsilon-greedy)
-        2. €
+        1. ?objective EUR?(epsilon-greedy)
+        2. EUR
         3. prompt_sending  baseline 
         4.  scenario_result_id ?
     5. L5 v50: ?AttackTechniqueRegistry ?
 
-    ︽:
-        - PyRIT TextAdaptive (arXiv:2407.01232) ?-€€€
-        - Chao et al. (arXiv:2310.08419) ?PAIR €
+    [:
+        - PyRIT TextAdaptive (arXiv:2407.01232) ?-EUREUREUR
+        - Chao et al. (arXiv:2310.08419) ?PAIR EUR
         - Mehrotra et al. (arXiv:2312.02191) ?TAP ?
         - Russinovich et al. (arXiv:2402.12109) ?Crescendo 
 
@@ -227,7 +227,7 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
 
     Returns:
          {technique_name: [AttackResult, ...]}?
-    """
+ """
     from pyrit.scenario.scenarios.adaptive import (
         EpsilonGreedyTechniqueSelector,
         TextAdaptive,
@@ -239,10 +239,10 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
         register_project_techniques,
     )
 
-    # L5 v50: ㄥ€ PyRIT  AttackTechniqueRegistry
-    # ?TextAdaptive ㄥ?Crescendo/TAP/PAIR/BestOfN ?
-    # arXiv:2407.01232 ?AttackTechniqueRegistry + tag ヨ
-    # R6 §6.4b:  config_overrides  technique_registry  SSOT 
+ # L5 v50: engEUR PyRIT AttackTechniqueRegistry
+ # ?TextAdaptive eng?Crescendo/TAP/PAIR/BestOfN ?
+ # arXiv:2407.01232 ?AttackTechniqueRegistry + tag Yo
+ # R6 Sec6.4b: config_overrides technique_registry SSOT 
     _tech_cfg: dict[str, Any] = {}
     try:
         import yaml as _yaml
@@ -284,20 +284,20 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
         from strike.executor import execute_attacks
         return await execute_attacks(ctx)
 
-    # v53: PyRIT Adaptive Scenarios alignment — epsilon-greedy selector
-    # PyRIT official: EpsilonGreedyTechniqueSelector(epsilon=..., random_seed=...)
-    # epsilon=0.2: 20% exploration (random technique), 80% exploitation (best success rate)
-    # arXiv:2407.01232 — epsilon-greedy adaptive attack technique selection
-    # R8 sec8.1: single I/O read for all adaptive config (SSOT consistency)
+ # v53: PyRIT Adaptive Scenarios alignment - epsilon-greedy selector
+ # PyRIT official: EpsilonGreedyTechniqueSelector(epsilon=..., random_seed=...)
+ # epsilon=0.2: 20% exploration (random technique), 80% exploitation (best success rate)
+ # arXiv:2407.01232 - epsilon-greedy adaptive attack technique selection
+ # R8 sec8.1: single I/O read for all adaptive config (SSOT consistency)
     _config = _load_adaptive_config(ctx)
     _epsilon = _config["epsilon"]
     _random_seed = _config["random_seed"]
     _max_attempts = _config["max_attempts"]
     _technique_filter = _config["technique_filter"]
 
-    # v60:  synergy_config.technique_tags (→)
-    # Data flow: burp_profile → synergy_config → technique_tags → adaptive_technique_filter
-    # : synergy_config.technique_tags > args.adaptive_technique_filter > config defaults
+ # v60: synergy_config.technique_tags (->)
+ # Data flow: burp_profile -> synergy_config -> technique_tags -> adaptive_technique_filter
+ # : synergy_config.technique_tags > args.adaptive_technique_filter > config defaults
     _synergy_config = getattr(ctx, "synergy_config", None)
     if _synergy_config is not None:
         _synergy_tags = getattr(_synergy_config, "technique_tags", None)
@@ -308,15 +308,15 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
                 _technique_filter,
             )
         elif _synergy_config.attack_surface == "standard_llm_api":
-            # standard_llm_api →  ( filter)
+ # standard_llm_api -> ( filter)
             _technique_filter = None
             logger.info(
-                "v60: standard_llm_api surface — using all techniques (no filter)"
+                "v60: standard_llm_api surface - using all techniques (no filter)"
             )
 
-    # v53: build scenario_techniques (tag-based filter)
-    # PyRIT official: scenario_techniques=[technique_class("single_turn")]
-    # R8 sec8.4: boundary defense — empty technique_filter is treated as None
+ # v53: build scenario_techniques (tag-based filter)
+ # PyRIT official: scenario_techniques=[technique_class("single_turn")]
+ # R8 sec8.4: boundary defense - empty technique_filter is treated as None
     if _technique_filter:
         scenario_techniques = build_scenario_techniques(
             technique_filter=_technique_filter,
@@ -326,17 +326,17 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
     else:
         scenario_techniques = None
 
-    # R8 sec8.4: defend against empty list — None is safer than []
-    # (empty list may cause TextAdaptive to think no techniques are available)
+ # R8 sec8.4: defend against empty list - None is safer than []
+ # (empty list may cause TextAdaptive to think no techniques are available)
     if scenario_techniques is not None and len(scenario_techniques) == 0:
         logger.warning(
-            "v53: scenario_techniques is empty list (filter=%s) — "
+            "v53: scenario_techniques is empty list (filter=%s) - "
             "falling back to default (all registered techniques)",
             _technique_filter,
         )
         scenario_techniques = None
 
-    # v53: build epsilon-greedy selector
+ # v53: build epsilon-greedy selector
     selector = EpsilonGreedyTechniqueSelector(
         epsilon=_epsilon,
         random_seed=_random_seed,
@@ -356,7 +356,7 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
         "max_concurrency": getattr(ctx.args, "max_concurrency", 3) or 3,
         "max_retries": 1,
         "include_baseline": True,
-        # v53: PyRIT Adaptive alignment — max_attempts_per_objective
+ # v53: PyRIT Adaptive alignment - max_attempts_per_objective
         "max_attempts_per_objective": _max_attempts,
     }
 
@@ -366,7 +366,7 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
     if dataset_config is not None:
         params["dataset_config"] = dataset_config
 
-    # v53: PyRIT Adaptive alignment — scenario_techniques (tag-based filter)
+ # v53: PyRIT Adaptive alignment - scenario_techniques (tag-based filter)
     if scenario_techniques is not None:
         params["scenario_techniques"] = scenario_techniques
         logger.info(
@@ -391,7 +391,7 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
         params.get("max_retries", 1),
     )
 
-    # : 
+ # : 
     _adaptive_start = time.monotonic()
     try:
         from utils.display import print_strike_phase_summary as _adaptive_summ
@@ -409,7 +409,7 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
         from strike.executor import _retrieve_partial_results
         await _retrieve_partial_results(ctx, "text_adaptive")
 
-        # : 
+ # : 
         if _adaptive_summ is not None:
             _elapsed = time.monotonic() - _adaptive_start
             try:
@@ -426,8 +426,8 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
             except Exception:
                 pass
 
-        # R8 sec8.5: timeout  —  partial results 
-        #  main.py  871 ,  timeout 
+ # R8 sec8.5: timeout - partial results 
+ # main.py 871 , timeout 
         ctx.orchestration_log.append({
             "phase": "strike",
             "decision": "text_adaptive_timeout",
@@ -441,8 +441,8 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
         })
         return ctx.attack_results
     except Exception as e:
-        logger.error("TextAdaptive: execution failed: %s — falling back to executor.py", e)
-        # R8 sec8.5: fallback  —  fallback 
+        logger.error("TextAdaptive: execution failed: %s - falling back to executor.py", e)
+ # R8 sec8.5: fallback - fallback 
         ctx.orchestration_log.append({
             "phase": "strike",
             "decision": "text_adaptive_fallback",
@@ -451,7 +451,7 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
             "reasoning": "TextAdaptive failed, falling back to multi-path executor.py",
         })
 
-        # : fallback 
+ # : fallback 
         if _adaptive_summ is not None:
             _elapsed = time.monotonic() - _adaptive_start
             try:
@@ -483,10 +483,10 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
         sum(len(v) for v in attack_results.values()),
     )
 
-    # R8 sec8.5:  —  adaptive 
-    # : main.py  871  strike ,
-    #  adaptive  (epsilon/filter/partial_results),
-    # : adaptive  +  strike 
+ # R8 sec8.5: - adaptive 
+ # : main.py 871 strike ,
+ # adaptive (epsilon/filter/partial_results),
+ # : adaptive + strike 
     ctx.orchestration_log.append({
         "phase": "strike",
         "decision": "text_adaptive_execution",
@@ -508,7 +508,7 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
         ),
     })
 
-    # : 
+ # : 
     if _adaptive_summ is not None:
         _elapsed = time.monotonic() - _adaptive_start
         try:
@@ -529,23 +529,23 @@ async def execute_text_adaptive(ctx: PipelineContext) -> dict[str, list[Any]]:
 
 
 def _build_text_adaptive_scorer(ctx: PipelineContext) -> Any:
-    """ TextAdaptive ?objective_scorer?
+ """ TextAdaptive ?objective_scorer?
 
     L5 v42 :  _MultiKeywordRefusalScorer (30+ ? 0 token)
     : v41 ?_build_scoring_config  scorer, ?
     AttackScoringConfig() (v34 , ?objective_scorer),  fallback ?
-     SubStringScorer(substring="i cannot") ?х >60%?
+     SubStringScorer(substring="i cannot") ?x >60%?
     : ?_MultiKeywordRefusalScorer,  _build_scoring_config?
-    ︽:
-        - Mazeika et al. (arXiv:2402.04249) HarmBench ?х
-        - Wei et al. (arXiv:2307.15043) ?″? 
+    [:
+        - Mazeika et al. (arXiv:2402.04249) HarmBench ?x
+        - Wei et al. (arXiv:2307.15043) ?"? 
 
     :
         1.  _MultiKeywordRefusalScorer (, 0 token)
         2. Fallback: SubStringScorer+Inverter (, )
         3. Fallback 2: SelfAskTrueFalseScorer (calibrated rubric)
-    """
-    # : _MultiKeywordRefusalScorer (30+ ? 0 token)
+ """
+ # : _MultiKeywordRefusalScorer (30+ ? 0 token)
     try:
         from pyrit.score import TrueFalseInverterScorer
 
@@ -559,7 +559,7 @@ def _build_text_adaptive_scorer(ctx: PipelineContext) -> Any:
     except Exception as e:
         logger.warning("TextAdaptive: _MultiKeywordRefusalScorer failed: %s, falling back", e)
 
-    # Fallback: SubStringScorer + Inverter (, )
+ # Fallback: SubStringScorer + Inverter (, )
     try:
         from pyrit.score import SubStringScorer, TrueFalseInverterScorer
 
@@ -574,7 +574,7 @@ def _build_text_adaptive_scorer(ctx: PipelineContext) -> Any:
     except Exception as e:
         logger.warning("TextAdaptive: SubStringScorer fallback failed: %s", e)
 
-    # Fallback 2: SelfAskTrueFalseScorer
+ # Fallback 2: SelfAskTrueFalseScorer
     if ctx.scoring_target:
         try:
             from pyrit.score import SelfAskTrueFalseScorer, TrueFalseQuestion
@@ -595,32 +595,32 @@ def _build_text_adaptive_scorer(ctx: PipelineContext) -> Any:
 
 
 # ?
-# Best-of-N  + Crescendo 
+# Best-of-N + Crescendo 
 # ?
 
 async def _best_of_n_retry(
     ctx: PipelineContext,
     failed_objectives: list[tuple[str, Any]],
 ) -> None:
-    """けョ?VariationConverter  (Best-of-N) + Crescendo ?
+ """keyo?VariationConverter (Best-of-N) + Crescendo ?
 
     L5 v35 :
-        1. け?objective,  N=5 ?
+        1. ke?objective,  N=5 ?
         2.  1 ?converter (?
         3. ?PromptSendingAttack
         4. ?1 ?  objective ?
-        5. € ??check_and_escalate ﹀
+        5. EUR ??check_and_escalate "
 
-    L5 v28: ゆ ctx._failed_objectives , _prune_low_asr_converters
-    ?_build_converter_config  n_failed, ㄦ€?
-    n_failed > 10 ?10% (€?, ? ?5%, <5 ?3% ()
+    L5 v28: yu ctx._failed_objectives , _prune_low_asr_converters
+    ?_build_converter_config  n_failed, erEUR?
+    n_failed > 10 ?10% (EUR?, ? ?5%, <5 ?3% ()
 
-    ︽:
+    [:
         - Best-of-N (arXiv:2402.01135): N=5 ASR  1.8x
         - Crescendo (arXiv:2402.12109): 10 turns ASR=82%
         - Wei et al. (arXiv:2307.15043):  >2 ?ASR ?12%  4%
-        - Zeng et al. (arXiv:2402.19181): authority ASR 38.4% €?
-    """
+        - Zeng et al. (arXiv:2402.19181): authority ASR 38.4% EUR?
+ """
     from pyrit.converter import VariationConverter
     from pyrit.executor.attack import (
         AttackConverterConfig,
@@ -630,20 +630,20 @@ async def _best_of_n_retry(
     from pyrit.models import AttackSeedGroup, SeedObjective
     from pyrit.prompt_normalizer import ConverterConfiguration
 
-    # L5 v44: N_RETRIES ?config/defaults.yaml  (best_of_n_retries=5)
-    # ︽: Chao et al. (arXiv:2402.01135) ?N=5 ASR 1.8x, token ?N=10 ?50%
-    # R10 override: N? €
+ # L5 v44: N_RETRIES ?config/defaults.yaml (best_of_n_retries=5)
+ # [: Chao et al. (arXiv:2402.01135) ?N=5 ASR 1.8x, token ?N=10 ?50%
+ # R10 override: N? EUR
     N_RETRIES = _get_best_of_n_retries(ctx)
 
-    # L5 v54: n_persuasion  config  (bon_persuasion_count),  3
+ # L5 v54: n_persuasion config (bon_persuasion_count), 3
     n_persuasion = _get_config_int(ctx, "bon_persuasion_count", 3)
     n_persuasion = max(0, min(n_persuasion, N_RETRIES - 1))  # Ensure n_variation >= 1
 
     from strike.executor import _build_scoring_config
     scoring_config = _build_scoring_config(ctx)
 
-    # L5 v54: ,  API 
-    # R7 SSOT:  max_concurrency 
+ # L5 v54: , API 
+ # R7 SSOT: max_concurrency 
     _max_parallel = get_effective_concurrency(ctx)
     _semaphore = asyncio.Semaphore(_max_parallel)
 
@@ -656,7 +656,7 @@ async def _best_of_n_retry(
     async def _best_of_n_single(
         objective: str,
     ) -> tuple[str, list[Any]]:
-        """?objective ц Best-of-N ?"""
+ """?objective ts Best-of-N ?"""
         async with _semaphore:
             logger.info("Best-of-N retry for: %s...", objective[:60])
 
@@ -702,9 +702,9 @@ async def _best_of_n_retry(
                     request_converters=converter_configurations,
                 )
 
-                # v53: Use native PrependedConversationConfig via PromptSendingAttack constructor
-                # R2 (PyRIT Native First): prepended_conversation_config controls converter
-                # role application and non-chat target normalization natively
+ # v53: Use native PrependedConversationConfig via PromptSendingAttack constructor
+ # R2 (PyRIT Native First): prepended_conversation_config controls converter
+ # role application and non-chat target normalization natively
                 from strike.executor import _build_prepended_conversation_config as _build_prepended_config_safe
                 bon_prepended_config = _build_prepended_config_safe(ctx)
                 attack = PromptSendingAttack(
@@ -725,7 +725,7 @@ async def _best_of_n_retry(
                     "seed_groups": seed_groups,
                     "return_partial_on_failure": True,
                 }
-                # v53: prepended_conversation_config passed natively via PromptSendingAttack constructor
+ # v53: prepended_conversation_config passed natively via PromptSendingAttack constructor
                 retry_result = await asyncio.wait_for(
                     executor.execute_attack_from_seed_groups_async(**bon_executor_kwargs),
                     timeout=300,
@@ -774,7 +774,7 @@ async def _best_of_n_retry(
         if isinstance(res, tuple):
             objective, results = res
             if results:
-                # v52: Backfill converter info to results
+ # v52: Backfill converter info to results
                 _bon_converter_names = "PersuasionConverter:authority_endorsement, VariationConverter"
                 for r in results:
                     existing_meta = getattr(r, "metadata", {}) or {}
@@ -800,10 +800,10 @@ async def _escalate_to_crescendo(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> None:
-    """?Best-of-N Е?Crescendo ?
+ """?Best-of-N E?Crescendo ?
 
-    ︽: Crescendo (arXiv:2402.12109) ?10 turns ASR=82%
-    """
+    [: Crescendo (arXiv:2402.12109) ?10 turns ASR=82%
+ """
     from pyrit.executor.attack import (
         AttackAdversarialConfig,
         CrescendoAttack,
@@ -815,7 +815,7 @@ async def _escalate_to_crescendo(
         from strike.escalation import _build_refusal_inverter_scoring_config
         scoring_config = _build_refusal_inverter_scoring_config(ctx)
 
-        # v51: PyRIT  ? Crescendo  system_prompt
+ # v51: PyRIT ? Crescendo system_prompt
         adversarial_config_kwargs: dict[str, Any] = {
             "target": ctx.adversarial_target,
         }

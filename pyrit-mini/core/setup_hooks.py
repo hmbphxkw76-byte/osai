@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Git Hooks  —  pre-commit / pre-push 
+"""Git Hooks - pre-commit / pre-push 
 
  git commit  git push  architecture_guard.py
  BLOCKING 
 
 :
-    python core/setup_hooks.py          #  hooks
-    python core/setup_hooks.py --remove #  hooks
+    python core/setup_hooks.py          # hooks
+    python core/setup_hooks.py --remove # hooks
 
 Academic basis:  (, R3 )
 """
@@ -29,7 +29,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def find_git_root() -> str | None:
-    """ git """
+ """ git """
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--git-dir"],
@@ -49,7 +49,7 @@ def find_git_root() -> str | None:
 
 
 def _find_python_exe() -> str:
-    """ Python  hook """
+ """ Python hook """
     try:
         result = subprocess.run(
             [sys.executable, "-c", "import sys; print(sys.executable)"],
@@ -58,7 +58,7 @@ def _find_python_exe() -> str:
         )
         if result.returncode == 0:
             exe = result.stdout.strip()
-            #  Windows 
+ # Windows 
             return exe.replace("/", "\\")
     except Exception:
         pass
@@ -79,7 +79,7 @@ if _GIT_ROOT:
 _PROJECT_NAME = _PROJECT_ROOT.name
 _PYTHON_EXE = _find_python_exe()
 
-# Hook  —  {python_exe}  PATH 
+# Hook - {python_exe} PATH 
 _PRE_COMMIT_HOOK = """#!/bin/sh
 # Combined pre-commit hook for {repo_name} + architecture_guard
 # Auto-installed by: python {project_name}/core/setup_hooks.py
@@ -123,7 +123,7 @@ fi
 # HERE="$(cd "$(dirname "$0")" && pwd)"
 # ARGS+=(--hook-dir "$HERE" -- "$@")
 # if [ -x "$INSTALL_PYTHON" ]; then
-#     "$INSTALL_PYTHON" -mpre_commit "${{ARGS[@]}}" || exit 1
+# "$INSTALL_PYTHON" -mpre_commit "${{ARGS[@]}}" || exit 1
 # fi
 
 exit 0
@@ -177,7 +177,7 @@ HOOKS = {
 
 
 def install_hooks() -> int:
-    """ Git hooks"""
+ """ Git hooks"""
     if not _HOOKS_DIR or not os.path.exists(_HOOKS_DIR):
         print("ERROR: .git/hooks/ directory not found")
         return 1
@@ -208,12 +208,12 @@ def install_hooks() -> int:
     print("⚠️  R10 Reminder: After every code change, also run:")
     print("    python main.py --dry-run --max-seeds 1  (zero-token pipeline check)")
     print("    python main.py --max-seeds 1             (if attack/scoring logic changed)")
-    print("    (Git hooks run static guard only — dry-run is runtime verification)")
+    print("    (Git hooks run static guard only - dry-run is runtime verification)")
     return 0
 
 
 def remove_hooks() -> int:
-    """ Git hooks"""
+ """ Git hooks"""
     for name in HOOKS:
         if not _HOOKS_DIR:
             continue

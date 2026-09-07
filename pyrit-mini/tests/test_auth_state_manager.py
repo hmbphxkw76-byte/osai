@@ -1,5 +1,5 @@
-# arXiv:2403.04206 — Auth recovery strategy
-"""Tests for recon/auth_state_manager.py — authentication state management.
+# arXiv:2403.04206 - Auth recovery strategy
+"""Tests for recon/auth_state_manager.py - authentication state management.
 
 Covers:
     - detect_auth_type: JWT/Bearer/Cookie/API key detection
@@ -11,9 +11,9 @@ Covers:
     - _decode_jwt_payload: JWT payload decoding (no signature verification)
 
 Academic basis:
-    - Heroux et al. (arXiv:2403.04206) §3.2 — 
-    - RFC 7519 §4.1.4 — JWT exp claim
-    - OWASP WSTG-ATHN-01 — 
+    - Heroux et al. (arXiv:2403.04206) Sec3.2 - 
+    - RFC 7519 Sec4.1.4 - JWT exp claim
+    - OWASP WSTG-ATHN-01 - 
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 
 def _make_jwt(payload: dict) -> str:
-    """Create a test JWT (unsigned, for testing only)."""
+ """Create a test JWT (unsigned, for testing only)."""
     header = base64.urlsafe_b64encode(b'{"alg":"none","typ":"JWT"}').rstrip(b"=").decode()
     body = base64.urlsafe_b64encode(
         json.dumps(payload).encode()
@@ -42,11 +42,11 @@ def _make_jwt(payload: dict) -> str:
 
 
 class TestDetectAuthType:
-    """Test detect_auth_type — authentication type detection."""
+ """Test detect_auth_type - authentication type detection."""
 
     @pytest.mark.asyncio
     async def test_bearer_token_detection(self):
-        """Bearer token should be detected."""
+ """Bearer token should be detected."""
         from recon.auth_state_manager import AuthStateManager
 
         parsed = MagicMock()
@@ -60,7 +60,7 @@ class TestDetectAuthType:
 
     @pytest.mark.asyncio
     async def test_jwt_detection_with_exp(self):
-        """JWT should be detected with expiry."""
+ """JWT should be detected with expiry."""
         from recon.auth_state_manager import AuthStateManager
 
         exp = int(time.time()) + 3600  # 1 hour from now
@@ -74,12 +74,12 @@ class TestDetectAuthType:
         assert state.auth_type == "jwt"
         assert state.token_value == jwt_token
         assert state.token_expiry is not None
-        # Should be 60s before exp
+ # Should be 60s before exp
         assert state.token_expiry == float(exp) - 60.0
 
     @pytest.mark.asyncio
     async def test_jwt_tenant_extraction(self):
-        """Tenant ID should be extracted from JWT payload."""
+ """Tenant ID should be extracted from JWT payload."""
         from recon.auth_state_manager import AuthStateManager
 
         jwt_token = _make_jwt({"sub": "test", "tenant_id": "org_001"})
@@ -93,7 +93,7 @@ class TestDetectAuthType:
 
     @pytest.mark.asyncio
     async def test_cookie_session_detection(self):
-        """Cookie-based auth should be detected."""
+ """Cookie-based auth should be detected."""
         from recon.auth_state_manager import AuthStateManager
 
         parsed = MagicMock()
@@ -107,7 +107,7 @@ class TestDetectAuthType:
 
     @pytest.mark.asyncio
     async def test_api_key_detection(self):
-        """API key auth should be detected."""
+ """API key auth should be detected."""
         from recon.auth_state_manager import AuthStateManager
 
         parsed = MagicMock()
@@ -121,7 +121,7 @@ class TestDetectAuthType:
 
     @pytest.mark.asyncio
     async def test_no_auth_anonymous(self):
-        """No auth headers should yield 'none' type."""
+ """No auth headers should yield 'none' type."""
         from recon.auth_state_manager import AuthStateManager
 
         parsed = MagicMock()
@@ -134,7 +134,7 @@ class TestDetectAuthType:
 
     @pytest.mark.asyncio
     async def test_tenant_header_detection(self):
-        """Tenant header should be detected from raw_headers."""
+ """Tenant header should be detected from raw_headers."""
         from recon.auth_state_manager import AuthStateManager
 
         parsed = MagicMock()
@@ -151,7 +151,7 @@ class TestDetectAuthType:
 
     @pytest.mark.asyncio
     async def test_csrf_header_detection(self):
-        """CSRF token header should be detected."""
+ """CSRF token header should be detected."""
         from recon.auth_state_manager import AuthStateManager
 
         parsed = MagicMock()
@@ -165,11 +165,11 @@ class TestDetectAuthType:
 
 
 class TestTryRecoverAuth:
-    """Test try_recover_auth — authentication recovery."""
+ """Test try_recover_auth - authentication recovery."""
 
     @pytest.mark.asyncio
     async def test_anonymous_fallback(self):
-        """All strategies fail → anonymous fallback."""
+ """All strategies fail -> anonymous fallback."""
         from recon.auth_state_manager import AuthState, AuthStateManager
 
         manager = AuthStateManager(max_refreshes=3)
@@ -181,7 +181,7 @@ class TestTryRecoverAuth:
 
     @pytest.mark.asyncio
     async def test_max_refreshes_exhausted(self):
-        """Should return False when max refreshes exhausted."""
+ """Should return False when max refreshes exhausted."""
         from recon.auth_state_manager import AuthState, AuthStateManager
 
         manager = AuthStateManager(max_refreshes=2)
@@ -193,11 +193,11 @@ class TestTryRecoverAuth:
 
 
 class TestTryTenantSwitch:
-    """Test try_tenant_switch — multi-tenant enumeration."""
+ """Test try_tenant_switch - multi-tenant enumeration."""
 
     @pytest.mark.asyncio
     async def test_numeric_tenant_enumeration(self):
-        """Numeric tenant ID should auto-increment."""
+ """Numeric tenant ID should auto-increment."""
         from recon.auth_state_manager import AuthState, AuthStateManager
 
         state = AuthState(
@@ -213,7 +213,7 @@ class TestTryTenantSwitch:
 
     @pytest.mark.asyncio
     async def test_explicit_tenant_id(self):
-        """Explicit tenant ID should be used."""
+ """Explicit tenant ID should be used."""
         from recon.auth_state_manager import AuthState, AuthStateManager
 
         state = AuthState(
@@ -229,7 +229,7 @@ class TestTryTenantSwitch:
 
     @pytest.mark.asyncio
     async def test_no_tenant_header_returns_none(self):
-        """No tenant header → None."""
+ """No tenant header -> None."""
         from recon.auth_state_manager import AuthState, AuthStateManager
 
         state = AuthState(auth_type="bearer")
@@ -239,7 +239,7 @@ class TestTryTenantSwitch:
 
     @pytest.mark.asyncio
     async def test_non_numeric_tenant_returns_none(self):
-        """Non-numeric tenant ID without explicit ID → None."""
+ """Non-numeric tenant ID without explicit ID -> None."""
         from recon.auth_state_manager import AuthState, AuthStateManager
 
         state = AuthState(
@@ -254,10 +254,10 @@ class TestTryTenantSwitch:
 
 
 class TestUpdateCsrfToken:
-    """Test update_csrf_token — CSRF token rotation."""
+ """Test update_csrf_token - CSRF token rotation."""
 
     def test_from_response_header(self):
-        """CSRF token from response header should update state."""
+ """CSRF token from response header should update state."""
         from recon.auth_state_manager import AuthState, AuthStateManager
 
         state = AuthState()
@@ -270,7 +270,7 @@ class TestUpdateCsrfToken:
         assert result.csrf_header == "X-CSRF-Token"
 
     def test_from_set_cookie(self):
-        """CSRF token from Set-Cookie should be extracted."""
+ """CSRF token from Set-Cookie should be extracted."""
         from recon.auth_state_manager import AuthState, AuthStateManager
 
         state = AuthState()
@@ -282,7 +282,7 @@ class TestUpdateCsrfToken:
         assert result.csrf_token == "cookie-csrf-789"
 
     def test_from_json_body(self):
-        """CSRF token from JSON body should be extracted."""
+ """CSRF token from JSON body should be extracted."""
         from recon.auth_state_manager import AuthState, AuthStateManager
 
         state = AuthState()
@@ -292,7 +292,7 @@ class TestUpdateCsrfToken:
         assert result.csrf_token == "json-csrf-999"
 
     def test_no_csrf_in_response(self):
-        """No CSRF in response → unchanged state."""
+ """No CSRF in response -> unchanged state."""
         from recon.auth_state_manager import AuthState, AuthStateManager
 
         state = AuthState(csrf_token="existing-token")
@@ -302,10 +302,10 @@ class TestUpdateCsrfToken:
 
 
 class TestBuildAuthHeaders:
-    """Test build_auth_headers — auth header reconstruction."""
+ """Test build_auth_headers - auth header reconstruction."""
 
     def test_bearer_header_rebuilt(self):
-        """Bearer header should be rebuilt with new token."""
+ """Bearer header should be rebuilt with new token."""
         from recon.auth_state_manager import AuthState, AuthStateManager
 
         state = AuthState(
@@ -319,7 +319,7 @@ class TestBuildAuthHeaders:
         assert auth_header == "Bearer new-token-123"
 
     def test_tenant_header_replaced(self):
-        """Tenant header should be replaced with new value."""
+ """Tenant header should be replaced with new value."""
         from recon.auth_state_manager import AuthState, AuthStateManager
 
         state = AuthState(
@@ -338,7 +338,7 @@ class TestBuildAuthHeaders:
         assert tenant_header == "org_002"
 
     def test_csrf_header_appended(self):
-        """CSRF header should be appended if not in raw_headers."""
+ """CSRF header should be appended if not in raw_headers."""
         from recon.auth_state_manager import AuthState, AuthStateManager
 
         state = AuthState(
@@ -355,10 +355,10 @@ class TestBuildAuthHeaders:
 
 
 class TestIsTokenExpired:
-    """Test is_token_expired — token expiry check."""
+ """Test is_token_expired - token expiry check."""
 
     def test_expired_token(self):
-        """Past expiry should return True."""
+ """Past expiry should return True."""
         from recon.auth_state_manager import AuthState, AuthStateManager
 
         state = AuthState(token_expiry=time.time() - 100)
@@ -366,7 +366,7 @@ class TestIsTokenExpired:
         assert manager.is_token_expired(state) is True
 
     def test_valid_token(self):
-        """Future expiry should return False."""
+ """Future expiry should return False."""
         from recon.auth_state_manager import AuthState, AuthStateManager
 
         state = AuthState(token_expiry=time.time() + 3600)
@@ -374,7 +374,7 @@ class TestIsTokenExpired:
         assert manager.is_token_expired(state) is False
 
     def test_no_expiry(self):
-        """None expiry should return False."""
+ """None expiry should return False."""
         from recon.auth_state_manager import AuthState, AuthStateManager
 
         state = AuthState(token_expiry=None)
@@ -382,20 +382,20 @@ class TestIsTokenExpired:
         assert manager.is_token_expired(state) is False
 
     def test_ahead_parameter(self):
-        """Ahead parameter should trigger early."""
+ """Ahead parameter should trigger early."""
         from recon.auth_state_manager import AuthState, AuthStateManager
 
-        # Token expires in 30s, ahead=60 → should be expired
+ # Token expires in 30s, ahead=60 -> should be expired
         state = AuthState(token_expiry=time.time() + 30)
         manager = AuthStateManager()
         assert manager.is_token_expired(state, ahead=60) is True
 
 
 class TestDecodeJwtPayload:
-    """Test _decode_jwt_payload — JWT payload decoding."""
+ """Test _decode_jwt_payload - JWT payload decoding."""
 
     def test_valid_jwt(self):
-        """Valid JWT should decode payload."""
+ """Valid JWT should decode payload."""
         from recon.auth_state_manager import _decode_jwt_payload
 
         jwt = _make_jwt({"sub": "user123", "exp": 1234567890})
@@ -405,7 +405,7 @@ class TestDecodeJwtPayload:
         assert payload["exp"] == 1234567890
 
     def test_non_jwt_returns_none(self):
-        """Non-JWT string should return None."""
+ """Non-JWT string should return None."""
         from recon.auth_state_manager import _decode_jwt_payload
 
         assert _decode_jwt_payload("not.a.jwt") is None
@@ -413,7 +413,7 @@ class TestDecodeJwtPayload:
         assert _decode_jwt_payload("") is None
 
     def test_invalid_base64_returns_none(self):
-        """Invalid base64 should return None."""
+ """Invalid base64 should return None."""
         from recon.auth_state_manager import _decode_jwt_payload
 
         assert _decode_jwt_payload("header.@@@.signature") is None

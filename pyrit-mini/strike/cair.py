@@ -1,5 +1,5 @@
-# arXiv:2310.08419 — Chao et al., PAIR/CAIR (iterative adversarial)
-"""cair — CAIR (Context-Aware Iterative Refinement) .
+# arXiv:2310.08419 - Chao et al., PAIR/CAIR (iterative adversarial)
+"""cair - CAIR (Context-Aware Iterative Refinement) .
 
  CAIR 
  stub 
@@ -21,41 +21,41 @@ async def run_cair_attack(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
-    """CAIR  (stub).
+ """CAIR (stub).
 
     TODO: 
      try/except 
-    """
+ """
     logger.info("cair.run_cair_attack: stub called, returning empty")
     return {}
 
 
 def _get_response_text(result: Any) -> str:
-    """imports
+ """imports
 
     :
         - PyRIT PromptRequestPiece: .original_value / .converted_value
         - dict: response / output / text 
         - str: 
-    """
-    # PyRIT PromptRequestPiece
+ """
+ # PyRIT PromptRequestPiece
     if hasattr(result, "original_value"):
         return str(result.original_value or "")
     if hasattr(result, "converted_value"):
         return str(result.converted_value or "")
-    # dict-like
+ # dict-like
     if isinstance(result, dict):
         for key in ("response", "output", "text", "result"):
             val = result.get(key)
             if val:
                 return str(val)
         return ""
-    # string or other
+ # string or other
     return str(result) if result else ""
 
 
 def analyze_refusal_pattern(response: str) -> str:
-    """
+ """
 
     :
         - apology:  ("I'm sorry", "I apologize")
@@ -63,7 +63,7 @@ def analyze_refusal_pattern(response: str) -> str:
         - redirect:  ("however, I can help with")
         - silence: 
         - unknown: 
-    """
+ """
     if not response or len(response.strip()) < 5:
         return "silence"
 

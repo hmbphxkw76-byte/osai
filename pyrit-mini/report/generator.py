@@ -1,4 +1,4 @@
-"""generator — 
+"""generator - 
 
 :
     -  (_OWASP_ALL_CATEGORIES)
@@ -32,10 +32,10 @@ from report.evidence import EvidenceCollection
 logger = logging.getLogger(__name__)
 
 
-# == OWASP  (Web + LLM + ASI ) ==
-#  report_html.py  report_utils.py 
+# == OWASP (Web + LLM + ASI ) ==
+# report_html.py report_utils.py 
 _OWASP_ALL_CATEGORIES: dict[str, str] = {
-    # OWASP Web Top 10 (2025)
+ # OWASP Web Top 10 (2025)
     "A01": "Broken Access Control",
     "A02": "Cryptographic Failures",
     "A03": "Injection",
@@ -46,7 +46,7 @@ _OWASP_ALL_CATEGORIES: dict[str, str] = {
     "A08": "Software and Data Failure",
     "A09": "Security Logging and Monitoring Failures",
     "A10": "Server-Side Request Forgery (SSRF)",
-    # OWASP LLM Top 10 (2025 Edition)
+ # OWASP LLM Top 10 (2025 Edition)
     "LLM01": "Prompt Injection",
     "LLM02": "Sensitive Information Disclosure",
     "LLM03": "Supply Chain",
@@ -57,7 +57,7 @@ _OWASP_ALL_CATEGORIES: dict[str, str] = {
     "LLM08": "Vector and Embedding Weaknesses",
     "LLM09": "Misinformation",
     "LLM10": "Unbounded Consumption",
-    # OWASP Agentic AI Top 10
+ # OWASP Agentic AI Top 10
     "ASI01": "Agent Identity Spoofing",
     "ASI02": "Tool Misuse",
     "ASI03": "Unauthorized Actions",
@@ -71,15 +71,15 @@ _OWASP_ALL_CATEGORIES: dict[str, str] = {
 }
 
 
-# == HTML  (, ) ==
+# == HTML (, ) ==
 # : report/templates/report.html
-#  report_html.py  _generate_html 
+# report_html.py _generate_html 
 
 _html_template_cache: str | None = None
 
 
 def _load_html_template() -> str:
-    """imports report/templates/report.html Load HTML 
+ """imports report/templates/report.html Load HTML 
 
     cache I/O, 
      (cacheLoad)
@@ -89,7 +89,7 @@ def _load_html_template() -> str:
 
     Raises:
         FileNotFoundError: 
-    """
+ """
     global _html_template_cache
 
     if _html_template_cache is not None:
@@ -101,32 +101,32 @@ def _load_html_template() -> str:
         logger.debug("HTML template loaded from %s", template_path)
     except FileNotFoundError:
         logger.error(
-            "HTML template file not found at %s — using fallback minimal template",
+            "HTML template file not found at %s - using fallback minimal template",
             template_path,
         )
-        # Production-grade: , 
+ # Production-grade: , 
         _html_template_cache = (
             "<!DOCTYPE html><html><head><meta charset='utf-8'>"
             "<title>AI Red Team Assessment Report</title></head>"
             "<body><h1>AI Red Team Assessment Report</h1>"
-            "<p>Template file not found — using fallback.</p>"
+            "<p>Template file not found - using fallback.</p>"
             "<pre>{{ evidence_json }}</pre></body></html>"
         )
     return _html_template_cache
 
 
 def clear_template_cache() -> None:
-    """ HTML cache, Load
+ """ HTML cache, Load
 
     , 
-    """
+ """
     global _html_template_cache
     _html_template_cache = None
     logger.debug("HTML template cache cleared")
 
 
 def _classify_score_consistency(score_details: list[dict[str, Any]]) -> str:
-    """
+ """
 
      score_details converter(s) scorer :
         -  -> N/A
@@ -139,11 +139,11 @@ def _classify_score_consistency(score_details: list[dict[str, Any]]) -> str:
 
     Returns:
         
-    """
+ """
     if not score_details:
         return "N/A"
 
-    #  score_value
+ # score_value
     score_values: list[str] = []
     for sd in score_details:
         val = str(sd.get("score_value", "")).lower().strip()
@@ -152,7 +152,7 @@ def _classify_score_consistency(score_details: list[dict[str, Any]]) -> str:
     if len(score_values) <= 1:
         return "Post-hoc Dual Judge"
 
-    #  (true/1  false/0)
+ # (true/1 false/0)
     truthy = {"true", "1", "yes"}
     falsy = {"false", "0", "no"}
 
@@ -164,41 +164,41 @@ def _classify_score_consistency(score_details: list[dict[str, Any]]) -> str:
     return "Minor Disagreement"
 
 
-# ==  (, ) ==
-#  report_markdown.py  report_html.py 
-#  generator .
-#  (wrapper ) .
+# == (, ) ==
+# report_markdown.py report_html.py 
+# generator .
+# (wrapper ) .
 
 
 def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = False) -> str:
-    """ Markdown  ( report_markdown).
+ """ Markdown ( report_markdown).
 
     Includes sections: dual_judge_stats, wilson_ci, cohens_kappa, Adaptive Dual Judge Statistics.
-    """
+ """
     from report.report_markdown import _generate_markdown as _impl
 
     return _impl(evidence, success_only=success_only)
 
 
 def _generate_html(evidence: EvidenceCollection, *, success_only: bool = False) -> str:
-    """ HTML  ( report_html)."""
+ """ HTML ( report_html)."""
     from report.report_html import _generate_html as _impl
 
     return _impl(evidence, success_only=success_only)
 
 
 def _evidence_to_dict(evidence: EvidenceCollection, *, success_only: bool = False) -> dict[str, Any]:
-    """ ( report_html).
+ """ ( report_html).
 
     Includes: dual_judge_stats, owasp_web_compliance, web_vuln_stats, discovered_endpoints.
-    """
+ """
     from report.report_html import _evidence_to_dict as _impl
 
     return _impl(evidence, success_only=success_only)
 
 
 def _single_evidence_to_dict(ev: Any) -> dict[str, Any]:
-    """converter(s) ( report_html)."""
+ """converter(s) ( report_html)."""
     from report.report_html import _single_evidence_to_dict as _impl
 
     return _impl(ev)
@@ -209,7 +209,7 @@ async def generate_report(
     evidence: EvidenceCollection,
     output_dir: Path,
 ) -> Path:
-    """all
+ """all
 
     :
         - report.md / report_success.md
@@ -228,17 +228,17 @@ async def generate_report(
 
     Returns:
         .
-    """
+ """
     output_dir = Path(output_dir)
     evidence_dir = output_dir / "evidence"
     poc_dir = output_dir / "poc"
     evidence_dir.mkdir(parents=True, exist_ok=True)
     poc_dir.mkdir(parents=True, exist_ok=True)
 
-    # == PyRIT Native Output (R2: PyRIT ) ==
-    # Uses official pyrit.output module to generate standard-format output files.
-    # This is the PyRIT-native output path, separate from the security report.
-    # OffSec AI-300: Proves PyRIT framework mastery via native output format.
+ # == PyRIT Native Output (R2: PyRIT ) ==
+ # Uses official pyrit.output module to generate standard-format output files.
+ # This is the PyRIT-native output path, separate from the security report.
+ # OffSec AI-300: Proves PyRIT framework mastery via native output format.
     try:
         from report.pyrit_native_output import generate_native_output_files
 
@@ -248,8 +248,8 @@ async def generate_report(
     except Exception as e:
         logger.warning("PyRIT native output generation failed (non-fatal): %s", e)
 
-    # == Markdown Report (OffSec AI-300 Security Report) ==
-    # v57: Layer —   +  +  + 
+ # == Markdown Report (OffSec AI-300 Security Report) ==
+ # v57: Layer - + + + 
     from report.report_markdown import (
         _generate_executive_markdown,
         _generate_findings_markdown,
@@ -261,7 +261,7 @@ async def generate_report(
     md_path.write_text(md_content, encoding="utf-8")
     logger.info("Markdown report (index) saved to %s", md_path)
 
-    # v57: Layer
+ # v57: Layer
     exec_md = _generate_executive_markdown(evidence)
     exec_md_path = output_dir / "report_executive.md"
     exec_md_path.write_text(exec_md, encoding="utf-8")
@@ -277,21 +277,21 @@ async def generate_report(
     tech_md_path.write_text(tech_md, encoding="utf-8")
     logger.info("Technical appendix saved to %s", tech_md_path)
 
-    # ==  Markdown ==
-    # v57: success_only  = executive () + findings ()
+ # == Markdown ==
+ # v57: success_only = executive () + findings ()
     if evidence.successful_evidence:
         from report.report_markdown import _generate_executive_markdown as _gen_exec
 
-        #  findings  (success_only) ,  executive 
+ # findings (success_only) , executive 
         success_findings = _generate_findings_markdown(evidence, success_only=True)
-        # executive  (ASR/total ,  findings )
+ # executive (ASR/total , findings )
         success_exec = _gen_exec(evidence)
         success_md = success_exec + "\n\n---\n\n" + success_findings
         success_md_path = output_dir / "report_success.md"
         success_md_path.write_text(success_md, encoding="utf-8")
         logger.info("Success-only Markdown report saved to %s", success_md_path)
 
-    # == HTML  () ==
+ # == HTML () ==
     if getattr(ctx.args, "html_report", False):
         html_content = _generate_html(evidence)
         html_path = output_dir / "report.html"
@@ -304,7 +304,7 @@ async def generate_report(
             success_html_path.write_text(success_html, encoding="utf-8")
             logger.info("Success-only HTML report saved to %s", success_html_path)
 
-    # == evidence JSON ==
+ # == evidence JSON ==
     json_data = _evidence_to_dict(evidence)
     json_path = evidence_dir / "evidence.json"
     json_path.write_text(
@@ -322,7 +322,7 @@ async def generate_report(
         )
         logger.info("Success-only evidence JSON saved to %s", success_json_path)
 
-    # ==  ==
+ # == ==
     for ev in evidence.evidence:
         ev_filename = f"{ev.evidence_id}.json"
         ev_path = evidence_dir / ev_filename
@@ -331,8 +331,8 @@ async def generate_report(
             encoding="utf-8",
         )
 
-    # == PoC  () ==
-    # : , , 
+ # == PoC () ==
+ # : , , 
     from report.owasp_mapping import generate_poc_script
 
     poc_count = 0
@@ -363,10 +363,10 @@ async def generate_report(
     if poc_failed:
         logger.warning("PoC generation: %d succeeded, %d failed", poc_count, poc_failed)
 
-    # == SARIF  ==
-    # : SARIF  (sarif_report.py) 
-    #  CI/CD  SARIF 
-    # :  generator.py  SARIF ,  MD/HTML/JSON 
+ # == SARIF ==
+ # : SARIF (sarif_report.py) 
+ # CI/CD SARIF 
+ # : generator.py SARIF , MD/HTML/JSON 
     try:
         from report.sarif_report import generate_sarif_report
 
@@ -375,7 +375,7 @@ async def generate_report(
     except Exception as e:
         logger.warning("Failed to generate SARIF report: %s", e)
 
-    # == CSV  ==
+ # == CSV ==
     try:
         from report.report_sections import (
             _export_evidence_zip,
@@ -392,7 +392,7 @@ async def generate_report(
         csv_coverage_path.write_text(csv_coverage, encoding="utf-8")
         logger.info("CSV exports saved to %s", output_dir)
 
-        # == ZIP  ==
+ # == ZIP ==
         _export_evidence_zip(output_dir, evidence)
         logger.info("Evidence ZIP saved to %s", output_dir / "evidence_package.zip")
     except Exception as e:

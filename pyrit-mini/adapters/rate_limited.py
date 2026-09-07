@@ -1,47 +1,47 @@
-"""RateLimitedTarget — PyRIT 
+"""RateLimitedTarget - PyRIT 
 
  (Production-grade PyRIT 1.0.1 ):
     PyRIT 1.0.1's OpenAIChatTarget / OpenAIResponseTarget / HTTPTarget
      + Retry:
 
-    1. ``@limit_requests_per_minute`` — PyRIT  RPM rate limit
-        ``_send_prompt_to_target_async``  ``asyncio.sleep(60/rpm)``
-       : ``pyrit.prompt_target.common.utils``
+    1. ''@limit_requests_per_minute'' - PyRIT  RPM rate limit
+        ''_send_prompt_to_target_async''  ''asyncio.sleep(60/rpm)''
+       : ''pyrit.prompt_target.common.utils''
 
-    2. ``@pyrit_target_retry`` — PyRIT Retry (tenacity )
-       Retry ``RateLimitError````EmptyResponseException``
-       ``RateLimitException`` + 
-       : ``pyrit.exceptions.exception_classes``
-       :  ``RETRY_MAX_NUM_ATTEMPTS`` ( 10)
-       ``RETRY_WAIT_MIN_SECONDS`` ( 5)``RETRY_WAIT_MAX_SECONDS`` ( 220)
+    2. ''@pyrit_target_retry'' - PyRIT Retry (tenacity )
+ Retry ''RateLimitError''''EmptyResponseException''
+       ''RateLimitException'' + 
+       : ''pyrit.exceptions.exception_classes''
+       :  ''RETRY_MAX_NUM_ATTEMPTS'' ( 10)
+       ''RETRY_WAIT_MIN_SECONDS'' ( 5)''RETRY_WAIT_MAX_SECONDS'' ( 220)
 
-    3. ``_handle_openai_request_async`` — OpenAITarget Error handling
-        ``BadRequestError````RateLimitError``
-       ``APIStatusError````APITimeoutError````APIConnectionError``
-       ``AuthenticationError``
-        ``Retry-After``  ``x-request-id``
+    3. ''_handle_openai_request_async'' - OpenAITarget Error handling
+ ''BadRequestError''''RateLimitError''
+ ''APIStatusError''''APITimeoutError''''APIConnectionError''
+       ''AuthenticationError''
+        ''Retry-After''  ''x-request-id''
 
     RateLimitedTarget :
-        - **** (``asyncio.Semaphore``): 
+        - **** (''asyncio.Semaphore''): 
           PyRIT  ()
         - **** (401/403):  token  / 
-          Academic basis: Heroux et al. (arXiv:2403.04206) §3.2
-        - **Capability verification**:  PyRIT  ``TargetRequirements.validate()``
+          Academic basis: Heroux et al. (arXiv:2403.04206) Sec3.2
+        - **Capability verification**:  PyRIT  ''TargetRequirements.validate()''
            text 
-        - ****: ``dispose_db_engine()`` + httpx client 
+        - ****: ''dispose_db_engine()'' + httpx client 
 
      (vs Retry):
-        -  ``_classify_error`` + ``_send_with_retry`` 
+        -  ''_classify_error'' + ''_send_with_retry'' 
         -  HTTP 
         -  (PyRIT )
         -  (PyRIT )
-        -  ``@limit_requests_per_minute``  ``@pyrit_target_retry``
-          (Not overridden target  ``_send_prompt_to_target_async``)
+        -  ''@limit_requests_per_minute''  ''@pyrit_target_retry''
+          (Not overridden target  ''_send_prompt_to_target_async'')
 
 Academic basis:
-    - PyRIT (arXiv:2407.01232) — TargetRequirements Capability verification
-    - Greshake et al. (arXiv:2302.12173) — 
-    - Heroux et al. (arXiv:2403.04206) — 
+    - PyRIT (arXiv:2407.01232) - TargetRequirements Capability verification
+    - Greshake et al. (arXiv:2302.12173) - 
+    - Heroux et al. (arXiv:2403.04206) - 
 """
 
 from __future__ import annotations
@@ -54,34 +54,34 @@ from pyrit.prompt_target.common.prompt_target import PromptTarget
 
 logger = logging.getLogger(__name__)
 
-#  —  token  / 
+# - token / 
 _AUTH_RECOVERABLE_STATUS_CODES = frozenset({401, 403})
 
 
 class RateLimitedTarget(PromptTarget):
-    """PyRIT  PromptTarget 
+ """PyRIT PromptTarget 
 
     Aligned with PyRIT 1.0.1 architecture:
-         ``PromptTarget`` ``@final send_prompt_async`` 
-         ``RateLimitedTarget`` :
-        - ``send_prompt_async``  validation + normalization + conversation
-           ``RateLimitedTarget`` 
-        - ``self._send_prompt_to_target_async`` 
-          ``RateLimitedTarget._send_prompt_to_target_async`` ( +
+         ''PromptTarget'' ''@final send_prompt_async'' 
+         ''RateLimitedTarget'' :
+        - ''send_prompt_async''  validation + normalization + conversation
+           ''RateLimitedTarget'' 
+        - ''self._send_prompt_to_target_async'' 
+          ''RateLimitedTarget._send_prompt_to_target_async'' ( +
           )
 
      (PyRIT ):
-        - **Not overridden**  target  ``_send_prompt_to_target_async``
-           ``self._target._send_prompt_to_target_async()``
+        - **Not overridden**  target  ''_send_prompt_to_target_async''
+           ''self._target._send_prompt_to_target_async()''
            target :
-          ``@limit_requests_per_minute`` + ``@pyrit_target_retry``
+          ''@limit_requests_per_minute'' + ''@pyrit_target_retry''
         -  (Semaphore) 
 
      (PyRIT ):
-        - : ``asyncio.Semaphore(max_concurrency)`` 
+        - : ''asyncio.Semaphore(max_concurrency)'' 
         - : 401/403  token  / 
-        - Capability verification: ``TargetRequirements.validate()`` 
-        - : ``dispose_db_engine()`` + httpx client 
+        - Capability verification: ''TargetRequirements.validate()'' 
+        - : ''dispose_db_engine()'' + httpx client 
 
     Args:
         target:  PromptTarget 
@@ -89,7 +89,7 @@ class RateLimitedTarget(PromptTarget):
         max_concurrency:  (PyRIT )
         auth_state_manager:  ()
         auth_state:  ()
-    """
+ """
 
     def __init__(
         self,
@@ -104,17 +104,17 @@ class RateLimitedTarget(PromptTarget):
         self._endpoint = endpoint or getattr(target, "_endpoint", str(id(target)))
         self._semaphore = asyncio.Semaphore(max_concurrency)
 
-        #  ()
+ # ()
         self._auth_manager = auth_state_manager
         self._auth_state = auth_state
-        # TLS  ( auth_manager  URL)
+ # TLS ( auth_manager URL)
         self._use_tls = getattr(target, "_use_tls", True)
 
-        #  PyRIT 1.0.1:  super().__init__  PromptTarget 
-        #  send_prompt_async (final)  RateLimitedTarget ,
-        # self._send_prompt_to_target_async  RateLimitedTarget 
-        # custom_configuration  target ,  ADAPT/RAISE 
-        # max_requests_per_minute  target  RPM ()
+ # PyRIT 1.0.1: super().__init__ PromptTarget 
+ # send_prompt_async (final) RateLimitedTarget ,
+ # self._send_prompt_to_target_async RateLimitedTarget 
+ # custom_configuration target , ADAPT/RAISE 
+ # max_requests_per_minute target RPM ()
         effective_rpm = getattr(target, "_max_requests_per_minute", None)
 
         super().__init__(
@@ -125,31 +125,31 @@ class RateLimitedTarget(PromptTarget):
             custom_configuration=getattr(target, "_configuration", None),
         )
 
-        # 
+ # 
         self._endpoint_attr = getattr(target, "_endpoint", "")
         self._identifier = getattr(target, "_identifier", None)
         self.supported_converters = getattr(target, "supported_converters", [])
 
-        # Capability verification —  PyRIT  TargetRequirements.validate()
+ # Capability verification - PyRIT TargetRequirements.validate()
         self._validate_target_capabilities(target)
 
-        #  capabilities ,  discover_target_capabilities 
+ # capabilities , discover_target_capabilities 
         self._target_capabilities = getattr(target, "capabilities", None)
 
     def _validate_target_capabilities(self, target: PromptTarget) -> None:
-        """
+ """
 
-         PyRIT  ``TargetRequirements.validate()`` 
+         PyRIT  ''TargetRequirements.validate()'' 
          text  ()
 
         Academic basis:
-            - PyRIT (arXiv:2407.01232) — TargetRequirements Capability verification
-            - Greshake et al. (arXiv:2302.12173) — 
-        """
+            - PyRIT (arXiv:2407.01232) - TargetRequirements Capability verification
+            - Greshake et al. (arXiv:2302.12173) - 
+ """
         try:
             from pyrit.prompt_target.common.target_requirements import TargetRequirements
 
-            # : text /
+ # : text /
             requirements = TargetRequirements(
                 required=frozenset(),
                 native_required=frozenset(),
@@ -165,7 +165,7 @@ class RateLimitedTarget(PromptTarget):
                 e,
             )
         except Exception as e:
-            #  configuration  ( HTTPTarget )
+ # configuration ( HTTPTarget )
             logger.debug(
                 "Capability validation skipped for %s (non-fatal): %s",
                 type(target).__name__,
@@ -173,7 +173,7 @@ class RateLimitedTarget(PromptTarget):
             )
 
     async def apply_discovered_capabilities(self, *, timeout_s: float = 30.0) -> None:
-        """ PyRIT  ``discover_target_capabilities`` 
+ """ PyRIT ''discover_target_capabilities'' 
 
         PyRIT :
             -  multi_turn, system_prompt, json_output 
@@ -182,12 +182,12 @@ class RateLimitedTarget(PromptTarget):
             - , 
 
         Academic basis:
-            - PyRIT (arXiv:2407.01232) — Capability discovery
-            - Greshake et al. (arXiv:2302.12173) — 
+            - PyRIT (arXiv:2407.01232) - Capability discovery
+            - Greshake et al. (arXiv:2302.12173) - 
 
         Args:
             timeout_s: converter(s) ()
-        """
+ """
         try:
             from pyrit.prompt_target.common.discover_target_capabilities import (
                 discover_target_capabilities_async,
@@ -222,13 +222,13 @@ class RateLimitedTarget(PromptTarget):
         *,
         normalized_conversation: list[Any],
     ) -> list[Any]:
-        """ +  prompt 
+ """ + prompt 
 
         PyRIT :
-             ``self._target._send_prompt_to_target_async()``
+             ''self._target._send_prompt_to_target_async()''
              target :
-            - ``@limit_requests_per_minute`` — PyRIT  RPM rate limit
-            - ``@pyrit_target_retry`` — PyRIT Retry (tenacity)
+            - ''@limit_requests_per_minute'' - PyRIT  RPM rate limit
+            - ''@pyrit_target_retry'' - PyRIT Retry (tenacity)
                RateLimitErrorEmptyResponseException
               RateLimitException Retry
 
@@ -236,10 +236,10 @@ class RateLimitedTarget(PromptTarget):
             1.  ()
             2.  target._send_prompt_to_target_async()
                ( @limit_requests_per_minute + @pyrit_target_retry)
-            3.  (401/403) —  token /
-            4.  →  headers Retry
-            5.  → raise
-        """
+            3.  (401/403) -  token /
+            4.  ->  headers Retry
+            5.  -> raise
+ """
         async with self._semaphore:
             return await self._send_with_auth_recovery(
                 normalized_conversation=normalized_conversation,
@@ -250,29 +250,29 @@ class RateLimitedTarget(PromptTarget):
         *,
         normalized_conversation: list[Any],
     ) -> list[Any]:
-        """
+ """
 
-        PyRIT  ``@pyrit_target_retry`` :
-        - RateLimitError (429) — Retry
-        - EmptyResponseException (204) — Retry
-        - RateLimitException — Retry
-        - APITimeoutError / APIConnectionError — Retry
+        PyRIT  ''@pyrit_target_retry'' :
+        - RateLimitError (429) - Retry
+        - EmptyResponseException (204) - Retry
+        - RateLimitException - Retry
+        - APITimeoutError / APIConnectionError - Retry
 
          PyRIT Not overridden (401/403)
-        Academic basis: Heroux et al. (arXiv:2403.04206) §3.2 — 
-        """
+        Academic basis: Heroux et al. (arXiv:2403.04206) Sec3.2 - 
+ """
         try:
-            #  target  _send_prompt_to_target_async
-            # : @limit_requests_per_minute + @pyrit_target_retry
+ # target _send_prompt_to_target_async
+ # : @limit_requests_per_minute + @pyrit_target_retry
             return await self._target._send_prompt_to_target_async(
                 normalized_conversation=normalized_conversation,
             )
         except Exception as e:
-            #  (401/403)
+ # (401/403)
             if not self._is_auth_recoverable(e):
                 raise
 
-            # 
+ # 
             if not self._auth_manager or not self._auth_state:
                 raise
 
@@ -292,7 +292,7 @@ class RateLimitedTarget(PromptTarget):
                 logger.warning("Auth recovery failed, raising error")
                 raise
 
-            #  —  headers Retry
+ # - headers Retry
             new_headers = self._auth_manager.build_auth_headers(self._auth_state)
             if hasattr(self._target, "_raw_headers"):
                 self._target._raw_headers = new_headers
@@ -300,16 +300,16 @@ class RateLimitedTarget(PromptTarget):
                 self._target._headers = dict(new_headers)
             logger.info("Auth recovered, retrying with new credentials")
 
-            # Retry ( RateLimit/Timeout Retry)
+ # Retry ( RateLimit/Timeout Retry)
             return await self._target._send_prompt_to_target_async(
                 normalized_conversation=normalized_conversation,
             )
 
     @staticmethod
     def _is_auth_recoverable(exc: Exception) -> bool:
-        """ (401/403)
+ """ (401/403)
 
-        PyRIT  OpenAITarget  ``AuthenticationError`` 
+        PyRIT  OpenAITarget  ''AuthenticationError'' 
          401/403 
 
         Args:
@@ -317,33 +317,33 @@ class RateLimitedTarget(PromptTarget):
 
         Returns:
             True 
-        """
+ """
         exc_name = type(exc).__name__
-        # OpenAI SDK  AuthenticationError
+ # OpenAI SDK AuthenticationError
         if exc_name == "AuthenticationError":
             return True
-        # 
+ # 
         exc_str = str(exc).lower()
         return any(str(code) in exc_str for code in _AUTH_RECOVERABLE_STATUS_CODES)
 
     async def cleanup(self) -> None:
-        """ — Production-grade (, )
+ """ - Production-grade (, )
 
         , Ensure:
             1.  target  httpx.AsyncClient 
             2.  target  cleanup 
-            3. PyRIT  ``dispose_db_engine()`` 
+            3. PyRIT  ''dispose_db_engine()'' 
 
-        :  ``_is_cleaned`` , 
-         ``main.py._cleanup_resources``  finally  —
+        :  ''_is_cleaned'' , 
+         ''main.py._cleanup_resources''  finally  -
          cleanup, finally 
-        """
+ """
         if getattr(self, "_is_cleaned", False):
             logger.debug("Cleanup already done for endpoint=%s, skipping", self._endpoint)
             return
         self._is_cleaned = True
 
-        # 1.  target  httpx client ()
+ # 1. target httpx client ()
         target = self._target
         if hasattr(target, "_client") and target._client is not None:
             try:
@@ -352,17 +352,17 @@ class RateLimitedTarget(PromptTarget):
             except Exception as e:
                 logger.debug("Error closing httpx client (non-fatal): %s", e)
 
-        # 2.  target  cleanup , 
+ # 2. target cleanup , 
         if hasattr(target, "cleanup") and callable(getattr(target, "cleanup", None)):
             try:
                 result = target.cleanup()
-                # , await 
+ # , await 
                 if asyncio.iscoroutine(result):
                     await result
             except Exception as e:
                 logger.debug("Target cleanup failed (non-fatal): %s", e)
 
-        # 3.  PyRIT 1.0.1:  dispose_db_engine 
+ # 3. PyRIT 1.0.1: dispose_db_engine 
         try:
             self.dispose_db_engine()
             logger.debug("Disposed DB engine for %s", type(target).__name__)
@@ -372,9 +372,9 @@ class RateLimitedTarget(PromptTarget):
         logger.debug("RateLimitedTarget cleanup complete for endpoint=%s", self._endpoint)
 
     def __getattr__(self, name: str) -> Any:
-        """ Target
+ """ Target
 
         :  RateLimitedTarget 
          __init__ 
-        """
+ """
         return getattr(self._target, name)

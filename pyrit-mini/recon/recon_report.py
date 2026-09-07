@@ -1,16 +1,16 @@
-"""recon_report —  (--stage recon ).
+"""recon_report - (--stage recon ).
 
- (PTES §2 + Lockheed Martin CKC Stage 1):
-    ① Target Entry Point  — : Host/Path/Auth//Body  (Burp )
-    ② Attack Surface      — :  +  (HIGH/MEDIUM/LOW)
-    ③ Hand-off to ARM     — 
+ (PTES Sec2 + Lockheed Martin CKC Stage 1):
+    (1) Target Entry Point  - : Host/Path/Auth//Body  (Burp )
+    (2) Attack Surface      - :  +  (HIGH/MEDIUM/LOW)
+    (3) Hand-off to ARM     - 
 
 Academic basis:
-    - Greshake et al. (arXiv:2302.12173) §4 — LayerLayer (passive/active/deep)
-    - Zheng et al. (arXiv:2306.05685) §4.3 —  (HIGH/MEDIUM/LOW)
-    - PyRIT (arXiv:2407.01232) §3.3 — SequentialAttack 
-    - PTES §2 — : Raw Data → Analyzed → Attack Vectors
-    - Heroux et al. (arXiv:2403.04206) — 
+    - Greshake et al. (arXiv:2302.12173) Sec4 - LayerLayer (passive/active/deep)
+    - Zheng et al. (arXiv:2306.05685) Sec4.3 -  (HIGH/MEDIUM/LOW)
+    - PyRIT (arXiv:2407.01232) Sec3.3 - SequentialAttack 
+    - PTES Sec2 - : Raw Data -> Analyzed -> Attack Vectors
+    - Heroux et al. (arXiv:2403.04206) - 
 
  JSON  output_dir/recon_fingerprint.json, .
 """
@@ -49,7 +49,7 @@ def _print_card_block(
     rows: list[tuple[str, str]],
     color: str,
 ) -> None:
-    """ ()."""
+ """ ()."""
     print()
     _print_card_top(color)
     print(_card_line(title, color + _C_BOLD))
@@ -60,13 +60,13 @@ def _print_card_block(
 
 
 # ====================================================================
-#  →  ()
+# -> ()
 # Academic basis:
-#   - Greshake et al. (arXiv:2302.12173) — 
-#   - Zhan et al. (arXiv:2307.00929) — InjecAgent 
-#   - Morris et al. (arXiv:2310.06870) — 
-#   - PyRIT (arXiv:2407.01232) — 
-#   - OWASP LLM Top 10 + ASI Top 10
+# - Greshake et al. (arXiv:2302.12173) - 
+# - Zhan et al. (arXiv:2307.00929) - InjecAgent 
+# - Morris et al. (arXiv:2310.06870) - 
+# - PyRIT (arXiv:2407.01232) - 
+# - OWASP LLM Top 10 + ASI Top 10
 # ====================================================================
 
 _CAPABILITY_STRATEGY: dict[str, dict[str, str]] = {
@@ -134,7 +134,7 @@ _CAPABILITY_STRATEGY: dict[str, dict[str, str]] = {
 
 
 def _level_color(level: str) -> str:
-    """ → ."""
+ """ -> ."""
     if level == "high":
         return _C_GREEN
     if level == "medium":
@@ -150,24 +150,24 @@ def print_recon_report(
     parsed: "ParsedBurpRequest",
     output_dir: Path | None = None,
 ) -> None:
-    """ ().
+ """ ().
 
     Academic basis:
-        - Greshake et al. (arXiv:2302.12173) §4 —  + 
-        - PTES §2 — : 
-        - CKC Stage 1 —  + 
+        - Greshake et al. (arXiv:2302.12173) Sec4 -  + 
+        - PTES Sec2 - : 
+        - CKC Stage 1 -  + 
 
      (3 , ):
-        ① Target Entry Point —  +  +  (Burp )
-        ② Attack Surface —  (passive/active/deep)
-        ③ Hand-off to ARM — 
+        (1) Target Entry Point -  +  +  (Burp )
+        (2) Attack Surface -  (passive/active/deep)
+        (3) Hand-off to ARM - 
 
     Args:
         parsed:  Burp  ( target_fingerprint).
         output_dir: Output directory ( recon_fingerprint.json).
-    """
-    # P2-1:  —  +  + 
-    # Academic basis: PTES §2 — 
+ """
+ # P2-1: - + + 
+ # Academic basis: PTES Sec2 - 
     _RECON_REPORT_VERSION = "2.0"
     report_time = time.strftime("%Y-%m-%d %H:%M:%S")
 
@@ -180,10 +180,10 @@ def print_recon_report(
     print(f"{_C_DIM}  Generated: {report_time} | Probe Duration: {probe_duration}s{_C_RESET}")
     print(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
 
-    # ================================================================
-    # ① Target Entry Point —  (Burp )
-    # Academic basis: PTES §2 —  + 
-    # ================================================================
+ # ================================================================
+ # (1) Target Entry Point - (Burp )
+ # Academic basis: PTES Sec2 - + 
+ # ================================================================
     prompt_ok = parsed.has_prompt_placeholder
     prompt_str = (
         f"{_C_GREEN}✓ Injected{_C_RESET}" if prompt_ok
@@ -191,7 +191,7 @@ def print_recon_report(
     )
 
     scheme = "https" if parsed.use_tls else "http"
-    # Hand-off  ( ① ,  ③ )
+ # Hand-off ( (1) , (3) )
     _model_family = fp.get("model_family", "")
     if not _model_family and fp.get("burp_model_name"):
         _model_family = fp.get("burp_model_name", "")
@@ -213,7 +213,7 @@ def print_recon_report(
         ("Probe", f"{_probe_count} probes / {_probe_dur}s"),
     ]
 
-    # ==  (P0-P2 ) ==
+ # == (P0-P2 ) ==
     _ai_fw = fp.get("ai_framework", "")
     if _ai_fw and _ai_fw != "Unknown":
         l1_rows.append(("AI Framework", f"{_ai_fw} ({fp.get('ai_framework_category', '')})"))
@@ -238,7 +238,7 @@ def print_recon_report(
         chat_id_status = (
             f"{_C_GREEN}✓ Tracked{_C_RESET} ({parsed.chat_id_field})"
             if parsed.chat_id
-            else f"{_C_YELLOW}○ Auto-extract{_C_RESET} ({parsed.chat_id_field})"
+            else f"{_C_YELLOW}o Auto-extract{_C_RESET} ({parsed.chat_id_field})"
         )
         l1_rows.append(("{CHAT_ID}", chat_id_status))
 
@@ -246,13 +246,13 @@ def print_recon_report(
     if user_id:
         l1_rows.append(("User ID", user_id))
 
-    _print_card_block("① Target Entry Point + Hand-off (from Burp, 0 requests)", l1_rows, _C_CYAN)
+    _print_card_block("(1) Target Entry Point + Hand-off (from Burp, 0 requests)", l1_rows, _C_CYAN)
 
-    # ================================================================
-    # ② Attack Surface — 
-    # Academic basis: Greshake et al. (arXiv:2302.12173) §4 — 
-    #  + ; Zheng et al. (arXiv:2306.05685) §4.3 — 
-    # ================================================================
+ # ================================================================
+ # (2) Attack Surface - 
+ # Academic basis: Greshake et al. (arXiv:2302.12173) Sec4 - 
+ # + ; Zheng et al. (arXiv:2306.05685) Sec4.3 - 
+ # ================================================================
     recommendations = fp.get("capability_recommendations", {})
     if not isinstance(recommendations, dict):
         recommendations = {}
@@ -264,10 +264,10 @@ def print_recon_report(
     cap_items: list[str] = []
 
     if immediate:
-        cap_items.append(f"  {_C_GREEN}{_C_BOLD}▸ IMMEDIATE (HIGH ≥ 0.8) — :{_C_RESET}")
+        cap_items.append(f"  {_C_GREEN}{_C_BOLD}▸ IMMEDIATE (HIGH >= 0.8) - :{_C_RESET}")
         for item in immediate:
             strategy = _CAPABILITY_STRATEGY.get(item)
-            cap_items.append(f"    → {_C_GREEN}{item}{_C_RESET}")
+            cap_items.append(f"    -> {_C_GREEN}{item}{_C_RESET}")
             if strategy:
                 cap_items.append(
                     f"      {_C_DIM}Strategy: {strategy['strategy']}{_C_RESET}"
@@ -277,48 +277,48 @@ def print_recon_report(
                     f"{strategy['arxiv']} | OWASP {strategy['owasp']}{_C_RESET}"
                 )
             else:
-                #  — 
+ # - 
                 cap_items.append(
                     f"      {_C_DIM}Strategy:  + {_C_RESET}"
                 )
 
     if probe:
-        cap_items.append(f"  {_C_YELLOW}▸ PROBE (MEDIUM 0.4-0.8) — Confirmation:{_C_RESET}")
+        cap_items.append(f"  {_C_YELLOW}▸ PROBE (MEDIUM 0.4-0.8) - Confirmation:{_C_RESET}")
         for item in probe:
             strategy = _CAPABILITY_STRATEGY.get(item)
             if strategy:
                 cap_items.append(
-                    f"    → {_C_YELLOW}{item}{_C_RESET} "
-                    f"{_C_DIM}→ {strategy['strategy']}{_C_RESET}"
+                    f"    -> {_C_YELLOW}{item}{_C_RESET} "
+                    f"{_C_DIM}-> {strategy['strategy']}{_C_RESET}"
                 )
             else:
-                cap_items.append(f"    → {_C_YELLOW}{item}{_C_RESET}")
+                cap_items.append(f"    -> {_C_YELLOW}{item}{_C_RESET}")
 
     if possible:
-        cap_items.append(f"  {_C_DIM}▸ POSSIBLE (LOW < 0.4) — , :{_C_RESET}")
+        cap_items.append(f"  {_C_DIM}▸ POSSIBLE (LOW < 0.4) - , :{_C_RESET}")
         for item in possible:
-            cap_items.append(f"    → {_C_DIM}{item}{_C_RESET}")
+            cap_items.append(f"    -> {_C_DIM}{item}{_C_RESET}")
 
     if cap_items:
         print()
-        print_section("② Attack Surface (from capability probe)", cap_items, color=_C_YELLOW)
+        print_section("(2) Attack Surface (from capability probe)", cap_items, color=_C_YELLOW)
     else:
-        # fallback:  recommendations,  detected capabilities
+ # fallback: recommendations, detected capabilities
         capabilities = fp.get("capabilities", "")
         if capabilities and capabilities != "none":
             print()
             print_section(
-                "② Attack Surface",
+                "(2) Attack Surface",
                 [f"  Detected: {_C_YELLOW}{capabilities}{_C_RESET}"],
                 color=_C_YELLOW,
             )
 
-    # ③ Hand-off  ①  ( model/language/caps)
-    #  JSON 
+ # (3) Hand-off (1) ( model/language/caps)
+ # JSON 
 
-    # ================================================================
-    # Full Fingerprint JSON — , 
-    # ================================================================
+ # ================================================================
+ # Full Fingerprint JSON - , 
+ # ================================================================
     fp_path = _save_fingerprint_json(fp, parsed, output_dir)
 
     if fp_path:
@@ -327,17 +327,17 @@ def print_recon_report(
         logger.debug("Full fingerprint JSON: %s", json.dumps(fp, indent=2, ensure_ascii=False))
         print(f"\n{_C_DIM}Full fingerprint saved to debug log.{_C_RESET}")
 
-    # ================================================================
-    # Attack Surface Graph — 
-    # Academic basis: Arbis et al. (arXiv:2306.01943) §4.5
-    # ================================================================
+ # ================================================================
+ # Attack Surface Graph - 
+ # Academic basis: Arbis et al. (arXiv:2306.01943) Sec4.5
+ # ================================================================
     try:
         graph = build_attack_surface_graph(fp, parsed)
         graph_path = save_attack_surface_graph(graph, parsed, output_dir)
         if graph_path:
             print(f"{_C_DIM}Attack surface graph: {graph_path}{_C_RESET}")
 
-        # 
+ # 
         summary = graph.get("attack_surface_summary", {})
         attack_vectors = graph.get("attack_vectors", [])
         if attack_vectors:
@@ -359,10 +359,10 @@ def print_recon_report(
 # ====================================================================
 
 def _extract_user_id_from_body(body: str) -> str | None:
-    """imports JSON body  User ID .
+ """imports JSON body User ID .
 
     : UserId, user_id, uid, user, sub.
-    """
+ """
     if not body:
         return None
     try:
@@ -384,7 +384,7 @@ def _save_fingerprint_json(
     parsed: "ParsedBurpRequest",
     output_dir: Path | None,
 ) -> Path | None:
-    """ JSON .
+ """ JSON .
 
      JSON  evidence collector , .
 
@@ -395,7 +395,7 @@ def _save_fingerprint_json(
 
     Returns:
         ,  None.
-    """
+ """
     if output_dir is None:
         return None
 
@@ -424,7 +424,7 @@ def _save_fingerprint_json(
 
 # ====================================================================
 # 
-# Academic basis: Arbis et al. (arXiv:2306.01943) §4.5 — 
+# Academic basis: Arbis et al. (arXiv:2306.01943) Sec4.5 - 
 # ====================================================================
 
 
@@ -432,11 +432,11 @@ def build_attack_surface_graph(
     fingerprint: dict[str, Any],
     parsed: Any,
 ) -> dict[str, Any]:
-    """
+ """
 
     Academic basis:
-        - Arbis et al. (arXiv:2306.01943) §4.5 — 
-        - OWASP WSTG-INFO-04 — 
+        - Arbis et al. (arXiv:2306.01943) Sec4.5 - 
+        - OWASP WSTG-INFO-04 - 
         - MITRE ATLAS AML.T0043 (Discover ML Model Ontology)
 
     all, :
@@ -467,7 +467,7 @@ def build_attack_surface_graph(
             },
             "attack_vectors": [...],  # 
         }
-    """
+ """
     graph: dict[str, Any] = {
         "primary_endpoint": {},
         "discovered_endpoints": [],
@@ -478,7 +478,7 @@ def build_attack_surface_graph(
         "attack_vectors": [],
     }
 
-    # ==  ==
+ # == ==
     graph["primary_endpoint"] = {
         "host": fingerprint.get("host", "unknown"),
         "path": fingerprint.get("api_path", "unknown"),
@@ -493,7 +493,7 @@ def build_attack_surface_graph(
         "model_ids": fingerprint.get("model_ids", []),
     }
 
-    # ==  ==
+ # == ==
     port_endpoints = fingerprint.get("port_endpoints", [])
     for pe in port_endpoints:
         graph["discovered_endpoints"].append({
@@ -505,7 +505,7 @@ def build_attack_surface_graph(
             "use_tls": pe.get("use_tls", False),
         })
 
-    # == OpenAPI  ==
+ # == OpenAPI ==
     openapi_endpoints = fingerprint.get("openapi_endpoints", [])
     for ep in openapi_endpoints:
         graph["openapi_endpoints"].append({
@@ -516,7 +516,7 @@ def build_attack_surface_graph(
             "parameters": ep.get("parameters", []),
         })
 
-    # == MCP  ==
+ # == MCP ==
     mcp_tools = fingerprint.get("mcp_tools", [])
     mcp_tool_safety = fingerprint.get("mcp_tool_safety", [])
     for i, tool in enumerate(mcp_tools):
@@ -530,7 +530,7 @@ def build_attack_surface_graph(
             entry["risks"] = safety.get("risks", [])
         graph["mcp_tools"].append(entry)
 
-    # ==  ==
+ # == ==
     vector_dbs = fingerprint.get("vector_dbs", [])
     for vdb in vector_dbs:
         if isinstance(vdb, dict):
@@ -541,19 +541,19 @@ def build_attack_surface_graph(
                 "confirmed_via": vdb.get("confirmed_via", ""),
             })
 
-    # ==  ==
+ # == ==
     total_endpoints = (
         1  # primary
         + len(graph["discovered_endpoints"])
         + len(graph["openapi_endpoints"])
     )
 
-    # 
+ # 
     auth_dist: dict[str, int] = {}
     auth = graph["primary_endpoint"]["auth_type"]
     auth_dist[auth] = auth_dist.get(auth, 0) + 1
 
-    # 
+ # 
     fw_dist: dict[str, int] = {}
     fw = graph["primary_endpoint"]["ai_framework"]
     if fw and fw != "Unknown":
@@ -569,19 +569,19 @@ def build_attack_surface_graph(
         "framework_distribution": fw_dist,
     }
 
-    # ==  ==
+ # == ==
     attack_vectors: list[dict[str, str]] = []
 
-    # System prompt  → 
+ # System prompt -> 
     if fingerprint.get("system_prompt_leaked"):
         attack_vectors.append({
             "type": "system_prompt_leak",
             "severity": "critical",
-            "description": "System prompt leaked — enables targeted jailbreak seeds",
+            "description": "System prompt leaked - enables targeted jailbreak seeds",
             "method": fingerprint.get("system_prompt_extraction_method", ""),
         })
 
-    # MCP  → 
+ # MCP -> 
     risky_tools = [t for t in graph["mcp_tools"] if t.get("risks")]
     for rt in risky_tools:
         attack_vectors.append({
@@ -590,23 +590,23 @@ def build_attack_surface_graph(
             "description": f"MCP tool '{rt['name']}' has risk_score={rt.get('risk_score', 0)}",
         })
 
-    #  → 
+ # -> 
     for vdb in graph["vector_dbs"]:
         attack_vectors.append({
             "type": "vector_db_inversion",
             "severity": "high",
-            "description": f"Vector DB '{vdb['tech']}' confirmed on {vdb['host']}:{vdb.get('port')} — enables embedding inversion",
+            "description": f"Vector DB '{vdb['tech']}' confirmed on {vdb['host']}:{vdb.get('port')} - enables embedding inversion",
         })
 
-    #  → 
+ # -> 
     if graph["primary_endpoint"]["auth_type"] == "None":
         attack_vectors.append({
             "type": "no_auth",
             "severity": "high",
-            "description": "Primary endpoint has no authentication — direct access",
+            "description": "Primary endpoint has no authentication - direct access",
         })
 
-    # OpenAPI 
+ # OpenAPI 
     no_auth_openapi = [ep for ep in graph["openapi_endpoints"] if not ep.get("has_auth")]
     for ep in no_auth_openapi:
         attack_vectors.append({
@@ -615,13 +615,13 @@ def build_attack_surface_graph(
             "description": f"OpenAPI endpoint without auth: {ep['method']} {ep['path']}",
         })
 
-    #  → 
+ # -> 
     model_ids = fingerprint.get("model_ids", [])
     if len(model_ids) > 1:
         attack_vectors.append({
             "type": "model_switching",
             "severity": "medium",
-            "description": f"Multiple models available ({len(model_ids)}) — model switching attack possible",
+            "description": f"Multiple models available ({len(model_ids)}) - model switching attack possible",
         })
 
     graph["attack_vectors"] = attack_vectors
@@ -634,7 +634,7 @@ def save_attack_surface_graph(
     parsed: Any,
     output_dir: Any,
 ) -> str | None:
-    """ JSON 
+ """ JSON 
 
     Args:
         graph: 
@@ -643,7 +643,7 @@ def save_attack_surface_graph(
 
     Returns:
         ,  None 
-    """
+ """
     try:
         from pathlib import Path
 

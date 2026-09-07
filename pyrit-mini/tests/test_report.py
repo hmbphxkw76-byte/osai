@@ -1,6 +1,6 @@
-# arXiv:2407.01232 — PyRIT, evidence extraction and reporting
-# arXiv:2308.07920 — Zhang et al., Dual Judge scoring evidence
-"""Tests for report module — utility functions and SARIF generation.
+# arXiv:2407.01232 - PyRIT, evidence extraction and reporting
+# arXiv:2308.07920 - Zhang et al., Dual Judge scoring evidence
+"""Tests for report module - utility functions and SARIF generation.
 
 Covers:
     - report_utils: _get_owasp_category, _get_technique_display_name
@@ -19,12 +19,12 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 
 class TestReportUtils:
-    """Test report utility functions."""
+ """Test report utility functions."""
 
     def test_get_owasp_category_llm01(self):
         from report.report_utils import _get_owasp_category
 
-        # LLM01 maps to Prompt Injection, not just "LLM"
+ # LLM01 maps to Prompt Injection, not just "LLM"
         result = _get_owasp_category("LLM01")
         assert isinstance(result, str)
         assert len(result) > 0
@@ -44,7 +44,7 @@ class TestReportUtils:
     def test_get_technique_display_name_known(self):
         from report.report_utils import _get_technique_display_name
 
-        # Should return a display name (not empty)
+ # Should return a display name (not empty)
         result = _get_technique_display_name("crescendo")
         assert isinstance(result, str)
 
@@ -56,7 +56,7 @@ class TestReportUtils:
 
 
 class TestReportSections:
-    """Test report section utility functions."""
+ """Test report section utility functions."""
 
     def test_asr_to_css_class_high(self):
         from report.report_sections import _asr_to_css_class
@@ -80,7 +80,7 @@ class TestReportSections:
 
 
 class TestSarifReport:
-    """Test SARIF report utility functions."""
+ """Test SARIF report utility functions."""
 
     def test_sarif_level_critical(self):
         from report.sarif_report import _sarif_level

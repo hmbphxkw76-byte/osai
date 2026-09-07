@@ -1,19 +1,19 @@
-""" +  — SSOT (Single Source of Truth).
+""" + - SSOT (Single Source of Truth).
 
  confidence_scorer.py, i18n_keywords.py, capability_detector.py 
-converter(s) recon  ``score_capability`` 
-``match_capability_i18n`` , 
+converter(s) recon  ''score_capability'' 
+''match_capability_i18n'' , 
 
 Academic basis:
-    - Greshake et al. (arXiv:2302.12173) §4 — 
+    - Greshake et al. (arXiv:2302.12173) Sec4 - 
       , 
-    - Zheng et al. (arXiv:2306.05685) §4.3 — :
-      """" 20-40%
-    - Mazeika et al. (arXiv:2402.04249, HarmBench) §3.2 — 
+    - Zheng et al. (arXiv:2306.05685) Sec4.3 - :
+ """" 20-40%
+    - Mazeika et al. (arXiv:2402.04249, HarmBench) Sec3.2 - 
       , 
-    - Bayesian Inference —  P(capability | evidence)
+    - Bayesian Inference -  P(capability | evidence)
       , 
-    - PyRIT SequentialAttack (arXiv:2407.01232) §3.3 — 
+    - PyRIT SequentialAttack (arXiv:2407.01232) Sec3.3 - 
       , 
 
 :
@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 # ==============================================================
-#  — 
+# - 
 # ==============================================================
 
 _CAPABILITY_KEYWORDS_I18N: dict[str, dict[str, list[str]]] = {
@@ -205,7 +205,7 @@ _CAPABILITY_KEYWORDS_I18N: dict[str, dict[str, list[str]]] = {
             "",
         ],
     },
-    # ==  ==
+ # == ==
     "function_calling": {
         "en": [
             "function",
@@ -401,11 +401,11 @@ def match_capability_i18n(
     response_text: str,
     capability: str,
 ) -> bool:
-    """ — 
+ """ - 
 
     Academic basis:
-        - Greshake et al. (arXiv:2302.12173) §4 — 
-        - Zheng et al. (arXiv:2306.05685) §4.3 — 
+        - Greshake et al. (arXiv:2302.12173) Sec4 - 
+        - Zheng et al. (arXiv:2306.05685) Sec4.3 - 
         - , 
 
     Args:
@@ -414,19 +414,19 @@ def match_capability_i18n(
 
     Returns:
         True  ()
-    """
+ """
     keywords = _CAPABILITY_KEYWORDS_I18N.get(capability, {})
     if not keywords:
         return False
 
     text_lower = response_text.lower()
 
-    #  ()
+ # ()
     for kw in keywords.get("en", []):
         if kw in text_lower:
             return True
 
-    #  (case-insensitive,  "AI" )
+ # (case-insensitive, "AI" )
     for kw in keywords.get("zh", []):
         if kw in text_lower:
             return True
@@ -435,82 +435,82 @@ def match_capability_i18n(
 
 
 def get_i18n_keywords(capability: str) -> dict[str, list[str]]:
-    """
+ """
 
     Args:
         capability: 
 
     Returns:
         {"en": [...], "zh": [...]} 
-    """
+ """
     return _CAPABILITY_KEYWORDS_I18N.get(capability, {"en": [], "zh": []})
 
 
 def get_all_capability_names() -> list[str]:
-    """all
+ """all
 
     Returns:
         
-    """
+ """
     return list(_CAPABILITY_KEYWORDS_I18N.keys())
 
 
 # ==============================================================
-#  —  HIGH 
+# - HIGH 
 # ==============================================================
 
-# JSON  ( [{"type": "function", "function": {...}}])
+# JSON ( [{"type": "function", "function": {...}}])
 _TOOL_JSON_PATTERN = re.compile(
     r'\[\s*\{?\s*"?(?:type|name|function|description|parameters)"?\s*:',
     re.IGNORECASE,
 )
 
-# MCP JSON-RPC  ( {"jsonrpc": "2.0", "result": {...}})
+# MCP JSON-RPC ( {"jsonrpc": "2.0", "result": {...}})
 _MCP_JSONRPC_PATTERN = re.compile(
     r'"jsonrpc"\s*:\s*"2\.0"',
     re.IGNORECASE,
 )
 
-# OpenAI function_call  ( "function_call": {"name": "..."}  tool_calls)
+# OpenAI function_call ( "function_call": {"name": "..."} tool_calls)
 _FUNCTION_CALL_PATTERN = re.compile(
     r'"(?:function_call|tool_calls|function|tools)"\s*:',
     re.IGNORECASE,
 )
 
-# Agent Card  ( {"capabilities": [...], "skills": [...]})
+# Agent Card ( {"capabilities": [...], "skills": [...]})
 _AGENT_CARD_PATTERN = re.compile(
     r'"(?:capabilities|skills|endpoints|agent)"\s*:\s*\[',
     re.IGNORECASE,
 )
 
-# RAG  ( [1], [src1], (source: xxx))
+# RAG ( [1], [src1], (source: xxx))
 _RAG_CITATION_PATTERN = re.compile(
     r'\[(?:\d+|src\d*|ref\d*|source|doc)\]',
     re.IGNORECASE,
 )
 
-# Embedding/Vector  ( {"vector": [...], "embedding": [...]})
+# Embedding/Vector ( {"vector": [...], "embedding": [...]})
 _EMBEDDING_PATTERN = re.compile(
     r'"(?:embedding|vector|similarity|index|collection)"\s*[:=]',
     re.IGNORECASE,
 )
 
-# Multi-agent  ( {"agents": [...]}, "delegated to", "coordinator")
+# Multi-agent ( {"agents": [...]}, "delegated to", "coordinator")
 _MULTI_AGENT_PATTERN = re.compile(
     r'"(?:agents|delegated|coordinator|sub.?agent|team)"\s*[:=]',
     re.IGNORECASE,
 )
 
-#  → 
+# -> 
 
-# MCP tool list / server  (: capability_detector.py  mcp_structural_patterns)
+# MCP tool list / server (: capability_detector.py mcp_structural_patterns)
 _MCP_STRUCTURAL_PATTERN = re.compile(
     r'"(?:tools|resource_uris|mcp_server|server_name|protocol_version|tool_call_id|tool_result)"'
     r'\s*[:=]\s*(?:\[|"|\{)',
     re.IGNORECASE,
 )
 
-# Agent function_call / tool_calls  (: capability_detector.py  agent_structural_patterns)
+# Agent function_call / tool_calls (: capability_detector.py agent_structural_patterns)
 _AGENT_STRUCTURAL_PATTERN = re.compile(
     r'"(?:function_call|tool_calls|tool_call_id)"|'
     r'"function"\s*:\s*\{|'
@@ -518,14 +518,14 @@ _AGENT_STRUCTURAL_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# RAG  (: capability_detector.py  rag_structural_patterns)
+# RAG (: capability_detector.py rag_structural_patterns)
 _RAG_STRUCTURAL_PATTERN = re.compile(
     r'"(?:retrieved_documents|source_documents|references|citations|chunks|similarity_score|relevance_score)"|'
     r'"context"\s*:\s*\[',
     re.IGNORECASE,
 )
 
-# Embedding  (: capability_detector.py  embedding_structural_patterns)
+# Embedding (: capability_detector.py embedding_structural_patterns)
 _EMBEDDING_STRUCTURAL_PATTERN = re.compile(
     r'"(?:embedding|vector|scores)"\s*:\s*\[|"similarity"\s*:\s*[\d.]',
     re.IGNORECASE,
@@ -537,14 +537,14 @@ _STRUCTURED_PATTERNS: dict[str, list[re.Pattern[str]]] = {
     "mcp": [_MCP_JSONRPC_PATTERN, _MCP_STRUCTURAL_PATTERN],
     "embedding": [_EMBEDDING_PATTERN, _EMBEDDING_STRUCTURAL_PATTERN],
     "multi_agent": [_MULTI_AGENT_PATTERN],
-    # 
+ # 
     "function_calling": [_FUNCTION_CALL_PATTERN, _TOOL_JSON_PATTERN, _AGENT_STRUCTURAL_PATTERN],
     "mcp_protocol": [_MCP_JSONRPC_PATTERN, _MCP_STRUCTURAL_PATTERN],
     "embedding_rag": [_EMBEDDING_PATTERN, _RAG_CITATION_PATTERN, _EMBEDDING_STRUCTURAL_PATTERN, _RAG_STRUCTURAL_PATTERN],
     "a2a_protocol": [_AGENT_CARD_PATTERN],
 }
 
-#  —  > 
+# - > 
 _SOURCE_WEIGHTS: dict[str, float] = {
     "passive": 1.0,
     "active": 1.5,
@@ -558,7 +558,7 @@ _MEDIUM_THRESHOLD = 0.4
 
 @dataclass
 class CapabilityResult:
-    """
+ """
 
     :
         name:  (agent/rag/mcp/embedding/multi_agent/...)
@@ -567,7 +567,7 @@ class CapabilityResult:
         level:  ("high" / "medium" / "low")
         evidence:  ()
         source:  ("passive" / "active" / "deep")
-    """
+ """
 
     name: str
     detected: bool = False
@@ -577,12 +577,12 @@ class CapabilityResult:
     source: str = "passive"
 
     def __post_init__(self) -> None:
-        """ level"""
+ """ level"""
         self.level = _confidence_to_level(self.confidence)
 
 
 def _confidence_to_level(score: float) -> str:
-    """ → """
+ """ -> """
     if score >= _HIGH_THRESHOLD:
         return "high"
     if score >= _MEDIUM_THRESHOLD:
@@ -596,19 +596,19 @@ def score_capability(
     *,
     source: str = "passive",
 ) -> CapabilityResult:
-    """converter(s)
+ """converter(s)
 
      (Bayesian ):
         base_score = 0.0
         +  ( OR ): +0.3 per match (max 0.6)
         +  (JSON regex): +0.4 per match (max 0.8)
-        + : × source_weight (passive=1.0, active=1.5, deep=2.0)
+        + : x source_weight (passive=1.0, active=1.5, deep=2.0)
         = final_score (clamped to [0.0, 1.0])
 
     :
-        score >= 0.8 → "high" ()
-        0.4 <= score < 0.8 → "medium" (Confirmation)
-        score < 0.4 → "low" (,  "possible")
+        score >= 0.8 -> "high" ()
+        0.4 <= score < 0.8 -> "medium" (Confirmation)
+        score < 0.4 -> "low" (,  "possible")
 
     Args:
         response_text: 
@@ -617,16 +617,16 @@ def score_capability(
 
     Returns:
         CapabilityResult 
-    """
+ """
     evidence: list[str] = []
     score = 0.0
 
-    # == 1.  (i18n) ==
+ # == 1. (i18n) ==
     if match_capability_i18n(response_text, capability):
         score += 0.3
         evidence.append("keyword_match_i18n")
 
-    # , 
+ # , 
     keywords = get_i18n_keywords(capability)
     text_lower = response_text.lower()
 
@@ -634,7 +634,7 @@ def score_capability(
     zh_matches = sum(1 for kw in keywords.get("zh", []) if kw in response_text)
     total_keyword_matches = en_matches + zh_matches
 
-    #  (max 0.6)
+ # (max 0.6)
     if total_keyword_matches > 1:
         bonus = min(0.3, 0.1 * (total_keyword_matches - 1))
         score += bonus
@@ -642,7 +642,7 @@ def score_capability(
             f"keyword_matches={total_keyword_matches} (en={en_matches}, zh={zh_matches})"
         )
 
-    # == 2.  ==
+ # == 2. ==
     patterns = _STRUCTURED_PATTERNS.get(capability, [])
     for pattern in patterns:
         match = pattern.search(response_text)
@@ -651,18 +651,18 @@ def score_capability(
             evidence.append(f"structured_pattern: {pattern.pattern[:50]}")
             break  # 
 
-    # == 3.  ==
+ # == 3. ==
     source_weight = _SOURCE_WEIGHTS.get(source, 1.0)
     if source_weight > 1.0:
         score *= source_weight
         evidence.append(f"source_weight={source_weight} ({source})")
 
-    # == 4. Clamp  [0.0, 1.0] ==
+ # == 4. Clamp [0.0, 1.0] ==
     score = max(0.0, min(1.0, score))
 
-    # == 5.  result ==
-    # detected  = 0.3 ( "")
-    # level : HIGH >= 0.8, MEDIUM >= 0.4, LOW < 0.4
+ # == 5. result ==
+ # detected = 0.3 ( "")
+ # level : HIGH >= 0.8, MEDIUM >= 0.4, LOW < 0.4
     detected = score >= 0.3
 
     return CapabilityResult(
@@ -678,9 +678,9 @@ def score_capability(
 def aggregate_capabilities(
     results: list[CapabilityResult],
 ) -> dict[str, CapabilityResult]:
-    """ — 
+ """ - 
 
-     (passive → active → deep) :
+     (passive -> active -> deep) :
         deep > active > passive
     , 
 
@@ -689,14 +689,14 @@ def aggregate_capabilities(
 
     Returns:
         {capability_name: best_result} 
-    """
+ """
     best: dict[str, CapabilityResult] = {}
     for result in results:
         existing = best.get(result.name)
         if existing is None or result.confidence > existing.confidence:
             best[result.name] = result
         elif result.confidence == existing.confidence:
-            # , source 
+ # , source 
             if _SOURCE_WEIGHTS.get(result.source, 0) > _SOURCE_WEIGHTS.get(
                 existing.source, 0
             ):
@@ -708,7 +708,7 @@ def filter_by_level(
     capabilities: dict[str, CapabilityResult],
     level: str,
 ) -> dict[str, CapabilityResult]:
-    """
+ """
 
     Args:
         capabilities: 
@@ -716,7 +716,7 @@ def filter_by_level(
 
     Returns:
         
-    """
+ """
     return {
         name: result
         for name, result in capabilities.items()
@@ -727,20 +727,20 @@ def filter_by_level(
 def get_trigger_recommendations(
     capabilities: dict[str, CapabilityResult],
 ) -> dict[str, list[str]]:
-    """
+ """
 
     :
-        HIGH → 
-        MEDIUM → Confirmation
-        LOW → 
+        HIGH -> 
+        MEDIUM -> Confirmation
+        LOW -> 
 
     Returns:
         {
             "immediate": [],   # HIGH , 
             "probe": [],       # MEDIUM , 
-            "possible": [],    # LOW ,  "possible"
+            "possible": [],    # LOW , "possible"
         }
-    """
+ """
     recommendations: dict[str, list[str]] = {
         "immediate": [],
         "probe": [],
@@ -760,28 +760,28 @@ def get_trigger_recommendations(
 # Layer (Multi-Signal Evidence Convergence)
 # ==============================================================
 # Academic basis:
-#   - Chiang et al. (arXiv:2402.04249) — HarmBench: confidently confirmed
-#     ,  2 
-#   - Abhay et al. (arXiv:2311.04956) — ASR ,  vs 
-#      20-30%, Layer
-# ——
+# - Chiang et al. (arXiv:2402.04249) - HarmBench: confidently confirmed
+# , 2 
+# - Abhay et al. (arXiv:2311.04956) - ASR , vs 
+# 20-30%, Layer
+# --
 
 
 # 
 _MIN_INDEPENDENT_SIGNALS = 2
 
-#  (, )
+# (, )
 _EVIDENCE_INDEPENDENCE: dict[str, int] = {
-    "keyword_match_i18n": 1,     #  (, )
-    "structured_pattern": 2,     #  (, )
-    "api_behavior": 3,           # API  (, )
-    "behavioral_verification": 4, #  (, )
+    "keyword_match_i18n": 1,     # (, )
+    "structured_pattern": 2,     # (, )
+    "api_behavior": 3,           # API (, )
+    "behavioral_verification": 4, # (, )
 }
 
 
 @dataclass
 class ConvergenceResult:
-    """Layer
+ """Layer
 
     :
         capability: 
@@ -790,7 +790,7 @@ class ConvergenceResult:
         evidence_types: 
         adjusted_confidence: 
         source_level: Layer (S1/S2/S3)
-    """
+ """
     capability: str
     converged: bool = False
     signal_count: int = 0
@@ -808,7 +808,7 @@ def score_capability_with_convergence(
     text_claim_confidence: float = 0.0,
     behavioral_verify_confidence: float = 0.0,
 ) -> ConvergenceResult:
-    """Layer —  2 converter(s)
+ """Layer - 2 converter(s)
 
      score_capability , Layer,
     Ensureconverter(s)Confirmation ""
@@ -821,12 +821,12 @@ def score_capability_with_convergence(
     :
         >>> result = score_capability_with_convergence(
         ...     capability="mcp",
-        ...     keyword_evidence=True,          # LLM  MCP
+        ...     keyword_evidence=True,          # LLM MCP
         ...     structured_evidence=True,       # JSON-RPC 2.0 
-        ...     api_behavior_evidence=True,     # /sse  MCP 
+        ...     api_behavior_evidence=True,     # /sse MCP 
         ...     behavioral_verification_evidence=True,  # tools/list 
         ... )
-        >>> assert result.converged  # 4 converter(s) → 
+        >>> assert result.converged  # 4 converter(s) -> 
 
     Args:
         capability: 
@@ -839,10 +839,10 @@ def score_capability_with_convergence(
 
     Returns:
         ConvergenceResult 
-    """
+ """
     result = ConvergenceResult(capability=capability)
 
-    # 
+ # 
     signals: list[tuple[str, bool, float]] = [
         ("keyword_match_i18n", keyword_evidence, text_claim_confidence * 0.3),
         ("structured_pattern", structured_evidence, 0.5 if structured_evidence else 0.0),
@@ -860,14 +860,14 @@ def score_capability_with_convergence(
         result.source_level = "S1"
         return result
 
-    # , 
+ # , 
     sorted_signals = sorted(
         active_signals,
         key=lambda x: _EVIDENCE_INDEPENDENCE.get(x[0], 0),
         reverse=True,
     )
 
-    #  confidence
+ # confidence
     weighted_sum = 0.0
     weight_total = 0.0
     for sig_type, conf in sorted_signals[:3]:
@@ -877,14 +877,14 @@ def score_capability_with_convergence(
 
     base_confidence = weighted_sum / max(1.0, weight_total)
 
-    # 
+ # 
     if result.signal_count >= _MIN_INDEPENDENT_SIGNALS:
-        #  → 
+ # -> 
         convergence_bonus = min(0.2, 0.1 * (result.signal_count - 1))
         result.converged = True
         result.adjusted_confidence = min(1.0, base_confidence + convergence_bonus)
 
-        # Layer
+ # Layer
         if any(s in result.evidence_types for s in ("behavioral_verification", "api_behavior")):
             result.source_level = "S3"
         elif "structured_pattern" in result.evidence_types:
@@ -892,7 +892,7 @@ def score_capability_with_convergence(
         else:
             result.source_level = "S1+"
     else:
-        #  → 
+ # -> 
         result.converged = False
         result.adjusted_confidence = min(0.5, base_confidence)
         result.source_level = "S1"
@@ -904,11 +904,11 @@ def merge_verification_into_capabilities(
     capabilities: dict[str, CapabilityResult],
     behavioral_report: dict[str, Any],
 ) -> dict[str, CapabilityResult]:
-    """
+ """
 
      behavioral_verifier  confidence_scorer :
-        -  → confidence  >= HIGH
-        -  → confidence  ( false_positive)
+        -  -> confidence  >= HIGH
+        -  -> confidence  ( false_positive)
 
     Args:
         capabilities: 
@@ -916,7 +916,7 @@ def merge_verification_into_capabilities(
 
     Returns:
         
-    """
+ """
     results = dict(capabilities)
 
     behavioral_results = behavioral_report.get("results", {})
@@ -928,10 +928,10 @@ def merge_verification_into_capabilities(
         existing = results.get(cap_name)
 
         if behaviorally_verified:
-            #  →  HIGH
+ # -> HIGH
             updated_confidence = max(
                 existing.confidence if existing else 0.0,
-                verify_confidence,  #  0.9
+                verify_confidence,  # 0.9
             )
             updated_evidence = (existing.evidence if existing else []) + [
                 f"behavioral_verification=PASSED (confidence={verify_confidence})"
@@ -945,7 +945,7 @@ def merge_verification_into_capabilities(
                 source="behavioral",
             )
         else:
-            #  → 
+ # -> 
             updated_confidence = min(
                 existing.confidence if existing else 0.5,
                 0.2,  # 

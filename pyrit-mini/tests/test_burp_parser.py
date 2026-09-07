@@ -1,4 +1,4 @@
-# arXiv:2407.01232 — PyRIT, burp request parsing
+# arXiv:2407.01232 - PyRIT, burp request parsing
 """Tests for recon/burp_parser.py and its split submodules.
 
 Covers case-insensitive placeholder injection for various JSON body formats.
@@ -18,10 +18,10 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 
 class TestInjectPlaceholder:
-    """Test inject_prompt_placeholder with various JSON body formats."""
+ """Test inject_prompt_placeholder with various JSON body formats."""
 
     def test_pascalcase_query(self):
-        """Test with PascalCase 'Query' field."""
+ """Test with PascalCase 'Query' field."""
         from recon.prompt_injector import inject_prompt_placeholder
 
         body = json.dumps({
@@ -38,7 +38,7 @@ class TestInjectPlaceholder:
         assert data["Inputs"]["stuNo"] == "123"
 
     def test_lowercase_prompt(self):
-        """Test with lowercase 'prompt' field."""
+ """Test with lowercase 'prompt' field."""
         from recon.prompt_injector import inject_prompt_placeholder
 
         body = json.dumps({"prompt": "hello", "model": "gpt-4o"}, ensure_ascii=False)
@@ -47,7 +47,7 @@ class TestInjectPlaceholder:
         assert data["prompt"] == "{PROMPT}"
 
     def test_openai_messages_format(self):
-        """Test with OpenAI messages format."""
+ """Test with OpenAI messages format."""
         from recon.prompt_injector import inject_prompt_placeholder
 
         body = json.dumps({
@@ -62,7 +62,7 @@ class TestInjectPlaceholder:
         assert data["messages"][-1]["content"] == "{PROMPT}"
 
     def test_no_matching_field_fallback(self):
-        """Test fallback when no matching field found."""
+ """Test fallback when no matching field found."""
         from recon.prompt_injector import inject_prompt_placeholder
 
         body = json.dumps({"model": "gpt-4o", "temperature": 0.7}, ensure_ascii=False)
@@ -71,7 +71,7 @@ class TestInjectPlaceholder:
         assert data["prompt"] == "{PROMPT}"
 
     def test_non_json_body(self):
-        """Test with non-JSON body (should be unchanged)."""
+ """Test with non-JSON body (should be unchanged)."""
         from recon.prompt_injector import inject_prompt_placeholder
 
         body = "plain text body"
@@ -79,7 +79,7 @@ class TestInjectPlaceholder:
         assert result == body
 
     def test_pascalcase_prompt_field(self):
-        """Test with PascalCase 'Prompt' field."""
+ """Test with PascalCase 'Prompt' field."""
         from recon.prompt_injector import inject_prompt_placeholder
 
         body = json.dumps({"Prompt": "hello", "Model": "gpt-4o"}, ensure_ascii=False)
@@ -89,10 +89,10 @@ class TestInjectPlaceholder:
 
 
 class TestChatIdDetection:
-    """Test chat session ID field detection and placeholder injection."""
+ """Test chat session ID field detection and placeholder injection."""
 
     def test_deepseek_chat_session_id_non_empty(self):
-        """DeepSeek body with non-empty chat_session_id should get {CHAT_ID}."""
+ """DeepSeek body with non-empty chat_session_id should get {CHAT_ID}."""
         from recon.prompt_injector import detect_and_inject_chat_id_placeholder
 
         body = json.dumps({
@@ -106,7 +106,7 @@ class TestChatIdDetection:
         assert data["chat_session_id"] == "{CHAT_ID}"
 
     def test_deepseek_chat_session_id_empty(self):
-        """DeepSeek body with empty chat_session_id should get {CHAT_ID}."""
+ """DeepSeek body with empty chat_session_id should get {CHAT_ID}."""
         from recon.prompt_injector import detect_and_inject_chat_id_placeholder
 
         body = json.dumps({
@@ -120,7 +120,7 @@ class TestChatIdDetection:
         assert data["chat_session_id"] == "{CHAT_ID}"
 
     def test_qwen_session_id_non_empty(self):
-        """Qwen body with non-empty session_id should get {CHAT_ID}."""
+ """Qwen body with non-empty session_id should get {CHAT_ID}."""
         from recon.prompt_injector import detect_and_inject_chat_id_placeholder
 
         body = json.dumps({
@@ -132,7 +132,7 @@ class TestChatIdDetection:
         assert has_ph is True
 
     def test_qwen_req_id_non_empty(self):
-        """Qwen body with non-empty req_id should get {CHAT_ID}."""
+ """Qwen body with non-empty req_id should get {CHAT_ID}."""
         from recon.prompt_injector import detect_and_inject_chat_id_placeholder
 
         body = json.dumps({
@@ -140,12 +140,12 @@ class TestChatIdDetection:
             "session_id": "4701629fe58943de95c63828bf64177c",
         }, ensure_ascii=False)
         new_body, field, has_ph = detect_and_inject_chat_id_placeholder(body)
-        # req_id should be detected first (appears first in JSON)
+ # req_id should be detected first (appears first in JSON)
         assert field == "req_id"
         assert has_ph is True
 
     def test_request_txt_chat_id_empty(self):
-        """request.txt body with empty ChatId should get {CHAT_ID}."""
+ """request.txt body with empty ChatId should get {CHAT_ID}."""
         from recon.prompt_injector import detect_and_inject_chat_id_placeholder
 
         body = json.dumps({
@@ -159,7 +159,7 @@ class TestChatIdDetection:
         assert data["ChatId"] == "{CHAT_ID}"
 
     def test_no_chat_id_field(self):
-        """Body without chat ID fields should remain unchanged."""
+ """Body without chat ID fields should remain unchanged."""
         from recon.prompt_injector import detect_and_inject_chat_id_placeholder
 
         body = json.dumps({"prompt": "hello"}, ensure_ascii=False)
@@ -170,7 +170,7 @@ class TestChatIdDetection:
 
 
 class TestApiClassifier:
-    """Test API endpoint category detection."""
+ """Test API endpoint category detection."""
 
     def test_chat_api_path(self):
         from recon.api_classifier import detect_api_category
@@ -189,16 +189,16 @@ class TestApiClassifier:
     def test_api_category_by_body(self):
         from recon.api_classifier import detect_api_category
 
-        # Body with prompt field -> chat
+ # Body with prompt field -> chat
         body = json.dumps({"prompt": "hello"})
         assert detect_api_category("/api/unknown", body) == "chat"
 
-        # Empty body with GET -> metadata
+ # Empty body with GET -> metadata
         assert detect_api_category("/api/data", "") == "metadata"
 
 
 class TestFingerprint:
-    """Test AI framework fingerprint extraction."""
+ """Test AI framework fingerprint extraction."""
 
     def test_extract_from_response_headers(self):
         from recon.fingerprint import extract_ai_framework_fingerprint
@@ -238,7 +238,7 @@ class TestFingerprint:
 
 
 class TestTargetFingerprint:
-    """Test TargetFingerprint dataclass."""
+ """Test TargetFingerprint dataclass."""
 
     def test_default_values(self):
         from recon.burp_parser import TargetFingerprint

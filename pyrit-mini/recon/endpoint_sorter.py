@@ -1,23 +1,23 @@
-# arXiv:2302.12173 — Greshake et al., Indirect Prompt Injection ()
-# arXiv:2406.12609 — Lattner et al., Parallel multi-strategy scoring
-# arXiv:2407.01232 — PyRIT, framework foundation
-"""Endpoint  —  endpoint converter(s)
+# arXiv:2302.12173 - Greshake et al., Indirect Prompt Injection ()
+# arXiv:2406.12609 - Lattner et al., Parallel multi-strategy scoring
+# arXiv:2407.01232 - PyRIT, framework foundation
+"""Endpoint - endpoint converter(s)
 
 Academic basis:
-    - Greshake et al. (arXiv:2302.12173) §4 — 
+    - Greshake et al. (arXiv:2302.12173) Sec4 - 
       Agent converter(s) endpoint Layer
       (RAG ),
        HTTP 
-    - Lattner et al. (arXiv:2406.12609) — 
+    - Lattner et al. (arXiv:2406.12609) - 
       ,  ASR
 
- ( → ):
-    1. MCP / function_calling — , /
-    2. RAG / embedding_rag — , 
-    3. workflow — , 
-    4. memory / multi_tenant — /
-    5. a2a_protocol —  agent 
-    6. chat () — , ASR 
+ ( -> ):
+    1. MCP / function_calling - , /
+    2. RAG / embedding_rag - , 
+    3. workflow - , 
+    4. memory / multi_tenant - /
+    5. a2a_protocol -  agent 
+    6. chat () - , ASR 
 
  (Rule 2: Layer, ):
      Burp  (0 ),
@@ -36,10 +36,10 @@ from recon.burp_parser import parse_burp_request
 
 logger = logging.getLogger(__name__)
 
-# ==  ==
-# Academic basis: Greshake et al. (arXiv:2302.12173) §4 — 
-#   MCP/function_calling > RAG > workflow > memory/multi_tenant > a2a > chat
-# ,  endpoint 
+# == ==
+# Academic basis: Greshake et al. (arXiv:2302.12173) Sec4 - 
+# MCP/function_calling > RAG > workflow > memory/multi_tenant > a2a > chat
+# , endpoint 
 _CAPABILITY_PRIORITY: dict[str, int] = {
     "mcp": 100,
     "mcp_protocol": 100,
@@ -58,15 +58,15 @@ _CAPABILITY_PRIORITY: dict[str, int] = {
     "agent": 30,
     "code_execution": 25,
     "web_search": 20,
-    #  ( chat) 
+ # ( chat) 
 }
 
-#  ()
+# ()
 _DEFAULT_PRIORITY = 10
 
-# == Burp  ==
-#  Burp  Response 
-#  capability_detector.py / capability_probe.py ,
+# == Burp ==
+# Burp Response 
+# capability_detector.py / capability_probe.py ,
 # , 
 _CAPABILITY_SIGNAL_PATTERNS: dict[str, list[re.Pattern[str]]] = {
     "mcp": [
@@ -123,13 +123,13 @@ _CAPABILITY_SIGNAL_PATTERNS: dict[str, list[re.Pattern[str]]] = {
 
 
 def _detect_capabilities_from_burp(burp_path: str) -> set[str]:
-    """imports Burp  (0 )
+ """imports Burp (0 )
 
     :  Burp  (Request + Response),
     
     ,  LLM
 
-    Academic basis: Greshake et al. (arXiv:2302.12173) §4 —
+    Academic basis: Greshake et al. (arXiv:2302.12173) Sec4 -
       , 
       converter(s) (probe_active_capabilities +
       deep_probe_capabilities)
@@ -139,15 +139,15 @@ def _detect_capabilities_from_burp(burp_path: str) -> set[str]:
 
     Returns:
          ( {"mcp", "function_calling", "session_auth"})
-    """
+ """
     try:
         parsed = parse_burp_request(burp_path)
     except Exception as e:
         logger.warning("Failed to pre-parse %s for sorting: %s", burp_path, e)
         return set()
 
-    # : Response  + path + fingerprint
-    # Burp  Response  SSE , 
+ # : Response + path + fingerprint
+ # Burp Response SSE , 
     raw_text = ""
     try:
         raw = Path(burp_path).read_text(encoding="utf-8", errors="replace")
@@ -155,13 +155,13 @@ def _detect_capabilities_from_burp(burp_path: str) -> set[str]:
     except Exception:
         pass
 
-    #  path  ()
+ # path ()
     path_text = parsed.path.lower()
-    #  fingerprint 
+ # fingerprint 
     fp_capabilities = parsed.target_fingerprint.get("capabilities", "")
     fp_text = fp_capabilities.lower()
 
-    # 
+ # 
     match_text = f"{raw_text}\n{path_text}\n{fp_text}"
 
     detected: set[str] = set()
@@ -172,7 +172,7 @@ def _detect_capabilities_from_burp(burp_path: str) -> set[str]:
                 detected.add(cap_name)
                 break  # converter(s)converter(s)
 
-    #  ()
+ # ()
     if "/mcp" in path_text or "mcp" in path_text:
         detected.add("mcp")
     if "/rag" in path_text or "/knowledge" in path_text or "/retriev" in path_text:
@@ -182,7 +182,7 @@ def _detect_capabilities_from_burp(burp_path: str) -> set[str]:
     if "/workflow" in path_text or "/pipeline" in path_text:
         detected.add("workflow")
 
-    #  fingerprint app_type 
+ # fingerprint app_type 
     app_type = parsed.target_fingerprint.get("app_type", "").lower()
     if "agent" in app_type:
         detected.add("agent")
@@ -193,9 +193,9 @@ def _detect_capabilities_from_burp(burp_path: str) -> set[str]:
 
 
 def _compute_priority_score(capabilities: set[str]) -> int:
-    """ endpoint 
+ """ endpoint 
 
-    Academic basis: Greshake et al. (arXiv:2302.12173) §4 + Lattner et al. (arXiv:2406.12609)
+    Academic basis: Greshake et al. (arXiv:2302.12173) Sec4 + Lattner et al. (arXiv:2406.12609)
       all endpoint ,
        endpoint 
 
@@ -204,7 +204,7 @@ def _compute_priority_score(capabilities: set[str]) -> int:
 
     Returns:
          (0-100), 
-    """
+ """
     if not capabilities:
         return _DEFAULT_PRIORITY
 
@@ -216,11 +216,11 @@ def _compute_priority_score(capabilities: set[str]) -> int:
 
 
 def sort_endpoints_by_priority(burp_list: list[str]) -> list[dict[str, Any]]:
-    """converter(s) Burp endpoint 
+ """converter(s) Burp endpoint 
 
     Academic basis:
-        - Greshake et al. (arXiv:2302.12173) — converter(s) + 
-        - Lattner et al. (arXiv:2406.12609) — 
+        - Greshake et al. (arXiv:2302.12173) - converter(s) + 
+        - Lattner et al. (arXiv:2406.12609) - 
 
     :
         1. converter(s) burp  (0 )
@@ -238,7 +238,7 @@ def sort_endpoints_by_priority(burp_list: list[str]) -> list[dict[str, Any]]:
             - priority_score: 
             - capabilities: 
             - original_index:  ()
-    """
+ """
     endpoint_infos: list[dict[str, Any]] = []
 
     for idx, burp_path in enumerate(burp_list):
@@ -255,22 +255,22 @@ def sort_endpoints_by_priority(burp_list: list[str]) -> list[dict[str, Any]]:
         })
 
         logger.info(
-            "Endpoint priority: %s — score=%d, capabilities=%s",
+            "Endpoint priority: %s - score=%d, capabilities=%s",
             burp_name,
             priority_score,
             sorted(capabilities) if capabilities else ["(none)"],
         )
 
-    # : ,  ()
+ # : , ()
     endpoint_infos.sort(
         key=lambda e: (-e["priority_score"], e["burp_name"]),
     )
 
-    # 
+ # 
     if len(endpoint_infos) > 1:
         logger.info(
             "Endpoint attack order (priority-sorted): %s",
-            " → ".join(
+            " -> ".join(
                 f"{e['burp_name']}(p={e['priority_score']})"
                 for e in endpoint_infos
             ),
@@ -280,7 +280,7 @@ def sort_endpoints_by_priority(burp_list: list[str]) -> list[dict[str, Any]]:
 
 
 def sort_burp_list_by_priority(burp_list: list[str]) -> list[str]:
-    """ Burp , 
+ """ Burp , 
 
      sort_endpoints_by_priority ,  main.py 
 
@@ -289,6 +289,6 @@ def sort_burp_list_by_priority(burp_list: list[str]) -> list[str]:
 
     Returns:
         
-    """
+ """
     endpoint_infos = sort_endpoints_by_priority(burp_list)
     return [e["burp_path"] for e in endpoint_infos]

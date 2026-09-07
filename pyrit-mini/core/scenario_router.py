@@ -1,22 +1,22 @@
-"""core/scenario_router.py — → (v61  synergy_orchestrator)
+"""core/scenario_router.py - -> (v61 synergy_orchestrator)
 
 v61 :
   -  data/synergy_orchestrator.py  SynergyOrchestrator + SynergyConfig
   - data/ Layer,  Python 
-  - ""  "":  → technique_tags → TextAdaptive
+  - ""  "":  -> technique_tags -> TextAdaptive
   -  API  (select_scenario  (name, config) )
 
 :
      (ClassificationResult)
-           ↓
-    config/defaults.yaml → scenario_technique_filters 
-           ↓
+           v
+    config/defaults.yaml -> scenario_technique_filters 
+           v
     (scenario_name, {technique_tags, description, ...})
 
 Data flow:
-    classification → router.select_scenario()
-                   → (name, {technique_tags, description, ...})
-                   → main.py: synergy_config.technique_tags = config["technique_tags"]
+    classification -> router.select_scenario()
+                   -> (name, {technique_tags, description, ...})
+                   -> main.py: synergy_config.technique_tags = config["technique_tags"]
 
 :
     SynergyOrchestrator  SynergyConfig ,  main.py 
@@ -39,7 +39,7 @@ CONFIG_PATH = PROJECT_ROOT / "config" / "defaults.yaml"
 
 
 class ScenarioRouter:
-    """→ (v60)
+ """-> (v60)
 
     :
         - imports config/defaults.yaml Load scenario_technique_filters 
@@ -49,27 +49,27 @@ class ScenarioRouter:
      v59 :
         - Load scenarios.yaml
         -  seeds/converters/scorer 
-        - →technique_tags 
-    """
+        - ->technique_tags 
+ """
 
     def __init__(self, config_path: Path | None = None):
-        """
+ """
         
 
         Args:
             config_path: defaults.yaml  (: config/defaults.yaml)
-        """
+ """
         self._config_path = config_path or CONFIG_PATH
         self._scenario_filters: dict[str, Any] = {}
         self._default_scenario = "model_scenario"
         self._load_config()
 
     def _load_config(self) -> None:
-        """imports defaults.yaml Load scenario_technique_filters .
+ """imports defaults.yaml Load scenario_technique_filters .
 
         : .
-        """
-        # v60:  ()
+ """
+ # v60: ()
         default_filters: dict[str, Any] = {
             "mcp_scenario": {
                 "description": "MCP Server  (Tag: mcp_targeted)",
@@ -101,7 +101,7 @@ class ScenarioRouter:
                     config = yaml.safe_load(f)
                 if isinstance(config, dict):
                     scenario_filters = config.get("scenario_technique_filters", {})
-                    #  scenario_technique_filters  scenario 
+ # scenario_technique_filters scenario 
                     surface_to_name = {
                         "mcp_server": "mcp_scenario",
                         "multi_agent_system": "agent_scenario",
@@ -136,7 +136,7 @@ class ScenarioRouter:
         classification: Any,
         user_override: str | None = None,
     ) -> tuple[str, dict[str, Any]]:
-        """ Scenario (→)
+ """ Scenario (->)
 
         Args:
             classification:  ( attack_surface, confidence )
@@ -144,8 +144,8 @@ class ScenarioRouter:
 
         Returns:
             (scenario_name, scenario_config) 
-        """
-        # 1. 
+ """
+ # 1. 
         if user_override:
             if self._validate_scenario(user_override):
                 logger.info("Scenario forced by user: %s", user_override)
@@ -153,7 +153,7 @@ class ScenarioRouter:
             else:
                 logger.warning("Invalid scenario '%s', falling back to auto", user_override)
 
-        # 2. :  Scenario  triggers
+ # 2. : Scenario triggers
         for name, config in self._scenario_filters.items():
             if self._matches_trigger(classification, config):
                 logger.info(
@@ -163,7 +163,7 @@ class ScenarioRouter:
                 )
                 return name, config
 
-        # 3. Fallback:  Scenario
+ # 3. Fallback: Scenario
         default_name = self._default_scenario
         logger.info("No scenario matched, using default: %s", default_name)
         return default_name, self._get_scenario_config(default_name)
@@ -173,7 +173,7 @@ class ScenarioRouter:
         classification: Any,
         scenario_config: dict[str, Any],
     ) -> bool:
-        """ Scenario  triggers .
+ """ Scenario triggers .
 
         Args:
             classification: 
@@ -181,14 +181,14 @@ class ScenarioRouter:
 
         Returns:
             
-        """
+ """
         triggers = scenario_config.get("triggers", {})
 
-        # 
+ # 
         if triggers.get("attack_surface") != classification.attack_surface:
             return False
 
-        # 
+ # 
         min_conf = triggers.get("min_confidence", 0.0)
         if classification.confidence < min_conf:
             return False
@@ -196,11 +196,11 @@ class ScenarioRouter:
         return True
 
     def list_scenarios(self) -> list[dict[str, Any]]:
-        """all Scenario
+ """all Scenario
 
         Returns:
             Scenario 
-        """
+ """
         result = []
         for name, config in self._scenario_filters.items():
             result.append({
@@ -212,41 +212,41 @@ class ScenarioRouter:
         return result
 
     def _validate_scenario(self, name: str) -> bool:
-        """ Scenario 
+ """ Scenario 
 
         Args:
             name: Scenario 
 
         Returns:
             
-        """
+ """
         return name in self._scenario_filters
 
     def _get_scenario_config(self, name: str) -> dict[str, Any]:
-        """ Scenario 
+ """ Scenario 
 
         Args:
             name: Scenario 
 
         Returns:
             Scenario  model_scenario
-        """
+ """
         return self._scenario_filters.get(name, self._scenario_filters.get(self._default_scenario, {}))
 
     def format_scenarios_display(self) -> str:
-        """all Scenario  ( --list-scenarios )
+ """all Scenario ( --list-scenarios )
 
         Returns:
              Scenario 
-        """
+ """
         scenarios = self.list_scenarios()
         if not scenarios:
             return "No scenarios configured."
 
         lines = [
-            "╔==============================================================================╗",
-            "║                    Available Scenarios (v60 Tag-Based)                       ║",
-            "╠==============================================================================╣",
+            "+==============================================================================+",
+            "||                    Available Scenarios (v60 Tag-Based)                       ||",
+            "+==============================================================================+",
         ]
 
         for i, sc in enumerate(scenarios, 1):
@@ -257,23 +257,23 @@ class ScenarioRouter:
             tags_str = ", ".join(tags) if tags else "all (no filter)"
 
             lines.extend([
-                "║                                                                              ║",
-                f"║  {i}. {sc['name']:<68}║",
-                f"║     Description: {sc['description'][:50]:<52}║",
-                f"║     Triggers: surface={surface}, min_conf={min_conf:<36}║",
-                f"║     Technique Tags: {tags_str[:48]:<50}║",
+                "||                                                                              ||",
+                f"||  {i}. {sc['name']:<68}||",
+                f"||     Description: {sc['description'][:50]:<52}||",
+                f"||     Triggers: surface={surface}, min_conf={min_conf:<36}||",
+                f"||     Technique Tags: {tags_str[:48]:<50}||",
             ])
 
         lines.extend([
-            "║                                                                              ║",
-            "╚==============================================================================╝",
+            "||                                                                              ||",
+            "+==============================================================================+",
         ])
 
         return "\n".join(lines)
 
 
 def apply_scenario_overrides(ctx: Any, scenario_config: dict[str, Any], args: Any) -> None:
-    """ Scenario  ctx.args (v60 ).
+ """ Scenario ctx.args (v60 ).
 
     v60 :
         -  seeds/scorer/converters 
@@ -287,17 +287,17 @@ def apply_scenario_overrides(ctx: Any, scenario_config: dict[str, Any], args: An
         ctx:  (PipelineContext)
         scenario_config:  Scenario  ( technique_tags)
         args: CLI 
-    """
-    # v60:  technique_filter ()
+ """
+ # v60: technique_filter ()
     if not hasattr(args, "adaptive_technique_filter") or args.adaptive_technique_filter is None:
         technique_tags = scenario_config.get("technique_tags")
         if technique_tags is not None:
-            #  scenario's technique_tags  adaptive_technique_filter
+ # scenario's technique_tags adaptive_technique_filter
             ctx.args.adaptive_technique_filter = technique_tags
             logger.info(
                 "Applied scenario technique filter: %s", technique_tags
             )
-        #  technique_tags  None,  ()
+ # technique_tags None, ()
 
     logger.info(
         "Applied scenario overrides (v60): technique_filter=%s",
@@ -312,11 +312,11 @@ _default_router: ScenarioRouter | None = None
 
 
 def get_router() -> ScenarioRouter:
-    """ Scenario router
+ """ Scenario router
 
     Returns:
          ScenarioRouter 
-    """
+ """
     global _default_router
     if _default_router is None:
         _default_router = ScenarioRouter()
@@ -324,39 +324,39 @@ def get_router() -> ScenarioRouter:
 
 
 def reset_router() -> None:
-    """router ()"""
+ """router ()"""
     global _default_router
     _default_router = None
 
 
 # ==============================================================================
-# Synergy  (v61  data/synergy_orchestrator.py )
+# Synergy (v61 data/synergy_orchestrator.py )
 # ==============================================================================
 from dataclasses import dataclass, field
 
 
 @dataclass
 class SynergyConfig:
-    """ (v60 ).
+ """ (v60 ).
 
     :  + .
     v61: imports data/synergy_orchestrator.py  core/scenario_router.py.
-    """
+ """
 
-    # 
+ # 
     burp_profile: str
     attack_surface: str
     confidence: float
 
-    # v60:  ( config/defaults.yaml → scenario_technique_filters )
+ # v60: ( config/defaults.yaml -> scenario_technique_filters )
     technique_tags: list[str] | None = None  # None = 
 
-    # 
+ # 
     evidence: list[str] = field(default_factory=list)
     synergy_enabled: bool = True
 
     def to_dict(self) -> dict[str, Any]:
-        """."""
+ """."""
         return {
             "burp_profile": self.burp_profile,
             "attack_surface": self.attack_surface,
@@ -367,7 +367,7 @@ class SynergyConfig:
         }
 
     def summary(self) -> str:
-        """."""
+ """."""
         return (
             f"SynergyConfig(\n"
             f"  burp_profile={self.burp_profile},\n"
@@ -380,7 +380,7 @@ class SynergyConfig:
 
 
 def _split_burp_content(burp_content: str) -> tuple[str, str]:
-    """imports Burp  HTTP .
+ """imports Burp HTTP .
 
     Burp :
         HTTP  (headers + body)
@@ -393,7 +393,7 @@ def _split_burp_content(burp_content: str) -> tuple[str, str]:
 
     Returns:
         (http_request, http_response) 
-    """
+ """
     lines = burp_content.split("\n")
     response_start = -1
     for i, line in enumerate(lines):
@@ -410,51 +410,51 @@ def _split_burp_content(burp_content: str) -> tuple[str, str]:
 
 
 class SynergyOrchestrator:
-    """→ (v61  core/).
+ """-> (v61 core/).
 
     :
       1.  ( + HTTP )
-      2.  → technique_tags  ( config/defaults.yaml)
+      2.  -> technique_tags  ( config/defaults.yaml)
 
     v61: imports data/synergy_orchestrator.py  core/scenario_router.py.
-    """
+ """
 
     def __init__(
         self,
         data_root: Path | None = None,
         burp_dir: Path | None = None,
     ):
-        """
+ """
         .
 
         Args:
             data_root:  (: project/data)
             burp_dir: Burp  (: config/burp)
-        """
+ """
         self._data_root = data_root or PROJECT_ROOT / "data"
-        # v63: burp  config/burp (, )
+ # v63: burp config/burp (, )
         self._burp_dir = burp_dir or (PROJECT_ROOT / "config" / "burp")
 
-        # 
+ # 
         self._mapper = None
         self._tag_mapping: dict[str, list[str] | None] | None = None
 
     @property
     def mapper(self):
-        """Load AssetMapper."""
+ """Load AssetMapper."""
         if self._mapper is None:
             from core.asset_mapper import AssetMapper
             self._mapper = AssetMapper()
         return self._mapper
 
     def _load_tag_mapping(self) -> dict[str, list[str] | None]:
-        """imports config/defaults.yaml Load→technique_tags .
+ """imports config/defaults.yaml Load->technique_tags .
 
         v60: ,  scenarios.yaml .
 
         Returns:
-             → technique_tags 
-        """
+             -> technique_tags 
+ """
         if self._tag_mapping is not None:
             return self._tag_mapping
 
@@ -493,7 +493,7 @@ class SynergyOrchestrator:
         burp_content: str | None = None,
         force_surface: str | None = None,
     ) -> SynergyConfig:
-        """ ( + ).
+ """ ( + ).
 
         :  Burp  + .
 
@@ -504,16 +504,16 @@ class SynergyOrchestrator:
 
         Returns:
             SynergyConfig:  attack_surface + technique_tags
-        """
+ """
         logger.info("Building synergy config for burp profile: %s", burp_profile_name)
 
-        # == Step 1:  ==
+ # == Step 1: ==
         if force_surface:
             attack_surface = force_surface
             confidence = 1.0
             evidence = [f"Forced surface type: {force_surface}"]
         elif burp_content:
-            # 
+ # 
             from recon.attack_surface_classifier import classify_http_content
 
             url = self._extract_url(burp_content)
@@ -527,12 +527,12 @@ class SynergyOrchestrator:
             confidence = result.confidence
             evidence = result.evidence
         else:
-            # 
+ # 
             attack_surface = self.mapper.classify_attack_surface(burp_profile_name)
             confidence = 0.6
             evidence = ["File-name based classification"]
 
-        # == Step 2:  → technique_tags  ==
+ # == Step 2: -> technique_tags ==
         tag_mapping = self._load_tag_mapping()
         technique_tags = tag_mapping.get(attack_surface)
 
@@ -551,7 +551,7 @@ class SynergyOrchestrator:
         )
 
     def build_from_burp_file(self, burp_filename: str) -> SynergyConfig:
-        """imports Burp .
+ """imports Burp .
 
         :  Burp .
 
@@ -560,7 +560,7 @@ class SynergyOrchestrator:
 
         Returns:
             SynergyConfig
-        """
+ """
         profile_name = burp_filename.replace(".txt", "")
 
         burp_content = None
@@ -577,7 +577,7 @@ class SynergyOrchestrator:
 
     @staticmethod
     def _extract_url(http_content: str) -> str | None:
-        """imports HTTP  URL."""
+ """imports HTTP URL."""
         first_line = http_content.split("\n", 1)[0].strip()
         parts = first_line.split()
         if len(parts) >= 2:
@@ -586,13 +586,13 @@ class SynergyOrchestrator:
 
 
 # ==============================================
-#  (Synergy Layer)
+# (Synergy Layer)
 # ==============================================
 _default_orchestrator: SynergyOrchestrator | None = None
 
 
 def get_orchestrator() -> SynergyOrchestrator:
-    """."""
+ """."""
     global _default_orchestrator
     if _default_orchestrator is None:
         _default_orchestrator = SynergyOrchestrator()
@@ -600,31 +600,31 @@ def get_orchestrator() -> SynergyOrchestrator:
 
 
 def quick_build(burp_profile_name: str) -> SynergyConfig:
-    """.
+ """.
 
     Args:
         burp_profile_name: Burp 
 
     Returns:
         SynergyConfig
-    """
+ """
     return get_orchestrator().build_synergy_config(burp_profile_name)
 
 
 def build_from_burp_file(burp_filename: str) -> SynergyConfig:
-    """imports Burp .
+ """imports Burp .
 
     Args:
         burp_filename: Burp 
 
     Returns:
         SynergyConfig
-    """
+ """
     return get_orchestrator().build_from_burp_file(burp_filename)
 
 
 def get_cli_overrides(burp_profile_name: str) -> dict[str, Any]:
-    """ CLI  ( main.py ).
+ """ CLI ( main.py ).
 
     v60:  attack_surface + technique_tags,  seeds/scorer.
 
@@ -633,7 +633,7 @@ def get_cli_overrides(burp_profile_name: str) -> dict[str, Any]:
 
     Returns:
         
-    """
+ """
     config = quick_build(burp_profile_name)
 
     return {
@@ -647,12 +647,12 @@ def get_cli_overrides(burp_profile_name: str) -> dict[str, Any]:
 # CLI : --list-scenarios
 # ==============================================================================
 def main() -> None:
-    """CLI : all Scenario"""
+ """CLI : all Scenario"""
     router = get_router()
     print(router.format_scenarios_display())
 
 
 if __name__ == "__main__":
-    # : python -m core.scenario_router
+ # : python -m core.scenario_router
     logging.basicConfig(level=logging.INFO)
     main()

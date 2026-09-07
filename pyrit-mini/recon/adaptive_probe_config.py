@@ -1,13 +1,13 @@
-"""Adaptive Probe Configuration — 
+"""Adaptive Probe Configuration - 
 
 Academic basis:
-    - Greshake et al. (arXiv:2302.12173) §5 — 
-    - RLFT (Chiang et al. arXiv:2402.04249) — 
-    - Perez et al. (arXiv:2202.03286) — InstructGPT : 
+    - Greshake et al. (arXiv:2302.12173) Sec5 - 
+    - RLFT (Chiang et al. arXiv:2402.04249) - 
+    - Perez et al. (arXiv:2202.03286) - InstructGPT : 
 
 :
      "" :
-    1.  (paranoid= → )
+    1.  (paranoid= -> )
     2.  ()
     3. API  (SSE > JSON > text)
     4.  (multi_agent > agent > chat)
@@ -43,7 +43,7 @@ COMPLEXITY_PROBE_BUDGETS: dict[str, dict[str, int]] = {
     "simple": {
         "budget": 3,
         "parallel": 1,
-        "deep_probe_budget": 0,     #  deep probe
+        "deep_probe_budget": 0,     # deep probe
         "behavioral_verify_budget": 0,
     },
     "moderate": {
@@ -66,7 +66,7 @@ COMPLEXITY_PROBE_BUDGETS: dict[str, dict[str, int]] = {
     },
 }
 
-#  → 
+# -> 
 _APP_TYPE_COMPLEXITY_OFFSET: dict[str, int] = {
     "chat": 0,
     "agent": 2,
@@ -76,7 +76,7 @@ _APP_TYPE_COMPLEXITY_OFFSET: dict[str, int] = {
     "api": 0,
 }
 
-#  →  (paranoid )
+# -> (paranoid )
 _GUARDRILL_REDUCTION_FACTOR: dict[str, float] = {
     "none": 1.0,
     "permissive": 1.3,
@@ -96,14 +96,14 @@ def compute_probe_budget(
     app_type: str = "chat",
     stealth_level: str = "balanced",
 ) -> dict[str, Any]:
-    """
+ """
 
     :
         1. imports
         2. 
         3.  stealth level 
         4. 
-        5.  budget = base × capabilities_factor × guardrail_factor × stealth_factor
+        5.  budget = base x capabilities_factor x guardrail_factor x stealth_factor
 
     :
         >>> budget = compute_probe_budget(
@@ -126,16 +126,16 @@ def compute_probe_budget(
         {
             "budget": int,                  # 
             "parallel": int,                # 
-            "deep_probe_budget": int,       # deep probe  (8 converter(s))
+            "deep_probe_budget": int,       # deep probe (8 converter(s))
             "behavioral_verify_budget": int, # 
             "complexity_level": str,        # 
-            "reasoning": str,               #  ()
+            "reasoning": str,               # ()
         }
-    """
-    # 1.  ()
+ """
+ # 1. ()
     base_complexity = _APP_TYPE_COMPLEXITY_OFFSET.get(app_type, 0)
 
-    # 2. 
+ # 2. 
     num_capabilities = len(capabilities)
     if num_capabilities <= 1:
         cap_complexity = 0
@@ -152,7 +152,7 @@ def compute_probe_budget(
 
     total_complexity = base_complexity + cap_complexity
 
-    # 3. 
+ # 3. 
     if total_complexity <= 2:
         complexity_level = "simple"
     elif total_complexity <= 4:
@@ -164,10 +164,10 @@ def compute_probe_budget(
 
     budget_config = COMPLEXITY_PROBE_BUDGETS[complexity_level]
 
-    # 4. 
+ # 4. 
     guardrail_factor = _GUARDRILL_REDUCTION_FACTOR.get(guardrail_severity, 1.0)
 
-    # 5.  stealth 
+ # 5. stealth 
     stealth_factors = {
         "paranoid": 0.3,
         "balanced": 1.0,
@@ -175,7 +175,7 @@ def compute_probe_budget(
     }
     stealth_factor = stealth_factors.get(stealth_level, 1.0)
 
-    # 6.  (,  1)
+ # 6. (, 1)
     budget = max(1, int(budget_config["budget"] * guardrail_factor * stealth_factor))
     parallel = max(1, min(budget_config["parallel"], budget))
     deep_probe = max(0, int(budget_config["deep_probe_budget"] * guardrail_factor * stealth_factor))
@@ -185,12 +185,12 @@ def compute_probe_budget(
         f"app_type={app_type} (+{base_complexity})",
         f"num_capabilities={num_capabilities} (+{cap_complexity})",
         f"complexity_level={complexity_level}",
-        f"guardrail={guardrail_severity} (×{guardrail_factor})",
-        f"stealth={stealth_level} (×{stealth_factor})",
+        f"guardrail={guardrail_severity} (x{guardrail_factor})",
+        f"stealth={stealth_level} (x{stealth_factor})",
     ]
 
     logger.info(
-        "Adaptive probe budget: total=%d, parallel=%d, deep=%d, behavioral=%d — %s",
+        "Adaptive probe budget: total=%d, parallel=%d, deep=%d, behavioral=%d - %s",
         budget,
         parallel,
         deep_probe,
@@ -213,7 +213,7 @@ def should_run_probe(
     total_used: int,
     budget_config: dict[str, Any],
 ) -> bool:
-    """
+ """
 
     Args:
         probe_type:  ("basic" / "deep" / "behavioral")
@@ -222,19 +222,19 @@ def should_run_probe(
 
     Returns:
            
-    """
+ """
     total_budget = budget_config.get("budget", 5)
 
-    # : 
+ # : 
     if probe_type == "basic":
         return total_used < total_budget
 
-    # Deep probe: 
+ # Deep probe: 
     if probe_type == "deep":
         deep_budget = budget_config.get("deep_probe_budget", 0)
         return total_used < deep_budget
 
-    # Behavioral verify: 
+ # Behavioral verify: 
     if probe_type == "behavioral":
         behavioral_budget = budget_config.get("behavioral_verify_budget", 0)
         return total_used < behavioral_budget

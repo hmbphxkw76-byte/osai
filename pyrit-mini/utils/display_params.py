@@ -1,4 +1,4 @@
-"""display_params.py —  (imports YAML ).
+"""display_params.py - (imports YAML ).
 
 T0-10 :  display.py .
     - _get_technique_category: 
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def _load_display_config() -> dict:
-    """Load display  (technique_param_labels, technique_converter_descriptions, technique_categories)."""
+ """Load display (technique_param_labels, technique_converter_descriptions, technique_categories)."""
     try:
         from pathlib import Path
 
@@ -34,14 +34,14 @@ def _load_display_config() -> dict:
 
 
 def _get_technique_category(tech: str) -> str:
-    """ (imports YAML ).
+ """ (imports YAML ).
 
     Args:
         tech: 
 
     Returns:
         : baseline / multi-turn / context-semantic / encoding / infrastructure / other
-    """
+ """
     cfg = _load_display_config()
     categories = cfg.get("technique_categories", {})
 
@@ -54,7 +54,7 @@ def _get_technique_category(tech: str) -> str:
 
 
 def _get_technique_params(tech: str, ctx: Any = None) -> str:
-    """imports ctx.args / defaults.yaml , .
+ """imports ctx.args / defaults.yaml , .
 
     imports config/defaults.yaml  technique_param_labels ,
     Layer.
@@ -65,12 +65,12 @@ def _get_technique_params(tech: str, ctx: Any = None) -> str:
 
     Returns:
         ,  "turns=10, backtrack=5"
-    """
+ """
     cfg = _load_display_config()
     param_labels = cfg.get("technique_param_labels", {})
 
     def _resolve(key: str, default: float) -> float:
-        """imports ctx.args ,  yaml,  fallback."""
+ """imports ctx.args , yaml, fallback."""
         if ctx is not None:
             args = getattr(ctx, "args", None)
             if args is not None:
@@ -80,13 +80,13 @@ def _get_technique_params(tech: str, ctx: Any = None) -> str:
         return float(cfg.get(key, default))
 
     def _fmt(key: str, default: float) -> str | None:
-        """+,  None."""
+ """+, None."""
         label = param_labels.get(key)
         if label is None:
             return None
         return f"{label}={int(_resolve(key, default))}"
 
-    # :  → [(yaml_key, default), ...]
+ # : -> [(yaml_key, default), ...]
     tech_param_map: dict[str, list[tuple[str, float]]] = {
         "crescendo": [("crescendo_max_turns", 10), ("crescendo_max_backtracks", 5)],
         "tap": [("tap_tree_width", 4), ("tap_tree_depth", 4)],
@@ -101,7 +101,7 @@ def _get_technique_params(tech: str, ctx: Any = None) -> str:
         "cot_hijack": [("cot_hijack_max_turns", 5)],
     }
 
-    #  (,  YAML )
+ # (, YAML )
     static_params: dict[str, list[str]] = {
         "skeleton_key": ["prefix=system_prompt"],
         "skeleton_key_native": ["prefix=system_prompt"],
@@ -114,7 +114,7 @@ def _get_technique_params(tech: str, ctx: Any = None) -> str:
 
     params: list[str] = []
 
-    # 
+ # 
     for prefix, key_defaults in tech_param_map.items():
         if tech.startswith(prefix):
             for key, default in key_defaults:
@@ -123,7 +123,7 @@ def _get_technique_params(tech: str, ctx: Any = None) -> str:
                     params.append(val)
             break
 
-    # 
+ # 
     if tech in static_params:
         params.extend(static_params[tech])
 
@@ -131,7 +131,7 @@ def _get_technique_params(tech: str, ctx: Any = None) -> str:
 
 
 def _get_converter_summary(tech: str, ctx: Any) -> str:
-    """ converter  (imports YAML ).
+ """ converter (imports YAML ).
 
     Args:
         tech: 
@@ -139,8 +139,8 @@ def _get_converter_summary(tech: str, ctx: Any) -> str:
 
     Returns:
         converter 
-    """
-    #  ctx.converter_map 
+ """
+ # ctx.converter_map 
     if ctx.converter_map and tech in ctx.converter_map:
         converters = ctx.converter_map[tech]
         if converters:
@@ -148,7 +148,7 @@ def _get_converter_summary(tech: str, ctx: Any) -> str:
             return _get_converter_chain_names(converters, max_display=5)
         return "none (raw payload)"
 
-    #  YAML 
+ # YAML 
     cfg = _load_display_config()
     converter_descs = cfg.get("technique_converter_descriptions", {})
     native_desc = converter_descs.get(tech)

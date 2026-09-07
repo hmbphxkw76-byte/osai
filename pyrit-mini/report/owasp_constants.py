@@ -1,12 +1,12 @@
-"""OWASP  ??evidence.py .
+"""OWASP ??evidence.py .
 
- MITRE ATLAS , OWASP , OWASP Web Top 10 В.
+ MITRE ATLAS , OWASP , OWASP Web Top 10 B.
 """
 
-# €€ MITRE ATT&CK for AI Systems (ATLAS)  €€
+# EUREUR MITRE ATT&CK for AI Systems (ATLAS) EUREUR
 # Reference: https://atlas.mitre.org/
-# ︽: MITRE ATLAS (Adversarial Threat Landscape for AI Systems)
-#  frames AI-specific attack techniques analogous to ATT&CK for traditional IT.
+# [: MITRE ATLAS (Adversarial Threat Landscape for AI Systems)
+# frames AI-specific attack techniques analogous to ATT&CK for traditional IT.
 _MITRE_ATLAS_TECHNIQUES: dict[str, dict[str, str]] = {
     "LLM01": {
         "tactic": "Execution",
@@ -130,7 +130,7 @@ _MITRE_ATLAS_TECHNIQUES: dict[str, dict[str, str]] = {
     },
 }
 
-# €€ OWASP Top 10 (2025) ? Web  €€
+# EUREUR OWASP Top 10 (2025) ? Web EUREUR
 # Reference: https://owasp.org/www-project-top-10/
 _OWASP_WEB_CATEGORIES = {
     "A01": "Broken Access Control",
@@ -145,7 +145,7 @@ _OWASP_WEB_CATEGORIES = {
     "A10": "Server-Side Request Forgery (SSRF)",
 }
 
-# €€ OWASP LLM Top 10 for LLM Applications (2025 Edition) €€
+# EUREUR OWASP LLM Top 10 for LLM Applications (2025 Edition) EUREUR
 # Reference: https://owasp.org/www-project-top-10-for-large-language-model-applications/
 _OWASP_LLM_CATEGORIES = {
     "LLM01": "Prompt Injection",
@@ -160,7 +160,7 @@ _OWASP_LLM_CATEGORIES = {
     "LLM10": "Unbounded Consumption",
 }
 
-# €€ OWASP Agentic AI Top 10 €€
+# EUREUR OWASP Agentic AI Top 10 EUREUR
 # Reference: https://owasp.org/www-project-agent-security/
 # (: Agent Security Initiative, 2025 ?Agentic AI Top 10)
 _OWASP_ASI_CATEGORIES = {
@@ -176,7 +176,7 @@ _OWASP_ASI_CATEGORIES = {
     "ASI10": "Rogue Agent",
 }
 
-# €€ OWASP ラх?(CVSS-like ) €€
+# EUREUR OWASP rax?(CVSS-like ) EUREUR
 _OWASP_SEVERITY_LEVELS = {
     "critical": {"score_range": (9.0, 10.0), "color": "#ff0000", "description": "Immediate exploitation risk, requires urgent remediation"},
     "high": {"score_range": (7.0, 8.9), "color": "#ff4444", "description": "Significant risk, remediate within 7 days"},
@@ -185,7 +185,7 @@ _OWASP_SEVERITY_LEVELS = {
     "info": {"score_range": (0.0, 0.9), "color": "#888888", "description": "Informational, no direct risk"},
 }
 
-# €€ OWASP LLM Top 10 В €€
+# EUREUR OWASP LLM Top 10 B EUREUR
 _OWASP_LLM_MITIGATIONS = {
     "LLM01": [
         "Implement input validation and sanitization for all prompts",
@@ -249,7 +249,7 @@ _OWASP_LLM_MITIGATIONS = {
     ],
 }
 
-# €€ OWASP ASI Top 10 В €€
+# EUREUR OWASP ASI Top 10 B EUREUR
 _OWASP_ASI_MITIGATIONS = {
     "ASI01": [
         "Implement agent identity verification and authentication",
@@ -313,7 +313,7 @@ _OWASP_ASI_MITIGATIONS = {
     ],
 }
 
-# €€ OWASP Web Top 10 (2025) В €€
+# EUREUR OWASP Web Top 10 (2025) B EUREUR
 _OWASP_WEB_MITIGATIONS = {
     "A01": [
         "Implement proper access control checks on every request",
@@ -377,7 +377,7 @@ _OWASP_WEB_MITIGATIONS = {
     ],
 }
 
-# €€ OWASP  €€
+# EUREUR OWASP EUREUR
 OWASP_WEB_TOP10_REFERENCE = (
     "OWASP Top 10 (2025) ?"
     "https://owasp.org/www-project-top-10/"

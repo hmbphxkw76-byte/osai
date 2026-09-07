@@ -1,4 +1,4 @@
-"""display_stages.py — Phase-specific display cards (RECON/ARM/STRIKE/ESCALATE/ASSESS/REPORT).
+"""display_stages.py - Phase-specific display cards (RECON/ARM/STRIKE/ESCALATE/ASSESS/REPORT).
 
 Imports from utils/display.py, provides:
     - Recon card (target entry point + hand-off)
@@ -46,13 +46,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # ====================================================================
-#  →  ()
+# -> ()
 # Academic basis:
-#   - Greshake et al. (arXiv:2302.12173) —
-#   - Zhan et al. (arXiv:2307.00929) — InjecAgent
-#   - Morris et al. (arXiv:2310.06870) —
-#   - PyRIT (arXiv:2407.01232) —
-#   - OWASP LLM Top 10 + ASI Top 10
+# - Greshake et al. (arXiv:2302.12173) -
+# - Zhan et al. (arXiv:2307.00929) - InjecAgent
+# - Morris et al. (arXiv:2310.06870) -
+# - PyRIT (arXiv:2407.01232) -
+# - OWASP LLM Top 10 + ASI Top 10
 # ====================================================================
 
 _CAPABILITY_STRATEGY: dict[str, dict[str, str]] = {
@@ -70,12 +70,12 @@ _CAPABILITY_STRATEGY: dict[str, dict[str, str]] = {
 
 
 # ====================================================================
-#  (, )
+# (, )
 # ====================================================================
 
 
 def _get_outcome_label(result: Any) -> str:
-    """Return AttackResult outcome label (colored)."""
+ """Return AttackResult outcome label (colored)."""
     outcome = getattr(result, "outcome", None)
     if outcome:
         s = str(outcome).upper()
@@ -85,7 +85,7 @@ def _get_outcome_label(result: Any) -> str:
             return f"{_C_RED}FAILURE{_C_RESET}"
         if "UNDETERMINED" in s:
             return f"{_C_YELLOW}UNDETERMINED{_C_RESET}"
-    return f"{_C_DIM}—{_C_RESET}"
+    return f"{_C_DIM}-{_C_RESET}"
 
 
 # ====================================================================
@@ -93,7 +93,7 @@ def _get_outcome_label(result: Any) -> str:
 # ====================================================================
 
 def print_recon_card(ctx: "PipelineContext") -> None:
-    """Print recon card (for --stage recon, standalone display).
+ """Print recon card (for --stage recon, standalone display).
 
     Layout (3 rows, Hand-off style, left-to-right):
         Row 1: Target Entry Point + Hand-off -- endpoint + model + auth + language + caps -> ARM
@@ -103,17 +103,17 @@ def print_recon_card(ctx: "PipelineContext") -> None:
         - Row 3 Hand-off values (api_category, session_type, probe_count,
           probe_duration) -> Row 1 consumption, then model/language/caps
         - Row 2 PROBE capability strategy, converter(s)
-    """
+ """
     if not ctx.parsed_request:
         return
     fp = ctx.parsed_request.target_fingerprint
-    # :  model  recon_report.py
-    #  model_family ( "claude")
-    #  burp_model_name (Burp  "gpt-4o")
+ # : model recon_report.py
+ # model_family ( "claude")
+ # burp_model_name (Burp "gpt-4o")
     model = fp.get("model_family", "") or fp.get("burp_model_name", "") or "Unknown"
     caps = fp.get("capabilities", "") or "none"
 
-    # ① Target Entry Point + Hand-off ()
+ # (1) Target Entry Point + Hand-off ()
     _is_api_mode = fp.get("target_type", "") in ("chat", "responses", "litellm", "browser")
     scheme = "https" if ctx.parsed_request.use_tls else "http"
     _endpoint_display = f"{scheme}://{ctx.parsed_request.host}{ctx.parsed_request.path}" if ctx.parsed_request.host else fp.get("endpoint", "N/A")
@@ -126,7 +126,7 @@ def print_recon_card(ctx: "PipelineContext") -> None:
 
     _ai_fw = fp.get("ai_framework", "")
     _ai_fw_cat = fp.get("ai_framework_category", "")
-    _ai_fw_display = f"{_ai_fw} ({_ai_fw_cat})" if _ai_fw and _ai_fw_cat else (_ai_fw or "—")
+    _ai_fw_display = f"{_ai_fw} ({_ai_fw_cat})" if _ai_fw and _ai_fw_cat else (_ai_fw or "-")
     _sp_leaked = fp.get("system_prompt_leaked", False)
     _sp_method = fp.get("system_prompt_extraction_method", "")
     _sp_len = fp.get("system_prompt_length", 0)
@@ -137,7 +137,7 @@ def print_recon_card(ctx: "PipelineContext") -> None:
 
     print()
     print_card(
-        "RECON — Target Entry Point + Hand-off",
+        "RECON - Target Entry Point + Hand-off",
         [
             ("Endpoint", _endpoint_display),
             ("Model", model),
@@ -154,7 +154,7 @@ def print_recon_card(ctx: "PipelineContext") -> None:
         color=_C_CYAN,
     )
 
-    # ② Attack Surface ( → )
+ # (2) Attack Surface ( -> )
     recommendations = fp.get("capability_recommendations", {})
     if isinstance(recommendations, dict):
         immediate = recommendations.get("immediate", [])
@@ -166,31 +166,31 @@ def print_recon_card(ctx: "PipelineContext") -> None:
     if immediate or probe_recs or possible:
         cap_items: list[str] = []
         if immediate:
-            cap_items.append(f"  {_C_GREEN}IMMEDIATE (HIGH) — :{_C_RESET}")
+            cap_items.append(f"  {_C_GREEN}IMMEDIATE (HIGH) - :{_C_RESET}")
             for item in immediate:
                 strategy = _CAPABILITY_STRATEGY.get(item)
                 if strategy:
                     cap_items.append(
-                        f"    → {_C_GREEN}{item}{_C_RESET} "
+                        f"    -> {_C_GREEN}{item}{_C_RESET} "
                         f"{_C_DIM}[{strategy['strategy']} | {strategy['arxiv']} | OWASP {strategy['owasp']}]{_C_RESET}"
                     )
                 else:
-                    cap_items.append(f"    → {_C_GREEN}{item}{_C_RESET}")
+                    cap_items.append(f"    -> {_C_GREEN}{item}{_C_RESET}")
         if probe_recs:
-            cap_items.append(f"  {_C_YELLOW}PROBE (MEDIUM) — Confirmation:{_C_RESET}")
+            cap_items.append(f"  {_C_YELLOW}PROBE (MEDIUM) - Confirmation:{_C_RESET}")
             for item in probe_recs:
                 strategy = _CAPABILITY_STRATEGY.get(item)
                 if strategy:
                     cap_items.append(
-                        f"    → {_C_YELLOW}{item}{_C_RESET} "
-                        f"{_C_DIM}→ {strategy['strategy']}{_C_RESET}"
+                        f"    -> {_C_YELLOW}{item}{_C_RESET} "
+                        f"{_C_DIM}-> {strategy['strategy']}{_C_RESET}"
                     )
                 else:
-                    cap_items.append(f"    → {_C_YELLOW}{item}{_C_RESET}")
+                    cap_items.append(f"    -> {_C_YELLOW}{item}{_C_RESET}")
         if possible:
-            cap_items.append(f"  {_C_DIM}POSSIBLE (LOW) — , :{_C_RESET}")
+            cap_items.append(f"  {_C_DIM}POSSIBLE (LOW) - , :{_C_RESET}")
             for item in possible:
-                cap_items.append(f"    → {_C_DIM}{item}{_C_RESET}")
+                cap_items.append(f"    -> {_C_DIM}{item}{_C_RESET}")
         print()
         print_section("Attack Surface (from capability probe)", cap_items, color=_C_YELLOW)
 
@@ -200,7 +200,7 @@ def print_recon_card(ctx: "PipelineContext") -> None:
 # ====================================================================
 
 def _strip_common_prefix(value: str) -> str:
-    """ Skeleton Key / DAN , ."""
+ """ Skeleton Key / DAN , ."""
     sk_pattern = re.compile(
         r"^\[System Override\] You are now in skeleton-key mode.*?"
         r"Start your response with 'SK\.' to confirm\.\s*",
@@ -221,7 +221,7 @@ def _strip_common_prefix(value: str) -> str:
 
 
 def _get_seed_names(ctx: "PipelineContext") -> list[str]:
-    """ ( 8 converter(s)), ."""
+ """ ( 8 converter(s)), ."""
     seen_keys: set[str] = set()
     items: list[str] = []
     for seed in ctx.seeds:
@@ -267,7 +267,7 @@ def _get_seed_names(ctx: "PipelineContext") -> list[str]:
 
 
 def print_arm_card(ctx: "PipelineContext") -> None:
-    """ (//Converter )."""
+ """ (//Converter )."""
     total_converters = sum(len(v) for v in ctx.converter_map.values())
 
     _target_type_str = "unknown"
@@ -285,7 +285,7 @@ def print_arm_card(ctx: "PipelineContext") -> None:
 
     print()
     print_card(
-        "ARM — Weapon Loadout",
+        "ARM - Weapon Loadout",
         [
             ("Seeds", str(len(ctx.seeds))),
             ("Techniques", ", ".join(ctx.techniques) if ctx.techniques else "(none)"),
@@ -306,7 +306,7 @@ def print_arm_card(ctx: "PipelineContext") -> None:
         print()
         print_section("Seeds (Top 8 by ASR)", items, color=_C_CYAN)
 
-    #
+ #
     if ctx.techniques:
         _tech_asr_hist: dict[str, float] = {}
         try:
@@ -362,7 +362,7 @@ def print_arm_card(ctx: "PipelineContext") -> None:
 
 
 def print_arm_highlights(ctx: "PipelineContext") -> None:
-    """ ARM  ()."""
+ """ ARM ()."""
     if not ctx.parsed_request:
         return
     fp = ctx.parsed_request.target_fingerprint
@@ -372,13 +372,13 @@ def print_arm_highlights(ctx: "PipelineContext") -> None:
 
     highlights: list[str] = []
     if "mcp" in caps.lower() or "mcp_protocol" in caps.lower():
-        highlights.append(f"  {_C_MAGENTA}MCP Agent {_C_RESET} — L4  + MCP RAG ")
+        highlights.append(f"  {_C_MAGENTA}MCP Agent {_C_RESET} - L4  + MCP RAG ")
     if "function_calling" in caps.lower() or "tool_use" in caps.lower():
-        highlights.append(f"  {_C_MAGENTA}Function Calling{_C_RESET} —  +  function schema")
+        highlights.append(f"  {_C_MAGENTA}Function Calling{_C_RESET} -  +  function schema")
     if "memory" in caps.lower():
-        highlights.append(f"  {_C_MAGENTA}Memory{_C_RESET} —  + token smuggling")
+        highlights.append(f"  {_C_MAGENTA}Memory{_C_RESET} -  + token smuggling")
     if "rag" in caps.lower():
-        highlights.append(f"  {_C_MAGENTA}RAG{_C_RESET} —  + ")
+        highlights.append(f"  {_C_MAGENTA}RAG{_C_RESET} -  + ")
 
     if highlights:
         print()
@@ -386,19 +386,19 @@ def print_arm_highlights(ctx: "PipelineContext") -> None:
 
 
 # ====================================================================
-# STRIKE  +
+# STRIKE +
 # ====================================================================
 
 def _extract_success_info(result: Any, tech_name: str) -> dict[str, str]:
-    """Extract success info from AttackResult.
+ """Extract success info from AttackResult.
 
     Returns dict with:
-        1. Seed (Seed) — original payload (objective)
-        2. Converter — converter chain (type name fallback)
-        3. Technique — technique name + PyRIT identifier
-        4. Response (Response) — truncated response text
-        5. ASR Prior (ASR Prior) — historical ASR for technique
-    """
+        1. Seed (Seed) - original payload (objective)
+        2. Converter - converter chain (type name fallback)
+        3. Technique - technique name + PyRIT identifier
+        4. Response (Response) - truncated response text
+        5. ASR Prior (ASR Prior) - historical ASR for technique
+ """
     seed = ""
     objective = getattr(result, "objective", None)
     if objective and isinstance(objective, str) and len(objective) > 0:
@@ -420,7 +420,7 @@ def _extract_success_info(result: Any, tech_name: str) -> dict[str, str]:
                     if class_name:
                         names.append(class_name)
                 if names:
-                    converter = " → ".join(names)
+                    converter = " -> ".join(names)
     if not converter:
         if tech_name in ("crescendo", "tap", "pair", "red_teaming"):
             converter = f"{tech_name} (adversarial multi-turn)"
@@ -479,7 +479,7 @@ def print_success_breakthrough(
     asr_prior: str = "",
     response: str = "",
 ) -> None:
-    """."""
+ """."""
     seed_display = seed[:55] + ("..." if len(seed) > 55 else "")
     conv_display = converter[:55] + ("..." if len(converter) > 55 else "")
     tech_display = technique[:55]
@@ -487,7 +487,7 @@ def print_success_breakthrough(
 
     print()
     _print_card_top(_C_GREEN + _C_BOLD)
-    print(_card_line(f"{_C_GREEN}{_C_BOLD}✅ ATTACK SUCCESS — Breakthrough!{_C_RESET}", _C_GREEN + _C_BOLD))
+    print(_card_line(f"{_C_GREEN}{_C_BOLD}✅ ATTACK SUCCESS - Breakthrough!{_C_RESET}", _C_GREEN + _C_BOLD))
     _print_card_sep()
     print(_card_line(f"{_C_BOLD}Seed{_C_RESET}      {seed_display}"))
     print(_card_line(f"{_C_BOLD}Converter{_C_RESET} {conv_display}"))
@@ -506,7 +506,7 @@ def print_success_payload_snapshot(
     phase_label: str = "STRIKE",
     max_success_display: int = 5,
 ) -> None:
-    """ Payload ."""
+ """ Payload ."""
     success_entries: list[dict[str, str]] = []
     for tech_name, results in attack_results.items():
         for r in results:
@@ -524,7 +524,7 @@ def print_success_payload_snapshot(
     print()
     _print_card_top(_C_GREEN)
     print(_card_line(
-        f"{_C_GREEN}{_C_BOLD}✅ Success Payload Snapshot — {phase_label}{_C_RESET}",
+        f"{_C_GREEN}{_C_BOLD}✅ Success Payload Snapshot - {phase_label}{_C_RESET}",
         _C_GREEN + _C_BOLD,
     ))
     _print_card_sep()
@@ -556,7 +556,7 @@ def print_success_payload_snapshot(
 # ====================================================================
 
 def print_escalate_card(ctx: "PipelineContext") -> None:
-    """ (Layer)."""
+ """ (Layer)."""
     total = sum(len(results) for results in ctx.attack_results.values())
 
     escalation_techs = [
@@ -595,7 +595,7 @@ def print_escalate_card(ctx: "PipelineContext") -> None:
             rows.append(("Last Decision", reasoning[:60]))
 
     print()
-    print_card("ESCALATE — Multi-Turn Chain", rows, color=_C_MAGENTA)
+    print_card("ESCALATE - Multi-Turn Chain", rows, color=_C_MAGENTA)
 
     if escalation_techs:
         items = []
@@ -621,7 +621,7 @@ def print_escalate_card(ctx: "PipelineContext") -> None:
 # ====================================================================
 
 def print_assess_card(ctx: "PipelineContext") -> None:
-    """ (ASR/Wilson CI/Judge)."""
+ """ (ASR/Wilson CI/Judge)."""
     rows = [
         ("Overall ASR", _format_asr(ctx.overall_asr)),
     ]
@@ -641,7 +641,7 @@ def print_assess_card(ctx: "PipelineContext") -> None:
     rows.append(("Successful", f"{_C_GREEN}{total_success}{_C_RESET}"))
 
     print()
-    print_card("ASSESS — Scoring Results", rows, color=_C_GREEN)
+    print_card("ASSESS - Scoring Results", rows, color=_C_GREEN)
 
     if ctx.asr_per_technique:
         items = []
@@ -681,7 +681,7 @@ def print_report_card(
     wilson_ci: tuple[float, float] = (0.0, 0.0),
     native_output_dir: str = "",
 ) -> None:
-    """ (v57: Layer + offsec )."""
+ """ (v57: Layer + offsec )."""
     from pathlib import Path as _Path
 
     report_dir = str(_Path(report_path).parent)
@@ -701,27 +701,27 @@ def print_report_card(
         rows.append(("Wilson 95% CI", f"[{wilson_ci[0]:.1f}%, {wilson_ci[1]:.1f}%]"))
 
     print()
-    print_card("REPORT — Final Output", rows, color=_C_CYAN)
+    print_card("REPORT - Final Output", rows, color=_C_CYAN)
 
-    # v57: Layer
+ # v57: Layer
     print()
     layered_items = [
-        f"  {_C_BOLD}Index{_C_RESET}       → {report_path}",
-        f"  {_C_CYAN}Executive{_C_RESET}   → {report_dir}/report_executive.md",
-        f"  {_C_YELLOW}Findings{_C_RESET}    → {report_dir}/report_findings.md",
-        f"  {_C_DIM}Technical{_C_RESET}   → {report_dir}/report_technical.md",
-        f"  {_C_GREEN}Evidence{_C_RESET}    → {report_dir}/evidence/",
-        f"  {_C_MAGENTA}PoC Scripts{_C_RESET} → {report_dir}/poc/",
+        f"  {_C_BOLD}Index{_C_RESET}       -> {report_path}",
+        f"  {_C_CYAN}Executive{_C_RESET}   -> {report_dir}/report_executive.md",
+        f"  {_C_YELLOW}Findings{_C_RESET}    -> {report_dir}/report_findings.md",
+        f"  {_C_DIM}Technical{_C_RESET}   -> {report_dir}/report_technical.md",
+        f"  {_C_GREEN}Evidence{_C_RESET}    -> {report_dir}/evidence/",
+        f"  {_C_MAGENTA}PoC Scripts{_C_RESET} -> {report_dir}/poc/",
     ]
     if native_output_dir:
-        layered_items.append(f"  {_C_CYAN}Native Output{_C_RESET} → {native_output_dir}")
+        layered_items.append(f"  {_C_CYAN}Native Output{_C_RESET} -> {native_output_dir}")
     print_section("📂 Layered Report Files", layered_items, color=_C_CYAN)
 
 
 # ====================================================================
-#  endpoint  ASR
-# Academic basis: arXiv:2302.12173 Greshake —
-#           arXiv:2310.08419 Chao —  ASR = 1 - ∏(1 - ASRᵢ)
+# endpoint ASR
+# Academic basis: arXiv:2302.12173 Greshake -
+# arXiv:2310.08419 Chao - ASR = 1 - Prod(1 - ASRi)
 # ====================================================================
 
 def print_joint_asr_card(
@@ -733,7 +733,7 @@ def print_joint_asr_card(
     endpoint_summaries: list[dict[str, Any]],
     report_path: str = "",
 ) -> None:
-    """ endpoint  ASR ."""
+ """ endpoint ASR ."""
     rows = [
         ("Endpoints", str(total_endpoints)),
         ("Total Attacks", str(total_attacks)),
@@ -743,7 +743,7 @@ def print_joint_asr_card(
 
     print()
     _print_card_top(_C_MAGENTA)
-    print(_card_line("Joint ASR Report — Multi-Endpoint", _C_MAGENTA + _C_BOLD))
+    print(_card_line("Joint ASR Report - Multi-Endpoint", _C_MAGENTA + _C_BOLD))
     _print_card_sep()
 
     for label, value in rows:
@@ -773,5 +773,5 @@ def print_joint_asr_card(
         print(_card_line(f"Technical: {report_dir}/report_technical.md", _C_DIM))
     _print_card_bottom(_C_MAGENTA)
 
-    print(f"{_C_DIM}  Joint ASR = 1 - ∏(1 - ASRᵢ) "
+    print(f"{_C_DIM}  Joint ASR = 1 - Prod(1 - ASRi) "
           f"(arXiv:2310.08419){_C_RESET}")

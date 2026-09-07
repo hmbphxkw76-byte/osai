@@ -1,6 +1,6 @@
 """seed_auto_expander ??seed_ranker.py .
 
-╁, € UCB-C.
++, EUR UCB-C.
 """
 
 import asyncio
@@ -17,26 +17,26 @@ async def auto_generate_seeds_async(
     *,
     expansion_factor: int = 3,
 ) -> list[AttackSeedGroup]:
-    """L5 v27: ╁ ?‘ await VariationConverter.convert_async?
+ """L5 v27: + ?' await VariationConverter.convert_async?
 
     L5 v10  auto_generate_seeds ?await convert_async ?coroutine,
-     LLM €ら€?
+     LLM EURraEUR?
 
-    ︽:
+    [:
         - AutoDAN (arXiv:2310.04451) ?Liu et al. ?prompt 
-        - Best-of-N (arXiv:2402.01135) ?3x ╁ ASR 1.5-2x
+        - Best-of-N (arXiv:2402.01135) ?3x + ASR 1.5-2x
 
     PyRIT : VariationConverter ( converter)
-    ? ╁ + ?
+    ? + + ?
 
     Args:
-        base_seeds: ㄣ€?
-        converter_target: LLM  (ㄤ VariationConverter)?
-        expansion_factor: € ( 3x)?
+        base_seeds: uEUR?
+        converter_target: LLM  (ang VariationConverter)?
+        expansion_factor: EUR ( 3x)?
 
     Returns:
-        ╁?( + )?
-    """
+        +?( + )?
+ """
     if converter_target is None:
         logger.info("Auto-generate seeds skipped: no converter_target available")
         return base_seeds
@@ -53,20 +53,20 @@ async def auto_generate_seeds_async(
     expanded_seeds: list[AttackSeedGroup] = list(base_seeds)  # 
     generated_count = 0
 
-    # L5 v27: €?
+ # L5 v27: EUR?
     async def _generate_variant(
         original_value: str,
         original_metadata: dict,
         variant_idx: int,
     ) -> AttackSeedGroup | None:
-        """?"""
+ """?"""
         try:
             variation_converter = VariationConverter(
                 converter_target=converter_target,
             )
 
-            # L5 v27: ‘ await  convert_async
-            # L5 v32: PyRIT 1.0.1 API  ? prompt=  prompt_request=
+ # L5 v27: ' await convert_async
+ # L5 v32: PyRIT 1.0.1 API ? prompt= prompt_request=
             new_value = None
             if hasattr(variation_converter, "convert_async"):
                 result = await variation_converter.convert_async(
@@ -77,7 +77,7 @@ async def auto_generate_seeds_async(
                 elif result and isinstance(result, str):
                     new_value = result
             elif hasattr(variation_converter, "convert"):
-                #  fallback
+ # fallback
                 result = variation_converter.convert(prompt=original_value)
                 if result and hasattr(result, "output_text"):
                     new_value = result.output_text
@@ -87,7 +87,7 @@ async def auto_generate_seeds_async(
             if not new_value or new_value == original_value:
                 return None
 
-            # ф metadata  auto-generated
+ # f metadata auto-generated
             new_metadata = dict(original_metadata)
             new_metadata["source"] = "auto_generated"
             new_metadata["parent_seed"] = original_value[:60]
@@ -105,9 +105,9 @@ async def auto_generate_seeds_async(
             logger.debug("Seed variation %d failed: %s", variant_idx, e)
             return None
 
-    # €?
+ # EUR?
     tasks: list[Any] = []
-    for group in base_seeds[:10]:  # € 10 ?
+    for group in base_seeds[:10]:  # EUR 10 ?
         if not group.seeds:
             continue
         original_seed = group.seeds[0]
@@ -118,7 +118,7 @@ async def auto_generate_seeds_async(
         for i in range(expansion_factor):
             tasks.append(_generate_variant(original_value, original_metadata, i))
 
-    # L5 v27: ц€?
+ # L5 v27: tsEUR?
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     for result in results:
@@ -144,29 +144,29 @@ def auto_generate_seeds(
     *,
     expansion_factor: int = 3,
 ) -> list[AttackSeedGroup]:
-    """L5 v10: ╁ (ュ)?
+ """L5 v10: + (yu)?
 
     L5 v27:  auto_generate_seeds_async?
-    ?event loop ? fallback ラ€ (?await convert_async)?
+    ?event loop ? fallback raEUR (?await convert_async)?
 
     Args:
-        base_seeds: ㄣ€?
+        base_seeds: uEUR?
         converter_target: LLM ?
-        expansion_factor: ╁?
+        expansion_factor: +?
 
     Returns:
-        ╁ㄣ€?
-    """
+        +uEUR?
+ """
     import asyncio as _asyncio
 
-    # €ユ﹀ event loop ?
+ # EURYu" event loop ?
     try:
         _asyncio.get_running_loop()
-        # ?event loop ? ?asyncio.run,  fallback
+ # ?event loop ? ?asyncio.run, fallback
         logger.info("L5 v27: auto_generate_seeds called within event loop, using sync fallback")
         return _auto_generate_seeds_sync(base_seeds, converter_target, expansion_factor=expansion_factor)
     except RuntimeError:
-        #  event loop ?  asyncio.run
+ # event loop ? asyncio.run
         return _asyncio.run(
             auto_generate_seeds_async(base_seeds, converter_target, expansion_factor=expansion_factor)
         )
@@ -177,7 +177,7 @@ def _auto_generate_seeds_sync(
     *,
     expansion_factor: int = 3,
 ) -> list[AttackSeedGroup]:
-    """╁ fallback (?await convert_async)?"""
+ """+ fallback (?await convert_async)?"""
     if converter_target is None or not base_seeds:
         return base_seeds
 
@@ -238,37 +238,37 @@ def _compute_adaptive_ucb_c(
     seed_attempts: dict[str, int],
     asr_history: dict[str, float],
 ) -> float:
-    """L5 v11: € UCB  C?
+ """L5 v11: EUR UCB C?
 
-    ︽: Auer et al. (arXiv:cs/0207052) ?UCB1 ?C 
-    у-╃ (exploration-exploitation) :
+    [: Auer et al. (arXiv:cs/0207052) ?UCB1 ?C 
+    u-+ (exploration-exploitation) :
         - C ?? (? ?
-        - C ??╃ (?ASR , ?
+        - C ??+ (?ASR , ?
 
-    € ():
+    EUR ():
         1. ?(N < 10): C=0.8 (?
-           : , €?
+           : , EUR?
         2. ?(10 ?N < 50): C=0.5 ()
-           : €, -╃
+           : EUR, -+
         3. ?(N ?50): C=0.3 (?
-           : , ㄥラ ASR 
+           : , engra ASR 
 
-    ュ?
+    yu?
         -  ASR ?( ASR ?: C +0.1 (?
-          : ? €?
-        -  ASR ?(ㄧ): C -0.1 (?
-          : ㄧ, ╃
+          : ? EUR?
+        -  ASR ?(i): C -0.1 (?
+          : i, +
 
     Args:
-        seed_attempts: ℃?
+        seed_attempts: C?
         asr_history:  ASR ?
 
     Returns:
-        € C ?[0.1, 1.0]?
-    """
+        EUR C ?[0.1, 1.0]?
+ """
     N = sum(seed_attempts.values()) if seed_attempts else 0
 
-    #  C ? ?
+ # C ? ?
     if N < 10:
         C = 0.8
     elif N < 50:
@@ -276,14 +276,14 @@ def _compute_adaptive_ucb_c(
     else:
         C = 0.3
 
-    # : ?ASR , 
+ # : ?ASR , 
     if asr_history and len(asr_history) >= 2:
         values = list(asr_history.values())
         avg = sum(values) / len(values)
         variance = sum((v - avg) ** 2 for v in values) / len(values)
         std_dev = variance ** 0.5
 
-        # ???(+0.1); ???(-0.1)
+ # ???(+0.1); ???(-0.1)
         if std_dev > 30.0:  # ASR ?> 30%
             C += 0.1
             logger.debug(
@@ -297,7 +297,7 @@ def _compute_adaptive_ucb_c(
                 std_dev, C,
             )
 
-    # ?[0.1, 1.0]
+ # ?[0.1, 1.0]
     C = max(0.1, min(1.0, C))
 
     logger.info(

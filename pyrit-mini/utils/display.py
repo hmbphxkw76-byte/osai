@@ -1,4 +1,4 @@
-"""display.py — Unified display facade + progress orchestration.
+"""display.py - Unified display facade + progress orchestration.
 
 Architecture: single entry point, delegates to:
     - display_primitives: ANSI colors + Banner/Phase/Status
@@ -18,23 +18,23 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-# ==  PyRIT  (display_native) ==
+# == PyRIT (display_native) ==
 from utils.display_native import (
     print_native_attack_result,
     print_native_scenario_result,
     print_technique_trail,
 )
 
-# ==  (display_params SSOT) ==
+# == (display_params SSOT) ==
 from utils.display_params import (
     _get_converter_summary,
     _get_technique_category,
     _get_technique_params,
 )
 
-# ==  (display_primitives) ==
-# ==  (display_stages) ==
-# : _get_converter_chain_names  display_primitives ( 289)
+# == (display_primitives) ==
+# == (display_stages) ==
+# : _get_converter_chain_names display_primitives ( 289)
 from utils.display_primitives import (
     _C_BLUE,
     _C_BOLD,
@@ -76,7 +76,7 @@ logger = logging.getLogger(__name__)
 #
 # ====================================================================
 
-#  (,  print_status)
+# (, print_status)
 print_status_card = print_status
 
 
@@ -91,7 +91,7 @@ def print_summary(
     overall_asr: float,
     report_path: str,
 ) -> None:
-    """ ()."""
+ """ ()."""
     print()
     print_card(
         "Attack Summary",
@@ -107,11 +107,11 @@ def print_summary(
 
 
 # ====================================================================
-# PyRIT AttackResult  ()
+# PyRIT AttackResult ()
 # ====================================================================
 
 def _print_failure_summary(result: Any, tech_name: str, idx: int) -> None:
-    """T-03:  1 ."""
+ """T-03: 1 ."""
     objective = getattr(result, "objective", "") or ""
     outcome = _get_outcome_label(result)
 
@@ -135,7 +135,7 @@ def _print_failure_summary(result: Any, tech_name: str, idx: int) -> None:
 
 
 def _print_result_fallback(result: Any) -> None:
-    """ output ."""
+ """ output ."""
     objective = getattr(result, "objective", "") or ""
     outcome = _get_outcome_label(result)
     print(f"    Objective: {objective[:100]}")
@@ -149,17 +149,17 @@ async def print_attack_results_native(
     max_per_tech: int = 3,
     verbose_failures: bool = False,
 ) -> None:
-    """:  PyRIT  output_attack_async .
+ """: PyRIT output_attack_async .
 
-    R2 §2.1 :  pyrit.output  AttackResult,
+    R2 Sec2.1 :  pyrit.output  AttackResult,
     Layer ( ASR )
-    """
+ """
     total_results = sum(len(r) for r in attack_results.values())
     if total_results == 0:
-        print(f"\n  {_C_RED}✗  — {_C_RESET}")
+        print(f"\n  {_C_RED}✗  - {_C_RESET}")
         return
 
-    #  ASR
+ # ASR
     sorted_techs = sorted(
         attack_results.items(),
         key=lambda kv: -(sum(1 for r in kv[1] if _is_success(r)) / max(1, len(kv[1]))),
@@ -206,7 +206,7 @@ async def print_attack_results_native(
 
     print()
     print_card(
-        f"{phase_label} — Per-Technique Summary (enhancement)",
+        f"{phase_label} - Per-Technique Summary (enhancement)",
         [
             ("Techniques", str(len(attack_results))),
             ("Total Results", str(total_results)),
@@ -227,12 +227,12 @@ async def print_attack_results_native(
 
 
 async def print_strike_results_native(ctx: "PipelineContext", *, max_per_tech: int = 3) -> None:
-    """Print STRIKE results (native output)."""
+ """Print STRIKE results (native output)."""
     await print_attack_results_native(ctx.attack_results, phase_label="STRIKE", max_per_tech=max_per_tech)
 
 
 def print_strike_card(ctx: "PipelineContext") -> None:
-    """Print STRIKE card (summary only)."""
+ """Print STRIKE card (summary only)."""
     total = sum(len(results) for results in ctx.attack_results.values())
     success_count = sum(
         1 for results in ctx.attack_results.values()
@@ -243,7 +243,7 @@ def print_strike_card(ctx: "PipelineContext") -> None:
 
     print()
     print_card(
-        "STRIKE — Execution Summary",
+        "STRIKE - Execution Summary",
         [
             ("Techniques", str(len(ctx.attack_results))),
             ("Total Attacks", str(total)),
@@ -256,15 +256,15 @@ def print_strike_card(ctx: "PipelineContext") -> None:
     )
 
     if total == 0:
-        print(f"\n  {_C_RED}✗  — {_C_RESET}")
+        print(f"\n  {_C_RED}✗  - {_C_RESET}")
 
 
 # ====================================================================
-#  (--stage , )
+# (--stage , )
 # ====================================================================
 
 async def print_strike_report_async(ctx: "PipelineContext") -> None:
-    """ (--stage strike) ."""
+ """ (--stage strike) ."""
     scenario_result = getattr(ctx, "scenario_result", None)
 
     if scenario_result is not None:
@@ -279,17 +279,17 @@ async def print_strike_report_async(ctx: "PipelineContext") -> None:
 
 
 def print_strike_report(ctx: "PipelineContext") -> None:
-    """Sync wrapper: print STRIKE report."""
+ """Sync wrapper: print STRIKE report."""
     print_strike_card(ctx)
 
 
 def print_arm_report(ctx: "PipelineContext") -> None:
-    """ (--stage arm) ."""
+ """ (--stage arm) ."""
     print_arm_card(ctx)
 
 
 async def print_escalate_report_async(ctx: "PipelineContext") -> None:
-    """Print ESCALATE report (R2 section 2.1 compliant)."""
+ """Print ESCALATE report (R2 section 2.1 compliant)."""
     escalation_techs = [
         k for k in ctx.attack_results
         if any(
@@ -315,21 +315,21 @@ async def print_escalate_report_async(ctx: "PipelineContext") -> None:
 
 
 def print_escalate_report(ctx: "PipelineContext") -> None:
-    """:  ()."""
+ """: ()."""
     print_escalate_card(ctx)
 
 
 def print_assess_report(ctx: "PipelineContext") -> None:
-    """ (--stage assess) ."""
+ """ (--stage assess) ."""
     print_assess_card(ctx)
 
 
 # ====================================================================
-# STRIKE  ()
+# STRIKE ()
 # ====================================================================
 
 def _get_endpoint_name(ctx: "PipelineContext") -> str:
-    """imports ctx  endpoint  ()."""
+ """imports ctx endpoint ()."""
     import pathlib
 
     burp_val = getattr(ctx.args, "burp", None)
@@ -361,7 +361,7 @@ def _load_tech_asr_data(
     techniques: list[str],
     ctx: "PipelineContext",
 ) -> tuple[dict[str, float], dict[str, float]]:
-    """Load ASR  ASR."""
+ """Load ASR ASR."""
     tech_asr_history: dict[str, float] = {}
     try:
         from arm.seed_ranking import _ASR_HISTORY_PATH
@@ -397,7 +397,7 @@ def _rank_techniques_for_display(
     techniques: list[str],
     tech_asr_priors: dict[str, float],
 ) -> list[tuple[str, float]]:
-    """ ASR ."""
+ """ ASR ."""
     ranked: list[tuple[str, float]] = []
     for tech in techniques:
         prior = tech_asr_priors.get(tech, 0.0)
@@ -412,7 +412,7 @@ def _partition_into_display_batches(
     high_threshold: float = 60.0,
     low_threshold: float = 40.0,
 ) -> list[tuple[str, list[tuple[str, float]]]]:
-    """ prior //."""
+ """ prior //."""
     if len(ranked) <= 2:
         return [("all", ranked)]
 
@@ -430,7 +430,7 @@ def _partition_into_display_batches(
 
     batches: list[tuple[str, list[tuple[str, float]]]] = []
     if batch_high:
-        batches.append(("1 (high prior ≥ 60%)", batch_high))
+        batches.append(("1 (high prior >= 60%)", batch_high))
     if batch_mid:
         batches.append(("2 (mid prior 40-59%)", batch_mid))
     if batch_low:
@@ -440,7 +440,7 @@ def _partition_into_display_batches(
 
 
 def _get_seed_summary(ctx: "PipelineContext") -> str:
-    """:  + UCB  + ."""
+ """: + UCB + ."""
     total = len(ctx.seeds)
     if total == 0:
         return "0 seeds"
@@ -469,7 +469,7 @@ def _get_seed_summary(ctx: "PipelineContext") -> str:
 
 
 
-# ==  () ==
+# == () ==
 
 def _print_priority_batch_card(
     batch_label: str,
@@ -481,7 +481,7 @@ def _print_priority_batch_card(
     total_batches: int,
     exit_threshold: float,
 ) -> None:
-    """converter(s)."""
+ """converter(s)."""
     batch_colors = [_C_RED, _C_YELLOW, _C_CYAN]
     batch_color = batch_colors[batch_idx] if batch_idx < len(batch_colors) else _C_CYAN
 
@@ -509,10 +509,10 @@ def _print_priority_batch_card(
             seed_source = f"failed objectives from Batch {batch_idx}"
 
         converter_str = _get_converter_summary(tech, ctx)
-        scorer_str = "MultiKeywordRefusal (0-token) → TrueFalseInverter → LLM Dual Judge"
+        scorer_str = "MultiKeywordRefusal (0-token) -> TrueFalseInverter -> LLM Dual Judge"
 
         if batch_idx < total_batches - 1:
-            exit_str = f"ASR ≥ {exit_threshold:.0f}% → skip remaining batches"
+            exit_str = f"ASR >= {exit_threshold:.0f}% -> skip remaining batches"
         else:
             exit_str = "final batch (no early exit)"
 
@@ -533,7 +533,7 @@ def _print_priority_batch_card(
     _print_card_bottom(batch_color)
 
 
-# == STRIKE  +  ==
+# == STRIKE + ==
 
 def print_strike_start_banner(
     ctx: "PipelineContext",
@@ -541,7 +541,7 @@ def print_strike_start_banner(
     total_endpoints: int | None = None,
     current_endpoint_idx: int | None = None,
 ) -> None:
-    """STRIKE  baseline ."""
+ """STRIKE baseline ."""
     ep_name = _get_endpoint_name(ctx)
     total_seeds = len(ctx.seeds)
     total_converters = sum(len(v) for v in ctx.converter_map.values()) if ctx.converter_map else 0
@@ -583,7 +583,7 @@ def print_escalation_decision_card(
     baseline_asr: float,
     failed_count: int,
 ) -> None:
-    """."""
+ """."""
     _esc_threshold = float(getattr(ctx.args, "escalation_asr_threshold", 90) or 90)
     _l1_exit = float(getattr(ctx.args, "post_l1_exit_threshold", 70) or 70)
     _l2_exit = float(getattr(ctx.args, "post_l2_exit_threshold", 80) or 80)
@@ -591,7 +591,7 @@ def print_escalation_decision_card(
     if _esc_levels is not None:
         chain_str = ", ".join(f"L{i}" for i in sorted(_esc_levels))
     else:
-        chain_str = "L1→L2→L3→L4 (full chain)"
+        chain_str = "L1->L2->L3->L4 (full chain)"
 
     decision = "ESCALATE" if baseline_asr < _esc_threshold else "SKIP"
     decision_color = _C_RED if decision == "ESCALATE" else _C_GREEN
@@ -604,12 +604,12 @@ def print_escalation_decision_card(
     print(_card_line(f"Escalation Threshold: {_esc_threshold:.0f}%", _C_MAGENTA))
     print(_card_line(
         f"Decision:            {decision_color}{decision}{_C_RESET}"
-        + (f" (ASR < threshold, {failed_count} failed targets)" if decision == "ESCALATE" else " (ASR ≥ threshold)"),
+        + (f" (ASR < threshold, {failed_count} failed targets)" if decision == "ESCALATE" else " (ASR >= threshold)"),
         _C_MAGENTA,
     ))
     print(_card_line(f"Escalation Chain:    {chain_str}", _C_MAGENTA))
-    print(_card_line(f"L1 Exit Threshold:   ASR ≥ {_l1_exit:.0f}% → skip L2-L4", _C_MAGENTA))
-    print(_card_line(f"L2 Exit Threshold:   ASR ≥ {_l2_exit:.0f}% → skip L3-L4", _C_MAGENTA))
+    print(_card_line(f"L1 Exit Threshold:   ASR >= {_l1_exit:.0f}% -> skip L2-L4", _C_MAGENTA))
+    print(_card_line(f"L2 Exit Threshold:   ASR >= {_l2_exit:.0f}% -> skip L3-L4", _C_MAGENTA))
     _print_card_bottom(_C_MAGENTA)
 
 
@@ -621,7 +621,7 @@ def print_escalation_level_banner(
     failed_count: int,
     batch_mode: bool = False,
 ) -> None:
-    """Print escalation level banner."""
+ """Print escalation level banner."""
     level_names = {
         1: "Multi-Turn Priority Batches",
         2: "GCG + CAIR + Best-of-N + Encoded Injection",
@@ -644,7 +644,7 @@ def print_escalation_level_banner(
         print(f"  {_C_CYAN}Scheduler{_C_RESET}  priority-batch (exit={_l1_exit:.0f}%, ε={_ps_epsilon:.2f})")
     else:
         print(f"  {_C_CYAN}Strategy{_C_RESET}   full parallel ({len(techniques)} techniques)")
-    print(f"  {_C_CYAN}Scorer{_C_RESET}    MultiKeywordRefusal (0-token) → TFInverter → LLM Dual Judge")
+    print(f"  {_C_CYAN}Scorer{_C_RESET}    MultiKeywordRefusal (0-token) -> TFInverter -> LLM Dual Judge")
     print(f"  {color}{sep}{_C_RESET}")
 
 
@@ -656,7 +656,7 @@ def print_batch_exit_card(
     exit_threshold: float,
     remaining_failed: int,
 ) -> None:
-    """."""
+ """."""
     is_exit = cumulative_asr >= exit_threshold
     decision = "EXIT" if is_exit else "CONTINUE"
     decision_color = _C_GREEN if is_exit else _C_YELLOW
@@ -670,23 +670,23 @@ def print_batch_exit_card(
     if is_exit:
         saved = total_batches - batch_idx - 1
         print(_card_line(
-            f"Decision:       {decision_color}{decision}{_C_RESET} — ASR ≥ threshold, skipping {saved} remaining batch(es)",
+            f"Decision:       {decision_color}{decision}{_C_RESET} - ASR >= threshold, skipping {saved} remaining batch(es)",
             _C_BLUE,
         ))
         print(_card_line(f"Saved:           ~{saved} batches (est. 40-50% token/time)", _C_BLUE))
     else:
         print(_card_line(
-            f"Decision:       {decision_color}{decision}{_C_RESET} — proceeding to Batch {batch_idx + 2}",
+            f"Decision:       {decision_color}{decision}{_C_RESET} - proceeding to Batch {batch_idx + 2}",
             _C_BLUE,
         ))
         print(_card_line(f"Remaining:       {remaining_failed} failed objectives", _C_BLUE))
     _print_card_bottom(_C_BLUE)
 
 
-# ==  ==
+# == ==
 
 def _get_current_technique(ctx: "PipelineContext") -> str:
-    """."""
+ """."""
     _esc_tech = getattr(ctx, "_current_escalation_tech", None)
     if _esc_tech:
         return _esc_tech
@@ -697,7 +697,7 @@ def _get_current_technique(ctx: "PipelineContext") -> str:
 
 
 def _get_seed_category_for_idx(ctx: "PipelineContext", seed_idx: int) -> str:
-    """Get seed category for index."""
+ """Get seed category for index."""
     if seed_idx < 0 or seed_idx >= len(ctx.seeds):
         return ""
     group = ctx.seeds[seed_idx]
@@ -717,7 +717,7 @@ def _get_seed_category_for_idx(ctx: "PipelineContext", seed_idx: int) -> str:
     return ""
 
 
-# == Converter  ==
+# == Converter ==
 
 def print_converter_path_start(
     ctx: "PipelineContext",
@@ -727,7 +727,7 @@ def print_converter_path_start(
     total_paths: int,
     seeds_remaining: int,
 ) -> None:
-    """Print converter path start."""
+ """Print converter path start."""
     ep_name = _get_endpoint_name(ctx)
     tech = _get_current_technique(ctx)
     cat = _get_technique_category(tech)
@@ -742,7 +742,7 @@ def print_converter_path_start(
     seed_summary = _get_seed_summary(ctx)
     print(
         f"  {_C_DIM}== Seeds: {_C_CYAN}{seed_summary}{_C_RESET}  "
-        f"{_C_DIM}== Scorer: MultiKeywordRefusal (0-token) → TFInverter{_C_RESET}"
+        f"{_C_DIM}== Scorer: MultiKeywordRefusal (0-token) -> TFInverter{_C_RESET}"
     )
 
 
@@ -757,7 +757,7 @@ def print_converter_path_done(
     seeds_remaining: int,
     elapsed_seconds: float,
 ) -> None:
-    """ converter ."""
+ """ converter ."""
     ep_name = _get_endpoint_name(ctx)
     tech = _get_current_technique(ctx)
 
@@ -772,7 +772,7 @@ def print_converter_path_done(
     elif seeds_succeeded > 0:
         status = f"{_C_GREEN}✓ partial{_C_RESET}"
     else:
-        status = f"{_C_YELLOW}○ no success{_C_RESET}"
+        status = f"{_C_YELLOW}o no success{_C_RESET}"
 
     print(
         f"  {status} {_C_DIM}[STRIKE]{_C_RESET} {_C_CYAN}{ep_name}{_C_RESET} "
@@ -795,13 +795,13 @@ def print_seed_batch_progress(
     total: int,
     succeeded: int,
 ) -> None:
-    """."""
+ """."""
     ep_name = _get_endpoint_name(ctx)
     tech = _get_current_technique(ctx)
 
     bar_width = 20
     filled = int(completed / max(1, total) * bar_width)
-    bar = "▓" * filled + "░" * (bar_width - filled)
+    bar = "#" * filled + "#" * (bar_width - filled)
 
     if succeeded > 0:
         succ_str = f"{_C_GREEN}{succeeded} success{_C_RESET}"
@@ -830,13 +830,13 @@ def print_native_sequential_progress(
     converter_count: int,
     objective_preview: str,
 ) -> None:
-    """Print native SequentialAttack progress."""
+ """Print native SequentialAttack progress."""
     ep_name = _get_endpoint_name(ctx)
     tech = _get_current_technique(ctx)
 
     bar_width = 20
     filled = int((seed_idx + 1) / max(1, total_seeds) * bar_width)
-    bar = "▓" * filled + "░" * (bar_width - filled)
+    bar = "#" * filled + "#" * (bar_width - filled)
 
     obj_short = objective_preview[:50] + ("..." if len(objective_preview) > 50 else "")
     seed_cat = _get_seed_category_for_idx(ctx, seed_idx)
@@ -855,7 +855,7 @@ def print_native_sequential_progress(
         print(f"{line}{' ' * 10}")
 
 
-# == ESCALATE  ==
+# == ESCALATE ==
 
 def print_escalation_tech_start(
     ctx: "PipelineContext",
@@ -866,7 +866,7 @@ def print_escalation_tech_start(
     total_batches: int | None = None,
     objectives_count: int,
 ) -> None:
-    """."""
+ """."""
     setattr(ctx, "_current_escalation_tech", technique)
 
     ep_name = _get_endpoint_name(ctx)
@@ -883,7 +883,7 @@ def print_escalation_tech_start(
         seed_source = f"failed objectives from single-turn ({objectives_count} targets)"
 
     converter_str = _get_converter_summary(technique, ctx)
-    scorer_str = "MultiKeywordRefusal (0-token) → TFInverter → LLM Dual Judge"
+    scorer_str = "MultiKeywordRefusal (0-token) -> TFInverter -> LLM Dual Judge"
 
     level_colors = {1: _C_RED, 2: _C_YELLOW, 3: _C_CYAN, 4: _C_MAGENTA}
     level_color = level_colors.get(level, _C_BOLD)
@@ -911,7 +911,7 @@ def print_escalation_tech_done(
     success_count: int,
     elapsed_seconds: float,
 ) -> None:
-    """Print escalation technique completion."""
+ """Print escalation technique completion."""
     setattr(ctx, "_current_escalation_tech", None)
 
     ep_name = _get_endpoint_name(ctx)
@@ -928,7 +928,7 @@ def print_escalation_tech_done(
     if success_count > 0:
         status = f"{_C_GREEN}✓{_C_RESET}"
     else:
-        status = f"{_C_YELLOW}○{_C_RESET}"
+        status = f"{_C_YELLOW}o{_C_RESET}"
 
     print(
         f"  {status} {_C_DIM}[ESCALATE L{level}]{_C_RESET} {level_color}{ep_name}{_C_RESET} "
@@ -945,7 +945,7 @@ def print_strike_phase_summary(
     total_success: int,
     elapsed_seconds: float,
 ) -> None:
-    """Print STRIKE phase summary."""
+ """Print STRIKE phase summary."""
     ep_name = _get_endpoint_name(ctx)
     asr = (total_success / max(1, total_results) * 100) if total_results > 0 else 0.0
     asr_str = _format_asr(asr)

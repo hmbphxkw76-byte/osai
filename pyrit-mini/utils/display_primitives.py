@@ -1,4 +1,4 @@
-"""display_primitives.py — ANSI colors + Banner/Phase/Status cards.
+"""display_primitives.py - ANSI colors + Banner/Phase/Status cards.
 
 Imports from utils/display.py, provides:
     - ANSI color codes + Windows terminal setup
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# ==  (Windows Terminal / ANSI ) ==
+# == (Windows Terminal / ANSI ) ==
 _C_RESET = "\033[0m"
 _C_BOLD = "\033[1m"
 _C_DIM = "\033[2m"
@@ -31,10 +31,10 @@ _C_BLUE = "\033[94m"
 _C_CYAN = "\033[96m"
 _C_MAGENTA = "\033[95m"
 
-#  Windows ANSI  + UTF-8 stdout
+# Windows ANSI + UTF-8 stdout
 import sys as _sys  # noqa: E402
 
-#  stdout/stderr  UTF-8 (Windows GBK )
+# stdout/stderr UTF-8 (Windows GBK )
 for _stream in (_sys.stdout, _sys.stderr):
     if hasattr(_stream, "reconfigure"):
         try:
@@ -51,41 +51,41 @@ if _sys.platform == "win32":
     except Exception:
         pass
 
-# ==  ==
-_TOP_LEFT = "╔"
-_TOP_RIGHT = "╗"
-_BOTTOM_LEFT = "╚"
-_BOTTOM_RIGHT = "╝"
+# == ==
+_TOP_LEFT = "+"
+_TOP_RIGHT = "+"
+_BOTTOM_LEFT = "+"
+_BOTTOM_RIGHT = "+"
 _H = "="
-_V = "║"
+_V = "||"
 _H_LIGHT = "="
 
 _WIDTH = 72
-_INNER = _WIDTH - 4  #  ( "║ "  " ║")
+_INNER = _WIDTH - 4  # ( "|| " " ||")
 
 
 # ====================================================================
 #
 # ====================================================================
 
-#  ANSI  (\033[...m), Skip
+# ANSI (\033[...m), Skip
 _ANSI_RE = re.compile(r"\033\[[0-9;]*m")
 
 
 def _visual_width(text: str) -> int:
-    """ ( 2, Skip ANSI )."""
+ """ ( 2, Skip ANSI )."""
     import unicodedata
 
-    #  ANSI
+ # ANSI
     clean = _ANSI_RE.sub("", text)
     return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in clean)
 
 
 def _truncate_to_width(text: str, width: int = _INNER) -> str:
-    """ ( ANSI )."""
+ """ ( ANSI )."""
     import unicodedata
 
-    #  ANSI
+ # ANSI
     parts = _ANSI_RE.split(text)
     result = ""
     visual_w = 0
@@ -95,13 +95,13 @@ def _truncate_to_width(text: str, width: int = _INNER) -> str:
         if part.startswith("\033["):
             result += part  # ANSI
             continue
-        # ,  2
+ # , 2
         for ch in part:
             cw = 2 if unicodedata.east_asian_width(ch) in "WF" else 1
             if visual_w + cw >= width:
-                #  ( 1  …)
-                result += f"{_C_DIM}…{_C_RESET}"
-                visual_w = width - 1  # …  1
+ # ( 1 ...)
+                result += f"{_C_DIM}...{_C_RESET}"
+                visual_w = width - 1  # ... 1
                 return result
             result += ch
             visual_w += cw
@@ -109,7 +109,7 @@ def _truncate_to_width(text: str, width: int = _INNER) -> str:
 
 
 def _pad_line(text: str, width: int = _INNER) -> str:
-    """ ()."""
+ """ ()."""
     vw = _visual_width(text)
     if vw > width:
         text = _truncate_to_width(text, width)
@@ -119,7 +119,7 @@ def _pad_line(text: str, width: int = _INNER) -> str:
 
 
 def _card_line(text: str, color: str = "") -> str:
-    """ ()."""
+ """ ()."""
     padded = _pad_line(text)
     if color:
         return f"{_V} {color}{padded}{_C_RESET} {_V}"
@@ -127,19 +127,19 @@ def _card_line(text: str, color: str = "") -> str:
 
 
 def _print_card_top(color: str = "") -> None:
-    """."""
+ """."""
     tl = _TOP_LEFT + _H * _INNER + _TOP_RIGHT
     print(f"{color}{tl}{_C_RESET}" if color else tl)
 
 
 def _print_card_bottom(color: str = "") -> None:
-    """."""
+ """."""
     bl = _BOTTOM_LEFT + _H * _INNER + _BOTTOM_RIGHT
     print(f"{color}{bl}{_C_RESET}" if color else bl)
 
 
 def _print_card_sep() -> None:
-    """."""
+ """."""
     print(f"{_V} {_H_LIGHT * _INNER} {_V}")
 
 
@@ -150,14 +150,14 @@ def print_card(
     color: str = "",
     title_color: str = "",
 ) -> None:
-    """.
+ """.
 
     Args:
         title: .
         rows: [(label, value), ...] .
         color:  (/).
         title_color: .
-    """
+ """
     border_color = color or title_color
     _print_card_top(border_color)
     tc = title_color or color or _C_BOLD
@@ -169,7 +169,7 @@ def print_card(
 
 
 def print_section(title: str, items: list[str], *, color: str = "") -> None:
-    """ (,  + )."""
+ """ (, + )."""
     border_color = color or _C_BOLD
     _print_card_top(border_color)
     print(_card_line(title, border_color))
@@ -181,22 +181,22 @@ def print_section(title: str, items: list[str], *, color: str = "") -> None:
 
 
 # ====================================================================
-#  +
+# +
 # ====================================================================
 
 
 def print_banner() -> None:
-    """ Banner."""
-    print(f"""
-{_C_CYAN}{_C_BOLD}╔======================================================╗
-║           PyRIT-Strike v2.0.0                        ║
-║     Burp → Attack → Report — One-Click Pipeline      ║
-╚======================================================╝{_C_RESET}
+ """ Banner."""
+ print(f"""
+{_C_CYAN}{_C_BOLD}+======================================================+
+||           PyRIT-Strike v2.0.0                        ||
+||     Burp -> Attack -> Report - One-Click Pipeline      ||
++======================================================+{_C_RESET}
 """)
 
 
 def print_phase(phase: str, description: str) -> None:
-    """ (v57: )."""
+ """ (v57: )."""
     phase_colors = {
         "RECON": _C_CYAN,
         "ARM": _C_BLUE,
@@ -221,14 +221,14 @@ def print_status(
     *,
     ok: bool | None = None,
 ) -> None:
-    """ (, ).
+ """ (, ).
 
     Args:
         phase: .
         status: .
         message: .
         ok: None=, True=, False=.
-    """
+ """
     if ok is True:
         tag = f"{_C_GREEN}✓{_C_RESET}"
         sc = _C_GREEN
@@ -242,7 +242,7 @@ def print_status(
 
 
 def print_error(message: str) -> None:
-    """Print error card."""
+ """Print error card."""
     print()
     _print_card_top(_C_RED)
     print(_card_line(f"{_C_RED}{_C_BOLD}✗ ERROR{_C_RESET}", _C_RED))
@@ -253,10 +253,10 @@ def print_error(message: str) -> None:
 
 
 def _asr_color(asr: float) -> str:
-    """Return ASR color based on value (higher ASR = more critical).
+ """Return ASR color based on value (higher ASR = more critical).
 
     Thresholds: red (>=70%), yellow (>=40%), cyan (>=15%), green (<15%).
-    """
+ """
     if asr >= 70:
         return _C_RED
     if asr >= 40:
@@ -267,25 +267,25 @@ def _asr_color(asr: float) -> str:
 
 
 def _format_asr(asr: float) -> str:
-    """ ASR  (, )."""
+ """ ASR (, )."""
     c = _asr_color(asr)
     return f"{c}{asr:.1f}%{_C_RESET}"
 
 
 def _asr_bar(asr: float, width: int = 20) -> str:
-    """ASR  ().
+ """ASR ().
 
-    : ████████░░░░░░░░░░░░ 40.0%
+    : #################### 40.0%
      ASR  (=, =)
-    """
+ """
     c = _asr_color(asr)
     filled = int(asr / 100 * width)
-    bar = "█" * filled + "░" * (width - filled)
+    bar = "#" * filled + "#" * (width - filled)
     return f"{c}{bar} {asr:>5.1f}%{_C_RESET}"
 
 
 def _get_converter_chain_names(converters: list[Any], *, max_display: int = 5) -> str:
-    """Get converter chain names for display.
+ """Get converter chain names for display.
 
     L5 v39: Extract converter names for display_stages -> primitives display_params from
 
@@ -295,7 +295,7 @@ def _get_converter_chain_names(converters: list[Any], *, max_display: int = 5) -
 
     Returns:
          converter .
-    """
+ """
     if not converters:
         return "(raw, no converters)"
     if len(converters) == 1:

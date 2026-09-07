@@ -1,6 +1,6 @@
-# arXiv:2407.01232 — PyRIT, Initializer pattern
-# arXiv:2302.12173 — Greshake et al., target capability fingerprint
-""" Initializer  —  pyrit_scan  --add-initializer CLI 
+# arXiv:2407.01232 - PyRIT, Initializer pattern
+# arXiv:2302.12173 - Greshake et al., target capability fingerprint
+""" Initializer - pyrit_scan --add-initializer CLI 
 
 :
     pyrit_scan  --add-initializer ClassName,arg1=val1 
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 def _resolve_class(class_name: str) -> type | None:
-    """imports PyRIT 
+ """imports PyRIT 
 
     :
         1. pyrit.orchestrator.initializers (PyRIT  Initializer )
@@ -43,8 +43,8 @@ def _resolve_class(class_name: str) -> type | None:
 
     Returns:
         ,  None ()
-    """
-    # 
+ """
+ # 
     search_paths = [
         "pyrit.orchestrator.initializers",
         "pyrit.scenario.initializers",
@@ -79,7 +79,7 @@ def register_initializers(
     *,
     ctx: Any | None = None,
 ) -> list[Any]:
-    """imports spec  Initializer
+ """imports spec Initializer
 
     converter(s) spec :
         {"class": "ClassName", "args": {"arg1": "val1", "arg2": "val2"}}
@@ -97,7 +97,7 @@ def register_initializers(
 
     Returns:
          Initializer 
-    """
+ """
     if not specs:
         return []
 
@@ -116,7 +116,7 @@ def register_initializers(
             continue
 
         try:
-            # 
+ # 
             instance = cls(**kwargs) if kwargs else cls()
             instances.append(instance)
             logger.info(
@@ -125,10 +125,10 @@ def register_initializers(
                 kwargs,
             )
 
-            #  ctx ( register )
+ # ctx ( register )
             if ctx is not None:
                 if hasattr(instance, "register_async"):
-                    #  event loop 
+ # event loop 
                     logger.debug(
                         "Initializer %s has register_async, deferred to caller",
                         class_name,
@@ -166,7 +166,7 @@ async def register_initializers_async(
     specs: list[dict[str, Any]],
     ctx: Any,
 ) -> list[Any]:
-    """ Initializer —  register_async 
+ """ Initializer - register_async 
 
     Args:
         specs: Initializer spec 
@@ -174,10 +174,10 @@ async def register_initializers_async(
 
     Returns:
          Initializer 
-    """
+ """
     instances = register_initializers(specs, ctx=ctx)
 
-    # 
+ # 
     for instance in instances:
         if hasattr(instance, "register_async"):
             try:

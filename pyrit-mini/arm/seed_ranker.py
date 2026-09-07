@@ -12,13 +12,13 @@ from typing import Any
 
 from pyrit.models import AttackSeedGroup, SeedObjective
 
-from arm.seed_auto_expander import (  # noqa: F401 — re-exports for main.py
+from arm.seed_auto_expander import (  # noqa: F401 - re-exports for main.py
     _auto_generate_seeds_sync,
     _compute_adaptive_ucb_c,
     auto_generate_seeds,
     auto_generate_seeds_async,
 )
-from arm.seed_ranking import (  # noqa: F401 — re-exports for main.py
+from arm.seed_ranking import (  # noqa: F401 - re-exports for main.py
     _ASR_HISTORY_PATH,
     _ASR_PRIORS_PATH,
     _SEEDS_DIR,
@@ -35,11 +35,11 @@ from arm.seed_ranking import (  # noqa: F401 — re-exports for main.py
 logger = logging.getLogger(__name__)
 
 
-# Capability → seed file mapping
+# Capability -> seed file mapping
 # When deep probing detects specific capabilities, auto-augment targeted seed files
 # v2 (2026-09-01): Adapted for directory restructuring, supports subdirectory recursive loading
 CAPABILITY_SEED_MAP: dict[str, list[str]] = {
-    # MCP attacks — full surface coverage in subdirectory
+ # MCP attacks - full surface coverage in subdirectory
     "mcp": [
         "_attack_surface/T1_ASI02_mcp_full_surface/mcp_tool_enum",
         "_attack_surface/T1_ASI02_mcp_full_surface/mcp_server_injection",
@@ -49,26 +49,26 @@ CAPABILITY_SEED_MAP: dict[str, list[str]] = {
         "_attack_surface/T1_ASI02_mcp_full_surface/mcp_tool_enum",
         "_attack_surface/T1_ASI02_mcp_full_surface/mcp_server_injection",
     ],
-    # RAG attacks
+ # RAG attacks
     "rag": ["_attack_surface/T1_LLM08_rag_full_surface/rag_full_attack_surface"],
-    # Function calling
+ # Function calling
     "function_calling": ["_core/T1_ASI02_function_call_exploit"],
-    # Tool hijack
+ # Tool hijack
     "tool_hijack": ["_core/T1_ASI02_tool_hijack"],
-    # Multi-agent attacks — full surface coverage
+ # Multi-agent attacks - full surface coverage
     "multi_agent": [
         "_attack_surface/T1_ASI06-09_multi_agent/ma_cross_agent_injection",
         "_attack_surface/T1_ASI06-09_multi_agent/ma_identity_spoofing",
     ],
-    # Workflow
+ # Workflow
     "workflow": ["_core/T1_ASI03_workflow_escalation"],
-    # Session auth
+ # Session auth
     "session_auth": ["_core/T1_ASI09_session_auth_bypass"],
-    # Token smuggling / memory
+ # Token smuggling / memory
     "memory": ["_encoding_evasion/T1_LLM01_token_smuggling_evasion"],
-    # Multi-tenant — tenant privilege escalation
+ # Multi-tenant - tenant privilege escalation
     "multi_tenant": ["_core/T1_ASI09_session_auth_bypass"],
-    # A2A protocol
+ # A2A protocol
     "a2a_protocol": [
         "_attack_surface/T1_ASI06-09_multi_agent/ma_cross_agent_injection",
         "_core/T1_ASI02_tool_hijack",
@@ -77,7 +77,7 @@ CAPABILITY_SEED_MAP: dict[str, list[str]] = {
         "_attack_surface/T1_ASI06-09_multi_agent/ma_cross_agent_injection",
         "_core/T1_ASI02_tool_hijack",
     ],
-    # Embedding RAG
+ # Embedding RAG
     "embedding_rag": ["_attack_surface/T1_LLM08_rag_full_surface/rag_full_attack_surface"],
 }
 
@@ -92,7 +92,7 @@ def load_seeds(
     seed_filters: dict[str, str] | None = None,
     model_priors: dict[str, Any] | None = None,
 ) -> list[AttackSeedGroup]:
-    """Load selected seed files.
+ """Load selected seed files.
 
     Seed file format: PyRIT native SeedPrompt YAML (.prompt)
     Each seed contains:
@@ -122,7 +122,7 @@ def load_seeds(
 
     Capability adaptation (fixed #1):
         - When capabilities is non-empty, auto-augment targeted seed files
-          per CAPABILITY_SEED_MAP (e.g., if MCP detected → augment mcp_attack)
+          per CAPABILITY_SEED_MAP (e.g., if MCP detected -> augment mcp_attack)
         - Augmented seed files are deduplicated (no duplicate loading).
 
     Args:
@@ -139,13 +139,13 @@ def load_seeds(
 
     Returns:
         list[AttackSeedGroup]: Ranked list of attack seed groups.
-    """
-    # L5 v8: Comma-separated seed files
+ """
+ # L5 v8: Comma-separated seed files
     seed_files = [s.strip() for s in seed_file.split(",") if s.strip()]
     if not seed_files:
         seed_files = [seed_file]
 
-    # Fixed #1: Auto-augment targeted seed files based on capability tags
+ # Fixed #1: Auto-augment targeted seed files based on capability tags
     added_by_capability: list[str] = []
     if capabilities:
         cap_list = [c.strip().lower() for c in capabilities.split(",") if c.strip()]
@@ -166,17 +166,17 @@ def load_seeds(
     loaded_files: list[str] = []
 
     for sf in seed_files:
-        # v3: Support directory scanning (e.g., "_core/" scans entire directory)
-        # Detect directory by trailing slash or by path existence
+ # v3: Support directory scanning (e.g., "_core/" scans entire directory)
+ # Detect directory by trailing slash or by path existence
         sf_clean = sf.rstrip("/\\")
         sf_dir = _SEEDS_DIR / sf_clean
         if sf_dir.is_dir():
-            # Scan directory for .prompt and .yaml files recursively
+ # Scan directory for .prompt and .yaml files recursively
             dir_files = sorted(sf_dir.rglob("*.prompt")) + sorted(sf_dir.rglob("*.yaml"))
             if not dir_files:
                 logger.warning("No seed files found in directory: %s, skipping", sf)
                 continue
-            logger.info("Directory scan: %s → %d seed files found", sf, len(dir_files))
+            logger.info("Directory scan: %s -> %d seed files found", sf, len(dir_files))
             for dir_file in dir_files:
                 import yaml
                 data = yaml.safe_load(dir_file.read_text(encoding="utf-8"))
@@ -187,8 +187,8 @@ def load_seeds(
                 loaded_files.append(str(dir_file.relative_to(_SEEDS_DIR)))
             continue
 
-        # v2: Support subdirectory paths (e.g., "_core/T1_LLM01_elite_jailbreaks")
-        # Check if path already has extension before adding .prompt
+ # v2: Support subdirectory paths (e.g., "_core/T1_LLM01_elite_jailbreaks")
+ # Check if path already has extension before adding .prompt
         if sf.endswith(".prompt") or sf.endswith(".yaml"):
             file_path = _SEEDS_DIR / sf
         else:
@@ -196,7 +196,7 @@ def load_seeds(
         if not file_path.exists():
             file_path = _SEEDS_DIR / f"{sf}.yaml"
             if not file_path.exists():
-                # Try as direct path (backward compatibility)
+ # Try as direct path (backward compatibility)
                 alt_path = Path(sf)
                 if alt_path.exists():
                     file_path = alt_path
@@ -220,7 +220,7 @@ def load_seeds(
 
     logger.info("Total seeds loaded from %d files: %d", len(loaded_files), len(all_raw_seeds))
 
-    # DoS attack filtering: Disable LLM10 seeds by default (high token consumption)
+ # DoS attack filtering: Disable LLM10 seeds by default (high token consumption)
     if not enable_dos:
         before_count = len(all_raw_seeds)
         all_raw_seeds = _filter_dos_seeds(all_raw_seeds)
@@ -231,16 +231,16 @@ def load_seeds(
                 filtered_count,
             )
 
-    # Language-adaptive filtering
+ # Language-adaptive filtering
     if target_language:
         all_raw_seeds = _filter_by_language(all_raw_seeds, target_language)
         logger.info("Language-adaptive filtering: target=%s, %d seeds after filter", target_language, len(all_raw_seeds))
 
-    # Incremental: Seed metadata filtering (--seed-filters KEY=VALUE)
-    # Borrowed from pyrit_scan's --seed-filters: Precise seed filtering by metadata KEY=VALUE
-    # Example: {"owasp_id": "LLM01", "difficulty": "high"} → retain only matching seeds
-    # Multiple KEYs are AND relationship (must match all keys)
-    # Supports metadata values as lists (e.g., category: ["attack", "jailbreak"])
+ # Incremental: Seed metadata filtering (--seed-filters KEY=VALUE)
+ # Borrowed from pyrit_scan's --seed-filters: Precise seed filtering by metadata KEY=VALUE
+ # Example: {"owasp_id": "LLM01", "difficulty": "high"} -> retain only matching seeds
+ # Multiple KEYs are AND relationship (must match all keys)
+ # Supports metadata values as lists (e.g., category: ["attack", "jailbreak"])
     if seed_filters:
         all_raw_seeds = _filter_by_metadata(all_raw_seeds, seed_filters)
         logger.info(
@@ -249,24 +249,24 @@ def load_seeds(
             len(all_raw_seeds),
         )
 
-    # Build AttackSeedGroup
+ # Build AttackSeedGroup
     seed_groups = _build_seed_groups(all_raw_seeds)
 
-    # Rank by ASR
+ # Rank by ASR
     asr_history = _load_asr_history()
 
-    # Fix: Use model_family to load ASR priors and merge into asr_history
-    # Academic basis: Chao et al. (arXiv:2402.01135) — Cross-model ASR transfer
-    #   Different model families have different safety strategies;
-    #   model-specific ASR priors can improve seed ranking accuracy
-    # Data flow: recon (model_identity probe) → target_fingerprint["model_family"]
-    #           → load_seeds (model_family) → load_asr_priors → asr_history merge
+ # Fix: Use model_family to load ASR priors and merge into asr_history
+ # Academic basis: Chao et al. (arXiv:2402.01135) - Cross-model ASR transfer
+ # Different model families have different safety strategies;
+ # model-specific ASR priors can improve seed ranking accuracy
+ # Data flow: recon (model_identity probe) -> target_fingerprint["model_family"]
+ # -> load_seeds (model_family) -> load_asr_priors -> asr_history merge
     if model_family:
         priors = load_asr_priors(model_family)
         if priors:
-            # Merge technique_seed_asr model-specific ASR into asr_history
-            # If asr_history has no historical record for a seed,
-            # use prior ASR as initial value
+ # Merge technique_seed_asr model-specific ASR into asr_history
+ # If asr_history has no historical record for a seed,
+ # use prior ASR as initial value
             _model_lower = model_family.lower()
             _tech_seed_asr = priors.get("technique_seed_asr", {})
             for tech_name, owasp_asr in _tech_seed_asr.items():
@@ -275,7 +275,7 @@ def load_seeds(
                         if owasp_id == "default":
                             continue
                         if owasp_id.lower() in _model_lower or _model_lower in owasp_id.lower():
-                            # Found model-specific ASR prior
+ # Found model-specific ASR prior
                             _seed_key = f"{tech_name}:{owasp_id}"
                             if _seed_key not in asr_history:
                                 asr_history[_seed_key] = float(asr_val)
@@ -288,25 +288,25 @@ def load_seeds(
 
     seed_groups = _rank_by_asr(seed_groups, asr_history)
 
-    # Seed dynamic pruning: Auto-prune 0% ASR seeds (efficiency optimization)
-    # Academic basis:
-    #   - Auer et al. (arXiv:cs/0207052) UCB1 — Known 0% ASR seeds should be deprioritized
-    #   - Chao et al. (arXiv:2402.01135) — Seed quality directly affects ASR,
-    #     low-efficiency seeds waste tokens
-    #   - Liu et al. (arXiv:2310.04451) AutoDAN — Pruning low-efficiency seeds improves overall ASR
-    # Strategy:
-    #   1. Read seed_asr in asr_history.json
-    #   2. Auto-prune seeds with 3+ attempts AND ASR=0%
-    #   3. Retain new seeds (no historical record) as exploratory effective seeds
-    #   4. Each OWASP category retains at least 1 seed (category coverage guarantee)
-    #   5. Pruning ratio does not exceed 50% (avoid over-pruning)
+ # Seed dynamic pruning: Auto-prune 0% ASR seeds (efficiency optimization)
+ # Academic basis:
+ # - Auer et al. (arXiv:cs/0207052) UCB1 - Known 0% ASR seeds should be deprioritized
+ # - Chao et al. (arXiv:2402.01135) - Seed quality directly affects ASR,
+ # low-efficiency seeds waste tokens
+ # - Liu et al. (arXiv:2310.04451) AutoDAN - Pruning low-efficiency seeds improves overall ASR
+ # Strategy:
+ # 1. Read seed_asr in asr_history.json
+ # 2. Auto-prune seeds with 3+ attempts AND ASR=0%
+ # 3. Retain new seeds (no historical record) as exploratory effective seeds
+ # 4. Each OWASP category retains at least 1 seed (category coverage guarantee)
+ # 5. Pruning ratio does not exceed 50% (avoid over-pruning)
     seed_groups = _prune_zero_asr_seeds(seed_groups, max_seeds)
 
-    # L5 v32: Category Diversity Guarantee
-    # Academic basis: Determinantal Point Processes (DPP) for diverse subset selection
-    #   Kulesza & Taskar (arXiv:1207.6083) — Ensures selected seeds cover different OWASP categories
-    # Strategy: Each owasp_id gets at least 1 seed in selection,
-    #           remaining slots filled by UCB ranking
+ # L5 v32: Category Diversity Guarantee
+ # Academic basis: Determinantal Point Processes (DPP) for diverse subset selection
+ # Kulesza & Taskar (arXiv:1207.6083) - Ensures selected seeds cover different OWASP categories
+ # Strategy: Each owasp_id gets at least 1 seed in selection,
+ # remaining slots filled by UCB ranking
     seed_groups = _apply_category_diversity(seed_groups, max_seeds)
 
     logger.info("Loaded %d seeds from %s (max=%d, files=%d)", len(seed_groups), seed_file, max_seeds, len(loaded_files))
@@ -314,7 +314,7 @@ def load_seeds(
 
 
 def _filter_dos_seeds(seeds: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Filter LLM10 (DoS / Unbounded Consumption) seeds.
+ """Filter LLM10 (DoS / Unbounded Consumption) seeds.
 
     LLM10 attacks (Model DoS / Unbounded Consumption) force target to generate
     extremely large responses (e.g., "generate 100 stories of 5000 characters"),
@@ -329,7 +329,7 @@ def _filter_dos_seeds(seeds: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     Returns:
         Filtered seed list (without LLM10 seeds).
-    """
+ """
     return [
         seed for seed in seeds
         if str(seed.get("metadata", {}).get("owasp_id", "")).upper() != "LLM10"
@@ -340,12 +340,12 @@ def _prune_zero_asr_seeds(
     seed_groups: list[AttackSeedGroup],
     max_seeds: int,
 ) -> list[AttackSeedGroup]:
-    """Auto-prune 0% ASR seeds (efficiency optimization).
+ """Auto-prune 0% ASR seeds (efficiency optimization).
 
     Academic basis:
-        - Auer et al. (arXiv:cs/0207052) UCB1 — Known 0% ASR seeds should be deprioritized
-        - Chao et al. (arXiv:2402.01135) — Seed quality directly affects ASR
-        - Liu et al. (arXiv:2310.04451) AutoDAN — Pruning low-efficiency seeds improves overall ASR
+        - Auer et al. (arXiv:cs/0207052) UCB1 - Known 0% ASR seeds should be deprioritized
+        - Chao et al. (arXiv:2402.01135) - Seed quality directly affects ASR
+        - Liu et al. (arXiv:2310.04451) AutoDAN - Pruning low-efficiency seeds improves overall ASR
 
     Strategy:
         1. Read seed_asr and seed_attempts in asr_history.json
@@ -360,10 +360,10 @@ def _prune_zero_asr_seeds(
 
     Returns:
         Pruned seed group list.
-    """
+ """
     import json
 
-    # Load seed-level ASR history
+ # Load seed-level ASR history
     seed_asr: dict[str, float] = {}
     seed_attempts: dict[str, int] = {}
     if _ASR_HISTORY_PATH.exists():
@@ -378,12 +378,12 @@ def _prune_zero_asr_seeds(
         logger.debug("L5 v40: No seed ASR history, skipping zero-ASR pruning")
         return seed_groups
 
-    # Minimum attempt threshold: 3+ attempts before pruning (statistically significant)
+ # Minimum attempt threshold: 3+ attempts before pruning (statistically significant)
     _MIN_ATTEMPTS_FOR_PRUNE = 3
-    # Maximum prune ratio: 50% (avoid over-pruning)
+ # Maximum prune ratio: 50% (avoid over-pruning)
     _MAX_PRUNE_RATIO = 0.5
 
-    # Mark each seed for pruning eligibility
+ # Mark each seed for pruning eligibility
     prune_indices: set[int] = set()
     for i, group in enumerate(seed_groups):
         objective_text = ""
@@ -395,7 +395,7 @@ def _prune_zero_asr_seeds(
         asr = seed_asr.get(objective_text, -1.0)  # -1 = no history (new seed)
         attempts = seed_attempts.get(objective_text, 0)
 
-        # 3+ attempts AND ASR=0% → Mark for pruning
+ # 3+ attempts AND ASR=0% -> Mark for pruning
         if asr == 0.0 and attempts >= _MIN_ATTEMPTS_FOR_PRUNE:
             prune_indices.add(i)
             logger.debug(
@@ -407,10 +407,10 @@ def _prune_zero_asr_seeds(
         logger.debug("L5 v40: No zero-ASR seeds to prune")
         return seed_groups
 
-    # Limit pruning ratio to no more than 50%
+ # Limit pruning ratio to no more than 50%
     max_prune = int(len(seed_groups) * _MAX_PRUNE_RATIO)
     if len(prune_indices) > max_prune:
-        # Preserve top max_prune by attempts descending (prune high-attempt seeds first)
+ # Preserve top max_prune by attempts descending (prune high-attempt seeds first)
         prune_candidates: list[tuple[int, int]] = []  # (index, attempts)
         for i in prune_indices:
             obj_text = ""
@@ -423,8 +423,8 @@ def _prune_zero_asr_seeds(
         prune_candidates.sort(key=lambda x: -x[1])  # attempts descending
         prune_indices = {c[0] for c in prune_candidates[:max_prune]}
 
-    # Preserve at least 1 seed per OWASP category
-    # Even ASR=0%, if it's the only seed in its category, retain it
+ # Preserve at least 1 seed per OWASP category
+ # Even ASR=0%, if it's the only seed in its category, retain it
     category_counts: dict[str, int] = {}
     for group in seed_groups:
         owasp_id = "UNCATEGORIZED"
@@ -435,7 +435,7 @@ def _prune_zero_asr_seeds(
                 owasp_id = str(meta.get("owasp_id", "UNCATEGORIZED")).upper()
         category_counts[owasp_id] = category_counts.get(owasp_id, 0) + 1
 
-    # Remove "category-only seed" from prune list
+ # Remove "category-only seed" from prune list
     to_remove_from_prune: set[int] = set()
     for i in prune_indices:
         owasp_id = "UNCATEGORIZED"
@@ -444,12 +444,12 @@ def _prune_zero_asr_seeds(
             if obj:
                 meta = getattr(obj, "metadata", {}) or {}
                 owasp_id = str(meta.get("owasp_id", "UNCATEGORIZED")).upper()
-        # If this category has only 1 seed (this one), retain
+ # If this category has only 1 seed (this one), retain
         if category_counts.get(owasp_id, 0) <= 1:
             to_remove_from_prune.add(i)
     prune_indices -= to_remove_from_prune
 
-    # Execute pruning
+ # Execute pruning
     pruned = [g for i, g in enumerate(seed_groups) if i not in prune_indices]
     logger.info(
         "L5 v40: Pruned %d zero-ASR seeds (attempts>=%d, ASR=0%%), %d remaining "
@@ -464,7 +464,7 @@ def _filter_by_language(
     seeds: list[dict[str, Any]],
     target_language: str,
 ) -> list[dict[str, Any]]:
-    """Filter seeds by target language (70% target + 30% other).
+ """Filter seeds by target language (70% target + 30% other).
 
     Args:
         seeds: Original seed list.
@@ -472,7 +472,7 @@ def _filter_by_language(
 
     Returns:
         Filtered seed list.
-    """
+ """
     target_lang_code = target_language.lower()[:2]  # "zh" or "en"
 
     target_seeds: list[dict[str, Any]] = []
@@ -488,11 +488,11 @@ def _filter_by_language(
             other_seeds.append(seed)
 
     if not target_seeds:
-        # No target language seeds, use all
+ # No target language seeds, use all
         logger.warning("No seeds found for language=%s, using all seeds", target_language)
         return seeds
 
-    # 70% target language + 30% other languages
+ # 70% target language + 30% other languages
     target_count = int(len(target_seeds) * 0.7) + 1
     other_count = int(len(other_seeds) * 0.3) + 1 if other_seeds else 0
 
@@ -504,7 +504,7 @@ def _filter_by_metadata(
     seeds: list[dict[str, Any]],
     filters: dict[str, str],
 ) -> list[dict[str, Any]]:
-    """Precise seed filtering by metadata KEY=VALUE.
+ """Precise seed filtering by metadata KEY=VALUE.
 
     Incremental borrow from pyrit_scan's --seed-filters CLI pattern.
 
@@ -521,7 +521,7 @@ def _filter_by_metadata(
 
     Returns:
         Filtered seed list.
-    """
+ """
     if not filters:
         return seeds
 
@@ -538,7 +538,7 @@ def _filter_by_metadata(
                 match_all = False
                 break
 
-            # List value: Any element match
+ # List value: Any element match
             if isinstance(seed_val, list):
                 found = any(
                     filter_val.lower() in str(v).lower()
@@ -548,7 +548,7 @@ def _filter_by_metadata(
                     match_all = False
                     break
             else:
-                # Scalar value: Case-insensitive substring matching
+ # Scalar value: Case-insensitive substring matching
                 if filter_val.lower() not in str(seed_val).lower():
                     match_all = False
                     break
@@ -556,7 +556,7 @@ def _filter_by_metadata(
         if match_all:
             filtered.append(seed)
 
-    # If filtered result is empty, return original list (avoid no-attack)
+ # If filtered result is empty, return original list (avoid no-attack)
     if not filtered:
         logger.warning(
             "Seed metadata filter %s matched 0 seeds, returning all %d seeds",
@@ -569,7 +569,7 @@ def _filter_by_metadata(
 
 
 def _build_seed_groups(raw_seeds: list[dict[str, Any]]) -> list[AttackSeedGroup]:
-    """Build AttackSeedGroup list from YAML data.
+ """Build AttackSeedGroup list from YAML data.
 
     Inject seed metadata (owasp_id, severity, category etc.) into
     SeedObjective's metadata field, allowing subsequent AttackExecutor
@@ -577,13 +577,13 @@ def _build_seed_groups(raw_seeds: list[dict[str, Any]]) -> list[AttackSeedGroup]
 
     Note: AttackSeedGroup.seeds can only contain SeedObjective,
     not SeedPrompt (SeedPrompt would be treated as pre-attack seed by PyRIT, causing duplication).
-    """
+ """
     groups: list[AttackSeedGroup] = []
     for item in raw_seeds:
         value = item.get("value", "")
         metadata = item.get("metadata", {})
 
-        # Inject metadata into SeedObjective (for subsequent passing to AttackResult)
+ # Inject metadata into SeedObjective (for subsequent passing to AttackResult)
         objective = SeedObjective(
             value=value,
             harm_categories=[metadata.get("category", "general")],
@@ -596,7 +596,7 @@ def _build_seed_groups(raw_seeds: list[dict[str, Any]]) -> list[AttackSeedGroup]
 
 
 def _load_asr_history() -> dict[str, float]:
-    """Load ASR history file."""
+ """Load ASR history file."""
     if not _ASR_HISTORY_PATH.exists():
         return {}
     try:
@@ -607,4 +607,4 @@ def _load_asr_history() -> dict[str, float]:
         return {}
 
 
-# == L5 v13: ASR priors + MTOS selection — kept in seed_ranking.py — ==
+# == L5 v13: ASR priors + MTOS selection - kept in seed_ranking.py - ==

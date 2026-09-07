@@ -1,10 +1,10 @@
-"""OpenAPI/Swagger  —  OpenAPI 
+"""OpenAPI/Swagger - OpenAPI 
 
 Academic basis:
-    - OWASP WSTG-INFO-05 —  OpenAPI/Swagger  API 
-    - Arbis et al. (arXiv:2306.01943) §4.5 — API 
+    - OWASP WSTG-INFO-05 -  OpenAPI/Swagger  API 
+    - Arbis et al. (arXiv:2306.01943) Sec4.5 - API 
        (/swagger, /openapi.json, /docs)
-    - Zhan et al. (arXiv:2307.00929) §3.3 — / schema
+    - Zhan et al. (arXiv:2307.00929) Sec3.3 - / schema
       imports OpenAPI spec , 
 
  (Rule 2: Layer, ):
@@ -15,7 +15,7 @@ Academic basis:
     1.  OpenAPI  (/openapi.json, /swagger.json,
        /api-docs, /v1/openapi.json )
     2.  OpenAPI spec,  schema
-    3.  ( → )
+    3.  ( -> )
 
 :
     - converter(s) httpx.AsyncClient 
@@ -31,14 +31,14 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-# P2-06: TLS verify  (SSOT)
+# P2-06: TLS verify (SSOT)
 from recon.config_loader import get_tls_verify as _get_tls_verify_from_config
 
 _TLS_VERIFY = _get_tls_verify_from_config()
 
 logger = logging.getLogger(__name__)
 
-#  OpenAPI/Swagger  ()
+# OpenAPI/Swagger ()
 _OPENAPI_PATHS: list[str] = [
     "/openapi.json",
     "/openapi.yaml",
@@ -55,13 +55,13 @@ _OPENAPI_PATHS: list[str] = [
     "/api/swagger.json",
 ]
 
-#  ()
+# ()
 _PROBE_TIMEOUT = 5
 
 
 @dataclass
 class OpenAPIEndpoint:
-    """imports OpenAPI spec 
+ """imports OpenAPI spec 
 
     :
         path: API  ( /api/users/{id})
@@ -69,7 +69,7 @@ class OpenAPIEndpoint:
         summary: 
         parameters:  (imports requestBody/parameters )
         has_auth:  (imports security )
-    """
+ """
 
     path: str
     method: str
@@ -80,7 +80,7 @@ class OpenAPIEndpoint:
 
 @dataclass
 class OpenAPIDiscovery:
-    """OpenAPI 
+ """OpenAPI 
 
     :
         spec_path: 
@@ -88,7 +88,7 @@ class OpenAPIDiscovery:
         title: API 
         endpoints: 
         security_schemes: 
-    """
+ """
 
     spec_path: str
     spec_version: str = ""
@@ -103,11 +103,11 @@ async def discover_openapi_spec(
     timeout: float = _PROBE_TIMEOUT,
     custom_paths: list[str] | None = None,
 ) -> OpenAPIDiscovery | None:
-    """ OpenAPI/Swagger 
+ """ OpenAPI/Swagger 
 
     Academic basis:
-        - OWASP WSTG-INFO-05 — OpenAPI 
-        - Arbis et al. (arXiv:2306.01943) §4.5 — API 
+        - OWASP WSTG-INFO-05 - OpenAPI 
+        - Arbis et al. (arXiv:2306.01943) Sec4.5 - API 
 
     :
         1.  OpenAPI 
@@ -122,7 +122,7 @@ async def discover_openapi_spec(
 
     Returns:
         OpenAPIDiscovery ,  None 
-    """
+ """
     import httpx
 
     host = getattr(parsed, "host", "")
@@ -133,7 +133,7 @@ async def discover_openapi_spec(
     scheme = "https" if use_tls else "http"
     base_url = f"{scheme}://{host}"
 
-    #  headers
+ # headers
     probe_headers: dict[str, str] = {}
     for key, value in getattr(parsed, "raw_headers", []):
         if key.lower() not in ("content-length", "host"):
@@ -141,7 +141,7 @@ async def discover_openapi_spec(
 
     paths = custom_paths if custom_paths else _OPENAPI_PATHS
 
-    # 
+ # 
     async def _probe_path(path: str) -> tuple[str, dict | None]:
         url = f"{base_url}{path}"
         try:
@@ -168,7 +168,7 @@ async def discover_openapi_spec(
     tasks = [_probe_path(p) for p in paths]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    #  OpenAPI spec
+ # OpenAPI spec
     for result in results:
         if isinstance(result, tuple) and len(result) == 2:
             path, spec_data = result
@@ -182,16 +182,16 @@ async def discover_openapi_spec(
 
 
 def _is_openapi_spec(data: dict) -> bool:
-    """ JSON  OpenAPI/Swagger spec
+ """ JSON OpenAPI/Swagger spec
 
     OpenAPI 3.x:  "openapi"  ( "3.0.3")
     Swagger 2.x:  "swagger"  ( "2.0")
-    """
+ """
     return "openapi" in data or "swagger" in data
 
 
 def _parse_openapi_spec(spec_path: str, spec: dict) -> OpenAPIDiscovery:
-    """ OpenAPI spec, 
+ """ OpenAPI spec, 
 
     Args:
         spec_path:  spec 
@@ -199,12 +199,12 @@ def _parse_openapi_spec(spec_path: str, spec: dict) -> OpenAPIDiscovery:
 
     Returns:
         OpenAPIDiscovery 
-    """
+ """
     version = spec.get("openapi", spec.get("swagger", ""))
     info = spec.get("info", {})
     title = info.get("title", "Unknown API") if isinstance(info, dict) else ""
 
-    # 
+ # 
     security_schemes: list[dict[str, Any]] = []
     components = spec.get("components", {})
     if isinstance(components, dict):
@@ -214,7 +214,7 @@ def _parse_openapi_spec(spec_path: str, spec: dict) -> OpenAPIDiscovery:
                 if isinstance(scheme, dict):
                     security_schemes.append({"name": name, **scheme})
 
-    # 
+ # 
     endpoints: list[OpenAPIEndpoint] = []
     paths = spec.get("paths", {})
     if isinstance(paths, dict):
@@ -227,9 +227,9 @@ def _parse_openapi_spec(spec_path: str, spec: dict) -> OpenAPIDiscovery:
                 if not isinstance(operation, dict):
                     continue
 
-                # 
+ # 
                 parameters: list[dict[str, Any]] = []
-                #  parameters 
+ # parameters 
                 for param in operation.get("parameters", []):
                     if isinstance(param, dict):
                         parameters.append({
@@ -238,7 +238,7 @@ def _parse_openapi_spec(spec_path: str, spec: dict) -> OpenAPIDiscovery:
                             "required": param.get("required", False),
                             "type": param.get("schema", {}).get("type", ""),
                         })
-                #  requestBody 
+ # requestBody 
                 request_body = operation.get("requestBody", {})
                 if isinstance(request_body, dict):
                     content = request_body.get("content", {})
@@ -257,7 +257,7 @@ def _parse_openapi_spec(spec_path: str, spec: dict) -> OpenAPIDiscovery:
                                                 "type": prop_schema.get("type", "") if isinstance(prop_schema, dict) else "",
                                             })
 
-                # 
+ # 
                 has_auth = bool(operation.get("security")) or bool(security_schemes)
 
                 endpoints.append(OpenAPIEndpoint(
@@ -283,12 +283,12 @@ def _parse_openapi_spec(spec_path: str, spec: dict) -> OpenAPIDiscovery:
 
 
 def build_openapi_attack_seeds(discovery: OpenAPIDiscovery) -> list[dict[str, Any]]:
-    """ OpenAPI 
+ """ OpenAPI 
 
     Academic basis:
-        - OWASP API1 (BOLA) — 
-        - OWASP API3 (BOPLA) — 
-        - Zhan et al. (arXiv:2307.00929) §3.3 —  schema
+        - OWASP API1 (BOLA) - 
+        - OWASP API3 (BOPLA) - 
+        - Zhan et al. (arXiv:2307.00929) Sec3.3 -  schema
 
     :
         1. converter(s), 
@@ -300,7 +300,7 @@ def build_openapi_attack_seeds(discovery: OpenAPIDiscovery) -> list[dict[str, An
 
     Returns:
          (PyRIT SeedPrompt YAML )
-    """
+ """
     seeds: list[dict[str, Any]] = []
 
     sk_prefix = (
@@ -310,7 +310,7 @@ def build_openapi_attack_seeds(discovery: OpenAPIDiscovery) -> list[dict[str, An
     )
 
     for endpoint in discovery.endpoints:
-        # 
+ # 
         if endpoint.parameters:
             param_names = [p["name"] for p in endpoint.parameters if p.get("name")]
             param_hint = f" Parameters: {', '.join(param_names)}." if param_names else ""
@@ -338,7 +338,7 @@ def build_openapi_attack_seeds(discovery: OpenAPIDiscovery) -> list[dict[str, An
                 },
             })
 
-        # 
+ # 
         if endpoint.has_auth and endpoint.method in ("GET", "POST"):
             seeds.append({
                 "value": (
@@ -361,7 +361,7 @@ def build_openapi_attack_seeds(discovery: OpenAPIDiscovery) -> list[dict[str, An
                 },
             })
 
-        #  DELETE/PUT 
+ # DELETE/PUT 
         if endpoint.method in ("DELETE", "PUT"):
             seeds.append({
                 "value": (

@@ -1,15 +1,15 @@
-"""Stealth Level Configuration — 
+"""Stealth Level Configuration - 
 
 Academic basis:
-    - Huang et al. (arXiv:2306.05685) — ": "
-    - Russinovich et al. (2024) — PyRIT 
-    - Mazeika et al. (arXiv:2406.18510) — WILDTEAMING: 
+    - Huang et al. (arXiv:2306.05685) - ": "
+    - Russinovich et al. (2024) - PyRIT 
+    - Mazeika et al. (arXiv:2406.18510) - WILDTEAMING: 
 
 :
-    paranoid:    — all ()
-    balanced:    —  ()
-    aggressive:  —  ( / CTF)
-    silent_recon-only:  — /
+    paranoid:    - all ()
+    balanced:    -  ()
+    aggressive:  -  ( / CTF)
+    silent_recon-only:  - /
 
 :
     -  (delay_range)
@@ -20,7 +20,7 @@ Academic basis:
     - 
 
  (Rule 2: Stealth First):
-     "balanced"  — 
+     "balanced"  - 
     "paranoid"  ( 30-60s),
      Mark 
 """
@@ -35,13 +35,13 @@ logger = logging.getLogger(__name__)
 
 
 # ====================================================================
-# Stealth Level  Schema
+# Stealth Level Schema
 # ====================================================================
 
 
 @dataclass
 class StealthPolicy:
-    """converter(s) Stealth Level 
+ """converter(s) Stealth Level 
 
     :
         name: 
@@ -53,10 +53,10 @@ class StealthPolicy:
         guardrail_detection_strength:  ("full" / "light" / "none")
         aggressive_templates_allowed: 
         multi_turn_enabled: 
-        jitter:  (± )
+        jitter:  (+/- )
         max_concurrent_requests: 
         notes: 
-    """
+ """
     name: str
     delay_range: tuple[float, float]
     max_probes: int
@@ -139,7 +139,7 @@ STEALTH_POLICIES: dict[str, StealthPolicy] = {
     "silent_recon_only": StealthPolicy(
         name="silent_recon_only",
         delay_range=(60.0, 120.0),
-        max_probes=1,  #  1 converter(s)
+        max_probes=1,  # 1 converter(s)
         allowed_converters=[],  # all converter
         converter_blacklist=["base64", "rot13", "leet_speak", "humanizer",
                              "unicode_smuggling", "homoglyph_chinese", "accent_obfuscation"],
@@ -160,7 +160,7 @@ STEALTH_POLICIES: dict[str, StealthPolicy] = {
 
 
 class StealthLevelManager:
-    """
+ """
 
      GuardrailReport  stealth_level 
 
@@ -168,28 +168,28 @@ class StealthLevelManager:
         >>> manager = StealthLevelManager()
         >>> # 
         >>> policy = manager.get_policy("balanced")
-        >>> #  ()
+        >>> # ()
         >>> policy = manager.auto_select_policy(guardrail_report)
-    """
+ """
 
     def __init__(self, default_level: str = "balanced") -> None:
-        """
+ """
 
         Args:
             default_level:  stealth level
-        """
+ """
         self._default_level = default_level
         self._current_policy: StealthPolicy | None = None
 
     def get_policy(self, level: str | None = None) -> StealthPolicy:
-        """ level 
+ """ level 
 
         Args:
             level:  (paranoid / balanced / aggressive / silent_recon_only)
 
         Returns:
             StealthPolicy 
-        """
+ """
         level = level or self._default_level
         policy = STEALTH_POLICIES.get(level)
         if policy is None:
@@ -199,21 +199,21 @@ class StealthLevelManager:
         return policy
 
     def auto_select_policy(self, guardrail_report: dict[str, Any] | None = None) -> StealthPolicy:
-        """ stealth level
+ """ stealth level
 
         :
-            -  (strict) → paranoid
-            -  (moderate) → balanced
-            -  (permissive) → balanced
-            -  → aggressive
-            -  → balanced ()
+            -  (strict) -> paranoid
+            -  (moderate) -> balanced
+            -  (permissive) -> balanced
+            -  -> aggressive
+            -  -> balanced ()
 
         Args:
             guardrail_report: guardrail_detector 
 
         Returns:
             StealthPolicy 
-        """
+ """
         if guardrail_report is None:
             return self.get_policy("balanced")
 
@@ -229,7 +229,7 @@ class StealthLevelManager:
             return self.get_policy("balanced")
 
     def get_delay(self, policy: StealthPolicy | None = None) -> float:
-        """ stealth level 
+ """ stealth level 
 
          jitter () 
 
@@ -238,7 +238,7 @@ class StealthLevelManager:
 
         Returns:
              ( jitter)
-        """
+ """
         policy = policy or self._current_policy or self.get_policy()
         delay_min, delay_max = policy.delay_range
         jitter = policy.jitter
@@ -254,7 +254,7 @@ class StealthLevelManager:
         converter_name: str,
         policy: StealthPolicy | None = None,
     ) -> bool:
-        """converter(s)  stealth level 
+ """converter(s) stealth level 
 
         Args:
             converter_name: converter  ( "base64", "rot13")
@@ -262,25 +262,25 @@ class StealthLevelManager:
 
         Returns:
             
-        """
+ """
         policy = policy or self._current_policy or self.get_policy()
 
-        # 
+ # 
         if converter_name in policy.converter_blacklist:
             return False
 
-        # , 
+ # , 
         if policy.allowed_converters is not None:
             return converter_name in policy.allowed_converters
 
         return True
 
     def get_all_allowed_converters(self, policy: StealthPolicy | None = None) -> list[str]:
-        """ level all converter
+ """ level all converter
 
         Returns:
             converter 
-        """
+ """
         policy = policy or self._current_policy or self.get_policy()
 
         ALL_CONVERTERS = [
@@ -301,7 +301,7 @@ _default_stealth_manager: StealthLevelManager | None = None
 
 
 def get_stealth_manager() -> StealthLevelManager:
-    """ StealthLevelManager """
+ """ StealthLevelManager """
     global _default_stealth_manager
     if _default_stealth_manager is None:
         _default_stealth_manager = StealthLevelManager()

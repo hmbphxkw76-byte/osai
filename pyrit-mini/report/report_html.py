@@ -1,4 +1,4 @@
-"""report_html — HTML 
+"""report_html - HTML 
 
 imports generator.py ,  HTML , , OWASP , 
 """
@@ -9,7 +9,7 @@ from jinja2 import Template
 
 from report.evidence import EvidenceCollection, VulnerabilityEvidence
 from report.report_sections import _build_escalation_dashboard_data, _build_heatmap_data, _finding_to_dict
-from report.report_utils import (  # noqa: F401 — re-exports for generator.py
+from report.report_utils import (  # noqa: F401 - re-exports for generator.py
     _get_all_references,
     _get_owasp_category,
     _get_technique_display_name,
@@ -17,11 +17,11 @@ from report.report_utils import (  # noqa: F401 — re-exports for generator.py
 
 
 def _generate_html(evidence: EvidenceCollection, *, success_only: bool = False) -> str:
-    """Generate HTML report.
+ """Generate HTML report.
 
     importsLoad (report/templates/report.html),
      generator._load_html_template() cache
-    """
+ """
     from report.generator import _OWASP_ALL_CATEGORIES, _load_html_template
 
     template = Template(_load_html_template())
@@ -29,10 +29,10 @@ def _generate_html(evidence: EvidenceCollection, *, success_only: bool = False) 
     llm_tested = sum(1 for v in evidence.owasp_llm_compliance.values() if v.get("tested", 0) > 0)
     asi_tested = sum(1 for v in evidence.owasp_asi_compliance.values() if v.get("tested", 0) > 0)
 
-    # P2-1: ASR 
+ # P2-1: ASR 
     heatmap_owasp_ids, heatmap_rows = _build_heatmap_data(evidence, evidence_list)
 
-    # P2-2: 
+ # P2-2: 
     escalation_dashboard = _build_escalation_dashboard_data(evidence)
 
     return template.render(
@@ -49,12 +49,12 @@ def _generate_html(evidence: EvidenceCollection, *, success_only: bool = False) 
     )
 
 def _evidence_to_dict(evidence: EvidenceCollection, *, success_only: bool = False) -> dict[str, Any]:
-    """ ( JSON )
+ """ ( JSON )
 
     : main.py  orchestration_log / wilson_ci / cohens_kappa  evidence,
      _evidence_to_dict ,  regen_report.py 
-    : all, EnsureData flowimports main.py → evidence → JSON → regen 
-    """
+    : all, EnsureData flowimports main.py -> evidence -> JSON -> regen 
+ """
     ev_list = evidence.successful_evidence if success_only else evidence.evidence
 
     return {
@@ -79,25 +79,25 @@ def _evidence_to_dict(evidence: EvidenceCollection, *, success_only: bool = Fals
         "findings": [_finding_to_dict(f) for f in getattr(evidence, "findings", [])],
         "web_vuln_stats": getattr(evidence, "web_vuln_stats", {}),
         "discovered_endpoints": getattr(evidence, "discovered_endpoints", []),
-        # :  main.py Phase 4/5 , Data flow
+ # : main.py Phase 4/5 , Data flow
         "orchestration_log": getattr(evidence, "orchestration_log", []),
         "wilson_ci": list(getattr(evidence, "wilson_ci", (0.0, 0.0))),
         "cohens_kappa": getattr(evidence, "cohens_kappa", 0.0),
     }
 
 def _single_evidence_to_dict(ev: VulnerabilityEvidence) -> dict[str, Any]:
-    """converter(s)
+ """converter(s)
 
     Layer: EnsureEven if _build_evidence  (),
     JSON all R10 
-    """
-    # P1-1 : converter_chain  → "none (baseline)"
+ """
+ # P1-1 : converter_chain -> "none (baseline)"
     converter_chain = ev.converter_chain or "none (baseline)"
 
-    # P0-3 : arxiv_reference  → 
+ # P0-3 : arxiv_reference -> 
     arxiv_ref = ev.arxiv_reference or "PyRIT (arXiv:2407.01232)"
 
-    # P0-1 : conversation_history  →  objective/harmful_output 
+ # P0-1 : conversation_history -> objective/harmful_output 
     conversation = ev.conversation_history
     if not conversation:
         obj = ev.objective or ""
@@ -112,7 +112,7 @@ def _single_evidence_to_dict(ev: VulnerabilityEvidence) -> dict[str, Any]:
         else:
             conversation = [{"role": "system", "content": "No conversation data available"}]
 
-    # P0-2 : converter_log  → "none (baseline)"
+ # P0-2 : converter_log -> "none (baseline)"
     converter_log = ev.converter_log
     if not converter_log:
         obj = ev.objective or ""
@@ -122,7 +122,7 @@ def _single_evidence_to_dict(ev: VulnerabilityEvidence) -> dict[str, Any]:
             "transformed": obj[:200],
         }]
 
-    # P0-4 : validation_runs  →  1 
+ # P0-4 : validation_runs -> 1 
     validation_runs = getattr(ev, "validation_runs", [])
     if not validation_runs:
         validation_runs = [{
@@ -131,7 +131,7 @@ def _single_evidence_to_dict(ev: VulnerabilityEvidence) -> dict[str, Any]:
             "response": str(ev.harmful_output or "")[:200],
         }]
 
-    # P0-5 : testing_conditions  → timestamp/outcome/attack_id
+ # P0-5 : testing_conditions -> timestamp/outcome/attack_id
     testing_conditions = getattr(ev, "testing_conditions", {})
     if not testing_conditions:
         testing_conditions = {
@@ -140,7 +140,7 @@ def _single_evidence_to_dict(ev: VulnerabilityEvidence) -> dict[str, Any]:
             "attack_id": ev.attack_id or "",
         }
 
-    # P0-4b : score_details  → 
+ # P0-4b : score_details -> 
     score_details = ev.score_details
     if not score_details:
         score_details = [{
@@ -182,6 +182,6 @@ def _single_evidence_to_dict(ev: VulnerabilityEvidence) -> dict[str, Any]:
         "mitre_url": getattr(ev, "mitre_url", ""),
         "validation_runs": validation_runs,
         "testing_conditions": testing_conditions,
-        # NOTE: attack_result_ref is intentionally excluded from JSON serialization
-        # (it holds a live PyRIT AttackResult object reference, not serializable data)
+ # NOTE: attack_result_ref is intentionally excluded from JSON serialization
+ # (it holds a live PyRIT AttackResult object reference, not serializable data)
     }

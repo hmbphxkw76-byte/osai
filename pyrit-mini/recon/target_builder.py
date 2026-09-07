@@ -1,4 +1,4 @@
-"""target_builder —  PyRIT 1.0.1  HTTP Target .
+"""target_builder - PyRIT 1.0.1 HTTP Target .
 
  PyRIT  Target  (HTTPTarget / HTTPXAPITarget).
 
@@ -9,18 +9,18 @@
 
 PyRIT 1.0.1 :
     1. HTTPTarget._send_prompt_to_target_async  normalized_conversation: list[Message]
-       → imports message.message_pieces[0]  MessagePiece
-       → MessagePiece.converted_value  HTTP body  prompt 
+       -> imports message.message_pieces[0]  MessagePiece
+       -> MessagePiece.converted_value  HTTP body  prompt 
 
     2. TargetConfiguration + TargetCapabilities :
        - supports_multi_turn: 
        - supports_multi_message_pieces: 
        - input_modalities:  (text/image_path/audio_path...)
        - supports_system_prompt:  system prompt
-       →  ConversationNormalizationPipeline  (ADAPT/RAISE)
+       ->  ConversationNormalizationPipeline  (ADAPT/RAISE)
 
     3. httpx.AsyncClient :  HTTPTarget  client
-       → / client,  ~30% 
+       -> / client,  ~30% 
 
     4. callback_function  httpx.Response ( requests.Response)
 
@@ -49,11 +49,11 @@ logger = logging.getLogger(__name__)
 
 
 # ====================================================================
-# P2-06: TLS verify  (SSOT)
-#  config/defaults.yaml  tls_verify ,  SSL 
+# P2-06: TLS verify (SSOT)
+# config/defaults.yaml tls_verify , SSL 
 # ====================================================================
 def _get_tls_verify_default() -> bool | str:
-    """Load TLS verify  ()"""
+ """Load TLS verify ()"""
     try:
         from recon.config_loader import get_tls_verify
         return get_tls_verify()
@@ -65,11 +65,11 @@ _TLS_VERIFY: bool | str = _get_tls_verify_default()
 
 
 # ====================================================================
-# Chat ID  — 
+# Chat ID - 
 # ====================================================================
 
 class ChatIdStateManager:
-    """ ID  (chat_id).
+ """ ID (chat_id).
 
     : ,  PyRIT  Target.
 
@@ -78,7 +78,7 @@ class ChatIdStateManager:
         2. imports HTTP  chat_id
         3.  chat_id  ()
         4.  Target 
-    """
+ """
 
     def __init__(self, initial_chat_id: str | None = None) -> None:
         self._chat_id: str | None = initial_chat_id
@@ -89,11 +89,11 @@ class ChatIdStateManager:
         return self._chat_id
 
     def set_template(self, http_request_template: str) -> None:
-        """ HTTP  ( {CHAT_ID} )."""
+ """ HTTP ( {CHAT_ID} )."""
         self._original_template = http_request_template
 
     def update_from_response(self, response: Any) -> str | None:
-        """imports HTTP  chat_id.
+ """imports HTTP chat_id.
 
          ():
             Object > Id > ChatId > SessionId > ConversationId > ConvId
@@ -103,7 +103,7 @@ class ChatIdStateManager:
 
         Returns:
              chat_id,  None.
-        """
+ """
         from recon.burp_parser import _extract_chat_id_from_response
 
         text: str | None = None
@@ -121,18 +121,18 @@ class ChatIdStateManager:
         if new_id and new_id != self._chat_id:
             old = self._chat_id
             self._chat_id = new_id
-            logger.debug("Chat ID updated: %s → %s", old or "(none)", new_id)
+            logger.debug("Chat ID updated: %s -> %s", old or "(none)", new_id)
         return new_id
 
     def preprocess_request(self, http_request: str) -> str:
-        """ HTTP ,  {CHAT_ID} .
+ """ HTTP , {CHAT_ID} .
 
         Args:
             http_request:  HTTP  ( {CHAT_ID}).
 
         Returns:
             .
-        """
+ """
         if "{CHAT_ID}" not in http_request:
             return http_request
 
@@ -148,24 +148,24 @@ class ChatIdStateManager:
 
 
 # ====================================================================
-# HTTP  —  Prompt 
+# HTTP - Prompt 
 # ====================================================================
 
 class RequestPreprocessor:
-    """HTTP .
+ """HTTP .
 
      PyRIT  Prompt :
         1. {CHAT_ID} 
         2. JSON body  ()
         3. Content-Length 
-    """
+ """
 
     @staticmethod
     def preprocess(
         http_request: str,
         chat_id_state: ChatIdStateManager | None = None,
     ) -> str:
-        """ HTTP .
+ """ HTTP .
 
         Args:
             http_request:  HTTP .
@@ -173,28 +173,28 @@ class RequestPreprocessor:
 
         Returns:
             .
-        """
+ """
         result = http_request
 
-        # Step 1: Chat ID 
+ # Step 1: Chat ID 
         if chat_id_state:
             result = chat_id_state.preprocess_request(result)
 
-        # Step 2 & 3: JSON body  + Content-Length
+ # Step 2 & 3: JSON body + Content-Length
         result = RequestPreprocessor._sanitize_json_body(result)
 
         return result
 
     @staticmethod
     def _sanitize_json_body(http_request: str) -> str:
-        """Ensure JSON body  Content-Length .
+ """Ensure JSON body Content-Length .
 
         :
             1.  HTTP  headers  body
             2.  body  JSON
             3.  JSON ,  ()
             4.  Content-Length 
-        """
+ """
         normalized = http_request.replace("\r\n", "\n")
         parts = normalized.split("\n\n", 1)
 
@@ -204,17 +204,17 @@ class RequestPreprocessor:
         if not body.strip():
             return http_request
 
-        #  JSON  ()
+ # JSON ()
         try:
             body_obj = json.loads(body)
-            # :  ensure_ascii=False 
+ # : ensure_ascii=False 
             sanitized_body = json.dumps(body_obj, ensure_ascii=False)
             if sanitized_body == body:
                 return http_request  # 
         except (json.JSONDecodeError, TypeError):
-            return http_request  #  JSON, 
+            return http_request  # JSON, 
 
-        #  Content-Length
+ # Content-Length
         body_bytes_len = len(sanitized_body.encode("utf-8"))
 
         header_lines = header_section.split("\n")
@@ -236,38 +236,38 @@ class RequestPreprocessor:
 
 
 # ====================================================================
-# Callback  — 
+# Callback - 
 # ====================================================================
 
 def _assemble_callback(
     parsed: ParsedBurpRequest,
     chat_id_state: ChatIdStateManager | None = None,
 ) -> Any:
-    """: response_parser → chat_id_extraction.
+ """: response_parser -> chat_id_extraction.
 
     PyRIT HTTPTarget  callback_function, converter(s)
     .
 
     :
-        1.  httpx.Response → response_parser → 
-        2. imports chat_id →  ChatIdStateManager
+        1.  httpx.Response -> response_parser -> 
+        2. imports chat_id ->  ChatIdStateManager
 
     Args:
         parsed:  Burp  ( response_parser ).
         chat_id_state: Chat ID  ( chat_id).
 
     Returns:
-         (httpx.Response → str).
-    """
-    # Step 1: 
+         (httpx.Response -> str).
+ """
+ # Step 1: 
     response_parser = _select_response_parser(parsed)
 
-    # Step 2:  ( chat_id )
+ # Step 2: ( chat_id )
     chat_id_extractor = None
     if parsed.has_chat_id_placeholder and chat_id_state:
 
         def chat_id_extractor(response: Any) -> None:
-            """imports chat_id ."""
+ """imports chat_id ."""
             try:
                 text: str | None = None
                 if hasattr(response, "text") and response.text is not None:
@@ -283,14 +283,14 @@ def _assemble_callback(
             except Exception as e:
                 logger.debug("Chat ID extraction failed: %s", e)
 
-    # Step 3:  callback
+ # Step 3: callback
     def combined_callback(response: Any) -> str:
-        """:  +  chat_id."""
+ """: + chat_id."""
         if chat_id_extractor:
             chat_id_extractor(response)
         return response_parser(response)
 
-    # 
+ # 
     parser_name = getattr(response_parser, "__name__", "parser")
     suffix = "+chat_id" if chat_id_extractor else ""
     combined_callback.__name__ = f"combined({parser_name}{suffix})"
@@ -298,7 +298,7 @@ def _assemble_callback(
 
 
 def _select_response_parser(parsed: ParsedBurpRequest) -> Any:
-    """.
+ """.
 
      PyRIT 1.0.1 :
         - get_http_target_json_response_callback_function: JSON 
@@ -309,9 +309,9 @@ def _select_response_parser(parsed: ParsedBurpRequest) -> Any:
         parsed:  Burp .
 
     Returns:
-         (httpx.Response → str).
-    """
-    # 1.  JSON  →  JSON callback
+         (httpx.Response -> str).
+ """
+ # 1. JSON -> JSON callback
     if parsed.response_json_path:
         callback = get_http_target_json_response_callback_function(
             key=parsed.response_json_path
@@ -319,24 +319,24 @@ def _select_response_parser(parsed: ParsedBurpRequest) -> Any:
         logger.debug("Using probed JSON callback with path: %s", parsed.response_json_path)
         return callback
 
-    # 2. SSE →  SSE parser
+ # 2. SSE -> SSE parser
     if parsed.is_sse:
         from recon.burp_parser import _make_sse_response_parser
         logger.debug("Using custom SSE response parser")
         return _make_sse_response_parser()
 
-    # 3.  JSON parser
+ # 3. JSON parser
     return _make_adaptive_json_parser()
 
 
 def _make_adaptive_json_parser() -> Any:
-    """ JSON  — converter(s).
+ """ JSON - converter(s).
 
      JSON  ( API ):
         - OpenAI : choices[0].message.content
         -  API: data.content, response, result, output
         -  API: message, text, content, answer, reply
-    """
+ """
     _CANDIDATE_PATHS: list[tuple[str, ...]] = [
         ("choices", 0, "message", "content"),
         ("choices", 0, "delta", "content"),
@@ -359,7 +359,7 @@ def _make_adaptive_json_parser() -> Any:
     ]
 
     def parse_response(response: Any) -> str:
-        """ JSON ."""
+ """ JSON ."""
         content: bytes | str | None = None
         if hasattr(response, "content"):
             content = response.content
@@ -394,10 +394,10 @@ def _make_adaptive_json_parser() -> Any:
 
 
 def _make_sse_response_parser() -> Any:
-    """ SSE .
+ """ SSE .
 
      data:  JSON .
-    """
+ """
     def parse_sse_response(response: Any) -> str:
         content: bytes | str | None = None
         if hasattr(response, "content"):
@@ -415,7 +415,7 @@ def _make_sse_response_parser() -> Any:
         else:
             content_str = str(content)
 
-        #  data: 
+ # data: 
         parts: list[str] = []
         for line in content_str.split("\n"):
             line = line.strip()
@@ -431,7 +431,7 @@ def _make_sse_response_parser() -> Any:
 
 
 # ====================================================================
-# HTTP Target  —  PyRIT 1.0.1 TargetConfiguration
+# HTTP Target - PyRIT 1.0.1 TargetConfiguration
 # ====================================================================
 
 def build_http_target(
@@ -442,7 +442,7 @@ def build_http_target(
     auto_discover_capabilities: bool = False,
     http_client: httpx.AsyncClient | None = None,
 ) -> HTTPTarget:
-    """imports PyRIT  HTTPTarget.
+ """imports PyRIT HTTPTarget.
 
     :  PyRIT  Target, .
 
@@ -462,21 +462,21 @@ def build_http_target(
 
     Returns:
         HTTPTarget: PyRIT  HTTP .
-    """
+ """
     from recon.burp_parser import build_raw_http_request
 
     raw_request = build_raw_http_request(parsed)
 
-    # == Chat ID  ==
+ # == Chat ID ==
     chat_id_state: ChatIdStateManager | None = None
     if parsed.has_chat_id_placeholder or parsed.chat_id:
         chat_id_state = ChatIdStateManager(initial_chat_id=parsed.chat_id)
 
-    # ==  Client () ==
+ # == Client () ==
     shared_client = http_client
     if shared_client is None:
         http2 = "HTTP/2" in (parsed.http_version or "")
-        # P2-06: TLS verify  (SSOT) — 
+ # P2-06: TLS verify (SSOT) - 
         shared_client = httpx.AsyncClient(
             timeout=120.0,
             follow_redirects=True,
@@ -484,16 +484,16 @@ def build_http_target(
             http2=http2,
         )
 
-    # == Callback  ==
+ # == Callback ==
     callback = _assemble_callback(parsed, chat_id_state)
 
-    # == TargetConfiguration ==
+ # == TargetConfiguration ==
     custom_config = _build_target_configuration(
         enable_multi_turn=enable_multi_turn,
         enable_system_prompt_adapt=enable_system_prompt_adapt,
     )
 
-    # ==  Target ( HTTPTarget) ==
+ # == Target ( HTTPTarget) ==
     target = HTTPTarget(
         http_request=raw_request,
         prompt_regex_string="{PROMPT}",
@@ -503,8 +503,8 @@ def build_http_target(
         custom_configuration=custom_config,
     )
 
-    # ==  ( target  __dict__ ) ==
-    # : ,  target ,  target 
+ # == ( target __dict__ ) ==
+ # : , target , target 
     target._recon_chat_id_state = chat_id_state  # type: ignore[attr-defined]
     if chat_id_state:
         chat_id_state.set_template(raw_request)
@@ -525,7 +525,7 @@ def build_http_target(
         "enabled" if chat_id_state else "disabled",
     )
 
-    # L5 v52: PyRIT  ()
+ # L5 v52: PyRIT ()
     if auto_discover_capabilities:
         _run_capability_discovery_sync(target)
 
@@ -537,10 +537,10 @@ def _build_target_configuration(
     enable_multi_turn: bool,
     enable_system_prompt_adapt: bool,
 ) -> TargetConfiguration | None:
-    """ TargetConfiguration.
+ """ TargetConfiguration.
 
      multi_turn  system_prompt_adapt .
-    """
+ """
     from pyrit.prompt_target.common.target_capabilities import (
         CapabilityHandlingPolicy,
         CapabilityName,
@@ -548,7 +548,7 @@ def _build_target_configuration(
     )
 
     if enable_multi_turn:
-        # :  multi_turn + editable_history
+ # : multi_turn + editable_history
         policy = CapabilityHandlingPolicy(
             behaviors={
                 CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.ADAPT,
@@ -566,7 +566,7 @@ def _build_target_configuration(
             policy=policy,
         )
     else:
-        # :  text 
+ # : text 
         if enable_system_prompt_adapt:
             policy = CapabilityHandlingPolicy(
                 behaviors={
@@ -585,7 +585,7 @@ def _build_target_configuration(
 
 
 def _run_capability_discovery_sync(target: HTTPTarget) -> None:
-    """ PyRIT  (L5 v52).
+ """ PyRIT (L5 v52).
 
      discover_target_capabilities_async ,
      build_http_target ,  asyncio.run
@@ -593,7 +593,7 @@ def _run_capability_discovery_sync(target: HTTPTarget) -> None:
 
     Args:
         target: PyRIT HTTPTarget .
-    """
+ """
     try:
         import asyncio
 
@@ -613,11 +613,11 @@ def _run_capability_discovery_sync(target: HTTPTarget) -> None:
 
 
 async def _async_discover_capabilities(target: HTTPTarget) -> None:
-    """ PyRIT  (L5 v52).
+ """ PyRIT (L5 v52).
 
     Args:
         target: PyRIT HTTPTarget .
-    """
+ """
     try:
         from pyrit.prompt_target.common.discover_target_capabilities import (
             discover_target_capabilities_async,
@@ -648,7 +648,7 @@ async def _async_discover_capabilities(target: HTTPTarget) -> None:
 
 
 # ====================================================================
-# HTTPXAPITarget  — API 
+# HTTPXAPITarget - API 
 # ====================================================================
 
 def build_httpx_api_target(
@@ -662,7 +662,7 @@ def build_httpx_api_target(
     max_requests_per_minute: int | None = None,
     enable_multi_turn: bool = False,
 ) -> HTTPXAPITarget:
-    """ PyRIT  HTTPXAPITarget — API .
+ """ PyRIT HTTPXAPITarget - API .
 
      PyRIT 1.0.1 HTTPXAPITarget:
         - /multipart form/JSON API 
@@ -684,7 +684,7 @@ def build_httpx_api_target(
 
     Raises:
         ValueError:  method  file_path  method .
-    """
+ """
     _VALID_METHODS = frozenset({"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"})
     method_upper = method.upper().strip()
     if method_upper not in _VALID_METHODS:
@@ -702,13 +702,13 @@ def build_httpx_api_target(
     scheme = "https" if parsed.use_tls else "http"
     http_url = f"{scheme}://{parsed.host}{parsed.path}"
 
-    #  headers
+ # headers
     headers: dict[str, str] = {}
     for key, value in parsed.raw_headers:
         if key.lower() not in ("content-length", "host", "content-type"):
             headers[key] = value
 
-    #  TargetConfiguration
+ # TargetConfiguration
     custom_config = None
     if enable_multi_turn:
         from pyrit.prompt_target.common.target_capabilities import (
@@ -746,7 +746,7 @@ def build_httpx_api_target(
         max_requests_per_minute=max_requests_per_minute,
         custom_configuration=custom_config,
         timeout=120.0,
-        # P2-06: TLS verify  (SSOT)
+ # P2-06: TLS verify (SSOT)
         verify=_TLS_VERIFY,
     )
 
@@ -764,11 +764,11 @@ def build_httpx_api_target(
 
 
 # ====================================================================
-# :  ( deprecated)
+# : ( deprecated)
 # ====================================================================
 
 def __getattr__(name: str) -> Any:
-    """Layer,  API."""
+ """Layer, API."""
     if name == "JSONSafeHTTPTarget":
         import warnings
         warnings.warn(
@@ -777,6 +777,6 @@ def __getattr__(name: str) -> Any:
             DeprecationWarning,
             stacklevel=2,
         )
-        #  HTTPTarget 
+ # HTTPTarget 
         return HTTPTarget
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")

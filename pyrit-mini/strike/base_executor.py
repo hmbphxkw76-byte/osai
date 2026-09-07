@@ -1,4 +1,4 @@
-""" —  priority_scheduler  adaptive_executor .
+""" - priority_scheduler adaptive_executor .
 
 L-03: 
     converter(s)LoadError handling.
@@ -11,9 +11,9 @@ L-03:
     5. Orchestration log recording
 
 Academic basis:
-    - Lattner et al. (arXiv:2406.12609) — 
-    - Auer et al. (arXiv:cs/0207052) — UCB1 
-    - PyRIT TextAdaptive (arXiv:2407.01232) — 
+    - Lattner et al. (arXiv:2406.12609) - 
+    - Auer et al. (arXiv:cs/0207052) - UCB1 
+    - PyRIT TextAdaptive (arXiv:2407.01232) - 
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from core.context import PipelineContext, get_effective_concurrency
 
 logger = logging.getLogger(__name__)
 
-#  (strike/ )
+# (strike/ )
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # 
@@ -43,7 +43,7 @@ def load_ssot_config(
     validator: Callable[[Any], bool] | None = None,
     transformer: Callable[[Any], T] | None = None,
 ) -> T:
-    """SSOT Load — imports config/defaults.yaml  ctx.args .
+ """SSOT Load - imports config/defaults.yaml ctx.args .
 
     : ctx.args > config/defaults.yaml > 
 
@@ -56,10 +56,10 @@ def load_ssot_config(
 
     Returns:
          ().
-    """
+ """
     value = default
 
-    #  1: ctx.args 
+ # 1: ctx.args 
     if ctx is not None:
         args = getattr(ctx, "args", None)
         if args is not None:
@@ -72,7 +72,7 @@ def load_ssot_config(
                     key, arg_val,
                 )
 
-    #  2: config/defaults.yaml
+ # 2: config/defaults.yaml
     try:
         import yaml
         config_path = _PROJECT_ROOT / "config" / "defaults.yaml"
@@ -97,7 +97,7 @@ def load_ssot_config_float(
     min_val: float | None = None,
     max_val: float | None = None,
 ) -> float:
-    """SSOT Load (float , )."""
+ """SSOT Load (float , )."""
     def _validator(v: Any) -> bool:
         if not isinstance(v, (int, float)):
             return False
@@ -122,7 +122,7 @@ def load_ssot_config_int(
     *,
     min_val: int | None = None,
 ) -> int:
-    """SSOT Load (int , )."""
+ """SSOT Load (int , )."""
     def _validator(v: Any) -> bool:
         if not isinstance(v, (int, float)):
             return False
@@ -146,12 +146,12 @@ async def safe_async_execute(
     on_timeout: Callable[[], Coroutine[Any, Any, T]] | None = None,
     on_integrity_error: Callable[[], T] | None = None,
 ) -> T | None:
-    """ — Error handling.
+ """ - Error handling.
 
     :
-        1. asyncio.TimeoutError →  on_timeout 
-        2. IntegrityError / Unique Constraint →  on_integrity_error 
-        3.  Exception →  warning  None
+        1. asyncio.TimeoutError ->  on_timeout 
+        2. IntegrityError / Unique Constraint ->  on_integrity_error 
+        3.  Exception ->  warning  None
 
     Args:
         coro: .
@@ -162,7 +162,7 @@ async def safe_async_execute(
 
     Returns:
         ,  None ().
-    """
+ """
     try:
         if timeout is not None:
             return await asyncio.wait_for(coro, timeout=timeout)
@@ -196,7 +196,7 @@ async def safe_async_execute(
 
 
 class ParallelGatherHelper:
-    """ Gather  —  semaphore  asyncio.gather.
+ """ Gather - semaphore asyncio.gather.
 
     :
         async with ParallelGatherHelper(ctx, max_concurrency=5) as helper:
@@ -210,7 +210,7 @@ class ParallelGatherHelper:
 
     : ,  PyRIT AttackExecutor.
     Rule R2 :  execute_attack_from_seed_groups_async.
-    """
+ """
 
     def __init__(
         self,
@@ -219,13 +219,13 @@ class ParallelGatherHelper:
         *,
         semaphore: asyncio.Semaphore | None = None,
     ):
-        """ gather .
+ """ gather .
 
         Args:
             ctx: .
             max_concurrency:  (imports ctx ).
             semaphore:  ().
-        """
+ """
         self.ctx = ctx
         self.semaphore = semaphore or asyncio.Semaphore(
             max_concurrency or get_effective_concurrency(ctx),
@@ -247,7 +247,7 @@ class ParallelGatherHelper:
         *coros: Coroutine[Any, Any, T],
         context: str = "parallel_attack",
     ) -> list[T]:
-        """all, .
+ """all, .
 
         Args:
             *coros: .
@@ -255,7 +255,7 @@ class ParallelGatherHelper:
 
         Returns:
              None .
-        """
+ """
         if not coros:
             return []
 
@@ -275,7 +275,7 @@ class ParallelGatherHelper:
 
         raw_results = await _semaphore_gather()
 
-        #  None 
+ # None 
         results: list[T] = []
         for r in raw_results:
             if r is None or isinstance(r, BaseException):
@@ -290,24 +290,24 @@ class ParallelGatherHelper:
 
 
 def compute_asr_from_results(attack_results: dict[str, Any]) -> float:
-    """ ASR  — .
+ """ ASR - .
 
     Args:
         attack_results: {technique_name: [AttackResult, ...]}  {technique_name: ASR%}.
 
     Returns:
         ASR  (0-100).
-    """
+ """
     if not attack_results:
         return 0.0
 
     values = list(attack_results.values())
 
-    #  float : {technique: ASR%}
+ # float : {technique: ASR%}
     if all(isinstance(v, (int, float)) for v in values):
         return sum(values) / len(values)
 
-    # AttackResult 
+ # AttackResult 
     total = sum(len(v) for v in values)
     if total == 0:
         return 0.0
@@ -332,7 +332,7 @@ def compute_asr_from_results(attack_results: dict[str, Any]) -> float:
 
 
 def format_elapsed(seconds: float) -> str:
-    """."""
+ """."""
     if seconds < 60:
         return f"{seconds:.1f}s"
     minutes = int(seconds // 60)

@@ -1,18 +1,18 @@
-"""API  —  chat / metadata / unknown
+"""API - chat / metadata / unknown
 
 :
     1.  ()
     2. body  (fallback)
-       - body  prompt/query/messages → chat
-       - body  GET  → metadata
-       - body  → unknown
+       - body  prompt/query/messages -> chat
+       - body  GET  -> metadata
+       - body  -> unknown
 """
 
 from __future__ import annotations
 
 import json
 
-# metadata API  ( {PROMPT}, )
+# metadata API ( {PROMPT}, )
 _METADATA_PATH_KEYWORDS = [
     "/model/list", "/models", "/model_list",
     "/user/info", "/user/profile", "/userinfo",
@@ -22,7 +22,7 @@ _METADATA_PATH_KEYWORDS = [
     "/auth", "/login", "/token",
 ]
 
-# chat API  ( {PROMPT})
+# chat API ( {PROMPT})
 _CHAT_PATH_KEYWORDS = [
     "/chat", "/completion", "/completions", "/conversation",
     "/message", "/ask", "/query",
@@ -31,7 +31,7 @@ _CHAT_PATH_KEYWORDS = [
 
 
 def detect_api_category(path: str, body: str) -> str:
-    """ API : chat / metadata / unknown
+ """ API : chat / metadata / unknown
 
     Args:
         path: HTTP  ( /api/v1/model/list)
@@ -39,10 +39,10 @@ def detect_api_category(path: str, body: str) -> str:
 
     Returns:
         "chat" / "metadata" / "unknown"
-    """
+ """
     path_lower = path.lower()
 
-    # 1:  ()
+ # 1: ()
     for keyword in _METADATA_PATH_KEYWORDS:
         if keyword in path_lower:
             return "metadata"
@@ -51,7 +51,7 @@ def detect_api_category(path: str, body: str) -> str:
         if keyword in path_lower:
             return "chat"
 
-    # 2: body 
+ # 2: body 
     if body and body.strip():
         try:
             data = json.loads(body)
@@ -63,7 +63,7 @@ def detect_api_category(path: str, body: str) -> str:
         except (json.JSONDecodeError, TypeError):
             pass
     else:
-        #  body ( GET ) → metadata
+ # body ( GET ) -> metadata
         return "metadata"
 
     return "unknown"

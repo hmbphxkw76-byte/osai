@@ -1,14 +1,14 @@
-# arXiv:2402.14266 — SKELETONKEY, SkeletonKey (ASR 80-95%)
-# arXiv:2406.18112 — Hanna et al., SkeletonKey (prefix injection)
-# arXiv:2407.01232 — PyRIT, native attack patterns
-"""native_attacks — PyRIT 
+# arXiv:2402.14266 - SKELETONKEY, SkeletonKey (ASR 80-95%)
+# arXiv:2406.18112 - Hanna et al., SkeletonKey (prefix injection)
+# arXiv:2407.01232 - PyRIT, native attack patterns
+"""native_attacks - PyRIT 
 
  SkeletonKey 
  PyRIT  SkeletonKeyAttack 
 
 Academic basis:
-    - Hanna et al. (arXiv:2406.18112) — SkeletonKey ASR 80-95%
-    - PyRIT (arXiv:2407.01232) —  SkeletonKeyAttack 
+    - Hanna et al. (arXiv:2406.18112) - SkeletonKey ASR 80-95%
+    - PyRIT (arXiv:2407.01232) -  SkeletonKeyAttack 
 """
 
 from __future__ import annotations
@@ -27,17 +27,17 @@ async def run_skeleton_key_native(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
-    """SkeletonKey  —  PyRIT  SkeletonKeyAttack.
+ """SkeletonKey - PyRIT SkeletonKeyAttack.
 
-    Academic basis: Hanna et al. (arXiv:2406.18112) — ASR 80-95%
+    Academic basis: Hanna et al. (arXiv:2406.18112) - ASR 80-95%
 
      PyRIT  SkeletonKeyAttack :
         1. SkeletonKeyAttack  prepended_conversation 
-        2. system prompt +  → 
+        2. system prompt +  -> 
         3.  prompt
 
     R2 (PyRIT native first):  SkeletonKeyAttack , 
-    R6 §6.4: 7 
+    R6 Sec6.4: 7 
 
     Args:
         ctx:  ( objective_target, scoring_target).
@@ -46,7 +46,7 @@ async def run_skeleton_key_native(
     Returns:
         {technique_name: [AttackResult, ...]} 
          SkeletonKeyAttack ,  ()
-    """
+ """
     if not objectives:
         return {}
 
@@ -60,7 +60,7 @@ async def run_skeleton_key_native(
         logger.warning("SkeletonKeyAttack not available (%s), skipping", e)
         return {}
 
-    #  (0-token FIRST_SUCCESS scorer,  executor.py )
+ # (0-token FIRST_SUCCESS scorer, executor.py )
     from strike.executor import _build_first_success_scoring_config
     first_success_scoring = _build_first_success_scoring_config(ctx)
 
@@ -72,9 +72,9 @@ async def run_skeleton_key_native(
             continue
 
         try:
-            #  SkeletonKeyAttack
-            # PyRIT  SkeletonKeyAttack  prepended_conversation 
-            # : skeleton key prompt +  → 
+ # SkeletonKeyAttack
+ # PyRIT SkeletonKeyAttack prepended_conversation 
+ # : skeleton key prompt + -> 
             attack = SkeletonKeyAttack(
                 objective_target=ctx.objective_target,
                 attack_scoring_config=first_success_scoring,
@@ -86,7 +86,7 @@ async def run_skeleton_key_native(
             )
             results.append(result)
 
-            #  outcome
+ # outcome
             from pyrit.models import AttackOutcome
             seq_outcome = getattr(result, "outcome", None)
             if seq_outcome != AttackOutcome.SUCCESS:
@@ -96,7 +96,7 @@ async def run_skeleton_key_native(
             logger.warning("SkeletonKeyAttack: timed out for objective: %s...", objective[:60])
             incomplete.append((objective, None))
         except Exception as e:
-            logger.warning("SkeletonKeyAttack: failed for objective: %s — %s", objective[:60], e)
+            logger.warning("SkeletonKeyAttack: failed for objective: %s - %s", objective[:60], e)
             incomplete.append((objective, None))
 
     if results:

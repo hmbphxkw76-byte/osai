@@ -3,23 +3,23 @@
 # arXiv:2405.17350 - Mehrabi et al., TAPAttack
 # arXiv:2404.02151 - Hughes et al., BestOfN
 # arXiv:2402.14266 - SKELETONKEY, SkeletonKey
-"""AttackTechniqueFactory ㄥ ? PyRIT  registry?
+"""AttackTechniqueFactory eng ?XX PyRIT registry?
 
-╃ PyRIT 1.0.1  AttackTechniqueFactory + AttackTechniqueRegistry?
-€PromptSending + Crescendo + TAP + PAIR + Best-of-N?
-ㄥ?TextAdaptive €€?
++ PyRIT 1.0.1  AttackTechniqueFactory + AttackTechniqueRegistry?
+XEURPromptSending + Crescendo + TAP + PAIR + Best-of-N?
+eng?TextAdaptive XEUREUR?
 
-︽:
-    - PyRIT (arXiv:2407.01232) ?AttackTechniqueFactory + Registry ,
-      scenarios  tag ヨ€?
-    - Chao et al. (arXiv:2310.08419) ?PAIR €
+[:
+    - PyRIT (arXiv:2407.01232) ?AttackTechniqueFactory + Registry X,
+      scenarios  tag YoXXEUR?
+    - Chao et al. (arXiv:2310.08419) ?PAIR XEUR
     - Mehrotra et al. (arXiv:2312.02191) ?TAP ?
     - Russinovich et al. (arXiv:2402.12109) ?Crescendo 
     - Chao et al. (arXiv:2402.01135) ?Best-of-N ASR  1.8x
 
 PyRIT  (Rule 2):
-    ā???PyRIT  AttackTechniqueFactory,
-    €actory.create() ㄥ?PromptSendingAttack /
+    Xa??XX?PyRIT  AttackTechniqueFactory,
+    EURactory.create() eng?PromptSendingAttack /
     CrescendoAttack / TAPAttack / PAIRAttack  attack_class?
 """
 
@@ -40,12 +40,12 @@ def register_project_techniques(
     converter_target: Any | None = None,
     config_overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """ PyRIT  AttackTechniqueRegistry?
+ """XX PyRIT AttackTechniqueRegistry?
 
-     AttackTechniqueFactory ㄥ registry?
-    ?TextAdaptive ㄥ€€?
+     AttackTechniqueFactory eng registry?
+    ?TextAdaptive engEUREUR?
 
-    €?(?L5 ?:
+    EURX?(?L5 ?:
         1. PromptSending (baseline, single_turn tag)
         2. Crescendo (multi_turn tag)
         3. TAP (multi_turn tag, tree search)
@@ -54,21 +54,21 @@ def register_project_techniques(
         6. RedTeaming (multi_turn tag, baseline)
         7. SkeletonKey (single_turn tag, prefix injection)
 
-    ︽:
-        - PyRIT (arXiv:2407.01232) ?AttackTechniqueRegistry + tag ヨ
+    [:
+        - PyRIT (arXiv:2407.01232) ?AttackTechniqueRegistry + tag YoX
         - Wei et al. (arXiv:2307.15043) ??
         - Russinovich et al. (arXiv:2402.12109) ?Crescendo ASR=82%
         - Mehrotra et al. (arXiv:2312.02191) ?TAP ?
-        - Chao et al. (arXiv:2310.08419) ?PAIR 
+        - Chao et al. (arXiv:2310.08419) ?PAIR X
         - Chao et al. (arXiv:2402.01135) ?Best-of-N N=5 ASR 1.8x
 
     Args:
-        adversarial_target: ?adversarial chat target (€??
-        converter_target: Converter ?LLM target (€? ㄤ Best-of-N)?
+        adversarial_target: ?adversarial chat target (XEUR??
+        converter_target: Converter ?LLM target (XEUR? ang Best-of-N)?
 
     Returns:
-        ㄥ?factory Оactory ┖ㄧずㄥ?
-    """
+        eng?factory Oactory +izueng?
+ """
     try:
         from pyrit.executor.attack import (
             PAIRAttack,
@@ -91,9 +91,9 @@ def register_project_techniques(
 
     factories: list[AttackTechniqueFactory] = []
 
-    # €€ 1. PromptSending (baseline) €€
-    # arXiv:2307.15043 ?, 
-    # v51:  ?SkeletonKey ?prepended_conversation  execute_async 
+ # EUREUR 1. PromptSending (baseline) EUREUR
+ # arXiv:2307.15043 ?, 
+ # v51: ?SkeletonKey ?prepended_conversation execute_async 
     try:
         ps_factory = AttackTechniqueFactory(
             name="PromptSending",
@@ -101,7 +101,7 @@ def register_project_techniques(
             description="Single-turn baseline attack with SkeletonKey prepended conversation (arXiv:2307.15043, arXiv:2406.18112)",
             technique_tags=[
                 "single_turn", "baseline", "default", "light",
-                # v60:  tag — 
+ # v60: tag - 
                 "mcp_targeted", "agent_targeted", "rag_targeted", "general",
             ],
         )
@@ -110,12 +110,12 @@ def register_project_techniques(
     except Exception as e:
         logger.warning("Failed to create PromptSending factory: %s", e)
 
-    # €€ 2. Crescendo (multi-turn) €€
-    # arXiv:2402.12109 ?Russinovich et al., 10 turns ASR=82%
-    # v51:  ? Crescendo  system_prompt
+ # EUREUR 2. Crescendo (multi-turn) EUREUR
+ # arXiv:2402.12109 ?Russinovich et al., 10 turns ASR=82%
+ # v51: ? Crescendo system_prompt
     if CrescendoAttack is not None and adversarial_target is not None:
         try:
-            # v51:  Crescendo system_prompt
+ # v51: Crescendo system_prompt
             crescendo_system_prompt = None
             try:
                 from pyrit.common.path import EXECUTOR_SEED_PROMPT_PATH
@@ -149,8 +149,8 @@ def register_project_techniques(
         except Exception as e:
             logger.warning("Failed to create Crescendo factory: %s", e)
 
-    # €€ 3. TAP (multi-turn, tree search) €€
-    # arXiv:2312.02191 ?Mehrotra et al., tree-of-attacks with pruning
+ # EUREUR 3. TAP (multi-turn, tree search) EUREUR
+ # arXiv:2312.02191 ?Mehrotra et al., tree-of-attacks with pruning
     if adversarial_target is not None:
         try:
             _cfg = config_overrides or {}
@@ -177,8 +177,8 @@ def register_project_techniques(
         except Exception as e:
             logger.warning("Failed to create TAP factory: %s", e)
 
-    # €€ 4. PAIR (multi-turn, iterative) €€
-    # arXiv:2310.08419 ?Chao et al., iterative adversarial prompting
+ # EUREUR 4. PAIR (multi-turn, iterative) EUREUR
+ # arXiv:2310.08419 ?Chao et al., iterative adversarial prompting
     if adversarial_target is not None:
         try:
             pair_factory = AttackTechniqueFactory(
@@ -196,9 +196,9 @@ def register_project_techniques(
         except Exception as e:
             logger.warning("Failed to create PAIR factory: %s", e)
 
-    # €€ 5. Best-of-N (single-turn, variation retry) €€
-    # arXiv:2402.01135 ?Chao et al., N=5 ASR 1.8x
-    #  PromptSendingAttack  attack_class, converter ㄥ VariationConverter
+ # EUREUR 5. Best-of-N (single-turn, variation retry) EUREUR
+ # arXiv:2402.01135 ?Chao et al., N=5 ASR 1.8x
+ # PromptSendingAttack attack_class, converter eng VariationConverter
     if converter_target is not None:
         try:
             from pyrit.executor.attack import AttackConverterConfig
@@ -230,13 +230,13 @@ def register_project_techniques(
         except Exception as e:
             logger.warning("Failed to create BestOfN factory: %s", e)
 
-    # €€ 6. RedTeaming (multi-turn baseline) €€
-    # v51: PyRIT  ?ㄥ RedTeamingAttack
-    # arXiv:2407.01232 ?RedTeamingAttack ?multi-turn baseline
-    #  RTASystemPromptPaths.TEXT_GENERATION  system_prompt
+ # EUREUR 6. RedTeaming (multi-turn baseline) EUREUR
+ # v51: PyRIT ?eng RedTeamingAttack
+ # arXiv:2407.01232 ?RedTeamingAttack X?multi-turn baseline
+ # RTASystemPromptPaths.TEXT_GENERATION system_prompt
     if adversarial_target is not None:
         try:
-            #  RTA system prompt
+ # RTA system prompt
             rta_system_prompt = None
             try:
                 from pyrit.models import SeedPrompt
@@ -268,10 +268,10 @@ def register_project_techniques(
         except Exception as e:
             logger.warning("Failed to create RedTeaming factory: %s", e)
 
-    # €? 7. SkeletonKey (single-turn, prefix injection) €€
-    # arXiv:2406.18112 ?Hanna et al., SkeletonKey ASR 80-95%
-    # PyRIT  SkeletonKeyAttack:  skeleton key prompt + ℃ュ
-    #  prepended_conversation ㄥ (, )
+ # EUR? 7. SkeletonKey (single-turn, prefix injection) EUREUR
+ # arXiv:2406.18112 ?Hanna et al., SkeletonKey ASR 80-95%
+ # PyRIT SkeletonKeyAttack: skeleton key prompt + Cyu
+ # prepended_conversation eng (, )
     try:
         sk_factory = AttackTechniqueFactory(
             name="SkeletonKey",
@@ -287,10 +287,10 @@ def register_project_techniques(
     except Exception as e:
         logger.warning("Failed to create SkeletonKey factory: %s", e)
 
-    # == 8. ManyShotJailbreak (single-turn, many-shot) ==
-    # arXiv:2402.05124 — Anthropic, Many-Shot Jailbreaking
-    # PyRIT  ManyShotJailbreakAttack: 100 shots ASR 
-    #  in-context learning 
+ # == 8. ManyShotJailbreak (single-turn, many-shot) ==
+ # arXiv:2402.05124 - Anthropic, Many-Shot Jailbreaking
+ # PyRIT ManyShotJailbreakAttack: 100 shots ASR 
+ # in-context learning 
     try:
         from pyrit.executor.attack import ManyShotJailbreakAttack
 
@@ -313,9 +313,9 @@ def register_project_techniques(
     except Exception as e:
         logger.warning("Failed to create ManyShotJailbreak factory: %s", e)
 
-    # == 9. MultiPromptSending (multi-turn, fixed sequence) ==
-    # arXiv:2407.01232 — PyRIT, 
-    # "", 3
+ # == 9. MultiPromptSending (multi-turn, fixed sequence) ==
+ # arXiv:2407.01232 - PyRIT, 
+ # "", 3
     try:
         from pyrit.executor.attack import MultiPromptSendingAttack
 
@@ -330,9 +330,9 @@ def register_project_techniques(
     except Exception as e:
         logger.warning("Failed to create MultiPromptSending factory: %s", e)
 
-    # == 10. ChunkedRequest (multi-turn, chunked extraction) ==
-    # arXiv:2407.01232 — PyRIT, 
-    # , /
+ # == 10. ChunkedRequest (multi-turn, chunked extraction) ==
+ # arXiv:2407.01232 - PyRIT, 
+ # , /
     try:
         from pyrit.executor.attack import ChunkedRequestAttack
 
@@ -353,7 +353,7 @@ def register_project_techniques(
     except Exception as e:
         logger.warning("Failed to create ChunkedRequest factory: %s", e)
 
-    # €€ ㄥ€ AttackTechniqueRegistry €€
+ # EUREUR engEUR AttackTechniqueRegistry EUREUR
     if not factories:
         logger.warning("No AttackTechniqueFactories created ?technique registration skipped")
         return {}
@@ -382,7 +382,7 @@ def build_scenario_techniques(
     adversarial_target: Any | None = None,
     converter_target: Any | None = None,
 ) -> list[Any] | None:
-    """v53: Build scenario_techniques list for TextAdaptive.
+ """v53: Build scenario_techniques list for TextAdaptive.
 
     Aligns with PyRIT official Adaptive Scenarios doc.
     Builds a list of ScenarioTechnique enum members for TextAdaptive's
@@ -400,7 +400,7 @@ def build_scenario_techniques(
 
     Returns:
         ScenarioTechnique enum member list, or None (use default).
-    """
+ """
     if not technique_filter:
         return None
 
@@ -437,30 +437,30 @@ def build_sequential_child_attacks(
     candidate_converters: list[Any],
     seed_group: Any,
 ) -> list[Any]:
-    """ SequentialAttack ?child attacks  ? FIRST_SUCCESS €?
+ """ SequentialAttack ?child attacks ? FIRST_SUCCESS EUR?
 
      PyRIT  SequentialAttack + SequentialChildAttack 
-    executor.py €?
+    executor.py XEUR?
 
-     converter € PromptSendingAttack (1 converter per path),
-     (FIRST_SUCCESS) €?
+     converter EURX PromptSendingAttack (1 converter per path),
+    X (FIRST_SUCCESS) XEUR?
 
-    ︽:
+    [:
         - PyRIT SequentialAttack (arXiv:2407.01232) ?FIRST_SUCCESS 
         - Wei et al. (arXiv:2307.15043) ? >2 ?ASR ?12%  4%
-        - Zeng et al. (arXiv:2402.19181) ?authority ASR 38.4% €?
-        - DrAttack (arXiv:2402.14266) ?В ASR 40-60% €?
+        - Zeng et al. (arXiv:2402.19181) ?authority ASR 38.4% EUR?
+        - DrAttack (arXiv:2402.14266) ?B ASR 40-60% EUR?
 
     Args:
         objective_target:  PyRIT PromptTarget?
         scoring_config: AttackScoringConfig (FIRST_SUCCESS )?
-        candidate_converters: €?converter  (?ASR )?
+        candidate_converters: EUR?converter  (?ASR )?
         seed_group: AttackSeedGroup ( objective)?
 
     Returns:
-        SequentialChildAttack  ( converter €¤??
-        ㄨ converter けャ€?
-    """
+        SequentialChildAttack  ( converter EURX??
+        u converter keyaEUR?
+ """
     try:
         from pyrit.executor.attack import (
             AttackConverterConfig,
@@ -504,24 +504,24 @@ def get_technique_class_for_adaptive(
     adversarial_target: Any | None = None,
     converter_target: Any | None = None,
 ) -> type | None:
-    """ㄤ TextAdaptive ?ScenarioTechnique €?
+ """ang TextAdaptive ?ScenarioTechnique EUR?
 
-     AttackTechniqueFactory ?
+    X AttackTechniqueFactory X?
     ScenarioTechnique , ?TextAdaptive ?
     EpsilonGreedyTechniqueSelector ?
 
-    ︽:
+    [:
         - PyRIT (arXiv:2407.01232) ?AttackTechniqueRegistry.build_technique_class_from_factories
-        - Chao et al. (arXiv:2310.08419) ?-€€€
+        - Chao et al. (arXiv:2310.08419) ?-XXEUREURXEUR
 
     Args:
-        adversarial_target: ?adversarial chat target (€??
-        converter_target: Converter ?LLM target (€??
+        adversarial_target: ?adversarial chat target (XEUR??
+        converter_target: Converter ?LLM target (XEUR??
 
     Returns:
-        ㄦ€ ScenarioTechnique , ?None (??
-    """
-    # R6 §6.4b:  defaults.yaml  SSOT 
+        erEUR ScenarioTechnique , ?None (??
+ """
+ # R6 Sec6.4b: defaults.yaml SSOT 
     _tech_cfg: dict[str, Any] = {}
     try:
         import yaml as _yaml

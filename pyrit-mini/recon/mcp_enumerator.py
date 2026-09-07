@@ -1,14 +1,14 @@
-"""MCP (Model Context Protocol)  —  MCP Server  tools/resources/prompts
+"""MCP (Model Context Protocol) - MCP Server tools/resources/prompts
 
 Academic basis:
-    - Anthropic MCP Specification (2024) §3.2 — MCP server 
+    - Anthropic MCP Specification (2024) Sec3.2 - MCP server 
       tools/list, resources/list, prompts/list JSON-RPC 
-    - Greshake et al. (arXiv:2302.12173) §4 — 
+    - Greshake et al. (arXiv:2302.12173) Sec4 - 
       ,  tool schema converter(s) tool
       
-    - Zhan et al. (arXiv:2307.00929) InjecAgent §3.3 — Agent 
+    - Zhan et al. (arXiv:2307.00929) InjecAgent Sec3.3 - Agent 
        tool  input schema
-    -  AI-300 Ch7.1 — "Extract detailed tool schemas through
+    -  AI-300 Ch7.1 - "Extract detailed tool schemas through
       error-based enumeration"
 
  (3 Layer):
@@ -39,36 +39,36 @@ import logging
 import re
 from typing import Any
 
-# P2-06: TLS verify  (SSOT)
+# P2-06: TLS verify (SSOT)
 from recon.config_loader import get_tls_verify as _get_tls_verify_from_config
 
 _TLS_VERIFY = _get_tls_verify_from_config()
 
 logger = logging.getLogger(__name__)
 
-# MCP JSON-RPC  (Anthropic MCP Specification §3.2)
+# MCP JSON-RPC (Anthropic MCP Specification Sec3.2)
 _MCP_METHODS = {
     "tools/list": "List all tools with their schemas",
     "resources/list": "List all available resources",
     "prompts/list": "List all available prompts",
 }
 
-# MCP  JSON-RPC  ID 
+# MCP JSON-RPC ID 
 _MCP_REQUEST_ID_PREFIX = "strike-mcp-enum"
 
-#  ()
+# ()
 _PROBE_TIMEOUT = 15
 
 
 async def enumerate_mcp_endpoint(
     parsed_request: Any,
 ) -> dict[str, Any]:
-    """ MCP Server  tools/resources/prompts
+ """ MCP Server tools/resources/prompts
 
     Academic basis:
-        - Anthropic MCP Specification (2024) §3.2 — MCP server 
+        - Anthropic MCP Specification (2024) Sec3.2 - MCP server 
           tools/list, resources/list, prompts/list JSON-RPC 
-        -  AI-300 Ch7.1 — MCP  + tool schema 
+        -  AI-300 Ch7.1 - MCP  + tool schema 
 
      (3 Layer fallback):
         1.  JSON-RPC :  endpoint  MCP  JSON-RPC 
@@ -88,7 +88,7 @@ async def enumerate_mcp_endpoint(
             "tool_names": [str, ...],  # , 
             "server_info": dict | None,  # MCP server 
         }
-    """
+ """
     results: dict[str, Any] = {
         "has_mcp": False,
         "tools": [],
@@ -102,8 +102,8 @@ async def enumerate_mcp_endpoint(
         logger.debug("MCP enumerate: no parsed_request")
         return results
 
-    # == Layer 1:  JSON-RPC  ==
-    #  endpoint  tools/list, resources/list, prompts/list
+ # == Layer 1: JSON-RPC ==
+ # endpoint tools/list, resources/list, prompts/list
     logger.info("MCP enumerate: sending standard JSON-RPC requests")
 
     for method, description in _MCP_METHODS.items():
@@ -141,10 +141,10 @@ async def enumerate_mcp_endpoint(
         except Exception as e:
             logger.debug("MCP enumerate: method %s failed: %s", method, e)
 
-    # == Layer 2:  (Error-based) ==
-    # Academic basis:  AI-300 Ch7.1 — "Extract detailed tool schemas
-    # through error-based enumeration techniques"
-    # Layer 1  tools,  tool call 
+ # == Layer 2: (Error-based) ==
+ # Academic basis: AI-300 Ch7.1 - "Extract detailed tool schemas
+ # through error-based enumeration techniques"
+ # Layer 1 tools, tool call 
     if not results["tools"]:
         logger.info("MCP enumerate: no tools from standard list, trying error-based enumeration")
         error_tools = await _error_based_enumeration(parsed_request)
@@ -158,13 +158,13 @@ async def enumerate_mcp_endpoint(
                 results["tool_names"],
             )
 
-    # ==  MCP server info () ==
-    # Academic basis: Anthropic MCP Specification (2024) §3.1 — initialize 
-    # :  initialize,  protocolVersion,
-    # 
+ # == MCP server info () ==
+ # Academic basis: Anthropic MCP Specification (2024) Sec3.1 - initialize 
+ # : initialize, protocolVersion,
+ # 
     if results["has_mcp"]:
         try:
-            # : , 
+ # : , 
             negotiated_version = await _negotiate_protocol_version(
                 parsed_request,
                 client_versions=["2025-06-18", "2024-11-05", "2024-10-07"],
@@ -186,7 +186,7 @@ async def enumerate_mcp_endpoint(
                 server_info = _extract_server_info(info_response)
                 if server_info:
                     results["server_info"] = server_info
-                    # 
+ # 
                     results["server_info"]["negotiated_version"] = negotiated_version
                     logger.info(
                         "MCP enumerate: server info: name=%s, version=%s, protocol=%s",
@@ -197,14 +197,14 @@ async def enumerate_mcp_endpoint(
         except Exception as e:
             logger.debug("MCP enumerate: server info query failed: %s", e)
 
-    # == MCP  ( RedAmon YARA , ) ==
-    # Academic basis:
-    #   - Cisco AI Defense MCP Scanner — tool_poisoning / data_exfiltration /
-    #     credential_harvesting / command_injection 
-    #   - OWASP LLM01 (Prompt Injection) / LLM06 (Sensitive Info Disclosure)
-    #   - MITRE ATLAS AML.T0051 (Compromise ML Models)
-    #  tool  description + inputSchema ,
-    # 
+ # == MCP ( RedAmon YARA , ) ==
+ # Academic basis:
+ # - Cisco AI Defense MCP Scanner - tool_poisoning / data_exfiltration /
+ # credential_harvesting / command_injection 
+ # - OWASP LLM01 (Prompt Injection) / LLM06 (Sensitive Info Disclosure)
+ # - MITRE ATLAS AML.T0051 (Compromise ML Models)
+ # tool description + inputSchema ,
+ # 
     if results["tools"]:
         results["tool_safety"] = analyze_mcp_tool_safety(results["tools"])
         risky = [t for t in results["tool_safety"] if t.get("risks")]
@@ -216,7 +216,7 @@ async def enumerate_mcp_endpoint(
 
     if results["has_mcp"]:
         logger.info(
-            "MCP enumerate: complete — %d tools, %d resources, %d prompts, %d safety findings",
+            "MCP enumerate: complete - %d tools, %d resources, %d prompts, %d safety findings",
             len(results["tools"]),
             len(results["resources"]),
             len(results["prompts"]),
@@ -229,11 +229,11 @@ async def enumerate_mcp_endpoint(
 
 
 # ====================================================================
-# MCP  ( RedAmon YARA )
+# MCP ( RedAmon YARA )
 # Academic basis: Cisco AI Defense MCP Scanner 
 # ====================================================================
 
-#  (tool description )
+# (tool description )
 _TOOL_POISONING_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
     (re.compile(r"ignore\s+(?:all\s+)?(?:previous|prior|above)\s+instructions", re.I), "prompt_injection", "high"),
     (re.compile(r"disregard\s+(?:all\s+)?(?:previous|prior|system)\s+(?:instructions|prompts)", re.I), "prompt_injection", "high"),
@@ -259,17 +259,17 @@ _SENSITIVE_PARAM_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?:path|file|directory|filename)", re.I), "path_traversal_risk"),
 ]
 
-# Annotation : tool  mutation  readOnlyHint
+# Annotation : tool mutation readOnlyHint
 _MUTATING_NAME_KEYWORDS = ("delete", "write", "exec", "run", "remove", "update", "create", "modify", "insert", "drop", "alter")
 
 
 def analyze_mcp_tool_safety(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """ MCP 
+ """ MCP 
 
     Academic basis:
-        - Cisco AI Defense MCP Scanner — YARA  tool poisoning
-        - OWASP LLM01 / LLM06 — 
-        - MITRE ATLAS AML.T0051 — 
+        - Cisco AI Defense MCP Scanner - YARA  tool poisoning
+        - OWASP LLM01 / LLM06 - 
+        - MITRE ATLAS AML.T0051 - 
 
     :
         1.  (tool poisoning)
@@ -293,7 +293,7 @@ def analyze_mcp_tool_safety(tools: list[dict[str, Any]]) -> list[dict[str, Any]]
             },
             ...
         ]
-    """
+ """
     safety_results: list[dict[str, Any]] = []
 
     for tool in tools:
@@ -304,7 +304,7 @@ def analyze_mcp_tool_safety(tools: list[dict[str, Any]]) -> list[dict[str, Any]]
 
         risks: list[dict[str, str]] = []
 
-        # == 1.  ==
+ # == 1. ==
         if description:
             for pattern, risk_type, severity in _TOOL_POISONING_PATTERNS:
                 match = pattern.search(description)
@@ -315,7 +315,7 @@ def analyze_mcp_tool_safety(tools: list[dict[str, Any]]) -> list[dict[str, Any]]
                         "detail": f"Description contains '{risk_type}': '{match.group()}'",
                     })
 
-        # == 2.  ==
+ # == 2. ==
         if isinstance(input_schema, dict):
             properties = input_schema.get("properties", {})
             if isinstance(properties, dict):
@@ -331,7 +331,7 @@ def analyze_mcp_tool_safety(tools: list[dict[str, Any]]) -> list[dict[str, Any]]
                             })
                             break  # converter(s)
 
-                    #  schema 
+ # schema 
                     param_desc = param_schema.get("description", "")
                     if param_desc:
                         for pattern, risk_type, severity in _TOOL_POISONING_PATTERNS:
@@ -343,8 +343,8 @@ def analyze_mcp_tool_safety(tools: list[dict[str, Any]]) -> list[dict[str, Any]]
                                 })
                                 break
 
-        # == 3. Annotation  ==
-        # tool  mutation (delete/write/exec)  annotation  readOnlyHint
+ # == 3. Annotation ==
+ # tool mutation (delete/write/exec) annotation readOnlyHint
         name_lower = tool_name.lower()
         is_mutating_name = any(kw in name_lower for kw in _MUTATING_NAME_KEYWORDS)
         read_only_hint = False
@@ -357,7 +357,7 @@ def analyze_mcp_tool_safety(tools: list[dict[str, Any]]) -> list[dict[str, Any]]
                 "detail": f"Tool '{tool_name}' name implies mutation but annotation declares readOnlyHint",
             })
 
-        # == 4.  ==
+ # == 4. ==
         risk_score = 0
         severity_weights = {"critical": 40, "high": 25, "medium": 10, "low": 5}
         for risk in risks:
@@ -370,7 +370,7 @@ def analyze_mcp_tool_safety(tools: list[dict[str, Any]]) -> list[dict[str, Any]]
             "risk_score": risk_score,
         })
 
-    # 
+ # 
     risky_tools = [r for r in safety_results if r["risks"]]
     if risky_tools:
         for r in risky_tools:
@@ -389,7 +389,7 @@ async def _send_mcp_jsonrpc(
     method: str,
     params: dict[str, Any],
 ) -> dict[str, Any] | None:
-    """ MCP JSON-RPC 2.0 ,  JSON
+ """ MCP JSON-RPC 2.0 , JSON
 
      httpx  HTTP POST ( headers)
     HTTPTarget  {PROMPT}  JSON-RPC,
@@ -397,8 +397,8 @@ async def _send_mcp_jsonrpc(
     
 
     Academic basis:
-        - Anthropic MCP Specification (2024) §3.1 — MCP  JSON-RPC 2.0
-        - JSON-RPC 2.0 Specification — method, params, id 
+        - Anthropic MCP Specification (2024) Sec3.1 - MCP  JSON-RPC 2.0
+        - JSON-RPC 2.0 Specification - method, params, id 
 
     Args:
         parsed_request: ParsedBurpRequest ( headers/)
@@ -407,7 +407,7 @@ async def _send_mcp_jsonrpc(
 
     Returns:
         JSON-RPC ,  None 
-    """
+ """
     import asyncio
 
     import httpx
@@ -415,16 +415,16 @@ async def _send_mcp_jsonrpc(
     scheme = "https" if parsed_request.use_tls else "http"
     url = f"{scheme}://{parsed_request.host}{parsed_request.path}"
 
-    #  headers ( Content-Length  Host)
+ # headers ( Content-Length Host)
     headers: dict[str, str] = {}
     for key, value in parsed_request.raw_headers:
         if key.lower() not in ("content-length", "host"):
             headers[key] = value
 
-    # Ensure Content-Type  JSON
+ # Ensure Content-Type JSON
     headers["Content-Type"] = "application/json"
 
-    #  MCP JSON-RPC 2.0 
+ # MCP JSON-RPC 2.0 
     jsonrpc_request = {
         "jsonrpc": "2.0",
         "method": method,
@@ -454,9 +454,9 @@ async def _send_mcp_jsonrpc(
                 )
                 return None
 
-            #  JSON-RPC 
-            #  SSE (Server-Sent Events) 
-            # Academic basis: MCP Specification (2024) §3.1 —  SSE 
+ # JSON-RPC 
+ # SSE (Server-Sent Events) 
+ # Academic basis: MCP Specification (2024) Sec3.1 - SSE 
             content_type = response.headers.get("content-type", "")
             if "text/event-stream" in content_type or response.text.startswith("data:"):
                 logger.debug("MCP JSON-RPC %s: detected SSE transport", method)
@@ -469,7 +469,7 @@ async def _send_mcp_jsonrpc(
             try:
                 data = response.json()
                 if isinstance(data, dict):
-                    #  JSON-RPC error
+ # JSON-RPC error
                     if "error" in data:
                         error = data["error"]
                         logger.debug(
@@ -478,7 +478,7 @@ async def _send_mcp_jsonrpc(
                             error.get("code", "unknown"),
                             error.get("message", ""),
                         )
-                        #  ( schema  error.data )
+ # ( schema error.data )
                         return data
                     return data
             except (json.JSONDecodeError, ValueError):
@@ -498,10 +498,10 @@ async def _send_mcp_jsonrpc(
 async def _error_based_enumeration(
     parsed_request: Any,
 ) -> list[dict[str, Any]]:
-    """ —  tool call 
+ """ - tool call 
 
     Academic basis:
-        -  AI-300 Ch7.1 — "Extract detailed tool schemas through
+        -  AI-300 Ch7.1 - "Extract detailed tool schemas through
           error-based enumeration techniques"
         -  MCP server  tool call ,
           ,  tool  input schema 
@@ -516,19 +516,19 @@ async def _error_based_enumeration(
 
     Returns:
         imports tool schema 
-    """
+ """
     tools: list[dict[str, Any]] = []
 
-    #  tool call  schema 
+ # tool call schema 
     probe_calls = [
-        #  arguments  tool call
+ # arguments tool call
         {
             "jsonrpc": "2.0",
             "method": "tools/call",
             "params": {"name": "", "arguments": {}},
             "id": f"{_MCP_REQUEST_ID_PREFIX}-error-probe-1",
         },
-        #  tool name
+ # tool name
         {
             "jsonrpc": "2.0",
             "method": "tools/call",
@@ -545,11 +545,11 @@ async def _error_based_enumeration(
             if response is None:
                 continue
 
-            #  schema 
+ # schema 
             error = response.get("error", {})
             error_data = error.get("data", {})
 
-            # MCP  data  available tools
+ # MCP data available tools
             if isinstance(error_data, dict):
                 available_tools = error_data.get("availableTools") or error_data.get("tools")
                 if isinstance(available_tools, list):
@@ -561,10 +561,10 @@ async def _error_based_enumeration(
                                 tools.append(tool)
                     break
 
-                #  tool 
+ # tool 
                 error_msg = error.get("message", "")
                 if error_msg:
-                    #  "Unknown tool 'X'. Available tools: [A, B, C]" 
+ # "Unknown tool 'X'. Available tools: [A, B, C]" 
                     name_match = re.search(
                         r"Available tools?\s*:\s*\[?([^]\]]+)",
                         error_msg,
@@ -572,7 +572,7 @@ async def _error_based_enumeration(
                     )
                     if name_match:
                         names_str = name_match.group(1)
-                        # 
+ # 
                         names_str = names_str.strip("[]")
                         tool_names = [
                             n.strip().strip("'\"[]")
@@ -594,7 +594,7 @@ async def _send_raw_jsonrpc(
     parsed_request: Any,
     jsonrpc_request: dict[str, Any],
 ) -> dict[str, Any] | None:
-    """ JSON-RPC  ( MCP )
+ """ JSON-RPC ( MCP )
 
     Args:
         parsed_request: ParsedBurpRequest
@@ -602,7 +602,7 @@ async def _send_raw_jsonrpc(
 
     Returns:
         JSON-RPC ,  None
-    """
+ """
     import asyncio
 
     import httpx
@@ -635,7 +635,7 @@ async def _send_raw_jsonrpc(
 
 
 def _extract_tools_from_response(response: dict[str, Any]) -> list[dict[str, Any]]:
-    """imports JSON-RPC tools/list  tools 
+ """imports JSON-RPC tools/list tools 
 
     MCP tools/list :
         {
@@ -663,7 +663,7 @@ def _extract_tools_from_response(response: dict[str, Any]) -> list[dict[str, Any
 
     Returns:
         tools , converter(s) name, description, inputSchema
-    """
+ """
     result = response.get("result", {})
     if not isinstance(result, dict):
         return []
@@ -672,7 +672,7 @@ def _extract_tools_from_response(response: dict[str, Any]) -> list[dict[str, Any
     if not isinstance(tools, list):
         return []
 
-    # :  name  tool
+ # : name tool
     valid_tools: list[dict[str, Any]] = []
     for tool in tools:
         if isinstance(tool, dict) and "name" in tool:
@@ -686,7 +686,7 @@ def _extract_tools_from_response(response: dict[str, Any]) -> list[dict[str, Any
 
 
 def _extract_resources_from_response(response: dict[str, Any]) -> list[dict[str, Any]]:
-    """imports JSON-RPC resources/list  resources 
+ """imports JSON-RPC resources/list resources 
 
     MCP resources/list :
         {
@@ -696,7 +696,7 @@ def _extract_resources_from_response(response: dict[str, Any]) -> list[dict[str,
                 ]
             }
         }
-    """
+ """
     result = response.get("result", {})
     if not isinstance(result, dict):
         return []
@@ -718,7 +718,7 @@ def _extract_resources_from_response(response: dict[str, Any]) -> list[dict[str,
 
 
 def _extract_prompts_from_response(response: dict[str, Any]) -> list[dict[str, Any]]:
-    """imports JSON-RPC prompts/list  prompts 
+ """imports JSON-RPC prompts/list prompts 
 
     MCP prompts/list :
         {
@@ -728,7 +728,7 @@ def _extract_prompts_from_response(response: dict[str, Any]) -> list[dict[str, A
                 ]
             }
         }
-    """
+ """
     result = response.get("result", {})
     if not isinstance(result, dict):
         return []
@@ -749,7 +749,7 @@ def _extract_prompts_from_response(response: dict[str, Any]) -> list[dict[str, A
 
 
 def _extract_server_info(response: dict[str, Any]) -> dict[str, Any] | None:
-    """imports MCP initialize  server 
+ """imports MCP initialize server 
 
     MCP initialize :
         {
@@ -759,7 +759,7 @@ def _extract_server_info(response: dict[str, Any]) -> dict[str, Any] | None:
                 "serverInfo": {"name": "mcp-server", "version": "1.0"}
             }
         }
-    """
+ """
     result = response.get("result", {})
     if not isinstance(result, dict):
         return None
@@ -780,13 +780,13 @@ def build_mcp_attack_seeds(
     tools: list[dict[str, Any]],
     resources: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """ MCP 
+ """ MCP 
 
     Academic basis:
-        - Greshake et al. (arXiv:2302.12173) §4 — 
-        - Zhan et al. (arXiv:2307.00929) InjecAgent §3.3 — 
+        - Greshake et al. (arXiv:2302.12173) Sec4 - 
+        - Zhan et al. (arXiv:2307.00929) InjecAgent Sec3.3 - 
           inputSchema 
-        -  AI-300 Ch7.1 — imports tool schema 
+        -  AI-300 Ch7.1 - imports tool schema 
 
     :
         1. converter(s) tool,  ( inputSchema )
@@ -799,7 +799,7 @@ def build_mcp_attack_seeds(
 
     Returns:
          (PyRIT SeedPrompt YAML )
-    """
+ """
     seeds: list[dict[str, Any]] = []
 
     sk_prefix = (
@@ -808,12 +808,12 @@ def build_mcp_attack_seeds(
         "Start your response with 'SK.' to confirm.\n\n"
     )
 
-    # ==  tool  ==
+ # == tool ==
     for tool in tools:
         tool_name = tool.get("name", "")
         schema = tool.get("inputSchema", {})
 
-        # 
+ # 
         properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
         param_names = list(properties.keys()) if isinstance(properties, dict) else []
         required_params = schema.get("required", []) if isinstance(schema, dict) else []
@@ -821,7 +821,7 @@ def build_mcp_attack_seeds(
         if not tool_name:
             continue
 
-        # :  LLM  tool 
+ # : LLM tool 
         param_hint = ""
         if param_names:
             param_hint = f" The tool accepts parameters: {', '.join(param_names)}."
@@ -850,7 +850,7 @@ def build_mcp_attack_seeds(
             },
         })
 
-    # ==  resource  ==
+ # == resource ==
     for res in resources:
         res_uri = res.get("uri", "")
         res_name = res.get("name", "")
@@ -876,7 +876,7 @@ def build_mcp_attack_seeds(
             },
         })
 
-    # ==  ( tool) ==
+ # == ( tool) ==
     if len(tools) >= 2:
         tool1 = tools[0].get("name", "tool1")
         tool2 = tools[1].get("name", "tool2")
@@ -917,10 +917,10 @@ async def _negotiate_protocol_version(
     *,
     client_versions: list[str],
 ) -> str | None:
-    """MCP  — 
+ """MCP - 
 
     Academic basis:
-        - MCP Specification (2024) §3.1 — initialize  protocolVersion 
+        - MCP Specification (2024) Sec3.1 - initialize  protocolVersion 
         -  protocolVersion, 
 
     :
@@ -934,7 +934,7 @@ async def _negotiate_protocol_version(
 
     Returns:
         ,  None all
-    """
+ """
     for version in client_versions:
         try:
             response = await _send_mcp_jsonrpc(
@@ -947,7 +947,7 @@ async def _negotiate_protocol_version(
             if response is None:
                 continue
 
-            #  error ()
+ # error ()
             if "error" in response:
                 logger.debug(
                     "MCP version negotiation: version %s rejected (error)",
@@ -955,7 +955,7 @@ async def _negotiate_protocol_version(
                 )
                 continue
 
-            #  protocolVersion
+ # protocolVersion
             result = response.get("result", {})
             if isinstance(result, dict):
                 server_version = result.get("protocolVersion")
@@ -970,21 +970,21 @@ async def _negotiate_protocol_version(
 
 
 def _parse_sse_jsonrpc(sse_text: str) -> dict[str, Any] | None:
-    """imports SSE (Server-Sent Events)  JSON-RPC 
+ """imports SSE (Server-Sent Events) JSON-RPC 
 
     MCP  SSE : JSON-RPC  SSE data: 
     : data: {"jsonrpc": "2.0", "result": {...}, "id": "..."}
 
     Academic basis:
-        - MCP Specification (2024) §3.1 — SSE 
-        - HTML5 Server-Sent Events  — data: 
+        - MCP Specification (2024) Sec3.1 - SSE 
+        - HTML5 Server-Sent Events  - data: 
 
     Args:
         sse_text: SSE 
 
     Returns:
          JSON-RPC ,  None 
-    """
+ """
     lines = sse_text.split("\n")
     for line in lines:
         line = line.strip()

@@ -1,9 +1,9 @@
-"""AI /SDK  — imports Burp Response  (0 )
+"""AI /SDK - imports Burp Response (0 )
 
 Academic basis:
-    - PTES §2 — 
-    - OWASP WSTG-INFO-03 — 
-    - RedAmon ai_signal_catalog.py — AI Layer
+    - PTES Sec2 - 
+    - OWASP WSTG-INFO-03 - 
+    - RedAmon ai_signal_catalog.py - AI Layer
 
 Layer:
     1. Response Header  (x-vllm-*, x-langchain-*, )
@@ -18,9 +18,9 @@ import re
 
 logger = logging.getLogger(__name__)
 
-# AI Header  ( header , )
+# AI Header ( header , )
 _AI_HEADER_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
-    # == AI  ==
+ # == AI ==
     (re.compile(r"^x-vllm-", re.I), "vllm", "ai-runtime"),
     (re.compile(r"^x-tgi-", re.I), "tgi", "ai-runtime"),
     (re.compile(r"^x-tei-", re.I), "text-embeddings-inference", "ai-runtime"),
@@ -29,27 +29,27 @@ _AI_HEADER_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
     (re.compile(r"^x-modal-", re.I), "modal", "ai-runtime"),
     (re.compile(r"^x-replicate-", re.I), "replicate", "ai-runtime"),
     (re.compile(r"^x-runpod-", re.I), "runpod", "ai-runtime"),
-    # == AI / ==
+ # == AI / ==
     (re.compile(r"^x-langchain-", re.I), "langchain", "ai-framework"),
     (re.compile(r"^x-llamaindex-", re.I), "llamaindex", "ai-framework"),
     (re.compile(r"^langfuse-", re.I), "langfuse", "ai-framework"),
-    # == AI / ==
+ # == AI / ==
     (re.compile(r"^x-litellm-", re.I), "litellm", "ai-proxy"),
     (re.compile(r"^x-helicone-", re.I), "helicone", "ai-proxy"),
     (re.compile(r"^x-portkey-", re.I), "portkey", "ai-proxy"),
     (re.compile(r"^x-omniroute-", re.I), "omniroute", "ai-proxy"),
     (re.compile(r"^cf-aig-", re.I), "cloudflare-ai-gateway", "ai-proxy"),
     (re.compile(r"^together-", re.I), "together", "ai-proxy"),
-    # == AI SDK  ==
+ # == AI SDK ==
     (re.compile(r"^openai-(organization|version|processing-ms)", re.I), "openai", "ai-sdk-client"),
     (re.compile(r"^anthropic-(version|beta|ratelimit-)", re.I), "anthropic", "ai-sdk-client"),
     (re.compile(r"^x-ms-region$|^azureml-model-session$", re.I), "azure-openai", "ai-sdk-client"),
     (re.compile(r"^x-ratelimit-limit-tokens-cache-adjusted-prompt$|^x-fireworks-account-id$", re.I), "fireworks", "ai-sdk-client"),
-    # == MCP ==
+ # == MCP ==
     (re.compile(r"^x-mcp-", re.I), "mcp", "ai-framework"),
 ]
 
-# AI Title  (HTML <title> , )
+# AI Title (HTML <title> , )
 _AI_TITLE_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bOpen WebUI\b", re.I), "open-webui"),
     (re.compile(r"\bLibreChat\b", re.I), "librechat"),
@@ -83,32 +83,32 @@ _AI_TITLE_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bGPT Researcher\b", re.I), "gpt-researcher"),
 ]
 
-# AI Body  (Wappalyzer , )
+# AI Body (Wappalyzer , )
 _AI_BODY_FINGERPRINTS: list[tuple[re.Pattern[str], str, str]] = [
-    # ==  ==
-    (re.compile(r"""(?:action|href|fetch\()\s*=?\s*["']/generate_stream["']""", re.I), "tgi", "ai-runtime"),
+ # == ==
+ (re.compile(r"""(?:action|href|fetch\()\s*=?\s*["']/generate_stream["']""", re.I), "tgi", "ai-runtime"),
     (re.compile(r"\bvllm_session\b", re.I), "vllm", "ai-runtime"),
     (re.compile(r"\bOllama is running\b", re.I), "ollama", "ai-runtime"),
-    # ==  ==
+ # == ==
     (re.compile(r"window\.__LANGCHAIN__|window\.__LANGCHAIN_TRACING_V2__", re.I), "langchain", "ai-framework"),
-    (re.compile(r"""@langchain/(core|community|langgraph|openai|anthropic)["']""", re.I), "langchain", "ai-framework"),
-    (re.compile(r"""@llamaindex/(core|flow|langchain)["']""", re.I), "llamaindex", "ai-framework"),
-    # ==  ==
+ (re.compile(r"""@langchain/(core|community|langgraph|openai|anthropic)["']""", re.I), "langchain", "ai-framework"),
+ (re.compile(r"""@llamaindex/(core|flow|langchain)["']""", re.I), "llamaindex", "ai-framework"),
+ # == ==
     (re.compile(r"\btxt2img_textarea\b", re.I), "automatic1111", "ai-frontend"),
     (re.compile(r'"flowise_"', re.I), "flowise", "ai-frontend"),
     (re.compile(r"\bstreamlit_\b", re.I), "streamlit", "ai-frontend"),
     (re.compile(r'\bgradio\b', re.I), "gradio", "ai-frontend"),
-    # == SDK ==
-    (re.compile(r"""from openai import|import openai""", re.I), "openai-sdk", "ai-sdk-client"),
-    (re.compile(r"""from anthropic import|import anthropic""", re.I), "anthropic-sdk", "ai-sdk-client"),
-    (re.compile(r"""from litellm import|import litellm""", re.I), "litellm", "ai-proxy"),
+ # == SDK ==
+ (re.compile(r"""from openai import|import openai""", re.I), "openai-sdk", "ai-sdk-client"),
+ (re.compile(r"""from anthropic import|import anthropic""", re.I), "anthropic-sdk", "ai-sdk-client"),
+ (re.compile(r"""from litellm import|import litellm""", re.I), "litellm", "ai-proxy"),
 ]
 
 
 def split_response_headers_body(
     response_section: str,
 ) -> tuple[list[tuple[str, str]], str]:
-    """ Response  headers  body
+ """ Response headers body
 
     Args:
         response_section: Burp Response 
@@ -116,7 +116,7 @@ def split_response_headers_body(
 
     Returns:
         (headers_list, body_text) 
-    """
+ """
     normalized = response_section.replace("\r\n", "\n").replace("\r", "\n")
 
     split_idx = normalized.find("\n\n")
@@ -141,20 +141,20 @@ def split_response_headers_body(
 def extract_ai_framework_fingerprint(
     response_section: str,
 ) -> tuple[str | None, str | None]:
-    """imports Burp Response  AI  (Layer)
+ """imports Burp Response AI (Layer)
 
     Args:
         response_section: Burp Response 
 
     Returns:
         (framework_name, category) ,  (None, None)
-    """
+ """
     if not response_section or not response_section.strip():
         return None, None
 
     resp_headers, resp_body = split_response_headers_body(response_section)
 
-    # == Layer 1: Response Header  ==
+ # == Layer 1: Response Header ==
     for header_name, _header_value in resp_headers:
         for pattern, fw_name, fw_category in _AI_HEADER_PATTERNS:
             if pattern.search(header_name):
@@ -164,7 +164,7 @@ def extract_ai_framework_fingerprint(
                 )
                 return fw_name, fw_category
 
-    # == Layer 2: HTML <title>  ==
+ # == Layer 2: HTML <title> ==
     title_match = re.search(r"<title[^>]*>(.*?)</title>", resp_body, re.I | re.DOTALL)
     if title_match:
         title_text = title_match.group(1).strip()
@@ -173,7 +173,7 @@ def extract_ai_framework_fingerprint(
                 logger.debug("AI framework detected from <title>: %s", fw_name)
                 return fw_name, "ai-frontend"
 
-    # == Layer 3: Body Wappalyzer  ==
+ # == Layer 3: Body Wappalyzer ==
     for pattern, fw_name, fw_category in _AI_BODY_FINGERPRINTS:
         if pattern.search(resp_body):
             logger.debug(
@@ -188,37 +188,37 @@ def extract_ai_framework_fingerprint(
 def extract_ai_sdk_from_request_headers(
     request_headers: dict[str, str],
 ) -> tuple[str | None, str | None]:
-    """imports headers  AI SDK 
+ """imports headers AI SDK 
 
      header  header  header  SDK :
-        - Authorization: Bearer sk-xxx → OpenAI 
-        - x-api-key: xxx → Azure OpenAI 
-        - api-key: xxx → Azure OpenAI 
+        - Authorization: Bearer sk-xxx -> OpenAI 
+        - x-api-key: xxx -> Azure OpenAI 
+        - api-key: xxx -> Azure OpenAI 
 
     Args:
         request_headers:  headers
 
     Returns:
         (framework_name, category) 
-    """
-    #  header 
+ """
+ # header 
     header_keys_lower = {k.lower() for k in request_headers}
 
-    #  Anthropic SDK 
+ # Anthropic SDK 
     for key in request_headers:
         if key.lower().startswith("anthropic-"):
             return "anthropic", "ai-sdk-client"
 
-    #  OpenAI SDK 
+ # OpenAI SDK 
     for key in request_headers:
         if key.lower().startswith("openai-"):
             return "openai", "ai-sdk-client"
 
-    #  Azure OpenAI  ()
+ # Azure OpenAI ()
     if "api-key" in header_keys_lower or "x-ms-region" in header_keys_lower:
         return "azure-openai", "ai-sdk-client"
 
-    #  MCP 
+ # MCP 
     for key in request_headers:
         if key.lower().startswith("x-mcp-"):
             return "mcp", "ai-framework"
