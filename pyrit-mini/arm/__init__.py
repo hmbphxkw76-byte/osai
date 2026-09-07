@@ -3,6 +3,8 @@
 Attack pipeline steps 2-3:
     Seed selection: Load attack seeds from YAML seed files, sort by historical ASR
     Converter transformation: Build L5 optimal Converter chain (encoding/persuasion/decomposition/obfuscation)
+        - Persuasion: Zeng et al. (arXiv:2402.19181) - Authority endorsement ASR 38.4%
+        - Decomposition: DrAttack (arXiv:2402.14266) - Decompose & reconstruct ASR 40-60%
 
 Core modules:
     - seed_ranker: Seed loading + ASR sorting + language adaptation
