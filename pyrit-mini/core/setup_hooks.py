@@ -205,7 +205,7 @@ def install_hooks() -> int:
     print("Every git commit / push now auto-runs architecture_guard.py")
     print("No manual execution needed.")
     print()
-    print("⚠️  R10 Reminder: After every code change, also run:")
+    print("[WARN]  R10 Reminder: After every code change, also run:")
     print("    python main.py --dry-run --max-seeds 1  (zero-token pipeline check)")
     print("    python main.py --max-seeds 1             (if attack/scoring logic changed)")
     print("    (Git hooks run static guard only - dry-run is runtime verification)")

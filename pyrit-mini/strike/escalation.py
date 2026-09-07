@@ -77,7 +77,7 @@ import time
 from typing import Any, Callable
 
 from core.context import PipelineContext
-from strike.escalation_chain import (  # noqa: F401  re-exports (
+from strike.escalation_chain import (  # noqa: F401 re-exports (
     _apply_mtos_ranking,
     _build_refusal_inverter_scoring_config,
     _build_skeleton_key_seed_groups,
@@ -105,7 +105,7 @@ from strike.escalation_chain import (  # noqa: F401  re-exports (
     _select_still_failed,
     _select_still_failed_clustered,
 )
-from strike.gcg_generator import (  # noqa: F401  re-exports
+from strike.gcg_generator import (  # noqa: F401 re-exports
     generate_gcg_suffix_pool as _generate_gcg_suffix_pool,
 )
 
@@ -172,7 +172,7 @@ def _get_ctx_config_value(ctx: Any, key: str, module_default: float) -> float:
 
     :  --config-file  defaults.yaml /
 
-     config.py (--config-file section) ↀargs () ↀctx.args ↀ
+     config.py (--config-file section) Cargs () Cctx.args C
 
 
 
@@ -218,7 +218,7 @@ _POST_L1_EXIT_THRESHOLD = _load_config_value("post_l1_exit_threshold", 70.0)
 
 _POST_L2_EXIT_THRESHOLD = _load_config_value("post_l2_exit_threshold", 80.0)
 
-# SSOT ura?token ₀
+# SSOT ura?token 0
 
 _MAX_ESCALATION_TARGETS = int(_load_config_value("max_escalation_targets", 10))
 
@@ -372,7 +372,7 @@ async def check_and_escalate(
 
 
 
- # v58:  
+ # v58: 
 
     try:
 
@@ -494,11 +494,11 @@ async def check_and_escalate(
 
  # EUREUR Level 1: Priority-scheduled batch execution EUREUR
 
- # v57: FIRST_SUCCESS + UCB f converter t┍EURstrong>
+ # v57: FIRST_SUCCESS + UCB f converter t+EURstrong>
 
  #
 
- # ϊt?ASR �?
+ # it?ASR ?
 
  # rior): Crescendo [65%] + TAP [60%]
 
@@ -741,9 +741,9 @@ async def check_and_escalate(
 
 
 
- # V2: Level 1 post-check  intermediate exit logic
+ # V2: Level 1 post-check intermediate exit logic
 
- # arXiv:2406.12609  Lattner et al.: parallel escalation chain intermediate exit
+ # arXiv:2406.12609 Lattner et al.: parallel escalation chain intermediate exit
 
  # L1 (Crescendo+TAP+PAIR) post ASR >= post_l1_exit_threshold -> skip L2-L4
 
@@ -1443,7 +1443,7 @@ async def check_and_escalate(
 
 
 
- # 6. v52: converter metadata  Ensureescalation converter 
+ # 6. v52: converter metadata Ensureescalation converter 
 
     _backfill_escalation_converter_metadata(escalated_results)
 
@@ -1495,7 +1495,7 @@ def _compute_overall_asr(attack_results: dict[str, Any]) -> float:
 
 
 
-    yuょ:
+    yuyo:
 
     - dict[str, float]: technique -> ASR%
 
@@ -1583,7 +1583,7 @@ def _select_failed_objectives(
 
 
 
-    Note:  (ctx, attack_results) (attack_results, ctx) ょ
+    Note:  (ctx, attack_results) (attack_results, ctx) yo
 
  """
 
@@ -1665,7 +1665,7 @@ def _select_failed_objectives(
 
  # - Mehrotra et al. (arXiv:2310.04451) iuTop-K ?
 
- # - arXiv:2406.12609 EUR+ utoken ₀
+ # - arXiv:2406.12609 EUR+ utoken 0
 
  # SSOT config/defaults.yaml max_escalation_targets ( 10)
 
@@ -1815,7 +1815,7 @@ async def _confirm_whitebox_attack(
 
 
 
-# v52: Technique ↀconverter label 
+# v52: Technique Cconverter label 
 
 # L1 converterData flow
 
@@ -2035,7 +2035,7 @@ def _backfill_escalation_converter_metadata(
 
 
 
-    EnsureData flow AttackResult.metadata["converter"] ↀevidence_extract ↀreport.converter_chain
+    EnsureData flow AttackResult.metadata["converter"] Cevidence_extract Creport.converter_chain
 
      converter Skipexecutor.py 
 

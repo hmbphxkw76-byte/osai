@@ -487,7 +487,7 @@ def print_success_breakthrough(
 
     print()
     _print_card_top(_C_GREEN + _C_BOLD)
-    print(_card_line(f"{_C_GREEN}{_C_BOLD}✅ ATTACK SUCCESS - Breakthrough!{_C_RESET}", _C_GREEN + _C_BOLD))
+    print(_card_line(f"{_C_GREEN}{_C_BOLD}[OK] ATTACK SUCCESS - Breakthrough!{_C_RESET}", _C_GREEN + _C_BOLD))
     _print_card_sep()
     print(_card_line(f"{_C_BOLD}Seed{_C_RESET}      {seed_display}"))
     print(_card_line(f"{_C_BOLD}Converter{_C_RESET} {conv_display}"))
@@ -524,7 +524,7 @@ def print_success_payload_snapshot(
     print()
     _print_card_top(_C_GREEN)
     print(_card_line(
-        f"{_C_GREEN}{_C_BOLD}✅ Success Payload Snapshot - {phase_label}{_C_RESET}",
+        f"{_C_GREEN}{_C_BOLD}[OK] Success Payload Snapshot - {phase_label}{_C_RESET}",
         _C_GREEN + _C_BOLD,
     ))
     _print_card_sep()
@@ -715,7 +715,7 @@ def print_report_card(
     ]
     if native_output_dir:
         layered_items.append(f"  {_C_CYAN}Native Output{_C_RESET} -> {native_output_dir}")
-    print_section("📂 Layered Report Files", layered_items, color=_C_CYAN)
+    print_section("[FOLDER] Layered Report Files", layered_items, color=_C_CYAN)
 
 
 # ====================================================================

@@ -6,7 +6,7 @@
     - DeepSeek JSON Patch (RFC 6902 )
     - Qwen  ({"v":"..."})
 
-⚠️ DEPRECATED (2026-09-06):
+[WARN] DEPRECATED (2026-09-06):
      import  (SSE  burp_parser.py)
     :  SSE 
     :  burp_parser.py  'from recon.sse_parser import make_sse_callback'

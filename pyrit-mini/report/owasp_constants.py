@@ -1,6 +1,6 @@
 """OWASP ??evidence.py .
 
- MITRE ATLAS , OWASP , OWASP Web Top 10 B.
+ MITRE ATLAS , OWASP , OWASP Web Top 10 BX.
 """
 
 # EUREUR MITRE ATT&CK for AI Systems (ATLAS) EUREUR
@@ -185,7 +185,7 @@ _OWASP_SEVERITY_LEVELS = {
     "info": {"score_range": (0.0, 0.9), "color": "#888888", "description": "Informational, no direct risk"},
 }
 
-# EUREUR OWASP LLM Top 10 B EUREUR
+# EUREUR OWASP LLM Top 10 BX EUREUR
 _OWASP_LLM_MITIGATIONS = {
     "LLM01": [
         "Implement input validation and sanitization for all prompts",
@@ -249,7 +249,7 @@ _OWASP_LLM_MITIGATIONS = {
     ],
 }
 
-# EUREUR OWASP ASI Top 10 B EUREUR
+# EUREUR OWASP ASI Top 10 BX EUREUR
 _OWASP_ASI_MITIGATIONS = {
     "ASI01": [
         "Implement agent identity verification and authentication",
@@ -313,7 +313,7 @@ _OWASP_ASI_MITIGATIONS = {
     ],
 }
 
-# EUREUR OWASP Web Top 10 (2025) B EUREUR
+# EUREUR OWASP Web Top 10 (2025) BX EUREUR
 _OWASP_WEB_MITIGATIONS = {
     "A01": [
         "Implement proper access control checks on every request",

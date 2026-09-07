@@ -24,7 +24,7 @@ def _get_technique_display_name(technique_name: str) -> str:
         yuEUREURX? yaangX?
  """
     display_names = {
- # EUR?
+ # XEUR?
         "prompt_sending": "Prompt Sending (Baseline)",
         "many_shot": "Many-Shot Jailbreak",
         "skeleton_key": "Skeleton Key",

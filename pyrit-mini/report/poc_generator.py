@@ -1,7 +1,7 @@
 """poc_generator ?PoC ?Findings .
 
 ?owasp_mapping.py , :
-    - generate_poc_script:  PyRIT  (?
+    - generate_poc_script:  PyRIT  (X?
     - _build_findings: ?Findings
     - _get_pyrit_attack_mapping:  PyRIT EURX?
 
@@ -12,9 +12,9 @@ PoC erEURXX PyRIT :
 
 [:
     - PyRIT (arXiv:2407.01232) ? AttackExecutor API X
-    - Russinovich et al. (arXiv:2402.12109) ?CrescendoAttack EUR?
-    - Mehrotra et al. (arXiv:2312.02191) ?TAPAttack EUR?
-    - Chao et al. (arXiv:2310.08419) ?PAIRAttack EUR?
+    - Russinovich et al. (arXiv:2402.12109) ?CrescendoAttack EURX?
+    - Mehrotra et al. (arXiv:2312.02191) ?TAPAttack EURX?
+    - Chao et al. (arXiv:2310.08419) ?PAIRAttack EURX?
     - Wei et al. (arXiv:2307.15043) ?Converter ?
     - Zeng et al. (arXiv:2402.19181) ? Converter
     - DrAttack (arXiv:2402.14266) ?B Converter
@@ -141,11 +141,11 @@ def _is_multi_turn_technique(technique_name: str) -> bool:
 
 
 def _parse_converter_chain(converter_chain: str) -> list[str]:
- """ converter_chain ?PyRIT Converter ?
+ """ converter_chain X?PyRIT Converter ?
 
     Args:
         converter_chain: ?Converter  (?"Base64Converter, ROT13Converter")
-                         ︿izu?converter?
+                         "izu?converter?
 
     Returns:
         PyRIT Converter  (yo??
@@ -157,7 +157,7 @@ def _parse_converter_chain(converter_chain: str) -> list[str]:
 
 
 def _escape_triple_quotes(text: str) -> str:
- r"""XX? PoC ︿?"""
+ r"""XX? PoC "?"""
  return text.replace('"""', '\\"\\"\\"')
 
 
@@ -167,11 +167,11 @@ def generate_poc_script(ev: VulnerabilityEvidence) -> str:
     yu: PoC zu PyRIT ?
      PyRIT  API ( requests.post)?
 
-    C:
+    XC:
         - EUR?(crescendo/tap/pair): CrescendoAttack/TAPAttack/PAIRAttack
         - EUR?(prompt_sending/skeleton_key/...): PromptSendingAttack
     -  converter_chain erEUR?Converter 
-    - ?(os.environ.get), X?
+    - X?(os.environ.get), X?
     - engYu?(?None)
     - X?(Enumerate -> Attack -> Detect -> Evade -> Confirm)
     - ? tsX
@@ -220,7 +220,7 @@ def generate_poc_script(ev: VulnerabilityEvidence) -> str:
         )
 
 
-# EUREUR PoC C?EUREUR
+# EUREUR PoC CX?EUREUR
 
 _SINGLE_TURN_TEMPLATE = """\
 #!/usr/bin/env python3
@@ -663,7 +663,7 @@ def _generate_converter_setup(converters: list[str]) -> str:
  """ Converter EUR?
 
     [:
-        - arXiv:2307.15043 ?Wei et al. ?
+        - arXiv:2307.15043 ?Wei et al. X?
         - arXiv:2402.19181 ?Zeng et al.  ASR 30-40%
         - arXiv:2402.14266 ?DrAttack B ASR 40-60%
  """
@@ -846,7 +846,7 @@ def _generate_multi_turn_poc(
     [:
         - arXiv:2402.12109 ?CrescendoAttack: max_turns=10, max_backtracks=10  # from config/defaults.yaml crescendo_max_backtracks
         - arXiv:2312.02191 ?TAPAttack: tree_width=4, tree_depth=4  # from config/defaults.yaml tap_tree_depth
-        - arXiv:2310.08419+2406.12609 ?PAIRAttack: tree_width=1, tree_depth=7  # from config/defaults.yaml pair_tree_depth (X)
+        - arXiv:2310.08419+2406.12609 ?PAIRAttack: tree_width=1, tree_depth=7  # from config/defaults.yaml pair_tree_depth (XX)
  """
     tech_name = ev.technique_name
 
@@ -991,14 +991,14 @@ def _build_findings(
 
     Args:
         evidence_list: ?
-        owasp_web_stats: Web Top 10 X (XEUR??
-        owasp_llm_stats: LLM Top 10 X (XEUR??
-        owasp_asi_stats: ASI Top 10 X (XEUR??
+        owasp_web_stats: Web Top 10 XX (XEUR??
+        owasp_llm_stats: LLM Top 10 XX (XEUR??
+        owasp_asi_stats: ASI Top 10 XX (XEUR??
 
     Returns:
         OWASPFinding ?
  """
- # ra?
+ # XraX?
     from report.evidence import OWASPFinding
     findings_map: dict[str, list[Any]] = {}
     for ev in evidence_list:
@@ -1007,7 +1007,7 @@ def _build_findings(
 
     findings: list[OWASPFinding] = []
     for owasp_id, ev_list in findings_map.items():
- # XEURX OWASP C (?
+ # XEURXX OWASP C (?
         first_ev = ev_list[0]
 
  # Finding uX

@@ -26,7 +26,7 @@ Academic basis:
     -  10
     - :  3 converter(s)
 
-⚠️ DEPRECATED (2026-09-06):
+[WARN] DEPRECATED (2026-09-06):
      import  ()
     :  AI 
     :  core/orchestrator.py  'from recon.port_expander import discover_port_endpoints'

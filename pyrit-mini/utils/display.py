@@ -127,7 +127,7 @@ def _print_failure_summary(result: Any, tech_name: str, idx: int) -> None:
         converter_info = f" [{', '.join(conv_names)}]" if conv_names else ""
 
     print(
-        f"  {_C_DIM}❌ [{tech_name}#{idx}]{_C_RESET} "
+        f"  {_C_DIM}[FAIL] [{tech_name}#{idx}]{_C_RESET} "
         f"{_C_DIM}{seed_label[:50]:<50}{_C_RESET} "
         f"{_C_RED}{outcome}{_C_RESET}"
         f"{_C_DIM}{converter_info}{_C_RESET}"
@@ -156,7 +156,7 @@ async def print_attack_results_native(
  """
     total_results = sum(len(r) for r in attack_results.values())
     if total_results == 0:
-        print(f"\n  {_C_RED}✗  - {_C_RESET}")
+        print(f"\n  {_C_RED}[FAIL]  - {_C_RESET}")
         return
 
  # ASR
@@ -256,7 +256,7 @@ def print_strike_card(ctx: "PipelineContext") -> None:
     )
 
     if total == 0:
-        print(f"\n  {_C_RED}✗  - {_C_RESET}")
+        print(f"\n  {_C_RED}[FAIL]  - {_C_RESET}")
 
 
 # ====================================================================
@@ -563,7 +563,7 @@ def print_strike_start_banner(
 
     print()
     print(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
-    print(f"{_C_BOLD}  ► STRIKE: Baseline Attack ( PromptSending){_C_RESET}{ep_idx_str}")
+    print(f"{_C_BOLD}  > STRIKE: Baseline Attack ( PromptSending){_C_RESET}{ep_idx_str}")
     print(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
     print(f"  {_C_CYAN}Endpoint{_C_RESET}      {ep_name}")
     print(f"  {_C_CYAN}Model Family{_C_RESET}  {model_family}")
@@ -635,13 +635,13 @@ def print_escalation_level_banner(
     sep = "=" * 60
     print()
     print(f"  {color}{sep}{_C_RESET}")
-    print(f"  {color}► ESCALATE L{level}: {name}{_C_RESET}")
+    print(f"  {color}> ESCALATE L{level}: {name}{_C_RESET}")
     print(f"  {color}{sep}{_C_RESET}")
     print(f"  {_C_CYAN}Seeds{_C_RESET}     {failed_count} failed objectives from baseline")
     if batch_mode:
         _l1_exit = float(getattr(ctx.args, "post_l1_exit_threshold", 70) or 70)
         _ps_epsilon = float(getattr(ctx.args, "priority_scheduler_epsilon", 0.1) or 0.1)
-        print(f"  {_C_CYAN}Scheduler{_C_RESET}  priority-batch (exit={_l1_exit:.0f}%, ε={_ps_epsilon:.2f})")
+        print(f"  {_C_CYAN}Scheduler{_C_RESET}  priority-batch (exit={_l1_exit:.0f}%, e={_ps_epsilon:.2f})")
     else:
         print(f"  {_C_CYAN}Strategy{_C_RESET}   full parallel ({len(techniques)} techniques)")
     print(f"  {_C_CYAN}Scorer{_C_RESET}    MultiKeywordRefusal (0-token) -> TFInverter -> LLM Dual Judge")
@@ -733,11 +733,11 @@ def print_converter_path_start(
     cat = _get_technique_category(tech)
 
     print(
-        f"\n  {_C_BOLD}► [STRIKE]{_C_RESET} {_C_CYAN}{ep_name}{_C_RESET} "
+        f"\n  {_C_BOLD}> [STRIKE]{_C_RESET} {_C_CYAN}{ep_name}{_C_RESET} "
         f"{_C_DIM}|{_C_RESET} {_C_MAGENTA}{tech}{_C_RESET} {_C_DIM}({cat}){_C_RESET} "
         f"{_C_DIM}|{_C_RESET} Path {_C_YELLOW}{path_idx + 1}/{total_paths}{_C_RESET}: "
         f"{_C_MAGENTA}{converter_name}{_C_RESET} "
-        f"| {seeds_remaining} seeds {_C_DIM}⏳{_C_RESET}"
+        f"| {seeds_remaining} seeds {_C_DIM}[WAIT]{_C_RESET}"
     )
     seed_summary = _get_seed_summary(ctx)
     print(
@@ -768,9 +768,9 @@ def print_converter_path_done(
     rate_color = _asr_color(success_rate)
 
     if seeds_remaining == 0:
-        status = f"{_C_GREEN}✓ ALL DONE{_C_RESET}"
+        status = f"{_C_GREEN}[OK] ALL DONE{_C_RESET}"
     elif seeds_succeeded > 0:
-        status = f"{_C_GREEN}✓ partial{_C_RESET}"
+        status = f"{_C_GREEN}[OK] partial{_C_RESET}"
     else:
         status = f"{_C_YELLOW}o no success{_C_RESET}"
 
@@ -890,7 +890,7 @@ def print_escalation_tech_start(
 
     print()
     print(
-        f"  {_C_BOLD}► [ESCALATE L{level}]{_C_RESET} {level_color}{ep_name}{_C_RESET} "
+        f"  {_C_BOLD}> [ESCALATE L{level}]{_C_RESET} {level_color}{ep_name}{_C_RESET} "
         f"{_C_DIM}|{_C_RESET} {_C_MAGENTA}{_C_BOLD}{technique}{_C_RESET} "
         f"{_C_DIM}({cat}){_C_RESET}{batch_str} "
         f"{_C_DIM}| {objectives_count} objectives{_C_RESET}"
@@ -926,7 +926,7 @@ def print_escalation_tech_done(
     level_color = level_colors.get(level, _C_BOLD)
 
     if success_count > 0:
-        status = f"{_C_GREEN}✓{_C_RESET}"
+        status = f"{_C_GREEN}[OK]{_C_RESET}"
     else:
         status = f"{_C_YELLOW}o{_C_RESET}"
 

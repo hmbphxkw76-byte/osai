@@ -706,9 +706,9 @@ def _compute_adaptive_semaphore(
         - :  min_concurrency ()
 
     Academic basis:
-        - Little's Law: L = λ * W
-          ( L =  λ x  W)
-        -  λ = RPM/60 req/s, W = 2s -> L = RPM/30
+        - Little's Law: L = lambda * W
+          ( L =  lambda x  W)
+        -  lambda = RPM/60 req/s, W = 2s -> L = RPM/30
 
     Args:
         rpm: RPM  (None imports)
@@ -721,8 +721,8 @@ def _compute_adaptive_semaphore(
     if rpm is None:
         rpm = _get_judge_rpm() or 60
 
- # Little's Law: L = λ * W
- # λ (req/s) = rpm / 60
+ # Little's Law: L = lambda * W
+ # lambda (req/s) = rpm / 60
  # W (avg processing time) ~= 2s ()
  # L (concurrency) = (rpm / 60) * 2 = rpm / 30
     _calculated = rpm // 30

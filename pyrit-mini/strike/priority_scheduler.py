@@ -15,7 +15,7 @@ Academic basis:
     2. ,  ( prior )
     3.  (post_l1_exit_threshold)
     4.  ASR >=  -> Skip ( token)
-    5. ε-:  prior  ()
+    5. e-:  prior  ()
 """
 
 from __future__ import annotations
@@ -339,7 +339,7 @@ async def _execute_priority_batches(
     Academic basis:
         - Lattner et al. (arXiv:2406.12609) - , 
         - PyRIT SequentialAttack (arXiv:2407.01232) - FIRST_SUCCESS Extend
-        - Auer et al. (arXiv:cs/0207052) - ε--
+        - Auer et al. (arXiv:cs/0207052) - e--
 
     Execution flow:
         1.  ASR 
@@ -347,7 +347,7 @@ async def _execute_priority_batches(
         3.  1  ->  ASR >= exit_threshold? -> 
         4.  2  () ->  -> 
         5.  3  ()
-        6. ε-: epsilon  3 converter(s) 1
+        6. e-: epsilon  3 converter(s) 1
 
     Args:
         ctx: .
@@ -380,7 +380,7 @@ async def _execute_priority_batches(
  # 1. ASR 
     ranked = _rank_techniques_by_prior(techniques, ctx)
 
- # 2. ε-: epsilon prior 
+ # 2. e-: epsilon prior 
     if len(ranked) > 2 and random.random() < epsilon:
  # prior 
         lowest_tech, lowest_prior = ranked[-1]
@@ -389,7 +389,7 @@ async def _execute_priority_batches(
             (t, p) for t, p in ranked if t != lowest_tech
         ]
         logger.info(
-            "Priority scheduler: ε-greedy exploration - promoted '%s' (prior=%.0f%%) to batch 1",
+            "Priority scheduler: e-greedy exploration - promoted '%s' (prior=%.0f%%) to batch 1",
             lowest_tech, lowest_prior,
         )
 

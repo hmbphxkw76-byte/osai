@@ -2416,7 +2416,7 @@ class ArchitectureGuard:
     def report_text(self, show_fix_hints: bool = False) -> str:
  """"""
         if not self.violations:
-            return ("✅  - 0 \n"
+            return ("[OK]  - 0 \n"
                     f"   specs : {self.specs_version}")
 
         blocking = [v for v in self.violations if v.severity == Severity.BLOCKING]
@@ -2424,7 +2424,7 @@ class ArchitectureGuard:
         infos = [v for v in self.violations if v.severity == Severity.INFO]
 
         lines = []
-        lines.append(f"{'✅' if not blocking else '❌'} : "
+        lines.append(f"{'[OK]' if not blocking else '[FAIL]'} : "
                       f"{len(blocking)} BLOCKING, {len(warnings)} WARNING, {len(infos)} INFO")
         lines.append("")
 

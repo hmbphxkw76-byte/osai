@@ -210,7 +210,7 @@ def print_phase(phase: str, description: str) -> None:
     sep = "=" * 60
     print()
     print(f"  {color}{sep}{_C_RESET}")
-    print(f"  {color}► [{phase}] {_C_RESET}{_C_BOLD}{description}{_C_RESET}")
+    print(f"  {color}> [{phase}] {_C_RESET}{_C_BOLD}{description}{_C_RESET}")
     print(f"  {color}{sep}{_C_RESET}")
 
 
@@ -230,13 +230,13 @@ def print_status(
         ok: None=, True=, False=.
  """
     if ok is True:
-        tag = f"{_C_GREEN}✓{_C_RESET}"
+        tag = f"{_C_GREEN}[OK]{_C_RESET}"
         sc = _C_GREEN
     elif ok is False:
-        tag = f"{_C_RED}✗{_C_RESET}"
+        tag = f"{_C_RED}[FAIL]{_C_RESET}"
         sc = _C_RED
     else:
-        tag = "►"
+        tag = ">"
         sc = _C_CYAN
     print(f"  {tag} {_C_BOLD}[{phase}]{_C_RESET} {sc}{status}{_C_RESET}  {_C_DIM}{message}{_C_RESET}")
 
@@ -245,7 +245,7 @@ def print_error(message: str) -> None:
  """Print error card."""
     print()
     _print_card_top(_C_RED)
-    print(_card_line(f"{_C_RED}{_C_BOLD}✗ ERROR{_C_RESET}", _C_RED))
+    print(_card_line(f"{_C_RED}{_C_BOLD}[FAIL] ERROR{_C_RESET}", _C_RED))
     _print_card_sep()
     print(_card_line(message, _C_RED))
     _print_card_bottom(_C_RED)

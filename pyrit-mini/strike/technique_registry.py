@@ -6,8 +6,8 @@
 """AttackTechniqueFactory eng ?XX PyRIT registry?
 
 + PyRIT 1.0.1  AttackTechniqueFactory + AttackTechniqueRegistry?
-XEURPromptSending + Crescendo + TAP + PAIR + Best-of-N?
-eng?TextAdaptive XEUREUR?
+XEURXPromptSending + Crescendo + TAP + PAIR + Best-of-N?
+eng?TextAdaptive XEURXEUR?
 
 [:
     - PyRIT (arXiv:2407.01232) ?AttackTechniqueFactory + Registry X,
@@ -19,7 +19,7 @@ eng?TextAdaptive XEUREUR?
 
 PyRIT  (Rule 2):
     Xa??XX?PyRIT  AttackTechniqueFactory,
-    EURactory.create() eng?PromptSendingAttack /
+    XEURactory.create() eng?PromptSendingAttack /
     CrescendoAttack / TAPAttack / PAIRAttack  attack_class?
 """
 
@@ -43,7 +43,7 @@ def register_project_techniques(
  """XX PyRIT AttackTechniqueRegistry?
 
      AttackTechniqueFactory eng registry?
-    ?TextAdaptive engEUREUR?
+    ?TextAdaptive engEURXEUR?
 
     EURX?(?L5 ?:
         1. PromptSending (baseline, single_turn tag)
@@ -92,7 +92,7 @@ def register_project_techniques(
     factories: list[AttackTechniqueFactory] = []
 
  # EUREUR 1. PromptSending (baseline) EUREUR
- # arXiv:2307.15043 ?, 
+ # arXiv:2307.15043 ?, X
  # v51: ?SkeletonKey ?prepended_conversation execute_async 
     try:
         ps_factory = AttackTechniqueFactory(
@@ -440,7 +440,7 @@ def build_sequential_child_attacks(
  """ SequentialAttack ?child attacks ? FIRST_SUCCESS EUR?
 
      PyRIT  SequentialAttack + SequentialChildAttack 
-    executor.py XEUR?
+    executor.py XXEUR?
 
      converter EURX PromptSendingAttack (1 converter per path),
     X (FIRST_SUCCESS) XEUR?
@@ -452,7 +452,7 @@ def build_sequential_child_attacks(
         - DrAttack (arXiv:2402.14266) ?B ASR 40-60% EUR?
 
     Args:
-        objective_target:  PyRIT PromptTarget?
+        objective_target: X PyRIT PromptTarget?
         scoring_config: AttackScoringConfig (FIRST_SUCCESS )?
         candidate_converters: EUR?converter  (?ASR )?
         seed_group: AttackSeedGroup ( objective)?

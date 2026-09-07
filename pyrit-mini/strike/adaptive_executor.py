@@ -13,7 +13,7 @@ Academic basis:
     - Greshake et al. (arXiv:2302.12173) - PromptSendingAttack
     - Russinovich et al. (arXiv:2404.01833) - CrescendoAttack
     - Hughes et al. (arXiv:2404.02151) - BestOfN
-    - PyRIT TextAdaptive (arXiv:2407.01232) - ε-
+    - PyRIT TextAdaptive (arXiv:2407.01232) - e-
     - Chao et al. (arXiv:2402.01135) - Best-of-N, N=5 ASR  1.8x
     - Crescendo (arXiv:2402.12109) - 10 turns ASR=82%
 
@@ -33,7 +33,7 @@ from core.context import PipelineContext, _get_config_int, get_effective_concurr
 
 logger = logging.getLogger(__name__)
 
-# ?(pipeline/strike/ ?ょ)
+# ?(pipeline/strike/ ?yo)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 

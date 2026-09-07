@@ -944,7 +944,7 @@ async def _run_cair(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
- """⚠️ STUB - imports (P0-2, REV-06)
+ """[WARN] STUB - imports (P0-2, REV-06)
 
     CAIR (Context-Aware Iterative Refinement)  PAIR ,
      (safety/ethical/legal/capability/generic),
@@ -1301,7 +1301,7 @@ async def _run_encoded_injection(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
- """⚠️ STUB - imports (P0-2, REV-06)
+ """[WARN] STUB - imports (P0-2, REV-06)
 
     Encoded Injection  Base64/ROT13/Unicode 
     Academic basis: Zou et al. (arXiv:2307.08673) Sec4.5 - ASR +10-20%

@@ -148,7 +148,7 @@ def _infer_owasp_id_from_objective(objective: str) -> str:
  # L5 v35: ? "train" ?"training" ?
  # ?\b (?"train\\b"), re.search
  # (+?, \b ?
- # ︾?(?"$where", "file://", "<script>"),
+ # "?(?"$where", "file://", "<script>"),
  # EUREUR substring in 
             if "\\" in kw:
                 pattern = kw

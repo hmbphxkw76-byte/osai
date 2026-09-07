@@ -186,8 +186,8 @@ def print_recon_report(
  # ================================================================
     prompt_ok = parsed.has_prompt_placeholder
     prompt_str = (
-        f"{_C_GREEN}✓ Injected{_C_RESET}" if prompt_ok
-        else f"{_C_RED}✗ Missing{_C_RESET}"
+        f"{_C_GREEN}[OK] Injected{_C_RESET}" if prompt_ok
+        else f"{_C_RED}[FAIL] Missing{_C_RESET}"
     )
 
     scheme = "https" if parsed.use_tls else "http"
@@ -219,7 +219,7 @@ def print_recon_report(
         l1_rows.append(("AI Framework", f"{_ai_fw} ({fp.get('ai_framework_category', '')})"))
     _sp_leaked = fp.get("system_prompt_leaked", False)
     if _sp_leaked:
-        l1_rows.append(("System Prompt", f"{_C_RED}✗ LEAKED{_C_RESET} ({fp.get('system_prompt_extraction_method', '')})"))
+        l1_rows.append(("System Prompt", f"{_C_RED}[FAIL] LEAKED{_C_RESET} ({fp.get('system_prompt_extraction_method', '')})"))
     _model_ids = fp.get("model_ids", [])
     if _model_ids:
         l1_rows.append(("Model IDs", f"{len(_model_ids)} models"))
@@ -236,7 +236,7 @@ def print_recon_report(
 
     if parsed.chat_id_field:
         chat_id_status = (
-            f"{_C_GREEN}✓ Tracked{_C_RESET} ({parsed.chat_id_field})"
+            f"{_C_GREEN}[OK] Tracked{_C_RESET} ({parsed.chat_id_field})"
             if parsed.chat_id
             else f"{_C_YELLOW}o Auto-extract{_C_RESET} ({parsed.chat_id_field})"
         )
@@ -264,7 +264,7 @@ def print_recon_report(
     cap_items: list[str] = []
 
     if immediate:
-        cap_items.append(f"  {_C_GREEN}{_C_BOLD}▸ IMMEDIATE (HIGH >= 0.8) - :{_C_RESET}")
+        cap_items.append(f"  {_C_GREEN}{_C_BOLD}> IMMEDIATE (HIGH >= 0.8) - :{_C_RESET}")
         for item in immediate:
             strategy = _CAPABILITY_STRATEGY.get(item)
             cap_items.append(f"    -> {_C_GREEN}{item}{_C_RESET}")
@@ -283,7 +283,7 @@ def print_recon_report(
                 )
 
     if probe:
-        cap_items.append(f"  {_C_YELLOW}▸ PROBE (MEDIUM 0.4-0.8) - Confirmation:{_C_RESET}")
+        cap_items.append(f"  {_C_YELLOW}> PROBE (MEDIUM 0.4-0.8) - Confirmation:{_C_RESET}")
         for item in probe:
             strategy = _CAPABILITY_STRATEGY.get(item)
             if strategy:
@@ -295,7 +295,7 @@ def print_recon_report(
                 cap_items.append(f"    -> {_C_YELLOW}{item}{_C_RESET}")
 
     if possible:
-        cap_items.append(f"  {_C_DIM}▸ POSSIBLE (LOW < 0.4) - , :{_C_RESET}")
+        cap_items.append(f"  {_C_DIM}> POSSIBLE (LOW < 0.4) - , :{_C_RESET}")
         for item in possible:
             cap_items.append(f"    -> {_C_DIM}{item}{_C_RESET}")
 

@@ -168,14 +168,14 @@ _REFUSAL_PATTERNS = [
     r"(?:converter(s)|)?(?:AI|||).{0,20}(||||)",
     r"(||)(|).{0,15}(|||)",
  # == (L5 v48 ) ==
-    r"しありませnが.{0,10}(できませn|おえできませn|できませn)",
-    r"(し|すみませn).{0,10}(ござiませnが|ですが).{0,10}(できませn|えさせて)",
-    r"(ポリシ-|ガIドraIン|).{0,10}(|にyoり).{0,10}(できませn|できませn)",
-    r"AI(として|アシスタントとして).{0,15}(できませn|おえできませn|できませn)",
+    r"shiarimasenga.{0,10}(dekimasen|oedekimasen|dekimasen)",
+    r"(shi|sumimasen).{0,10}(gozaimasenga|desuga).{0,10}(dekimasen|esasete)",
+    r"(porishi-|gaIdoraIn|).{0,10}(|niyori).{0,10}(dekimasen|dekimasen)",
+    r"AI(toshite|ashisutantotoshite).{0,15}(dekimasen|oedekimasen|dekimasen)",
  # == (L5 v48 ) ==
-    r"죄송하지만.{0,15}(수 없습니다|할 수 없|불가능합니다)",
-    r"(정책|가이드라인|안전).{0,10}(위반|으로 인해).{0,10}(수 없습니다|불가능합니다)",
-    r"AI(로서|어시스턴트로서).{0,15}(수 없습니다|할 수 없|불가능합니다)",
+    r"joesonghajiman.{0,15}(su eopseubnida|hal su eop|bulganeunghapnida)",
+    r"(jeongchaek|gaideurain|anjeon).{0,10}(wiban|euro inhae).{0,10}(su eopseubnida|bulganeunghapnida)",
+    r"AI(roseo|eosiseuteonteuroseo).{0,15}(su eopseubnida|hal su eop|bulganeunghapnida)",
 ]
 
 # == v52: (//) ==

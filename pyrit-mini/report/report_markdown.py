@@ -65,7 +65,7 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
         lines.append("")
 
  # == Layer (A) ==
-    lines.append("## 📂 Report Structure")
+    lines.append("## [FOLDER] Report Structure")
     lines.append("")
     lines.append("| File | Description | Target Audience |")
     lines.append("|------|-------------|-----------------|")
@@ -184,7 +184,7 @@ def _generate_executive_markdown(evidence: EvidenceCollection) -> str:
     if evidence.findings:
         sorted_by_risk = sorted(evidence.findings, key=lambda f: f.owasp_risk_score, reverse=True)
         for i, finding in enumerate(sorted_by_risk, 1):
-            priority = "🔴 Critical" if finding.owasp_risk_score >= 8 else "🟠 High" if finding.owasp_risk_score >= 6 else "🟡 Medium"
+            priority = "[RED] Critical" if finding.owasp_risk_score >= 8 else "[ORANGE] High" if finding.owasp_risk_score >= 6 else "[YELLOW] Medium"
             lines.append(f"| {priority} | {finding.owasp_id} | {finding.owasp_category} | {finding.owasp_risk_score} | {finding.asr}% |")
     lines.append("")
 
@@ -746,7 +746,7 @@ def _append_evidence_card(lines: list[str], ev: VulnerabilityEvidence) -> None:
         conv_short = ev.converter_chain.split(" -> ")[0] if " -> " in ev.converter_chain else ev.converter_chain
         attack_chain_parts.append(f"Converter({conv_short})")
     attack_chain_parts.append(f"Tech({ev.technique_name or 'baseline'})")
-    outcome_icon = "✅ PASS" if ev.is_success else "❌ BLOCKED"
+    outcome_icon = "[OK] PASS" if ev.is_success else "[FAIL] BLOCKED"
     attack_chain_parts.append(f"Outcome({outcome_icon})")
     lines.append(f"'{' -> '.join(attack_chain_parts)}'")
     lines.append("")
@@ -758,7 +758,7 @@ def _append_evidence_card(lines: list[str], ev: VulnerabilityEvidence) -> None:
     lines.append(f"| Severity | {ev.owasp_severity} |")
     lines.append(f"| Risk Score | {ev.owasp_risk_score}/10 |")
     lines.append(f"| Converter | {ev.converter_chain or 'none (baseline)'} |")
-    outcome = "✅ Success" if ev.is_success else "❌ Failed"
+    outcome = "[OK] Success" if ev.is_success else "[FAIL] Failed"
     lines.append(f"| Outcome | {outcome} |")
     lines.append(f"| Confidence | {ev.confidence} |")
     lines.append(f"| MITRE | {ev.mitre_technique_id or 'N/A'} ({ev.mitre_tactic or 'N/A'}) |")
@@ -784,7 +784,7 @@ def _append_evidence_card(lines: list[str], ev: VulnerabilityEvidence) -> None:
         lines.append(f"**Model Response Preview:** {harmful_preview}")
         lines.append("")
         lines.append("<details>")
-        lines.append(f"<summary>💬 Full Model Response ({len(ev.harmful_output)} chars, click to expand)</summary>")
+        lines.append(f"<summary>[MSG] Full Model Response ({len(ev.harmful_output)} chars, click to expand)</summary>")
         lines.append("")
         lines.append(ev.harmful_output)
         lines.append("")
@@ -796,7 +796,7 @@ def _append_evidence_card(lines: list[str], ev: VulnerabilityEvidence) -> None:
     if val_runs:
         lines.append("**Validation:**")
         for run in val_runs:
-            lines.append(f"  - Run {run.get('run', '?')}: {'✅ Success' if run.get('success') else '❌ Failed'}")
+            lines.append(f"  - Run {run.get('run', '?')}: {'[OK] Success' if run.get('success') else '[FAIL] Failed'}")
         lines.append("")
 
  # Testing Conditions
@@ -1097,7 +1097,7 @@ def _append_weapon_loadout(lines: list[str], evidence: EvidenceCollection) -> No
             idx += 1
             _tech = ev.technique_name or ""
             _conv = ev.converter_chain or "none (baseline)"
-            _success = "✓" if ev.is_success else "✗"
+            _success = "[OK]" if ev.is_success else "[FAIL]"
             _seed_display = _seed + ("..." if len(ev.objective or "") > 60 else "")
             lines.append(f"| {idx} | {_seed_display} | {_tech} | {_conv} | {_success} |")
         lines.append("")
