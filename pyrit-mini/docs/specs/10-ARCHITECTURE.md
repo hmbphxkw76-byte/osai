@@ -174,20 +174,19 @@ ctx 字段采用**唯一写者**原则（一个字段只准一个阶段写）：
 | D-02 | main/pipeline 镜像 | main.py 87KB 巨石（编排层含业务逻辑，违 2.1）；pipeline/orchestrator.py 实为薄转发（v58 重构半途，委托 main.run） | main 调用 pipeline 包，删除本地副本；业务逻辑下沉阶段层 |
 | D-03 | stub 模块 | encoded_injection.py / cair.run_cair_attack / multi_turn_attacks（Best-of-N）返回空 dict，注释自认"调用方 try/except 优雅降级"= R-H1 静默降级 | 要么实现（提 REQ），要么从升级链摘除；禁止维持"编排了但没实现"状态。**注意：Best-of-N 属 REQ-004 P0 验收项，此 stub 是现行 P0 缺口** |
 | D-04 | recon → assess 跨层依赖 | target_router 调 assess.scorer 验证函数 | 验证函数移入 core 或 targets |
-| ~~D-05~~ | ~~targets → recon 反向依赖~~ | **已消除** (P0-03)：JSONSafeHTTPTarget 已废弃，改用 PyRIT 原生 HTTPTarget；会话状态由 ChatIdStateManager 外部管理 | ✅ 已完成 (2026-09-06) |
 | D-06 | utils/display → arm 越界 | 展示层延迟导入 arm.seed_ranking 读 ASR | ASR 数据经 ctx 或独立查询模块传递 |
 | D-07 | 硬编码数据快照 | display._CONVERTER_ASR_LABEL 与 asr_priors.yaml 重复 | 展示层读 yaml |
 | D-08 | 无代码加载的配置 | config/target_profiles.yaml 26 profile 零消费 | 要么接 asset_mapper 要么删除 |
-| D-09 | 规范文档多处冗余 | SKILL.md（实测 57KB）/ docs/ 与 specs 职责重叠 | **已消除**：B/C 类旧文档（implementation_checklist/RTM/attack_strategy/escalate/scenariod/terminal_report_optimization）已于 2026-09-06 删除，specs/ 金字塔确立为唯一权威源；SKILL.md 降位为⑤细则（frontmatter 指向宪法，Supporting Documents 表已重写为 specs/ 引用）；剩余 BL-011 本体收敛按路线图推进 |
 | D-10 | escalation 三件 | 非 9 字节孪生，实为"门面+拆分"三件（escalation.py 940行门面 / chain 1124 / attacks 1057），函数集互不重叠；实际债务：re-export 债务 + `_llm_judge_rescore` 死 re-export + `_is_success`/_retrieve_partial_results 跨文件复制 + escalation_attacks.py 全文编码损坏 | 删 escalation_attacks.py + 清 re-export + 统一跨文件复制 |
 | D-11 | arm converter 三轨 | 三文件职责互补（链构建/预设分配/候选选择），非纯粹三轨；实际债务：converter_selector.py 含 ~230 行死函数（与 _get_candidate_converters 含逐字相同的 23 项 _PRIORITY_MAP 孪生）+ 循环 re-export 尾巴 | 删死函数 + 消 _PRIORITY_MAP 孪生 + 删 re-export 尾巴 |
 | D-12 | arm 种子排序双轨 | 非孪生，实为拆分+12 符号 re-export 门面；实际债务：双向 import（seed_ranking 反查 seed_ranker）+ 调用方 import 路径分裂（main/strike 走门面、executor/display 直连） | 统一 import 路径 + 消除双向 import |
-| ~~D-13~~ | ~~data/ 层代码污染~~ | **已消除** (v61)：asset_mapper → core/；attack_surface_classifier → recon/；synergy_orchestrator → core/scenario_router；scorer_selector 已删除；burp/ → config/targets/burp/；data/__init__.py 已删除（load_asset_index 迁至 core/asset_mapper）；asset_index.yaml → config/asset_index.yaml；data/ 纯声明式资产 | ✅ 已完成 (2026-09-06) |
 | D-14 | display.py 巨石 | utils/display.py 119KB 全库最大文件（含 D-06/D-07 关联问题） | 拆分展示/数据查询职责；读 yaml 替代硬编码 |
 | D-15 | judge 文件群 | judge_manager（74KB）+ judge_utils（55KB）+ dual_judge（27KB）+ adaptive_dual_judge（24KB）四文件，D-01 的具体形态 | 并入 D-01 消除方案统一裁决（单文件 ≤500 行目标） |
 | D-16 | 工具链与资产卫生 | ① pyproject.toml ruff exclude pipeline/（门禁 Step 2 空洞）；② report/output.py 注释 mojibake（UTF-8/GBK 混写）；③ 依赖 `pyrit>=1.0.1` 未钉住（规约口径为 1.0.1）；④ data/seeds/asr_history.json 运行时产物入库 | 修 pyproject（去 exclude、钉 1.0.1）；修乱码；asr_history 迁 outputs/ 并入 .gitignore |
 
 **新增债务的流程**：发现新双轨/越界 → 登记 backlog（一行）→ 评估后入本表。**禁止直接修**。
+
+**已消除债务归档**：D-05 (targets→recon) / D-09 (规范冗余) / D-13 (data/代码污染) — 均于 2026-09-06 完成消除。
 
 ---
 

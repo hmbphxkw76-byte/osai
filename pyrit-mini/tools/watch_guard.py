@@ -203,13 +203,13 @@ else:
                     ok, output = self._run_full_guard()
 
                 if ok:
-                    print(f"  ✅ All checks passed")
+                    print(f"  [PASS] All checks passed")
                 else:
                     # Show summary
                     lines = output.strip().split("\n")
                     if lines:
                         last_line = lines[-1] if lines else ""
-                        print(f"  ⚠️  {last_line}")
+                        print(f"  [WARN] {last_line}")
                         # Show R-DELIVERY specific
                         rdelivery_lines = [l for l in lines if "R-DELIVERY" in l]
                         if rdelivery_lines:

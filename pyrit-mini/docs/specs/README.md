@@ -6,13 +6,15 @@
 
 | 层 | 文件 | 职责 | 版本 |
 |----|------|------|------|
-| L0 | [00-CONSTITUTION.md](00-CONSTITUTION.md) | AI 行为宪法：使命 / 裁决序 / C1-C12 / 违宪症状速查表 / 制宪配套附则 / **OffSec AI-300 考试专项附录（7A-7D）** | v1.3 |
-| L1 | [10-ARCHITECTURE.md](10-ARCHITECTURE.md) | 技术蓝图：分层与依赖矩阵 / 阶段词汇映射 / ctx 契约 / 不变量 I1-I10 / ADR / 债务簿 D-01~D-16 / **PyRIT 原生攻击引擎架构（9.1-9.4）** | v1.6 |
-| L2 | [20-REQUIREMENTS.md](20-REQUIREMENTS.md) | 需求登记：REQ-001~008（P0）/ REQ-101~108（P1）/ REQ-109~113（考域）/ REQ-114~119（P0-NEW）/ **REQ-120~126（P0-EXAM 考试关键）** / NFR-1~8 / NEG 负需求 / 状态登记表 | v1.4 |
-| L3 | [30-TASKS.md](30-TASKS.md) | 任务协议：生命周期 / 粒度硬上限 / 八步协议 / STOP-REPORT / 三栏汇报格式 / **OffSec AI-300 考试变体协议（9A-9D）** | v1.3 |
-| L4 | [40-GUARDRAILS.md](40-GUARDRAILS.md) | 红线 R-L / R-H / R-S / **R-DATA-1 数据流完整性** / 四步门禁 / 三层防线 / 检查器登记簿 / **OffSec AI-300 考试合规与证据完整性（7A-7D）** | v1.4 |
-| L3 | [45-DATA-FLOW-INTEGRITY.md](45-DATA-FLOW-INTEGRITY.md) | 数据流完整性规约：ARM→Strike→Assess 字段契约 / R-DATA-1~10 强制规则 / 工具链集成 / Git Hooks 自动验证 | v1.0 |
-| 配套 | [50-ROADMAP.md](50-ROADMAP.md) | 使命执行路线图：源码审计基线 / AI-300 考纲映射 / 红队最佳实践 / 阶段任务序列 / vibe coding 会话模型 / 考试日 Runbook / **考试就绪评分卡与快速交战 Playbook（8A-8D）** | v1.1 |
+| L0 | [00-CONSTITUTION.md](00-CONSTITUTION.md) | AI 行为宪法：使命 / 裁决序 / C1-C13 / 违宪症状 / 制宪配套 / 考试专项附录 | v1.9 |
+| L1 | [10-ARCHITECTURE.md](10-ARCHITECTURE.md) | 技术蓝图：分层依赖 / ctx 契约 / 不变量 / ADR / 债务簿 / PyRIT攻击引擎 / Glue层 | v2.1 |
+| L2 | [20-REQUIREMENTS.md](20-REQUIREMENTS.md) | 需求登记：P0/P1/P0-NEW/P0-EXAM / NFR / NEG / 企业Glue需求 / 状态登记表 | v1.7 |
+| L3 | [30-TASKS.md](30-TASKS.md) | 任务协议：生命周期 / 粒度上限 / 八步协议 / STOP-REPORT / 考试变体 | v1.3 |
+| L4 | [40-GUARDRAILS.md](40-GUARDRAILS.md) | 红线 R-L / R-H / R-S / R-WEB / 四步门禁 / 三层防线 / 登记簿 / 考试合规 | v1.5 |
+| 配套 | [50-ROADMAP.md](50-ROADMAP.md) | 路线图：AI-300 考纲映射 / 红队实践 / 任务序列 / 会话模型 / Runbook | v1.3 |
+| 配套 | [templates/task-spec.md](templates/task-spec.md) | 任务规格模板 + 考试变体 | v1.1 |
+| 配套 | [templates/change-proposal.md](templates/change-proposal.md) | 变更提案模板 | v1.0 |
+| 配套 | [backlog.md](backlog.md) | 唯一待办池 | v1.2 |
 | 配套 | [templates/task-spec.md](templates/task-spec.md) | 任务规格模板 + **考试快速任务变体**（宪法 C6、30-TASKS 第四/九章） | v1.1 |
 | 配套 | [templates/change-proposal.md](templates/change-proposal.md) | 变更提案模板（宪法 C12、20-REQUIREMENTS 第五章） | v1.0 |
 | 配套 | [backlog.md](backlog.md) | 唯一待办池（宪法 C4 豁免通道） | v1.2 |
@@ -60,5 +62,7 @@
 
 ## 边界说明
 
-- 本目录**只含规约层文档**。被治理的代码库位于 github.com/hmbphxkw76-byte/osai/pyrit-mini——REV-02 已完成文件级审计（commit 0b8e28c，见 50-ROADMAP 第一章），guard 18 项检查器锚点与深读核验仍待首个代码会话（BL-001）。
+- 本目录**只含规约层文档**。被治理的代码库位于 github.com/hmbphxkw76-byte/osai/pyrit-mini。
 - 规约文件被修改时，**必须**同步更新：文件头版本号、文末版本记录表、本索引版本列。
+- 45-DATA-FLOW-INTEGRITY.md 与 60-REDTEAM-DELIVERY-FRAMEWORK.md 为新增专项规约，独立维护。
+- 已删除文档：35-MULTIMODAL_ASSESSMENT.md / 36-LLM06_SANDBOX_ESCAPE_OPTIMIZATION.md / MIGRATION.md（2026-09-09 清理）。
