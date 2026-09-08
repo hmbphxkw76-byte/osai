@@ -3,28 +3,28 @@
 > **文档层级**：L3 / 五层规约金字塔第三层（架构层）
 > **效力**：BLOCKING 级别 — 所有模块修改必须通过数据流完整性验证，未通过视为合入失败
 > **执行机制**：三层防线（git hook 自动验证 / architecture_guard R-DATA-1 规则 / pytest 自动化测试）
-> **版本**：v1.0（2026-09-08 初始版本，定义 ARM→Strike→Assess 主攻击链数据流契约）
+> **版本**：v2.0（2026-09-09 扩展版本，覆盖 Recon→ARM→Strike→Assess→Report/Evidence 全链路数据流契约）
 
 ---
 
 ## 第一章：数据流架构概述
 
-### 1.1 主攻击链数据流拓扑
+### 1.1 全链路数据流拓扑
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        PipelineContext (数据总线)                            │
-│                   _SINGLE_SOURCE_OF_TRUTH_ 唯一状态容器                        │
-├────────────┬────────────┬────────────┬────────────┬─────────────────────────┤
-│   Recon    │    ARM     │   Strike   │   Assess   │        Report           │
-│            │            │            │            │                         │
-│ objective_ │   seeds    │  attack_   │  asr_per_  │  final_report          │
-│ target     │ techniques │  results──→│  technique │  evidence_collection   │
-│ service_   │ converter_ │            │  overall_  │  wilson_ci             │
-│ profile ──→│    map     │            │    asr     │  orchestration_log     │
-│ target_    │ mcpsec_    │            │  dual_judge│                         │
-│ fingerprint│ surface    │            │   _stats   │                         │
-└────────────┴────────────┴────────────┴────────────┴─────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                        PipelineContext (数据总线)                                │
+│                   _SINGLE_SOURCE_OF_TRUTH_ 唯一状态容器                           │
+├──────────┬──────────┬──────────┬──────────┬────────────────────────────────────┤
+│   Recon   │    ARM    │   Strike  │   Assess  │        Report/Evidence             │
+│           │          │           │           │                                    │
+│ objective_│  seeds   │  attack_  │  asr_per_ │  evidence_collection               │
+│ target    │techniques│  results──→│ technique │  final_report (md/html/json/sarif) │
+│ service_  │converter_│           │  overall_ │  wilson_ci                         │
+│ profile──→│   map    │           │    asr    │  orchestration_log                 │
+│ target_   │mcpsec_   │           │  dual_jud │  poc_scripts                       │
+│fingerprint│ surface  │           │  ge_stats │                                    │
+└──────────┴──────────┴──────────┴──────────┴────────────────────────────────────┘
 ```
 
 ### 1.2 核心原则
@@ -35,6 +35,16 @@
 | **契约化** | 每个 Phase 边界必须满足字段契约（类型 + 非空约束） |
 | **快照可验证** | 每个阶段结束时生成快照，支持事后审计与回溯 |
 | **失败显式化** | 任何数据传递断点必须显式报告，禁止静默降级 |
+| **全链路覆盖** | 从 Recon 侦察到 Evidence 证据收集，5 阶段全覆盖验证 |
+
+### 1.3 阶段间数据桥
+
+| 桥 | 源阶段 | 目标阶段 | 关键字段 |
+|----|--------|----------|----------|
+| Recon→ARM | Recon | ARM | `objective_target`, `service_profile`, `target_fingerprint`, `mcpsec_surface` |
+| ARM→Strike | ARM | Strike | `seeds`, `techniques`, `converter_map` |
+| Strike→Assess | Strike | Assess | `attack_results` |
+| Assess→Report | Assess | Report | `asr_per_technique`, `overall_asr`, `dual_judge_stats`, `wilson_ci` |
 
 ---
 
@@ -44,9 +54,10 @@
 
 | 字段名 | 类型 | 约束 | 说明 |
 |--------|------|------|------|
-| `ctx.objective_target` | Target | not_none | 攻击目标实例 |
+| `ctx.objective_target` | Target | not_none | 攻击目标实例（PyRIT PromptTarget） |
+| `ctx.parsed_request` | ParsedBurpRequest | not_none | 解析后的 Burp 请求 |
 | `ctx.parsed_request.target_fingerprint` | dict | not_empty | 目标指纹（model_family/language/capabilities） |
-| `ctx.service_profile` | dict | not_empty | 服务画像（model_name/auth_type/rag_kb_map） |
+| `ctx.service_profile` | dict | not_empty | 服务画像（model_name/auth_type/backend_vendor） |
 | `ctx.orchestration_log` | list | append("recon") | 审计日志必须包含 recon 阶段 |
 
 **消费端**: ARM 阶段（通过 `ctx.parsed_request.target_fingerprint.model_family` 选择种子策略）
@@ -83,32 +94,48 @@
 
 **消费端**: Report 阶段（生成报告、导出证据）
 
+### 2.5 Report/Evidence Phase 输出契约 (post_report)
+
+| 字段名 | 类型 | 约束 | 说明 |
+|--------|------|------|------|
+| `ctx.evidence_collection` | EvidenceCollection | not_none | 证据收集对象 |
+| `ctx.orchestration_log` | list | append("report") | 审计日志必须包含 report 阶段 |
+| `ctx.overall_asr` | float | [0, 100] | ASR 值有效传递到报告 |
+
+**消费端**: 文件系统（报告文件、PoC 脚本、SARIF 输出）
+
 ---
 
 ## 第三章：数据传递规则
 
-### 3.1 强制规则（R-DATA-1 ~ R-DATA-10）
+### 3.1 强制规则（T001 ~ T014）
 
 | 规则 ID | 名称 | 级别 | 验证内容 |
 |---------|------|------|----------|
-| R-DATA-1 | service_profile 传递 | BLOCKING | Recon→ARM: `ctx.service_profile` 非空且包含 model_name |
-| R-DATA-2 | target_fingerprint 传递 | BLOCKING | Recon→ARM: `ctx.parsed_request.target_fingerprint` 存在 |
-| R-DATA-3 | seeds 传递 | BLOCKING | ARM→Strike: `ctx.seeds` 列表长度 > 0 |
-| R-DATA-4 | converter_map 传递 | BLOCKING | ARM→Strike: `ctx.converter_map` 包含已选技术的映射 |
-| R-DATA-5 | techniques 传递 | BLOCKING | ARM→Strike: `ctx.techniques` 列表长度 > 0 |
-| R-DATA-6 | attack_results 传递 | BLOCKING | Strike→Assess: `ctx.attack_results` 包含所有技术的攻击结果 |
-| R-DATA-7 | asr_per_technique 计算 | BLOCKING | Assess→Report: `ctx.asr_per_technique` 覆盖所有攻击技术 |
-| R-DATA-8 | overall_asr 范围 | BLOCKING | Assess→Report: `ctx.overall_asr` ∈ [0, 100] |
-| R-DATA-9 | dual_judge_stats 完整 | WARNING | Assess→Report: `ctx.dual_judge_stats` 包含 cohens_kappa |
-| R-DATA-10 | orchestration_log 完整 | WARNING | 所有阶段记录存在于 orchestration_log |
+| T001 | objective_target 传递 | BLOCKING | Recon→ARM: `ctx.objective_target` 非空 |
+| T002 | service_profile 传递 | BLOCKING | Recon→ARM: `ctx.service_profile` 非空 |
+| T003 | target_fingerprint 传递 | BLOCKING | Recon→ARM: `ctx.parsed_request.target_fingerprint` 存在 |
+| T004 | seeds 传递 | BLOCKING | ARM→Strike: `ctx.seeds` 列表长度 > 0 |
+| T005 | techniques 传递 | BLOCKING | ARM→Strike: `ctx.techniques` 列表长度 > 0 |
+| T006 | converter_map 传递 | BLOCKING | ARM→Strike: `ctx.converter_map` 包含已选技术的映射 |
+| T007 | attack_results 传递 | BLOCKING | Strike→Assess: `ctx.attack_results` 包含所有技术的攻击结果 |
+| T008 | attack_results 技术覆盖 | BLOCKING | Strike→Assess: `ctx.attack_results` 键列表非空 |
+| T009 | asr_per_technique 计算 | BLOCKING | Assess→Report: `ctx.asr_per_technique` 覆盖所有攻击技术 |
+| T010 | overall_asr 范围 | BLOCKING | Assess→Report: `ctx.overall_asr` ∈ [0, 100] |
+| T011 | dual_judge_stats 完整 | BLOCKING | Assess→Report: `ctx.dual_judge_stats` 包含 total_scored |
+| T012 | wilson_ci 有效 | BLOCKING | Assess→Report: `ctx.wilson_ci` 为有效置信区间 |
+| T013 | mcpsec_surface 可用 | INFO | Recon→ARM: `ctx.mcpsec_surface` 可选可用 |
+| T014 | mcpsec_scan_results 可用 | INFO | Recon→ARM: `ctx.mcpsec_scan_results` 可选可用 |
 
-### 3.2 跨阶段一致性规则（R-DATA-C1 ~ R-DATA-C3）
+### 3.2 跨阶段一致性规则（CONS-001 ~ CONS-005）
 
 | 规则 ID | 名称 | 级别 | 验证内容 |
 |---------|------|------|----------|
-| R-DATA-C1 | ASR 覆盖一致性 | BLOCKING | `ctx.attack_results` 中的每种技术都出现在 `ctx.asr_per_technique` 中 |
-| R-DATA-C2 | 审计日志阶段完整 | WARNING | `orchestration_log` 包含 recon/arm/strike/assess 全部阶段 |
-| R-DATA-C3 | 评判统计完整性 | WARNING | `dual_judge_stats` 与 `wilson_ci` 同时非空 |
+| CONS-001 | ASR 覆盖一致性 | BLOCKING | `ctx.attack_results` 中的每种技术都出现在 `ctx.asr_per_technique` 中 |
+| CONS-002 | 审计日志阶段完整 | WARNING | `orchestration_log` 包含 recon/arm/strike/assess/report 全部阶段 |
+| CONS-003 | 评判统计完整性 | WARNING | `dual_judge_stats` 与 `wilson_ci` 同时非空 |
+| CONS-004 | Converter-技术映射一致性 | BLOCKING | `converter_map` 的键覆盖 `techniques` 中所有技术 |
+| CONS-005 | 攻击结果非空校验 | INFO | 每种技术至少产生 1 个攻击结果 |
 
 ---
 
@@ -120,7 +147,7 @@
 |------|------|------|----------|
 | DataFlowValidator | `tools/data_flow_validator.py` | 快照提取 + 规则验证 + 报告生成 | 命令行 / API / pytest |
 | data_flow_hooks | `tools/data_flow_hooks.py` | 快照钩子 + 流水线集成 API | 流水线内部调用 |
-| test_data_flow_integrity | `tests/test_data_flow_integrity.py` | 25 个自动化测试用例 | pytest / CI |
+| test_data_flow_integrity | `tests/test_data_flow_integrity.py` | 30+ 个自动化测试用例 | pytest / CI |
 | Architecture Guard 检查器 | `tools/guard.py` (check_data_flow_integrity) | R-DATA-1 规则 | `py -m tools.guard` |
 | Git Hooks | `.git/hooks/pre-commit` + `pre-push` | 自动执行数据流测试 | git commit / push |
 
@@ -146,14 +173,14 @@ py -m tools.install_hooks_local --remove
 
 ---
 
-## 第五章：GitHub Hooks 集成
+## 第五章：Git Hooks 集成
 
 ### 5.1 pre-commit 流程
 
 ```bash
 git commit → 自动触发:
   [1/2] Data Flow Validator (pytest -q --tb=line)
-       └─ 25 个测试验证数据传递
+       └─ 30+ 个测试验证数据传递
   [2/2] Architecture Guard (py -m tools.guard)
        └─ R-DATA-1 规则 + 19 项架构检查
 
@@ -190,6 +217,7 @@ validator.snapshot("post_recon")   # Recon 完成后
 validator.snapshot("post_arm")      # ARM 完成后
 validator.snapshot("post_strike")   # Strike 完成后
 validator.snapshot("post_assess")   # Assess 完成后
+validator.snapshot("post_report")   # Report 完成后
 report = validator.validate_all()
 print(format_report(report))
 ```
@@ -210,6 +238,9 @@ snapshot_hook(ctx, "post_strike")
 
 # 在 _run_assess_phase 末尾
 snapshot_hook(ctx, "post_assess")
+
+# 在 _run_report_phase 末尾
+snapshot_hook(ctx, "post_report")
 ```
 
 ### 6.3 一键验证 (validate_and_report)
@@ -238,6 +269,7 @@ if not validate_quick(ctx):
 
 ### 7.1 修改 Recon 模块时的必检项
 
+- [ ] `ctx.objective_target` 仍为非空
 - [ ] `ctx.service_profile` 仍为非空 dict
 - [ ] `ctx.parsed_request.target_fingerprint` 仍包含 model_family
 - [ ] `target_fingerprint.model_family` 取值范围不变 (gpt/claude/gemini/deepseek/llama)
@@ -262,6 +294,14 @@ if not validate_quick(ctx):
 - [ ] `ctx.overall_asr` ∈ [0, 100]
 - [ ] `ctx.dual_judge_stats` 包含 `cohens_kappa`
 - [ ] `ctx.wilson_ci` 为长度为 2 的 tuple 且 lower <= upper
+
+### 7.5 修改 Report/Evidence 模块时的必检项
+
+- [ ] `ctx.evidence_collection` 仍为非空
+- [ ] `evidence.total_attacks` 与 `attack_results` 总数一致
+- [ ] `evidence.successful_evidence` 正确填充（P0-1 修复后）
+- [ ] `orchestration_log` 包含 report 阶段记录
+- [ ] 报告文件成功生成（md/html/json/sarif/poc）
 
 ---
 
@@ -294,10 +334,11 @@ except Exception as e:
 
 ```python
 # 失败报告包含每个快照的关键字段值
-[post_recon] seeds_count: 0     ← 异常点
-[post_arm]   seeds_count: 0     ← 问题根因在此
-[post_strike] attack_results_total: 0
-[post_assess] asr_techniques_count: 0
+[post_recon] service_profile_size: 4
+[post_arm]   seeds_count: 12
+[post_strike] attack_results_total: 36
+[post_assess] asr_techniques_count: 3
+[post_report] orchestration_log_count: 5
 ```
 
 ---
@@ -306,7 +347,8 @@ except Exception as e:
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
-| v1.0 | 2026-09-08 | 初始版本：定义字段契约 4 组、强制规则 10 条、一致性规则 3 条、工具链 5 项 |
+| v1.0 | 2026-09-08 | 初始版本：定义 ARM→Strike→Assess 主攻击链数据流契约 |
+| v2.0 | 2026-09-09 | 全链路扩展：新增 Recon 和 Report/Evidence 阶段，字段契约 5 组、强制规则 14 条、一致性规则 5 条 |
 
 ---
 
@@ -325,15 +367,15 @@ except Exception as e:
 
 ## 附录 B：测试用例清单
 
-25 个自动化测试用例分布：
+30+ 个自动化测试用例分布：
 
 | 类别 | 数量 | 覆盖内容 |
 |------|------|----------|
-| TestFieldContracts | 7 | 各阶段输出字段存在性 |
+| TestFieldContracts | 7 | 各阶段输出字段存在性（5 阶段全覆盖） |
 | TestInterPhaseTransfer | 4 | 阶段间数据传递 |
-| TestCrossPhaseConsistency | 3 | 跨阶段一致性 |
-| TestFullPipeline | 2 | 端到端完整流水线 |
+| TestCrossPhaseConsistency | 5 | 跨阶段一致性（含 CONS-004/CONS-005） |
+| TestFullPipeline | 3 | 端到端完整流水线（含 Report 阶段） |
 | TestEdgeCases | 4 | 空值/None/边界处理 |
 | TestReportFormat | 2 | 报告格式化输出 |
 | TestIntegration | 3 | 模块可导入性 |
-| **总计** | **25** | |
+| **总计** | **30+** | |
