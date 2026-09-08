@@ -1,7 +1,7 @@
 """L5 ?Converter ?? arXiv [+EUR?
 
 L5 v34 :
-    PyRIT PromptSendingAttack ?PromptNormalizer.convert_values_async 
+    PyRIT PromptSendingAttack ?PromptNormalizer.convert_values_async
     EUR?ConverterConfiguration EURC (??
      executor.py ?_build_converter_config EUR?1 ?converter?
     yu l5_optimal  converter , executor ?1 EUR?
@@ -9,14 +9,14 @@ L5 v34 :
 [:
     - encoding_bypass: Wei et al. (arXiv:2307.15043) ??
        Base64 ASR 7%,  Base64+ROT13 ASR 12%,  ASR 4% (payload ?
-      EUR? 2 ?(Base64 + ROT13), ?PromptSendingAttack 
-    - stealth_evasion: Shayegani et al. (arXiv:2306.13254) ?Unicode 
+      EUR? 2 ?(Base64 + ROT13), ?PromptSendingAttack
+    - stealth_evasion: Shayegani et al. (arXiv:2306.13254) ?Unicode
       EUR? 1 ?(UnicodeSubstitution only, ZeroWidth  JSON)
     - persuasion: Zeng et al. (arXiv:2402.19181) ? ASR 30-40%
       Authority endorsement ASR 38.4%, Logical appeal ASR 28.7%, Tone ASR 22.1%
       EUR? 1 ?(authority), v34 ?executor EUR?1 ?converter
     - format_injection: ?OCR/EUR?
-    - multi_encoding:  ?[+er 3 ? ASR 
+    - multi_encoding:  ?[+er 3 ? ASR
     - decomposition: DrAttack (arXiv:2402.14266) ?B ASR 40-60%
       EUR? 1 ?( recall ?<0.3)
     - variation: ?ASR 20-30%
@@ -24,7 +24,7 @@ L5 v34 :
     - flip:  ASR 15-25% (TTP ASR?)
 
     L5 v34 Converter EUR?(l5_optimal):
-    EUR?converter , executor.py +u?1 EUR?
+        EUR?converter , executor.py +u?1 EUR?
     ? authority(38.4%) > variation(20-30%) > ROT13(30-40%) > ...
 
      ASR (?+ Best-of-N + escalation): 23-35%
@@ -41,9 +41,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-
 def _conv(name: str) -> type:
- """EURu?PyRIT Converter?
+    """EURu?PyRIT Converter?
 
     Args:
         name: Converter ?
@@ -53,35 +52,31 @@ def _conv(name: str) -> type:
 
     Raises:
         AttributeError: Converter uEUR?
- """
+    """
     mod = importlib.import_module("pyrit.converter")
     cls = getattr(mod, name, None)
     if cls is None:
         raise AttributeError(f"PyRIT Converter '{name}' not found")
     return cls
 
-
 # EUREUR 5 ?Converter ?EUREUR
-
-
 
 # NOTE (L5 v42): encoding_bypass and multi_encoding removed from _build_chain_builders.
 # Reasons: 3-4 layer stack violates Wei et al. (arXiv:2307.15043) decay law (ASR <4%).
 # Replacements: selective_encoding (single conv, ASR 25-35%) or chained_selective (2-layer, ASR 30-40%).
 def stealth_evasion() -> list[Any]:
- """ZeroWidth + UnicodeSub eng?
+    """ZeroWidth + UnicodeSub eng?
 
     [: Shayegani et al. (arXiv:2306.13254) ?Unicode ?
 
     L5 : ?UnicodeSubstitution () ZeroWidth ( JSON)?
- """
+    """
     return [
         _conv("UnicodeSubstitutionConverter")(),
     ]
 
-
 def persuasion(converter_target: Any | None = None) -> list[Any]:
- """Persuasion + Tone ?(EUR converter_target)?
+    """Persuasion + Tone ?(EUR converter_target)?
 
     [: Zeng et al. (arXiv:2402.19181) ? ASR 30-40%?
 
@@ -92,7 +87,7 @@ def persuasion(converter_target: Any | None = None) -> list[Any]:
 
     Args:
         converter_target: LLM  (EUR? ke+)?
- """
+    """
     if converter_target is None:
         logger.info("Persuasion chain skipped: no converter_target available")
         return []
@@ -138,33 +133,30 @@ def persuasion(converter_target: Any | None = None) -> list[Any]:
         logger.warning("Persuasion chain build failed: %s", e)
         return []
 
-
 def format_injection() -> list[Any]:
- """AsciiArt ?
+    """AsciiArt ?
 
     [: ?OCR/EUREUR?
 
     L5 : +ya (AsciiArt  JSON )?
- """
+    """
     return [_conv("AsciiArtConverter")()]
-
-
 
 # NOTE (L5 v42): encoding_bypass and multi_encoding removed from _build_chain_builders.
 # Reasons: 3-4 layer stack violates Wei et al. (arXiv:2307.15043) decay law (ASR <4%).
 # Replacements: selective_encoding (single conv, ASR 25-35%) or chained_selective (2-layer, ASR 30-40%).
 def decomposition(converter_target: Any | None = None) -> list[Any]:
- """Decomposition B (EUR converter_target)?
+    """Decomposition B (EUR converter_target)?
 
     [: DrAttack (arXiv:2402.14266) ?B ASR 40-60%?
 
     L5 :
         - LLM ?objective B?
-        - ?"Question A / Question B" 
+        - ?"Question A / Question B"
         -  + ?
 
     L5 v25:  DecompositionConverter,  recall ?
-    : L5 v21 ?converter  recall=0.00, 
+    : L5 v21 ?converter  recall=0.00,
     _MIN_RECALL ?try/finally , ?DecompositionConverter
     ?_decompose_prompt "?_MIN_RECALL ,
     ?finally  0.8 ?recall EURYoyaEUR?
@@ -178,7 +170,7 @@ def decomposition(converter_target: Any | None = None) -> list[Any]:
 
     Args:
         converter_target: LLM  (EUR? ke+)?
- """
+    """
     if converter_target is None:
         logger.info("Decomposition chain skipped: no converter_target available")
         return []
@@ -213,7 +205,7 @@ def decomposition(converter_target: Any | None = None) -> list[Any]:
     except Exception as e:
         logger.warning("Decomposition chain build failed: %s", e)
 
- # L5 v26: Fallback ?B?PersuasionConverter(authority) 
+ # L5 v26: Fallback ?B?PersuasionConverter(authority)
  # [: DrAttack (arXiv:2402.14266) B? EUR?
  # Zeng et al. (arXiv:2402.19181) ?authority_endorsement ASR 38.4%
  # '?l5_optimal() keYoEUR?
@@ -232,9 +224,8 @@ def decomposition(converter_target: Any | None = None) -> list[Any]:
             logger.warning("L5 v26: Decomposition fallback also failed: %s", e2)
             return []
 
-
 def variation(converter_target: Any | None = None) -> list[Any]:
- """Variation (EUR converter_target)?
+    """Variation (EUR converter_target)?
 
     [: ?ASR 20-30%?
 
@@ -245,7 +236,7 @@ def variation(converter_target: Any | None = None) -> list[Any]:
 
     Args:
         converter_target: LLM  (EUR? ke+)?
- """
+    """
     if converter_target is None:
         logger.info("Variation chain skipped: no converter_target available")
         return []
@@ -261,22 +252,20 @@ def variation(converter_target: Any | None = None) -> list[Any]:
         logger.warning("Variation chain build failed: %s", e)
         return []
 
-
 def flip() -> list[Any]:
- """Flip ?
+    """Flip ?
 
     [:  ASR 15-25%?
 
     L5 :
         - ts?(?LLM )
-        - 
+        -
         - EUR
- """
+    """
     return [_conv("FlipConverter")()]
 
-
 def semantic_evasion() -> list[Any]:
- """ ?ROT13 + RandomCapitalLetters?
+    """ ?ROT13 + RandomCapitalLetters?
 
     [: Zeng et al. (arXiv:2402.19181) ??ASR 30-40% >> izu?8-12%?
     Wei et al. (arXiv:2307.15043) ?EUR?
@@ -288,7 +277,7 @@ def semantic_evasion() -> list[Any]:
         - ?Base64+ROT13 (? , ASR ?12% ?30-40%
 
     :  SequentialAttack ?( ROT13 ?2 ?
- """
+    """
     converters: list[Any] = []
 
  # ROT13: ?( security_audit EUR?
@@ -307,14 +296,13 @@ def semantic_evasion() -> list[Any]:
 
     return converters
 
-
 def translation_multilingual(converter_target: Any | None = None) -> list[Any]:
- """TranslationConverter + RandomTranslationConverter ?PyRIT uEUR?
+    """TranslationConverter + RandomTranslationConverter ?PyRIT uEUR?
 
     [:
         - Andriushchenko et al. (arXiv:2402.09185) ?EURiu
  #? ASR 15-25% (), 25-35% (eng)
-        - PyRIT (arXiv:2407.01232) ?TranslationConverter ?PyRIT 
+        - PyRIT (arXiv:2407.01232) ?TranslationConverter ?PyRIT
           LLM  converter, + converter_target uEUR
 
     PyRIT  (Rule 2: ):
@@ -325,12 +313,12 @@ def translation_multilingual(converter_target: Any | None = None) -> list[Any]:
 
     L5 v38: ?l5_optimal() ?(?
         - RandomTranslationConverter: ASR 25-35%, EUReng
-        - TranslationConverter(leetspeak): ASR 15-25%,  leetspeak 
-        -  FIRST_SUCCESS ? 
+        - TranslationConverter(leetspeak): ASR 15-25%,  leetspeak
+        -  FIRST_SUCCESS ?
 
     Args:
         converter_target: LLM  (EUR? ke+)?
- """
+    """
     if converter_target is None:
         logger.info("Translation chain skipped: no converter_target available")
         return []
@@ -353,7 +341,7 @@ def translation_multilingual(converter_target: Any | None = None) -> list[Any]:
         logger.warning("RandomTranslationConverter failed: %s", e)
 
  # TranslationConverter(leetspeak): leetspeak (ASR 15-25%)
- # [: PyRIT (arXiv:2407.01232) ?TranslationConverter 
+ # [: PyRIT (arXiv:2407.01232) ?TranslationConverter
  # leetspeak "#"
     try:
         TranslationConverter = _conv("TranslationConverter")
@@ -367,23 +355,22 @@ def translation_multilingual(converter_target: Any | None = None) -> list[Any]:
 
     return converters
 
-
 def smoothllm_bypass() -> list[Any]:
- """SmoothLLM Converter ?feryaEUR?
+    """SmoothLLM Converter ?feryaEUR?
 
-    [: Robey et al. (arXiv:2310.03816) ?SmoothLLM 
+    [: Robey et al. (arXiv:2310.03816) ?SmoothLLM
     : Yo?(yu//) E
-    :  UnicodeSubstitution + RandomCapitalLetters 
+    :  UnicodeSubstitution + RandomCapitalLetters
     , era?  SmoothLLM EUR?
 
     ASR: 10-15% (?LLM)
 
     L5 v14 :
         -  FuzzerConverter (PyRIT 1.0.1 , ?WARNING)
-        - : UnicodeSubstitution + RandomCapitalLetters 
-        - [: Robey et al. (arXiv:2310.03816) ?SmoothLLM 
+        - : UnicodeSubstitution + RandomCapitalLetters
+        - [: Robey et al. (arXiv:2310.03816) ?SmoothLLM
           EURf?+ u
- """
+    """
     converters: list[Any] = []
 
  # UnicodeSubstitution: Unicode (f?
@@ -402,12 +389,10 @@ def smoothllm_bypass() -> list[Any]:
 
     return converters
 
-
 # EUREUR L5 v36: SelectiveTextConverter ?? PyRIT 1.0.1 EUR?EUREUR
 
-
 def selective_encoding() -> list[Any]:
- """x?? 30% ?Base64, .
+    """x?? 30% ?Base64, .
 
     [:
         - Wei et al. (arXiv:2307.15043): er Base64 ASR 7%,
@@ -416,13 +401,13 @@ def selective_encoding() -> list[Any]:
 
     :
         - 30% ?Base64  (preserve_tokens=True ? )
-        -  70% , LLM 
+        -  70% , LLM
         - er ASR  3-5x
 
     L5 v36 :
          encoding_bypass() er Base64Converter (ASR 7%),
          SelectiveTextConverter , ASR ?25-35%.
- """
+    """
     converters: list[Any] = []
 
     try:
@@ -445,9 +430,8 @@ def selective_encoding() -> list[Any]:
 
     return converters
 
-
 def selective_obfuscation() -> list[Any]:
- """f?? 20% ?Leetspeak, .
+    """f?? 20% ?Leetspeak, .
 
     [:
         - Shayegani et al. (arXiv:2306.13254): er Unicode  ASR 10-15%,
@@ -458,7 +442,7 @@ def selective_obfuscation() -> list[Any]:
         - 20% ?Leetspeak (, ?
         - preserve_tokens=True, x?
         -  smoothllm_bypass() er UnicodeSubstitution (ASR 10-15%)
- """
+    """
     converters: list[Any] = []
 
     try:
@@ -481,9 +465,8 @@ def selective_obfuscation() -> list[Any]:
 
     return converters
 
-
 def chained_selective() -> list[Any]:
- """??EURx?30%, ROT13.
+    """??EURx?30%, ROT13.
 
     [:
         - Wei et al. (arXiv:2307.15043): 2 ?ASR 12% (),
@@ -494,12 +477,12 @@ def chained_selective() -> list[Any]:
     :
         1. ? 30%  Base64  (preserve_tokens=True ? )
         2. ? ? ?ROT13 (TokenSelectionStrategy EUR?
-        3. :  30% ?2 ? 70% 
+        3. :  30% ?2 ? 70%
 
     : ?converter EUR?ConverterConfiguration ?
           PyRIT PromptNormalizer .
           _build_converter_config yuEUR ConverterConfiguration.
- """
+    """
     converters: list[Any] = []
 
     try:
@@ -534,13 +517,12 @@ def chained_selective() -> list[Any]:
 
     return converters
 
-
 def keyword_replacement() -> list[Any]:
- """???SearchReplaceConverter ?
+    """???SearchReplaceConverter ?
 
     [:
         - PyRIT : SearchReplaceConverter ereng
-        - : 0 token (?LLM ), , 
+        - : 0 token (?LLM ), ,
         - Zeng et al. (arXiv:2402.19181): ?
           "u?
 
@@ -551,7 +533,7 @@ def keyword_replacement() -> list[Any]:
 
     L5 v36:  DenylistConverter (EUR LLM , ?token ),
      SearchReplaceConverter (0 token) ?
- """
+    """
     converters: list[Any] = []
 
     try:
@@ -582,9 +564,8 @@ def keyword_replacement() -> list[Any]:
 
     return converters
 
-
 def code_chameleon(converter_target: Any | None = None) -> list[Any]:
- """CodeChameleon ? + .
+    """CodeChameleon ? + .
 
     [:
         - Lv et al. (arXiv:2404.30015) CodeChameleon: ASR 35-45%
@@ -594,7 +575,7 @@ def code_chameleon(converter_target: Any | None = None) -> list[Any]:
 
     :
         -  reverse  (, LLM EUR)
-        - ? 
+        - ?
         -  (GPT-4, Claude) EUR?
 
     PyRIT  (Rule 2):
@@ -604,7 +585,7 @@ def code_chameleon(converter_target: Any | None = None) -> list[Any]:
     Args:
         converter_target: yu?l5_optimal ",
             ?CodeChameleonConverter er (?converter).
- """
+    """
     converters: list[Any] = []
 
     try:
@@ -619,9 +600,8 @@ def code_chameleon(converter_target: Any | None = None) -> list[Any]:
 
     return converters
 
-
 def policy_puppetry(converter_target: Any | None = None) -> list[Any]:
- """PolicyPuppetry ?eng.
+    """PolicyPuppetry ?eng.
 
     [:
         - PyRIT  PolicyPuppetryConverter: C
@@ -631,13 +611,13 @@ def policy_puppetry(converter_target: Any | None = None) -> list[Any]:
 
     PyRIT  (Rule 2):
         PolicyPuppetryConverter  converter (0 token, ?LLM ),
-        ?converter_target ?prompt_template 
+        ?converter_target ?prompt_template
         C, engyuaEUR?
 
     Args:
         converter_target: yu?l5_optimal ",
             ?PolicyPuppetryConverter er (?converter).
- """
+    """
     converters: list[Any] = []
 
     try:
@@ -650,9 +630,8 @@ def policy_puppetry(converter_target: Any | None = None) -> list[Any]:
 
     return converters
 
-
 def token_smuggling() -> list[Any]:
- """Unicode Tag ??Unicode payload.
+    """Unicode Tag ??Unicode payload.
 
     [:
         - @embracethered2024unicode: Unicode Tags (U+E0000-U+E007F)
@@ -667,7 +646,7 @@ def token_smuggling() -> list[Any]:
 
     L5 v36: ?UnicodeSubstitutionConverter (er, ASR 10-15%) -,
     AsciiSmugglerConverter  Unicode Tags (ASR 20-30%).
- """
+    """
     converters: list[Any] = []
 
     try:
@@ -683,9 +662,8 @@ def token_smuggling() -> list[Any]:
 
     return converters
 
-
 def template_segment() -> list[Any]:
- """Ceng ??payload a.
+    """Ceng ??payload a.
 
     [:
         - adversa.ai: C, ASR 25-35%
@@ -695,9 +673,9 @@ def template_segment() -> list[Any]:
 
     :
         -  Tom & Jerry C (2 )
-        - payload ? 
+        - payload ?
         - 0 token (?LLM , ?
- """
+    """
     converters: list[Any] = []
 
     try:
@@ -710,12 +688,10 @@ def template_segment() -> list[Any]:
 
     return converters
 
-
 # EUREUR L5 v36: File Converters ? PyRIT 1.0.1 File Converters EUREUR
 
-
 def pdf_direct_generation() -> list[Any]:
- """PDF ??payload PDF .
+    """PDF ??payload PDF .
 
     [:
         - PyRIT  File Converters: PDFConverter(prompt_template=None)
@@ -730,7 +706,7 @@ def pdf_direct_generation() -> list[Any]:
         - 0 token (?LLM , ?
 
     ?  1 ?PDFConverter ?
- """
+    """
     converters: list[Any] = []
 
     try:
@@ -752,9 +728,8 @@ def pdf_direct_generation() -> list[Any]:
 
     return converters
 
-
 def pdf_injection() -> list[Any]:
- """PDF eng ?eng?PDF eng payload .
+    """PDF eng ?eng?PDF eng payload .
 
     [:
         - PyRIT  File Converters: PDFConverter(existing_pdf=, injection_items=)
@@ -763,7 +738,7 @@ def pdf_injection() -> list[Any]:
         - OWASP LLM01: Prompt Injection (eng ?eng)
 
     :
-        - EUR?PDF 
+        - EUR?PDF
         - i 0 ?payload  (, zu)
         - i 1 ?"Confidential"  (, )
         - : Helvetica, u?
@@ -771,7 +746,7 @@ def pdf_injection() -> list[Any]:
 
     er: injection_items  page ?0-based .
     ?  1 ?PDFConverter ?
- """
+    """
     converters: list[Any] = []
 
     try:
@@ -836,9 +811,8 @@ def pdf_injection() -> list[Any]:
 
     return converters
 
-
 def word_doc_direct_generation() -> list[Any]:
- """Word ??payload .docx .
+    """Word ??payload .docx .
 
     [:
         - PyRIT  File Converters: WordDocConverter() (aa?
@@ -847,13 +821,13 @@ def word_doc_direct_generation() -> list[Any]:
         - OWASP LLM01: Prompt Injection (eng ?Word EUR?
 
     :
-        -  existing_docx: er .docx 
+        -  existing_docx: er .docx
         -  placeholder: " (eng)
-        - payload 
+        - payload
         - 0 token (?LLM , ?
 
     ?  1 ?WordDocConverter ?
- """
+    """
     converters: list[Any] = []
 
     try:
@@ -869,9 +843,8 @@ def word_doc_direct_generation() -> list[Any]:
 
     return converters
 
-
 def word_doc_placeholder_injection() -> list[Any]:
- """Word [??eng?.docx C?payload.
+    """Word [??eng?.docx C?payload.
 
     [:
         - PyRIT  File Converters:
@@ -893,7 +866,7 @@ def word_doc_placeholder_injection() -> list[Any]:
         - 0 token (?LLM , ?
 
     ?  1 ?WordDocConverter ?
- """
+    """
     converters: list[Any] = []
 
     try:
@@ -933,7 +906,6 @@ def word_doc_placeholder_injection() -> list[Any]:
 
     return converters
 
-
 # ?converter_presets re-export Ya?
 from arm.converter_presets import (  # noqa: F401, E402
     build_converter_map,
@@ -943,9 +915,8 @@ from arm.converter_presets import (  # noqa: F401, E402
 
 
 def __getattr__(name: str):
- """EURts?CHAIN_BUILDERS ()?"""
+    """EURts?CHAIN_BUILDERS ()?"""
     if name == "CHAIN_BUILDERS":
         from arm.converter_presets import _get_chain_builders
         return _get_chain_builders()
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-

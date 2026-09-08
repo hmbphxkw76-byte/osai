@@ -16,11 +16,10 @@ Core modules:
 
 from arm.converter_presets import build_converter_map
 from arm.seed_ranker import load_seeds
-from arm.technique_picker import filter_by_adversarial, select_techniques
+from arm.technique_picker import select_techniques
 
 __all__ = [
     "load_seeds",
     "build_converter_map",
     "select_techniques",
-    "filter_by_adversarial",
 ]

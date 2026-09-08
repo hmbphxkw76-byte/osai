@@ -1,21 +1,20 @@
 # arXiv:2407.01232 - PyRIT, native multi-turn attack patterns
 # arXiv:2302.12173 - Greshake et al., indirect prompt injection
 # arXiv:2402.14266 - SKELETONKEY, SkeletonKey
-"""chunked_attack - ChunkedRequestAttack 
+"""chunked_attack - ChunkedRequestAttack
 
- PyRIT  ChunkedRequestAttack 
+ PyRIT  ChunkedRequestAttack
 ,
-, 
 
  CTF : ,
-, 
+,
 
-R2 (PyRIT Native First):  ChunkedRequestAttack , 
-R6 Sec6.4: 
+R2 (PyRIT Native First):  ChunkedRequestAttack ,
+R6 Sec6.4:
 
 Academic basis:
-    - PyRIT (arXiv:2407.01232) -  ChunkedRequestAttack 
-    - Greshake et al. (arXiv:2302.12173) - 
+    - PyRIT (arXiv:2407.01232) -  ChunkedRequestAttack
+    - Greshake et al. (arXiv:2302.12173) -
 """
 
 from __future__ import annotations
@@ -31,31 +30,30 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-
 async def run_chunked_request_attack(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
- """ChunkedRequestAttack .
+    """ChunkedRequestAttack .
 
     Academic basis: PyRIT (arXiv:2407.01232) -  ChunkedRequestAttack
 
      PyRIT  ChunkedRequestAttack :
         1. converter(s)
-        2. 
+        2.
         3. all
-        4. 
+        4.
 
-    R2 (PyRIT native first):  ChunkedRequestAttack 
-    R6 Sec6.4: 
+    R2 (PyRIT native first):  ChunkedRequestAttack
+    R6 Sec6.4:
 
     Args:
         ctx:  ( multi_turn_target, objective_target, scoring_target).
         objectives: .
 
     Returns:
-        {technique_name: [AttackResult, ...]} 
- """
+        {technique_name: [AttackResult, ...]}
+    """
     if not objectives:
         return {}
 
@@ -83,7 +81,7 @@ async def run_chunked_request_attack(
 
     results: list[Any] = []
 
- # 
+ #
     chunked_objectives = objectives[:8]
     if len(objectives) > 8:
         logger.info("ChunkedRequest: limited to top-8 objectives")
@@ -93,18 +91,18 @@ async def run_chunked_request_attack(
             continue
 
         try:
- # ChunkedRequestAttack
- # arXiv:2407.01232 - chunk_size and total_length from config/defaults.yaml
- # 4 , 
+         # ChunkedRequestAttack
+         # arXiv:2407.01232 - chunk_size and total_length from config/defaults.yaml
+         # 4 ,
             attack = ChunkedRequestAttack(
                 objective_target=multi_turn_target,
                 attack_scoring_config=first_success_scoring,
                 chunk_size=_get_config_int(ctx, "chunked_request_chunk_size", 50),       # arXiv:2407.01232 - 50 /
-                total_length=_get_config_int(ctx, "chunked_request_total_length", 200),    # arXiv:2407.01232 - 200 
+                total_length=_get_config_int(ctx, "chunked_request_total_length", 200),    # arXiv:2407.01232 - 200
                 chunk_type="characters",
             )
 
- # execute_async 
+ # execute_async
             execute_kwargs: dict[str, Any] = {"objective": objective}
             if prepended_conv:
                 execute_kwargs["prepended_conversation"] = prepended_conv

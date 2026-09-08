@@ -1,11 +1,11 @@
 """TLS/SSL Load - P2-06: TLS verify (SSOT)
 
-imports config/defaults.yaml  tls_verify , all httpx/aiohttp 
-SSL 
+imports config/defaults.yaml  tls_verify , all httpx/aiohttp
+SSL
 
 Academic basis:
     - OWASP WSTG-CRYP-01 - Layer
-    - NIST SP 800-52 Rev. 2 - TLS 
+    - NIST SP 800-52 Rev. 2 - TLS
 
 :
     tls_verify (config/defaults.yaml):
@@ -33,9 +33,8 @@ _SSOT_PATH = Path(__file__).resolve().parent.parent / "config" / "defaults.yaml"
 # ()
 _cached_config: dict[str, Any] | None = None
 
-
 def _load_config() -> dict[str, Any]:
- """imports defaults.yaml Load (cache)"""
+    """imports defaults.yaml Load (cache)"""
     global _cached_config
     if _cached_config is not None:
         return _cached_config
@@ -51,25 +50,24 @@ def _load_config() -> dict[str, Any]:
                 return config
     except Exception as e:
         logger.warning(
-            "Failed to load defaults.yaml (falling back to hardcoded defaults): %s", e
+            "Failed to load defaults.yaml (using empty config): %s", e
         )
 
     _cached_config = {}
     return _cached_config
 
-
 def get_tls_verify() -> bool | str:
- """ TLS verify 
+    """ TLS verify
 
     Returns:
         - True:  SSL  ()
         - False: Skip
         - str: CA bundle  ( CA)
- """
+    """
     config = _load_config()
     tls_verify = config.get("tls_verify", True)
 
- # 
+ #
     if isinstance(tls_verify, bool):
         return tls_verify
 
@@ -79,7 +77,7 @@ def get_tls_verify() -> bool | str:
             return True
         if tls_verify.lower() in ("false", "no", "0"):
             return False
- # CA bundle 
+ # CA bundle
         return tls_verify
 
  # True
@@ -90,9 +88,8 @@ def get_tls_verify() -> bool | str:
     )
     return True
 
-
 def clear_config_cache() -> None:
- """cache ()"""
+    """cache ()"""
     global _cached_config
     _cached_config = None
     logger.debug("Config cache cleared")

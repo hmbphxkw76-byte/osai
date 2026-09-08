@@ -15,8 +15,9 @@ EUR?(HTTPTarget EUR?:
 EUR?(EUR?adversarial_target):
     - crescendo:  (max_turns from defaults.yaml)
     - tap: ?(tree_width from defaults.yaml, depth from defaults.yaml)
-    - pair: 
-    - red_teaming: 
+    - pair:
+        - red_teaming:
+            pass
 
 er: HTTPTarget yu?  adversarial LLM
        prompt EUR HTTPTarget EUR?
@@ -49,7 +50,7 @@ MULTI_TURN_TECHNIQUES = [
 ]
 
 # PyRIT EURer
-# L5 v38: "adaptive_text" ?TextAdaptive 
+# L5 v38: "adaptive_text" ?TextAdaptive
 _AVAILABLE_TECHNIQUES = {
     "prompt_sending",
     "many_shot",
@@ -71,12 +72,11 @@ _AVAILABLE_TECHNIQUES = {
     "adaptive_text",
 }
 
-
 def select_techniques(
     mode: str = "auto",
     has_adversarial: bool = True,
 ) -> list[str]:
- """EUREUR?
+    """EUREUR?
 
     Args:
         mode: EUREUR"?
@@ -89,8 +89,8 @@ def select_techniques(
 
     Returns:
         EURuEUR?
- """
- # L5 v38: "adaptive" " ?PyRIT TextAdaptive 
+    """
+ # L5 v38: "adaptive" " ?PyRIT TextAdaptive
  # EUREUR, ["adaptive_text"] ,
  # main.py ?techniques=="adaptive" text_adaptive_executor.py
     if mode == "adaptive":
@@ -117,12 +117,11 @@ def select_techniques(
     _validate_techniques(techniques)
     return techniques
 
-
 def _validate_techniques(techniques: list[str]) -> None:
- """EUR?PyRIT EUR?"""
+    """EUR?PyRIT EUR?"""
     invalid = [t for t in techniques if t not in _AVAILABLE_TECHNIQUES]
     if invalid:
- # INFO : pipeline.log, ()
+     # INFO : pipeline.log, ()
         logger.info(
             "Techniques not in PyRIT native catalog (will be attempted): %s. "
             "Available: %s",
@@ -130,42 +129,19 @@ def _validate_techniques(techniques: list[str]) -> None:
             sorted(_AVAILABLE_TECHNIQUES),
         )
 
-
 def is_multi_turn_technique(technique_name: str) -> bool:
- """yuEUR?
+    """yuEUR?
 
     Args:
         technique_name: EUREUR?
 
     Returns:
         True EUR?
- """
- # L5 v38: "adaptive_text" EUR? ?TextAdaptive 
+    """
+ # L5 v38: "adaptive_text" EUR? ?TextAdaptive
     if technique_name == "adaptive_text":
         return False
     return technique_name in MULTI_TURN_TECHNIQUES
-
-
-def filter_by_adversarial(
-    techniques: list[str],
-    has_adversarial: bool,
-) -> list[str]:
- """?adversarial target EUREUR?
-
-    ?adversarial SchyuEUR?
- """
-    if has_adversarial:
-        return techniques
-    filtered = [t for t in techniques if not is_multi_turn_technique(t)]
-    if len(filtered) < len(techniques):
-        removed = [t for t in techniques if is_multi_turn_technique(t)]
- # INFO: , 
-        logger.info(
-            "Removed multi-turn techniques (no adversarial target): %s",
-            removed,
-        )
-    return filtered
-
 
 # EUREUR #2 : ?EUREUR
 
@@ -181,26 +157,25 @@ _CAPABILITY_TECHNIQUE_MAP: dict[str, list[str]] = {
     "workflow": ["context_compliance"],
     "session_auth": ["context_compliance"],
     "memory": ["context_compliance"],
-    "multi_tenant": ["context_compliance"],  # - 
- # - recon_report.py _CAPABILITY_STRATEGY 
+    "multi_tenant": ["context_compliance"],  # -
+    # - recon_report.py _CAPABILITY_STRATEGY
     "a2a_protocol": ["context_compliance"],
     "embedding_rag": ["context_compliance"],
- # 
+    #
     "a2a": ["context_compliance"],
- # P1-2: OpenAPI -> 
+    # P1-2: OpenAPI ->
     "openapi": ["context_compliance"],
     "openapi_auth": ["context_compliance"],
 }
-
 
 def augment_techniques_by_capability(
     techniques: list[str],
     capabilities: str | None,
 ) -> list[str]:
- """EUR?( #2 ).
+    """EUR?( #2 ).
 
     [: Greshake et al. (arXiv:2302.12173) ?
-    raEUR MCP/RAG/Agent ? 
+    raEUR MCP/RAG/Agent ?
     context_compliance ?Agent EUR?
 
     Args:
@@ -210,7 +185,7 @@ def augment_techniques_by_capability(
 
     Returns:
         EUR?()?
- """
+    """
     if not capabilities:
         return techniques
 
@@ -233,4 +208,3 @@ def augment_techniques_by_capability(
         )
 
     return augmented
-

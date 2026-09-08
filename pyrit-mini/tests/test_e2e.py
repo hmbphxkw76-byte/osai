@@ -22,11 +22,11 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 @pytest.mark.asyncio
 async def test_pipeline_imports_clean(tmp_path):
- """Test that the full pipeline can import without errors.
+    """Test that the full pipeline can import without errors.
 
     This verifies that the 6-step attack chain modules are properly connected:
         core.config -> core.context -> recon -> arm -> strike -> assess -> report
- """
+    """
  # Step (1) (2): Recon imports
     from arm.converter_presets import build_converter_map
 
@@ -53,7 +53,7 @@ async def test_pipeline_imports_clean(tmp_path):
 
 
 def test_pipeline_context_dataclass():
- """PipelineContext should be a dataclass with all 6-step fields."""
+    """PipelineContext should be a dataclass with all 6-step fields."""
     import dataclasses
 
     from core.context import PipelineContext
@@ -79,25 +79,25 @@ def test_pipeline_context_dataclass():
 
 
 def test_config_defaults_yaml_exists():
- """config/defaults.yaml should exist as SSOT for L5 parameters."""
+    """config/defaults.yaml should exist as SSOT for L5 parameters."""
     defaults_path = _PROJECT_ROOT / "config" / "defaults.yaml"
     assert defaults_path.exists(), "config/defaults.yaml must exist as SSOT"
 
 
 def test_seeds_directory_exists():
- """data/seeds/ should contain attack seed files (including subdirectories)."""
+    """data/seeds/ should contain attack seed files (including subdirectories)."""
     seeds_dir = _PROJECT_ROOT / "data" / "seeds"
     assert seeds_dir.exists()
  # v2: Search recursively in subdirectories
     seed_files = list(seeds_dir.rglob("*.prompt"))
     if not seed_files:
- # Fallback: try rglob
+     # Fallback: try rglob
         seed_files = [f for f in seeds_dir.rglob("*") if f.suffix == ".prompt"]
     assert len(seed_files) > 0, "No .prompt seed files found in any subdirectory"
 
 
 def test_seeds_subdirectory_structure():
- """Seed library should have proper tier-based subdirectory structure."""
+    """Seed library should have proper tier-based subdirectory structure."""
     seeds_dir = _PROJECT_ROOT / "data" / "seeds"
     assert seeds_dir.exists()
 
@@ -111,13 +111,13 @@ def test_seeds_subdirectory_structure():
 
 
 def test_burp_directory_exists():
- """config/burp/ directory should exist (files are optional, user-supplied)."""
+    """config/burp/ directory should exist (files are optional, user-supplied)."""
     burp_dir = _PROJECT_ROOT / "config" / "burp"
     assert burp_dir.exists(), "config/burp/ directory must exist"
 
 
 def test_scorers_directory_exists():
- """data/scorers/ directory should exist with scorer configurations."""
+    """data/scorers/ directory should exist with scorer configurations."""
     scorers_dir = _PROJECT_ROOT / "data" / "scorers"
     assert scorers_dir.exists(), "data/scorers/ directory must exist"
     scorer_files = list(scorers_dir.glob("*.yaml"))
@@ -125,7 +125,7 @@ def test_scorers_directory_exists():
 
 
 def test_seeds_metadata_standard():
- """Seed files should follow v2 metadata standard."""
+    """Seed files should follow v2 metadata standard."""
     seeds_dir = _PROJECT_ROOT / "data" / "seeds"
     sample_seed = seeds_dir / "_core" / "T1_LLM01_elite_jailbreaks.prompt"
     if sample_seed.exists():
@@ -142,7 +142,7 @@ def test_seeds_metadata_standard():
 
 
 def test_capability_seed_map_v2():
- """CAPABILITY_SEED_MAP should have v2 paths (subdirectory format)."""
+    """CAPABILITY_SEED_MAP should have v2 paths (subdirectory format)."""
     from arm.seed_ranker import CAPABILITY_SEED_MAP
 
  # v2: Paths should include subdirectory prefixes

@@ -1,6 +1,6 @@
 """PipelineContext - converter(s)
 
-all Phase converter(s) PipelineContext 
+all Phase converter(s) PipelineContext
 """
 
 from __future__ import annotations
@@ -20,28 +20,27 @@ if TYPE_CHECKING:
 
     from recon.burp_parser import ParsedBurpRequest
 
-
 @dataclass
 class PipelineContext:
- """
+    """
 
     :
-        args: CLI 
+        args: CLI
         output_dir: Output directory
         model_name:  ()
-        parsed_request:  Burp 
+        parsed_request:  Burp
         objective_target:  (PyRIT PromptTarget )
         adversarial_target:  ()
         converter_target: Converter  LLM  ()
-        scoring_target:  LLM 
+        scoring_target:  LLM
         seeds: Load
-        techniques: 
-        converter_map:  -> Converter 
-        attack_results: 
+        techniques:
+        converter_map:  -> Converter
+        attack_results:
         asr_per_technique:  ASR
         overall_asr:  ASR
         scenario_result_id:  ID ()
- """
+    """
 
     args: "argparse.Namespace"
     output_dir: Path = Path("outputs")
@@ -55,12 +54,17 @@ class PipelineContext:
     seed_preferences: dict[str, Any] = field(default_factory=dict)
     guardrail_report: dict[str, Any] = field(default_factory=dict)
     stealth_policy: dict[str, Any] = field(default_factory=dict)
-    drift_monitor: Any = None  # CapabilityDriftMonitor 
+    drift_monitor: Any = None  # CapabilityDriftMonitor
 
  # Recon phase
     parsed_request: "ParsedBurpRequest | None" = None
- # endpoint : endpoint 
- # Academic basis: Greshake et al. (arXiv:2302.12173) - 
+ # L5 v61: Health Probe ServiceProfile (Active Black-Box Reconnaissance)
+    # Data flow: target_router -> health_probe.run_health_probe -> ctx.service_profile
+    # -> arm phase (model_name, is_openai_compatible)
+    # -> strike phase (backend_vendor, discovered_endpoints)
+    service_profile: dict[str, Any] = field(default_factory=dict)
+ # endpoint : endpoint
+ # Academic basis: Greshake et al. (arXiv:2302.12173) -
  # Chao et al. (arXiv:2310.08419) - ASR = 1 - Prod(1 - ASRi)
     multi_endpoint_results: list[dict[str, Any]] = field(default_factory=list)
  # endpoint ( endpoint )
@@ -75,7 +79,7 @@ class PipelineContext:
     converter_target: Any = None
     scoring_target: Any = None
  # L5 v48: target (port_expander)
- # MCP/A2A/Agent 
+ # MCP/A2A/Agent
     extra_objective_targets: dict[int, Any] = field(default_factory=dict)
 
  # Arm phase
@@ -91,7 +95,7 @@ class PipelineContext:
     overall_asr: float = 0.0
     wilson_ci: tuple[float, float] = (0.0, 0.0)
     dual_judge_stats: dict[str, Any] = field(default_factory=dict)
- # L5 v9: scorer , 
+ # L5 v9: scorer ,
     scorer: Any = None
 
  # Scenario
@@ -100,7 +104,7 @@ class PipelineContext:
 
  # P2-MCP: MCP ( mcp_rag_attack.py )
  # target_router MCP (mcp_tools/mcp_resources) ,
- # _execute_specialized_seeds mcp_attack 
+ # _execute_specialized_seeds mcp_attack
     _mcp_dynamic_seeds: list[dict[str, Any]] = field(default_factory=list)
 
  # Production-grade: Playwright ()
@@ -109,18 +113,18 @@ class PipelineContext:
     _browser_context: Any = None
 
  # #6 : - ->->
- # "Orchestration Decision Log" , 
+ # "Orchestration Decision Log" ,
     orchestration_log: list[dict[str, Any]] = field(default_factory=list)
 
  # P3-Synergy: -> (v60 )
  # v60 Data flow: burp_profile -> synergy_orchestrator -> ctx.synergy_config
  # (attack_surface + technique_tags + confidence)
  # -> adaptive_executor (TextAdaptive technique filter)
- # SynergyConfig , / / 
+ # SynergyConfig , / /
     synergy_config: Any = None
 
  # == : (pyrit_scan --memory-labels) ==
- # CentralMemory, 
+ # CentralMemory,
  # Data flow: config.py (parse_args) -> ctx.memory_labels -> main.py (CentralMemory.set_labels)
  # : {"run_id": "r001", "target": "deepseek", "environment": "production"}
     memory_labels: dict[str, str] = field(default_factory=dict)
@@ -134,12 +138,11 @@ class PipelineContext:
     scenario_name: str = ""
 
  # == P3 : Circuit Breaker ( strike/escalation.py ) ==
- # - endpoint target circuit breaker 
- # Data flow: escalation -> ctx._circuit_breaker_states -> circuit breaker 
- # Academic basis: Michael Nygard, "Release It!" 2nd Ed. (2018) - Circuit Breaker 
+ # - endpoint target circuit breaker
+ # Data flow: escalation -> ctx._circuit_breaker_states -> circuit breaker
+ # Academic basis: Michael Nygard, "Release It!" 2nd Ed. (2018) - Circuit Breaker
     _circuit_breaker_states: dict[str, dict[str, Any]] = field(default_factory=dict)
     _whitebox_confirmed: bool = False
-
 
 def get_effective_concurrency(
     ctx: PipelineContext,
@@ -148,11 +151,11 @@ def get_effective_concurrency(
     min_val: int = 1,
     max_val: int = 3,
 ) -> int:
- """imports ctx.args.max_concurrency , SSOT.
+    """imports ctx.args.max_concurrency , SSOT.
 
-    L5 v45:  max_concurrency=2 
+    L5 v45:  max_concurrency=2
     config/defaults.yaml  max_concurrency=3,  ctx.args
-     2, 
+     2,
 
     PyRIT SQLite WAL  max_concurrency=3  (busy_timeout=5000ms)
      IntegrityError,  RateLimitedTarget Retry
@@ -165,57 +168,54 @@ def get_effective_concurrency(
 
     Returns:
         , clamp  [min_val, max_val]
- """
+    """
     raw = getattr(getattr(ctx, "args", None), "max_concurrency", None)
     if raw is None or not isinstance(raw, int):
         return default
     return max(min_val, min(max_val, raw))
 
-
 def _get_config_int(ctx: PipelineContext, key: str, default: int) -> int:
- """imports ctx.args config/defaults.yaml int (SSOT).
+    """imports ctx.args config/defaults.yaml int (SSOT).
 
-    L5 v45:  TAP/PAIR tree_width/tree_depth 
+    L5 v45:  TAP/PAIR tree_width/tree_depth
     parse_args  _apply_defaults  defaults.yaml all key  args,
-     ctx.args.tap_tree_width 
+     ctx.args.tap_tree_width
 
     Args:
-        ctx: 
+        ctx:
         key: defaults.yaml  key ( "tap_tree_width", "pair_tree_depth")
         default:  fallback
 
     Returns:
-        int 
- """
+        int
+    """
     raw = getattr(getattr(ctx, "args", None), key, None)
     if raw is None or not isinstance(raw, int):
         return default
     return raw
 
-
 # == L5 v13: Relaxed Adversarial Schema monkey-patch ==
-# Academic basis: Zheng et al. (arXiv:2306.05685) - LLM-as-a-Judge 
+# Academic basis: Zheng et al. (arXiv:2306.05685) - LLM-as-a-Judge
 # API (DeepSeek-V3, LongCat) JSON ,
 # rationale / last_response_summary InvalidJsonException
-# -> Retry -> 
+# -> Retry ->
 # monkey-patch , "Layer",
-# PyRIT , 
+# PyRIT ,
 
 _relaxed_schema_applied = False
 
-
 def apply_relaxed_adversarial_schema() -> None:
- """Monkey-patch PyRIT adversarial_chat JSON schema, rationale last_response_summary 
+    """Monkey-patch PyRIT adversarial_chat JSON schema, rationale last_response_summary
 
     Academic basis: Zheng et al. (arXiv:2306.05685) - LLM /
-     JSON  JSON schema, 
+     JSON  JSON schema,
     InvalidJsonException Retry
 
     :
         1. converter(s) "adversarial_chat_relaxed" schema,  required: ["next_message"]
-        2. Monkey-patch get_common_json_schema,  "adversarial_chat"  relaxed 
+        2. Monkey-patch get_common_json_schema,  "adversarial_chat"  relaxed
         3.  PyRIT ,  (Layer)
- """
+    """
     global _relaxed_schema_applied
     if _relaxed_schema_applied:
         return
@@ -223,13 +223,13 @@ def apply_relaxed_adversarial_schema() -> None:
     try:
         import pyrit.models.target.json_schema_definition as schema_mod
 
- # Ensure schema YAML 
+ # Ensure schema YAML
         schema_mod._ensure_discovered()
 
  # schema
         original = schema_mod.get_common_json_schema("adversarial_chat")
 
- # relaxed : next_message 
+ # relaxed : next_message
         relaxed = copy.deepcopy(original)
         relaxed["required"] = ["next_message"]
 
@@ -238,7 +238,7 @@ def apply_relaxed_adversarial_schema() -> None:
             name="adversarial_chat", schema=relaxed, overwrite=True
         )
 
- # true_false_with_rationale relaxed 
+ # true_false_with_rationale relaxed
         tf_original = schema_mod.get_common_json_schema("true_false_with_rationale")
         tf_relaxed = copy.deepcopy(tf_original)
  # required additionalProperties
@@ -247,7 +247,7 @@ def apply_relaxed_adversarial_schema() -> None:
             name="true_false_with_rationale", schema=tf_relaxed, overwrite=True
         )
 
- # scale_with_rationale relaxed 
+ # scale_with_rationale relaxed
         scale_original = schema_mod.get_common_json_schema("scale_with_rationale")
         scale_relaxed = copy.deepcopy(scale_original)
         scale_relaxed["additionalProperties"] = True
@@ -265,4 +265,3 @@ def apply_relaxed_adversarial_schema() -> None:
 
     except Exception as e:
         logger.debug("Relaxed adversarial schema skipped: %s", e)
-

@@ -1,8 +1,8 @@
-"""Prompt & ID 
+"""Prompt & ID
 
 :
-    1. JSON body  prompt and inject into {PROMPT} 
-    2.  ID  {CHAT_ID} 
+    1. JSON body  prompt and inject into {PROMPT}
+    2.  ID  {CHAT_ID}
     3. imports Burp Response  ID (ChatId / Object / session_id)
     4. imports Burp Response  ( / )
     5. imports Burp Request body  prompt  ()
@@ -66,9 +66,8 @@ _NON_PROMPT_VALUES = frozenset({
     "user", "assistant", "system", "function",
 })
 
-
 def infer_tls(path: str, headers: dict[str, str]) -> bool:
- """imports URL scheme TLS header """
+    """imports URL scheme TLS header """
     if path.startswith("https://"):
         return True
     if path.startswith("http://"):
@@ -78,25 +77,23 @@ def infer_tls(path: str, headers: dict[str, str]) -> bool:
         return False
     return headers.get("x-forwarded-proto", "https") == "https"
 
-
 def build_full_url(path: str, host: str, use_tls: bool) -> str:
- """ URL"""
+    """ URL"""
     if path.startswith(("http://", "https://")):
         return path
     scheme = "https" if use_tls else "http"
     return f"{scheme}://{host}{path}"
 
-
 def inject_prompt_placeholder(body: str) -> str:
- """ {PROMPT} JSON body
+    """ {PROMPT} JSON body
 
      ():
         1. OpenAI messages :  user message  content
         2. Layer:  JSON body , allLayer
            " prompt" "{PROMPT}"
-        3. Layer:  JSON body Layerconverter(s) string 
+        3. Layer:  JSON body Layerconverter(s) string
         4. :  "prompt": "{PROMPT}"  fallback
- """
+    """
     try:
         data = json.loads(body)
     except json.JSONDecodeError:
@@ -136,19 +133,18 @@ def inject_prompt_placeholder(body: str) -> str:
     logger.info("Auto-injected {PROMPT} as new 'prompt' field (fallback)")
     return json.dumps(data, ensure_ascii=False)
 
-
 def detect_and_inject_chat_id_placeholder(body: str) -> tuple[str, str | None, bool]:
- """ JSON body ID and inject into {CHAT_ID} 
+    """ JSON body ID and inject into {CHAT_ID}
 
     :
         1.  JSON body
         2. Layer ID  ()
         3. ,  {CHAT_ID}
-        4. ,  {CHAT_ID} 
+        4. ,  {CHAT_ID}
 
     Returns:
-        (new_body, chat_id_field, has_placeholder) 
- """
+        (new_body, chat_id_field, has_placeholder)
+    """
     try:
         data = json.loads(body)
     except (json.JSONDecodeError, TypeError):
@@ -181,9 +177,8 @@ def detect_and_inject_chat_id_placeholder(body: str) -> tuple[str, str | None, b
 
     return body, None, False
 
-
 def extract_chat_id_from_response(response_text: str) -> str | None:
- """imports HTTP Response ( SSE ) ID
+    """imports HTTP Response ( SSE ) ID
 
      JSON  (, ):
         Object > chat_session_id > session_id > Id > ChatId > ...
@@ -193,11 +188,11 @@ def extract_chat_id_from_response(response_text: str) -> str | None:
 
     Returns:
          ID ,  None
- """
+    """
     if not response_text or not response_text.strip():
         return None
 
- # 1: SSE data: 
+ # 1: SSE data:
     for line in response_text.split("\n"):
         line = line.strip()
         if not line.startswith("data:"):
@@ -219,7 +214,7 @@ def extract_chat_id_from_response(response_text: str) -> str | None:
         except (json.JSONDecodeError, ValueError):
             continue
 
- # 2: - SSE 
+ # 2: - SSE
     for field_name in _RESPONSE_ID_FIELDS:
         pattern = re.compile(
             rf'"{re.escape(field_name)}"\s*:\s*"([^"]+)"',
@@ -233,16 +228,15 @@ def extract_chat_id_from_response(response_text: str) -> str | None:
 
     return None
 
-
 def extract_original_prompt_value(body: str) -> str | None:
- """imports JSON body prompt ( {PROMPT} )
+    """imports JSON body prompt ( {PROMPT} )
 
      inject_prompt_placeholder  prompt ,
-     body, 
+     body,
 
     Returns:
          prompt ,  None
- """
+    """
     if not body or not body.strip():
         return None
 
@@ -281,11 +275,10 @@ def extract_original_prompt_value(body: str) -> str | None:
 
     return None
 
-
 def extract_model_info_from_response(
     response_text: str,
 ) -> tuple[str | None, str | None]:
- """imports HTTP Response 
+    """imports HTTP Response
 
     :
         - Qwen  API: {"data":[{"modelCode":"Qwen","displayModelName":"Qwen3.7-"},...]}
@@ -293,8 +286,8 @@ def extract_model_info_from_response(
         - OpenAI : {"model":"gpt-4o","choices":[...]}
 
     Returns:
-        (model_name, model_list_json) 
- """
+        (model_name, model_list_json)
+    """
     if not response_text or not response_text.strip():
         return None, None
 
@@ -423,32 +416,28 @@ def extract_model_info_from_response(
 
     return model_name, None
 
-
 # ======================================================================
-# 
+#
 # ======================================================================
-
 
 def _find_key_ci(data: dict[str, Any], target: str) -> str | None:
- """ dict key, key """
+    """ dict key, key """
     target_lower = target.lower()
     for k in data:
         if k.lower() == target_lower:
             return k
     return None
 
-
 def _find_value_ci(data: dict[str, Any], target: str) -> Any:
- """ dict key, """
+    """ dict key, """
     target_lower = target.lower()
     for k, v in data.items():
         if k.lower() == target_lower:
             return v
     return None
 
-
 def _is_likely_non_prompt(value: Any) -> bool:
- """converter(s) prompt"""
+    """converter(s) prompt"""
     if not isinstance(value, str):
         return True
 
@@ -469,16 +458,15 @@ def _is_likely_non_prompt(value: Any) -> bool:
 
     return False
 
-
 def _recursive_find_prompt_path(
     obj: Any,
     current_path: tuple[str | int, ...] | None = None,
 ) -> tuple[str | int, ...] | None:
- """ JSON , prompt 
+    """ JSON , prompt
 
      Baidu Layer:
         message.query[0].data.text.query = ""
- """
+    """
     if current_path is None:
         current_path = ()
 
@@ -521,9 +509,8 @@ def _recursive_find_prompt_path(
     )
     return best_path
 
-
 def _score_single_prompt_field(key: str, value: Any) -> int:
- """converter(s) (key+value) , prompt """
+    """converter(s) (key+value) , prompt """
     if _is_likely_non_prompt(value):
         return 0
 
@@ -552,9 +539,8 @@ def _score_single_prompt_field(key: str, value: Any) -> int:
 
     return value_score + name_score
 
-
 def _set_nested_value(data: Any, path: tuple[str | int, ...], value: Any) -> None:
- """ JSON ()"""
+    """ JSON ()"""
     current = data
     for i, key in enumerate(path):
         if i == len(path) - 1:
@@ -570,9 +556,8 @@ def _set_nested_value(data: Any, path: tuple[str | int, ...], value: Any) -> Non
             elif isinstance(current, dict):
                 current = current[key]
 
-
 def _get_nested_value(data: Any, path: tuple[str | int, ...]) -> Any:
- """imports JSON ()"""
+    """imports JSON ()"""
     current = data
     for key in path:
         if isinstance(key, int):
@@ -587,15 +572,14 @@ def _get_nested_value(data: Any, path: tuple[str | int, ...]) -> Any:
                 return None
     return current
 
-
 def _score_prompt_fields(data: dict[str, Any]) -> str | None:
- """ JSON body Layer string , prompt key
+    """ JSON body Layer string , prompt key
 
     :
         A.  (ASCII -> , +60)
         B.  ( prompt , +15~30)
         C.  (UUID/URL/ -> Skip)
- """
+    """
     candidates: list[tuple[str, int]] = []
 
     for key, value in data.items():

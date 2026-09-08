@@ -5,12 +5,11 @@ P2  (2026-09-06):
      _is_success :
     - utils/display_stages.py
     - strike/executor.py ( strike/_sequential.py)
-    - strike/escalation_chain.py (Rule 11 , )
     - report/evidence_extract.py (, )
 
 :
     -  SSOT (Single Source of Truth)
-    -  (Rule 11, evidence_extract) 
+    -  (Rule 11, evidence_extract)
     - from
 """
 from __future__ import annotations
@@ -19,7 +18,7 @@ from typing import Any
 
 
 def _is_success(result: Any) -> bool:
- """ ().
+    """ ().
 
     SSOT , :
     1. outcome  (AttackOutcome.SUCCESS / FAILURE)
@@ -31,7 +30,7 @@ def _is_success(result: Any) -> bool:
 
     Returns:
         True , False /.
- """
+    """
     outcome = getattr(result, "outcome", None)
     if outcome:
         outcome_str = str(outcome).lower()

@@ -19,7 +19,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 
 class TestReportUtils:
- """Test report utility functions."""
+    """Test report utility functions."""
 
     def test_get_owasp_category_llm01(self):
         from report.report_utils import _get_owasp_category
@@ -56,7 +56,7 @@ class TestReportUtils:
 
 
 class TestReportSections:
- """Test report section utility functions."""
+    """Test report section utility functions."""
 
     def test_asr_to_css_class_high(self):
         from report.report_sections import _asr_to_css_class
@@ -80,7 +80,7 @@ class TestReportSections:
 
 
 class TestSarifReport:
- """Test SARIF report utility functions."""
+    """Test SARIF report utility functions."""
 
     def test_sarif_level_critical(self):
         from report.sarif_report import _sarif_level

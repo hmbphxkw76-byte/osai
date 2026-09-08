@@ -22,16 +22,21 @@ from core.phases._helpers import (
     _print_endpoint_header,
     _print_endpoint_sort_results,
     _print_joint_asr_summary,
+    _re_set_memory_labels,
     _record_arm_seed_orchestration,
     _record_recon_orchestration,
     _register_dynamic_initializers,
-    _re_set_memory_labels,
     _reset_endpoint_state,
     _resolve_burp_list,
     _setup_memory_labels,
 )
 from core.phases.arm import _run_arm_phase
 from core.phases.assess import _run_assess_phase
+from core.phases.executor import (
+    run_attack_pipeline,
+    run_single_endpoint,
+    run_single_endpoint_to_result,
+)
 from core.phases.recon import (
     _run_auto_l4_optimization,
     _run_recon_phase,
@@ -42,6 +47,10 @@ from core.phases.report import _run_report_phase
 from core.phases.strike import _run_escalate_phase, _run_strike_phase
 
 __all__ = [
+    #  endpoints
+    "run_single_endpoint",
+    "run_single_endpoint_to_result",
+    "run_attack_pipeline",
     # Recon
     "_run_recon_phase",
     "_run_synergy_phase",

@@ -29,17 +29,16 @@ _CHAT_PATH_KEYWORDS = [
     "/prompt", "/generate", "/inference",
 ]
 
-
 def detect_api_category(path: str, body: str) -> str:
- """ API : chat / metadata / unknown
+    """ API : chat / metadata / unknown
 
     Args:
         path: HTTP  ( /api/v1/model/list)
-        body: HTTP  body 
+        body: HTTP  body
 
     Returns:
         "chat" / "metadata" / "unknown"
- """
+    """
     path_lower = path.lower()
 
  # 1: ()
@@ -51,7 +50,7 @@ def detect_api_category(path: str, body: str) -> str:
         if keyword in path_lower:
             return "chat"
 
- # 2: body 
+ # 2: body
     if body and body.strip():
         try:
             data = json.loads(body)
@@ -63,7 +62,7 @@ def detect_api_category(path: str, body: str) -> str:
         except (json.JSONDecodeError, TypeError):
             pass
     else:
- # body ( GET ) -> metadata
+     # body ( GET ) -> metadata
         return "metadata"
 
     return "unknown"

@@ -1,7 +1,7 @@
-""" - imports AttackResult 
+""" - imports AttackResult
 
 imports evidence.py , all//
- EvidenceCollector._build_evidence() 
+ EvidenceCollector._build_evidence()
 """
 
 from __future__ import annotations
@@ -10,7 +10,6 @@ import logging
 from typing import Any
 
 logger = logging.getLogger(__name__)
-
 
 # == arXiv ==
 _ARXIV_REFERENCES: dict[str, str] = {
@@ -43,14 +42,12 @@ _ARXIV_REFERENCES: dict[str, str] = {
 
 _DEFAULT_ARXIV_REF = "PyRIT (arXiv:2407.01232)"
 
-
 def _get_arxiv_reference(technique_name: str) -> str:
- """ arXiv 
+    """ arXiv
 
      PyRIT  ()
- """
+    """
     return _ARXIV_REFERENCES.get(technique_name, _DEFAULT_ARXIV_REF)
-
 
 # == ==
 
@@ -98,20 +95,17 @@ _DISPLAY_NAMES: dict[str, str] = {
     "adaptive_text": "TextAdaptive (PyRIT Native)",
 }
 
-
 def _get_technique_display_name(technique_name: str) -> str:
- """"""
+    """"""
     return _DISPLAY_NAMES.get(technique_name, technique_name.replace("_", " ").title())
-
 
 # == ==
 
-
 def _is_success(result: Any) -> bool:
- """
+    """
 
     imports outcome , fallback  last_score
- """
+    """
     from pyrit.models import AttackOutcome
 
     outcome = getattr(result, "outcome", None)
@@ -125,18 +119,16 @@ def _is_success(result: Any) -> bool:
 
     return False
 
-
 # == ==
 
-
 def _determine_confidence(asr: float, is_success: bool) -> str:
- """ ASR 
+    """ ASR
 
     - high:  ASR >= 50%
     - medium:  ASR >= 25%
     - low:  ASR < 25%
-    - informational: 
- """
+    - informational:
+    """
     if not is_success:
         return "informational"
     if asr >= 50.0:
@@ -144,7 +136,6 @@ def _determine_confidence(asr: float, is_success: bool) -> str:
     if asr >= 25.0:
         return "medium"
     return "low"
-
 
 # == ==
 
@@ -159,18 +150,17 @@ _REFUSAL_KEYWORDS = [
     "", "", "", "", "",
 ]
 
-
 def _classify_failure(result: Any) -> str:
- """
+    """
 
     :
         - content_filter: Content filtering
-        - timeout: 
-        - rate_limit: 
-        - empty_response: 
-        - refusal: 
-        - unknown: 
- """
+        - timeout:
+        - rate_limit:
+        - empty_response:
+        - refusal:
+        - unknown:
+    """
     error = getattr(result, "error", "") or ""
     error_lower = str(error).lower()
 
@@ -186,7 +176,7 @@ def _classify_failure(result: Any) -> str:
     if "rate_limit" in error_lower or "429" in error_lower or "too many requests" in error_lower:
         return "rate_limit"
 
- # 
+ #
     response = _extract_response_text(result)
 
  # empty_response
@@ -200,21 +190,19 @@ def _classify_failure(result: Any) -> str:
 
     return "unknown"
 
-
 # == ==
 
-
 def _extract_jailbreak_prompt(result: Any) -> str:
- """ prompt ()
+    """ prompt ()
 
     :
         1. result.objective - /payload ()
         2. result.last_response.original_value -  ( user prompt)
-        3. 
+        3.
 
-    : PyRIT AttackResult  last_request 
+    : PyRIT AttackResult  last_request
     objective ,  objective
- """
+    """
  # 1. objective
     objective = getattr(result, "objective", None)
     if objective and isinstance(objective, str) and len(objective) > 0:
@@ -229,19 +217,18 @@ def _extract_jailbreak_prompt(result: Any) -> str:
 
     return ""
 
-
 def _extract_harmful_output(result: Any) -> str:
- """ ()
+    """ ()
 
     :
         1. result.last_response.converted_value
         2. result.last_response.original_value
-        3. conversation_history  assistant 
-        4. 
+        3. conversation_history  assistant
+        4.
 
-    : PyRIT AttackResult  response / response_text / output 
-     last_response (MessagePiece) 
- """
+    : PyRIT AttackResult  response / response_text / output
+     last_response (MessagePiece)
+    """
  # 1. last_response
     last_response = getattr(result, "last_response", None)
     if last_response:
@@ -264,14 +251,13 @@ def _extract_harmful_output(result: Any) -> str:
 
     return ""
 
-
 def _extract_response_text(result: Any) -> str:
- """imports AttackResult ()
+    """imports AttackResult ()
 
      _extract_harmful_output  conversation_history fallback
 
-    : PyRIT AttackResult  response / response_text / output 
- """
+    : PyRIT AttackResult  response / response_text / output
+    """
  # 1. last_response
     last_response = getattr(result, "last_response", None)
     if last_response:
@@ -282,17 +268,16 @@ def _extract_response_text(result: Any) -> str:
 
     return ""
 
-
 def _extract_conversation(result: Any) -> list[dict[str, str]]:
- """ ()
+    """ ()
 
     :
         1. result.conversation_history ( list[dict])
-        2. CentralMemory 
+        2. CentralMemory
         3.  ()
 
     : [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
- """
+    """
     conversation: list[dict[str, str]] = []
 
  # 1. result.conversation_history ()
@@ -319,7 +304,7 @@ def _extract_conversation(result: Any) -> list[dict[str, str]]:
         memory = CentralMemory.get_memory_instance()
         conversation_id = getattr(result, "conversation_id", None) or getattr(result, "_conversation_id", None)
         if conversation_id and memory:
- # memory 
+         # memory
             try:
                 pieces = memory.get_conversation(conversation_id=conversation_id)
                 if pieces:
@@ -335,30 +320,29 @@ def _extract_conversation(result: Any) -> list[dict[str, str]]:
     except Exception:
         pass
 
- # 3. , (evidence.py) 
+ # 3. , (evidence.py)
     return conversation
 
-
 def _extract_converter_log(result: Any) -> list[dict[str, str]]:
- """ Converter 
+    """ Converter
 
      (4Layer fallback, Ensure):
         1. result.converter_log ( - , )
         2. result.metadata["converter"] -  _backfill_metadata  (STRIKE )
-        3. result.last_response.converter_identifiers - PyRIT  ComponentIdentifier 
+        3. result.last_response.converter_identifiers - PyRIT  ComponentIdentifier
         4.  ( "none (baseline)")
 
-    : PyRIT AttackResult  converter_log 
+    : PyRIT AttackResult  converter_log
     converter :
         - metadata["converter"] (STRIKE )
         - last_response.converter_identifiers (PyRIT , ESCALATE )
- """
+    """
  # 1. result.converter_log (, )
     converter_log = getattr(result, "converter_log", None)
     if converter_log and isinstance(converter_log, list) and len(converter_log) > 0:
         return converter_log
 
- # 2. metadata converter 
+ # 2. metadata converter
     metadata = getattr(result, "metadata", {}) or {}
     converter_info = metadata.get("converter", "")
     if converter_info:
@@ -369,7 +353,7 @@ def _extract_converter_log(result: Any) -> list[dict[str, str]]:
             "transformed": objective[:200] if objective else "",
         }]
 
- # 3. last_response.converter_identifiers - PyRIT , ESCALATE 
+ # 3. last_response.converter_identifiers - PyRIT , ESCALATE
     last_response = getattr(result, "last_response", None)
     if last_response:
         conv_ids = getattr(last_response, "converter_identifiers", None)
@@ -390,15 +374,14 @@ def _extract_converter_log(result: Any) -> list[dict[str, str]]:
  # 4. , "none (baseline)"
     return []
 
-
 def _extract_score_details(result: Any) -> list[dict[str, str]]:
- """
+    """
 
     :
         1. result.last_score ()
         2. result.scores (converter(s))
         3.  ()
- """
+    """
     score_details: list[dict[str, str]] = []
 
  # 1. last_score
@@ -419,7 +402,7 @@ def _extract_score_details(result: Any) -> list[dict[str, str]]:
         })
         return score_details
 
- # 2. scores 
+ # 2. scores
     scores = getattr(result, "scores", None)
     if scores and isinstance(scores, list):
         for score in scores:
@@ -432,7 +415,14 @@ def _extract_score_details(result: Any) -> list[dict[str, str]]:
                     score_value = ""
             elif isinstance(score, dict):
                 score_value = str(score.get("score_value", ""))
-            rationale = getattr(score, "score_rationale", "") if not isinstance(score, dict) else score.get("rationale", "")
+            rationale = getattr(
+                score,
+                "score_rationale",
+                "") if not isinstance(
+                score,
+                dict) else score.get(
+                "rationale",
+                "")
             score_details.append({
                 "scorer": str(scorer_name),
                 "score_value": score_value,
@@ -441,5 +431,5 @@ def _extract_score_details(result: Any) -> list[dict[str, str]]:
         if score_details:
             return score_details
 
- # 3. , 
+ # 3. ,
     return score_details

@@ -51,28 +51,31 @@ config/profiles/asset_index.yaml  ← 统一资产索引 (v63 固定参数集)
 | 编排层 | `main.py` | 六阶段顺序编排 + 多 endpoint 循环；**不得包含业务逻辑**（现状违例：87KB 巨石，D-02） |
 | 核心层 | `core/` | 配置解析（唯一默认值定义地）、PipelineContext、架构守卫、场景路由 |
 | 阶段层 | `recon/ arm/ strike/ assess/ report/` | 各攻击阶段的实现；彼此只通过 PipelineContext 交接 |
-| 适配层 | `adapters/` | PyRIT 原生 Target 包装（限速/认证/内容过滤标记扩展） |
+| 适配器层 | `adapters/` | PyRIT 原生 Target 包装（限速/认证/内容过滤标记扩展） |
+| Glue层 | `glue/` | 企业AI红队Glue代码：连接专用工具（认证SDK、向量DB SDK、HTTP工具）与PyRIT框架 |
 | 支撑层 | `utils/ pipeline/` | 终端展示、缓存清理、日志、资源清理（现状违例：display.py 119KB，D-14） |
 | 数据层 | `data/` + `config/` | 种子、评分器 rubric、ASR 先验、defaults（**全部为声明式资产**，D-13 已消除：代码迁至 core/ 或 recon/；burp/ → config/targets/burp/；asset_index.yaml → config/） |
 
 ### 2.2 依赖方向矩阵（允许 ↓ / 禁止 ✗）
 
-| 依赖方 ↓ 被依赖方 → | core | recon | arm | strike | assess | report | targets | utils | data(config) |
-|---|---|---|---|---|---|---|---|---|---|
-| main.py | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
-| core/ | — | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | 读写 defaults.yaml |
-| recon/ | ✓（context） | 内部 | ✗ | ✗ | ✗* | ✗ | ✓ | ✓ | 只读 |
-| arm/ | ✓ | ✗ | 内部 | ✗ | ✗ | ✗ | ✗ | ✗ | 只读 asr_priors；读 asr_history（I7 运行时账本） |
-| strike/ | ✓ | ✗ | ✓ | 内部 | ✓** | ✗ | ✗ | ✓ | 只读 |
-| assess/ | ✓ | ✗ | ✗ | ✗ | 内部 | ✗ | ✗ | ✗ | 读写 asr_history |
-| report/ | ✓ | ✗ | ✗ | ✗ | ✗ | 内部 | ✗ | ✗ | 只读 |
-| targets/ | ✗ | ✓*** | ✗ | ✗ | ✗ | ✗ | 内部 | ✗ | 只读 |
-| utils/ | ✓（context 类型） | ✗ | ✗**** | ✗ | ✗ | ✗ | ✗ | 内部 | 只读 |
+| 依赖方 ↓ 被依赖方 → | core | recon | arm | strike | assess | report | adapters | glue | utils | data(config) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| main.py | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| core/ | — | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | 读写 defaults.yaml |
+| recon/ | ✓（context） | 内部 | ✗ | ✗ | ✗* | ✗ | ✓ | ✗ | ✓ | 只读 |
+| arm/ | ✓ | ✗ | 内部 | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | 只读 asr_priors；读 asr_history（I7 运行时账本） |
+| strike/ | ✓ | ✗ | ✓ | 内部 | ✓** | ✗ | ✗ | ✗ | ✓ | 只读 |
+| assess/ | ✓ | ✗ | ✗ | ✗ | 内部 | ✗ | ✗ | ✗ | ✗ | 读写 asr_history |
+| report/ | ✓ | ✗ | ✗ | ✗ | ✗ | 内部 | ✗ | ✗ | ✗ | 只读 |
+| adapters/ | ✗ | ✓*** | ✗ | ✗ | ✗ | ✗ | 内部 | ✗ | ✗ | 只读 |
+| glue/ | ✓（context） | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ | 内部 | ✓ | 只读 |
+| utils/ | ✓（context 类型） | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | 内部 | 只读 |
 
 \* recon/target_router 调 `assess.scorer.validate_scoring_target_capabilities` —— 已登记债务 D-04。
 \** strike → assess 仅限 `precompute_outcomes_async`（升级前预评分），不得扩大。
-\*** targets/agent_adapter 现引用 PyRIT 原生 HTTPTarget —— 债务 D-05 已解除 (P0-03)。
+\*** adapters/agent_adapter 现引用 PyRIT 原生 HTTPTarget —— 债务 D-05 已解除 (P0-03)。
 \**** utils/display 延迟导入 arm/seed_ranking 读 ASR 历史 —— 已登记债务 D-06（展示层越界）。
+\***** glue/ 依赖 utils/ 用于日志输出；glue/ 依赖 adapters/ 可选（使用HTTPTarget时无需adapters）。
 
 **图例**（v1.1）：✓ 允许；✗ 禁止；"—" = 不适用（对角线自身单元格）或禁止（本表仅一处：main.py × 数据层——main 不得直接解析 data/config 资产，一律经 core/config.py 或阶段模块。未来新出现的"—"必须随行注明语义）。
 
@@ -276,3 +279,52 @@ recon 完成 → capability 指纹分支:
 | v1.7 | 2026-09-06 | REV-07 目录结构重构：① Burp 目标文件从 config/campaigns/targets/ 扁平化迁移至 config/targets/；② asset_index.yaml 从 config/campaigns/ 迁移至 config/profiles/ (固定参数集)；③ 4 Campaign 重命名清晰化 (rapid_recon→quick_scan, full_spectrum_max_asr→deep_spectrum, mcp_agent_targeted→mcp_targeted, standard_redteam 保留) 并迁移至 config/profiles/；④ 删除 config/campaigns/ 目录 | 用户会话批准 |
 | v1.8 | 2026-09-06 | REV-08 消除命名冲突：① config/targets/ 重命名为 config/burp/ (区分代码 targets/ 适配层与 Burp 输入契约)；② 更新 core/config.py、core/scenario_router.py 路径引用 | 用户会话批准 |
 | v1.9 | 2026-09-06 | REV-09 适配层重命名：① targets/ → adapters/ (精准描述 PyRIT 原生组件包装职责)；② 更新 recon/target_router.py import 路径 | 用户会话批准 |
+| v2.0 | 2026-09-08 | REV-10 企业AI红队融合解决方案：① 新增Glue层架构（模块清单、架构原则、攻击类型映射、依赖拓扑）；② 更新分层表新增Glue层；③ 更新依赖方向矩阵新增glue行 | 用户会话批准 |
+| v2.1 | 2026-09-08 | REV-11 过度工程化清理（黑盒可测性约束）：① 删除 vector_db_glue.py（向量DB SDK需直访，黑盒HTTP不可测试）；② 删除 fine_tuning_glue.py（需训练环境API，黑盒HTTP不可测试）；③ 精简 audit_evasion_glue.py 为仅日志注入（移除 SIEM/审计路径）；④ 同步化 enterprise_auth_glue.py；⑤ 更新 Glue 层架构图（3模块精简） | 用户会话批准 |
+
+---
+
+## 第九章：企业AI红队Glue层架构（v2.0 增补，企业攻击融合解决方案）
+
+> **目的**：定义Glue层的架构设计、模块职责、与PyRIT框架的集成方式。
+> Glue层是企业AI红队融合解决方案的核心组件，连接专用工具与PyRIT原生框架。
+
+### 9.1 Glue层模块清单
+
+| 模块 | 职责 | 专用工具 | PyRIT集成 |
+|------|------|---------|-----------|
+| `enterprise_auth_glue.py` | 认证攻击Glue（JWT/OAuth/Session） | PyJWT | HTTPTarget |
+| `api_gateway_glue.py` | API Gateway攻击Glue（速率限制/请求走私/缓存投毒） | urllib.request | HTTPTarget |
+| `audit_evasion_glue.py` | 审计逃逸Glue（日志注入） | logging、base64 | HTTPTarget |
+| `enterprise_orchestrator.py` | 统一编排器 | 上述所有 | HTTPTarget |
+
+### 9.2 Glue层架构原则
+
+1. **PyRIT原生优先**（宪法C1）：所有攻击执行最终通过PyRIT的`PromptSendingAttack`和`HTTPTarget`完成
+2. **专用工具辅助**：专用工具只用于payload生成和验证，不替代PyRIT核心功能
+3. **延迟导入**：所有专用工具采用运行时`try/except ImportError`导入，避免硬依赖
+4. **SSOT合规**：统一由`enterprise_orchestrator.py`编排，避免双轨
+
+### 9.3 Glue层攻击类型映射
+
+| 攻击类别 | 覆盖场景 | ASR先验 | 学术依据 |
+|---------|---------|---------|---------|
+| 认证攻击 | JWT alg=none、RS256→HS256、kid注入、OAuth Scope提升 | 38.4% | arXiv:2402.19181 |
+| API Gateway攻击 | 速率限制测试、请求走私、缓存投毒 | 60-80% | OWASP API Top 10 |
+| 审计逃逸攻击 | 日志注入（CRLF/ANSI/时间戳伪造） | 70-90% | OWASP Log Injection |
+
+> **注意**：向量DB投毒和微调后门注入需直接SDK访问或训练环境API，不在黑盒HTTP目标测试范围内。相关攻击向量通过间接注入seed覆盖。
+
+### 9.4 Glue层依赖拓扑
+
+```
+enterprise_orchestrator.py (统一入口)
+        │
+        ├── enterprise_auth_glue.py ← PyJWT（可选）
+        ├── api_gateway_glue.py ← urllib.request（标准库）
+        └── audit_evasion_glue.py ← logging（标准库）
+        
+所有模块共享：
+- pyrit.prompt_target.HTTPTarget（原生）
+- pyrit.executor.attack.PromptSendingAttack（原生）
+```

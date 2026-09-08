@@ -35,23 +35,22 @@ from assess.asr_stats import (  # noqa: E402 - from
 )
 
 # SSOT :
-# _get_outcome() SSOT asr_stats.py - asr_manager 
-# compute_overall_asr() SSOT asr_stats.py - __init__.py 
-
+# _get_outcome() SSOT asr_stats.py - asr_manager
+# compute_overall_asr() SSOT asr_stats.py - __init__.py
 
 # ===============================================================================
-# ASR 
+# ASR
 # ===============================================================================
 
 def compute_asr(attack_results: dict[str, list[Any]]) -> dict[str, float]:
- """ ASR
+    """ ASR
 
     Args:
         attack_results: {technique_name: [AttackResult, ...]}
 
     Returns:
         {technique_name: asr_percentage}
- """
+    """
     asr_per_technique: dict[str, float] = {}
 
     for technique_name, results in attack_results.items():
@@ -86,25 +85,24 @@ def compute_asr(attack_results: dict[str, list[Any]]) -> dict[str, float]:
 
     return asr_per_technique
 
-
 def compute_wilson_score_interval(
     successes: int,
     total: int,
     confidence: float = 0.95,
 ) -> tuple[float, float]:
- """ Wilson Score 
+    """ Wilson Score
 
-    Academic basis: Wilson (1927) - 
-     ASR 
+    Academic basis: Wilson (1927) -
+     ASR
 
     Args:
-        successes: 
-        total: 
+        successes:
+        total:
         confidence:  (0.95 = 95% CI)
 
     Returns:
         (lower, upper)  [0, 100]
- """
+    """
     if total == 0:
         return (0.0, 0.0)
 
@@ -123,23 +121,22 @@ def compute_wilson_score_interval(
 
     return (round(lower, 1), round(upper, 1))
 
-
 # ===============================================================================
-# Judge 
+# Judge
 # ===============================================================================
 
 def _post_hoc_judge_success(result: Any) -> bool:
- """L5 v44: post-hoc LLM Judge - OR 
+    """L5 v44: post-hoc LLM Judge - OR
 
      failure/undecided ,  Judge:
         Judge 1: SelfAskTrueFalseScorer (calibrated_task_achieved, lenient)
         Judge 2: TrueFalseInverterScorer(SelfAskRefusalScorer, OBJECTIVE_STRICT)
 
     Academic basis:
-        - Zhang et al. (arXiv:2308.07920) -  Judge 
-        - Chao et al. (arXiv:2402.01135) - OR 
-        - Mazeika et al. (arXiv:2402.04249) - HarmBench 
- """
+        - Zhang et al. (arXiv:2308.07920) -  Judge
+        - Chao et al. (arXiv:2402.01135) - OR
+        - Mazeika et al. (arXiv:2402.04249) - HarmBench
+    """
  # LLM Judge
     from assess.judge_manager import _heuristic_second_judge_success, _init_judges, _run_llm_dual_judge_sync
 
@@ -149,22 +146,21 @@ def _post_hoc_judge_success(result: Any) -> bool:
         except Exception as e:
             logger.debug("L5 v25: LLM dual judge failed: %s, falling back to heuristic", e)
 
- # Fallback: 
+ # Fallback:
     return _heuristic_second_judge_success(result)
 
-
 def collect_dual_judge_stats(ctx: Any) -> dict[str, Any]:
- """ Judge - asr_stats.SSOT
+    """ Judge - asr_stats.SSOT
 
-    Academic basis: Zhang et al. (arXiv:2308.07920) -  Judge 
+    Academic basis: Zhang et al. (arXiv:2308.07920) -  Judge
     , imports
 
     Args:
         ctx: PipelineContext ( scorer )
 
     Returns:
-         Judge 
- """
+         Judge
+    """
     stats = get_dual_judge_stats()
 
     if stats.get("total_scored", 0) > 0:
@@ -177,7 +173,7 @@ def collect_dual_judge_stats(ctx: Any) -> dict[str, Any]:
         )
         return stats
 
- # Fallback: ctx.scorer 
+ # Fallback: ctx.scorer
     scorer = getattr(ctx, "scorer", None)
     if scorer and hasattr(scorer, "get_stats"):
         stats = scorer.get_stats()
@@ -186,27 +182,25 @@ def collect_dual_judge_stats(ctx: Any) -> dict[str, Any]:
 
     return stats
 
-
 # ===============================================================================
-# ASR 
+# ASR
 # ===============================================================================
 
 def _get_asr_history_path():
- """ ASR """
+    """ ASR """
     from arm import seed_ranker
     return seed_ranker._ASR_HISTORY_PATH
-
 
 def save_asr_history(
     asr_per_technique: dict[str, float],
     *,
     attack_results: dict[str, list[Any]] | None = None,
 ) -> None:
- """ ASR data/seeds/asr_history.json
+    """ ASR data/seeds/asr_history.json
 
-    Academic basis: Auer et al. (arXiv:cs/0207052) - UCB1 
-     ASR 
- """
+    Academic basis: Auer et al. (arXiv:cs/0207052) - UCB1
+     ASR
+    """
     from arm.seed_ranker import update_asr_history
 
     seed_asr: dict[str, float] = {}
@@ -289,12 +283,11 @@ def save_asr_history(
     if gcg_suffix_asr:
         _save_gcg_suffix_asr_history(gcg_suffix_asr, gcg_suffix_attempts)
 
-
 def _save_converter_asr_history(
     converter_asr: dict[str, float],
     converter_attempts: dict[str, int],
 ) -> None:
- """ converter ASR """
+    """ converter ASR """
     asr_history_path = _get_asr_history_path()
     if not asr_history_path.exists():
         return
@@ -330,12 +323,11 @@ def _save_converter_asr_history(
     except Exception as e:
         logger.warning("Failed to save converter ASR history: %s", e)
 
-
 def _save_gcg_suffix_asr_history(
     gcg_suffix_asr: dict[str, float],
     gcg_suffix_attempts: dict[str, int],
 ) -> None:
- """ GCG ASR """
+    """ GCG ASR """
     asr_history_path = _get_asr_history_path()
     if not asr_history_path.exists():
         return
@@ -371,24 +363,23 @@ def _save_gcg_suffix_asr_history(
     except Exception as e:
         logger.warning("Failed to save GCG suffix ASR history: %s", e)
 
-
 # ===============================================================================
 # ASR ( endpoint)
 # ===============================================================================
 
 def compute_joint_asr(endpoint_asrs: list[float]) -> float:
- """ ASR - endpoint 
+    """ ASR - endpoint
 
     Academic basis: Chao et al. (arXiv:2310.08419) - / endpoint  ASR
          ASR = 1 - Prod(1 - ASRi)
-        : converter(s) endpoint , 
+        : converter(s) endpoint ,
 
     Args:
-        endpoint_asrs:  endpoint  ASR 
+        endpoint_asrs:  endpoint  ASR
 
     Returns:
          ASR  (0.0-100.0)
- """
+    """
     if not endpoint_asrs:
         return 0.0
 
@@ -400,18 +391,17 @@ def compute_joint_asr(endpoint_asrs: list[float]) -> float:
     joint = (1.0 - prob) * 100.0
     return round(joint, 1)
 
-
 def build_joint_summary(
     multi_endpoint_results: list[dict[str, Any]],
 ) -> dict[str, Any]:
- """ endpoint ASR 
+    """ endpoint ASR
 
     Args:
-        multi_endpoint_results: converter(s) endpoint 
+        multi_endpoint_results: converter(s) endpoint
 
     Returns:
-         ASR 
- """
+         ASR
+    """
     endpoint_summaries: list[dict[str, Any]] = []
     endpoint_asrs: list[float] = []
     total_attacks = 0
@@ -446,20 +436,19 @@ def build_joint_summary(
         "endpoint_summaries": endpoint_summaries,
     }
 
-
 def save_joint_report(
     joint_summary: dict[str, Any],
     output_dir: Path,
 ) -> Path:
- """ ASR JSON 
+    """ ASR JSON
 
     Args:
-        joint_summary: build_joint_summary 
+        joint_summary: build_joint_summary
         output_dir: Output directory
 
     Returns:
-        JSON 
- """
+        JSON
+    """
     report_path = output_dir / "joint_asr_report.json"
     report_path.write_text(
         json.dumps(joint_summary, indent=2, ensure_ascii=False, default=str),

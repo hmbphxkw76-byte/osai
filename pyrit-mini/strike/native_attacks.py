@@ -1,14 +1,14 @@
 # arXiv:2402.14266 - SKELETONKEY, SkeletonKey (ASR 80-95%)
 # arXiv:2406.18112 - Hanna et al., SkeletonKey (prefix injection)
 # arXiv:2407.01232 - PyRIT, native attack patterns
-"""native_attacks - PyRIT 
+"""native_attacks - PyRIT
 
- SkeletonKey 
- PyRIT  SkeletonKeyAttack 
+ SkeletonKey
+ PyRIT  SkeletonKeyAttack
 
 Academic basis:
     - Hanna et al. (arXiv:2406.18112) - SkeletonKey ASR 80-95%
-    - PyRIT (arXiv:2407.01232) -  SkeletonKeyAttack 
+    - PyRIT (arXiv:2407.01232) -  SkeletonKeyAttack
 """
 
 from __future__ import annotations
@@ -22,31 +22,30 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-
 async def run_skeleton_key_native(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
- """SkeletonKey - PyRIT SkeletonKeyAttack.
+    """SkeletonKey - PyRIT SkeletonKeyAttack.
 
     Academic basis: Hanna et al. (arXiv:2406.18112) - ASR 80-95%
 
      PyRIT  SkeletonKeyAttack :
-        1. SkeletonKeyAttack  prepended_conversation 
-        2. system prompt +  -> 
+        1. SkeletonKeyAttack  prepended_conversation
+        2. system prompt +  ->
         3.  prompt
 
-    R2 (PyRIT native first):  SkeletonKeyAttack , 
-    R6 Sec6.4: 7 
+    R2 (PyRIT native first):  SkeletonKeyAttack ,
+    R6 Sec6.4: 7
 
     Args:
         ctx:  ( objective_target, scoring_target).
         objectives: .
 
     Returns:
-        {technique_name: [AttackResult, ...]} 
+        {technique_name: [AttackResult, ...]}
          SkeletonKeyAttack ,  ()
- """
+    """
     if not objectives:
         return {}
 
@@ -72,9 +71,9 @@ async def run_skeleton_key_native(
             continue
 
         try:
- # SkeletonKeyAttack
- # PyRIT SkeletonKeyAttack prepended_conversation 
- # : skeleton key prompt + -> 
+         # SkeletonKeyAttack
+         # PyRIT SkeletonKeyAttack prepended_conversation
+         # : skeleton key prompt + ->
             attack = SkeletonKeyAttack(
                 objective_target=ctx.objective_target,
                 attack_scoring_config=first_success_scoring,

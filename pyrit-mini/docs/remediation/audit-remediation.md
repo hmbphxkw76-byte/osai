@@ -305,18 +305,14 @@ recon 侧的 MCP 枚举功能完整（枚举 tool schema → 生成定向种子�
 - [ ] 保留拆分家族（asr_tracker/asr_compute/asr_stats/asr_history/precompute）
 - [ ] 更新 architecture_guard 排除清单
 
-### 5.2 D-10 escalation 孪生（⚠️ 与现状不符）
+### 5.2 D-10 escalation 孪生（✅ 已清理 2026-09-08）
 
 **原登记**：escalation.py 与 escalation_chain.py 仅差 9 字节，疑似孪生复制
 
-**审计修正**：
-- 本地代码为"门面+拆分"三件（escalation.py 940 行门面 / chain 1124 / attacks 1057）
-- 函数集互不重叠，非 9 字节孪生
-- 实际债务：
-  - 门面 re-export 债务（蓝图 2.2 规则 3 明令"拆分后 re-export 属于债务"）
-  - `_llm_judge_rescore` 死 re-export
-  - `_is_success`/_retrieve_partial_results` 跨文件复制
-  - `escalation_attacks.py` 全文编码损坏（乱码+双倍空行）
+**清理结果**：
+- `escalation_chain.py` 已删除（1262行，语法错误/死代码）
+- `escalation_attacks.py` 已删除
+- 剩余 `escalation.py` (136行) 仅为门面入口
 
 **整改验收标准**：
 - [ ] 删除 escalation_attacks.py（编码损坏全文不可读）

@@ -1,12 +1,12 @@
-"""generator - 
+"""generator -
 
 :
     -  (_OWASP_ALL_CATEGORIES)
-    -  _classify_score_consistency 
+    -  _classify_score_consistency
     - generate_report: all (MD + HTML + JSON + PoC + CSV + ZIP)
     -  _generate_markdown / _generate_html / _evidence_to_dict / _single_evidence_to_dict
       ( report_markdown.py / report_html.py )
-    - _load_html_template: imports report/templates/report.html Load HTML 
+    - _load_html_template: imports report/templates/report.html Load HTML
 
 :
     generator.py ( + ) -> report_markdown.py (MD )
@@ -31,11 +31,10 @@ from report.evidence import EvidenceCollection
 
 logger = logging.getLogger(__name__)
 
-
 # == OWASP (Web + LLM + ASI ) ==
-# report_html.py report_utils.py 
+# report_html.py report_utils.py
 _OWASP_ALL_CATEGORIES: dict[str, str] = {
- # OWASP Web Top 10 (2025)
+    # OWASP Web Top 10 (2025)
     "A01": "Broken Access Control",
     "A02": "Cryptographic Failures",
     "A03": "Injection",
@@ -46,7 +45,7 @@ _OWASP_ALL_CATEGORIES: dict[str, str] = {
     "A08": "Software and Data Failure",
     "A09": "Security Logging and Monitoring Failures",
     "A10": "Server-Side Request Forgery (SSRF)",
- # OWASP LLM Top 10 (2025 Edition)
+    # OWASP LLM Top 10 (2025 Edition)
     "LLM01": "Prompt Injection",
     "LLM02": "Sensitive Information Disclosure",
     "LLM03": "Supply Chain",
@@ -57,7 +56,7 @@ _OWASP_ALL_CATEGORIES: dict[str, str] = {
     "LLM08": "Vector and Embedding Weaknesses",
     "LLM09": "Misinformation",
     "LLM10": "Unbounded Consumption",
- # OWASP Agentic AI Top 10
+    # OWASP Agentic AI Top 10
     "ASI01": "Agent Identity Spoofing",
     "ASI02": "Tool Misuse",
     "ASI03": "Unauthorized Actions",
@@ -70,26 +69,24 @@ _OWASP_ALL_CATEGORIES: dict[str, str] = {
     "ASI10": "Rogue Agent",
 }
 
-
 # == HTML (, ) ==
 # : report/templates/report.html
-# report_html.py _generate_html 
+# report_html.py _generate_html
 
 _html_template_cache: str | None = None
 
-
 def _load_html_template() -> str:
- """imports report/templates/report.html Load HTML 
+    """imports report/templates/report.html Load HTML
 
-    cache I/O, 
+    cache I/O,
      (cacheLoad)
 
     Returns:
-        HTML 
+        HTML
 
     Raises:
-        FileNotFoundError: 
- """
+        FileNotFoundError:
+    """
     global _html_template_cache
 
     if _html_template_cache is not None:
@@ -104,7 +101,7 @@ def _load_html_template() -> str:
             "HTML template file not found at %s - using fallback minimal template",
             template_path,
         )
- # Production-grade: , 
+ # Production-grade: ,
         _html_template_cache = (
             "<!DOCTYPE html><html><head><meta charset='utf-8'>"
             "<title>AI Red Team Assessment Report</title></head>"
@@ -114,19 +111,17 @@ def _load_html_template() -> str:
         )
     return _html_template_cache
 
-
 def clear_template_cache() -> None:
- """ HTML cache, Load
+    """ HTML cache, Load
 
-    , 
- """
+    ,
+    """
     global _html_template_cache
     _html_template_cache = None
     logger.debug("HTML template cache cleared")
 
-
 def _classify_score_consistency(score_details: list[dict[str, Any]]) -> str:
- """
+    """
 
      score_details converter(s) scorer :
         -  -> N/A
@@ -135,11 +130,11 @@ def _classify_score_consistency(score_details: list[dict[str, Any]]) -> str:
         -  scorer  -> Minor Disagreement
 
     Args:
-        score_details: ,  "scorer"  "score_value" 
+        score_details: ,  "scorer"  "score_value"
 
     Returns:
-        
- """
+
+    """
     if not score_details:
         return "N/A"
 
@@ -163,53 +158,47 @@ def _classify_score_consistency(score_details: list[dict[str, Any]]) -> str:
         return "Consistent"
     return "Minor Disagreement"
 
-
 # == (, ) ==
-# report_markdown.py report_html.py 
+# report_markdown.py report_html.py
 # generator .
 # (wrapper ) .
 
-
 def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = False) -> str:
- """ Markdown ( report_markdown).
+    """ Markdown ( report_markdown).
 
     Includes sections: dual_judge_stats, wilson_ci, cohens_kappa, Adaptive Dual Judge Statistics.
- """
+    """
     from report.report_markdown import _generate_markdown as _impl
 
     return _impl(evidence, success_only=success_only)
 
-
 def _generate_html(evidence: EvidenceCollection, *, success_only: bool = False) -> str:
- """ HTML ( report_html)."""
+    """ HTML ( report_html)."""
     from report.report_html import _generate_html as _impl
 
     return _impl(evidence, success_only=success_only)
 
-
 def _evidence_to_dict(evidence: EvidenceCollection, *, success_only: bool = False) -> dict[str, Any]:
- """ ( report_html).
+    """ ( report_html).
 
     Includes: dual_judge_stats, owasp_web_compliance, web_vuln_stats, discovered_endpoints.
- """
+    """
     from report.report_html import _evidence_to_dict as _impl
 
     return _impl(evidence, success_only=success_only)
 
-
 def _single_evidence_to_dict(ev: Any) -> dict[str, Any]:
- """converter(s) ( report_html)."""
+    """converter(s) ( report_html)."""
     from report.report_html import _single_evidence_to_dict as _impl
 
     return _impl(ev)
-
 
 async def generate_report(
     ctx: Any,
     evidence: EvidenceCollection,
     output_dir: Path,
 ) -> Path:
- """all
+    """all
 
     :
         - report.md / report_success.md
@@ -228,7 +217,7 @@ async def generate_report(
 
     Returns:
         .
- """
+    """
     output_dir = Path(output_dir)
     evidence_dir = output_dir / "evidence"
     poc_dir = output_dir / "poc"
@@ -249,7 +238,7 @@ async def generate_report(
         logger.warning("PyRIT native output generation failed (non-fatal): %s", e)
 
  # == Markdown Report (OffSec AI-300 Security Report) ==
- # v57: Layer - + + + 
+ # v57: Layer - + + +
     from report.report_markdown import (
         _generate_executive_markdown,
         _generate_findings_markdown,
@@ -282,7 +271,7 @@ async def generate_report(
     if evidence.successful_evidence:
         from report.report_markdown import _generate_executive_markdown as _gen_exec
 
- # findings (success_only) , executive 
+ # findings (success_only) , executive
         success_findings = _generate_findings_markdown(evidence, success_only=True)
  # executive (ASR/total , findings )
         success_exec = _gen_exec(evidence)
@@ -332,7 +321,7 @@ async def generate_report(
         )
 
  # == PoC () ==
- # : , , 
+ # : , ,
     from report.owasp_mapping import generate_poc_script
 
     poc_count = 0
@@ -364,9 +353,9 @@ async def generate_report(
         logger.warning("PoC generation: %d succeeded, %d failed", poc_count, poc_failed)
 
  # == SARIF ==
- # : SARIF (sarif_report.py) 
- # CI/CD SARIF 
- # : generator.py SARIF , MD/HTML/JSON 
+ # : SARIF (sarif_report.py)
+ # CI/CD SARIF
+ # : generator.py SARIF , MD/HTML/JSON
     try:
         from report.sarif_report import generate_sarif_report
 

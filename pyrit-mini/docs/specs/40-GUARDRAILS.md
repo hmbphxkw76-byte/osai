@@ -28,7 +28,7 @@
 |---|------|---------|
 | R-H1 | 静默降级：stub/空实现/fallback 进入编排链路而未在任何文档登记 | 函数体 `return {}` / `return None` 被真实调用方消费（REV-02 审计实证：cair.py / encoded_injection.py / multi_turn_attacks.py 注释自认"调用方 try/except 优雅降级"） |
 | R-H2 | 静默吞错：`except Exception: pass` 或日志级别掩盖故障 | try 块体量远大于 except 处理 |
-| R-H3 | 双轨新增：新文件与既有文件职责重叠 | 新模块名与既有模块名词近义（manager/pipeline/handler 变体；REV-02 实证：escalation.py 与 escalation_chain.py 仅差 9 字节） |
+| R-H3 | 双轨新增：新文件与既有文件职责重叠 | 新模块名与既有模块名词近义（manager/pipeline/handler 变体） |
 | R-H4 | 配置断点：效率参数字面量、无 ctx 的配置函数、硬编码日志数字 | 三类根因 A/B/C（R9） |
 | R-H5 | 数据旁路：绕过 target_fingerprint / PipelineContext 新开数据通道 | 阶段层直接 import 对方内部函数 |
 | R-H6 | 规格蒸发：diff 无法关联 REQ/DEBT/bug 现象 | commit 无任务 ID 或任务规格缺失验收标准 |
@@ -44,7 +44,31 @@
 | R-S4 | **测试隔离**：tests/ 全部 mock API 调用；禁止测试触发对真实目标的攻击流量 |
 | R-S5 | **不当武器化输出**：生成的 PoC/报告默认面向授权红队评估交付；不附加"无授权也可用"的引导性内容 |
 
-### 1D. Guard 检查器登记簿（v1.1 增补）
+### 1D. Glue 层专项护栏（v1.4 增补，v1.5 精简）
+
+> **适用范围**：glue/ 目录下所有企业攻击编排模块（auth_glue、gateway_glue、audit_glue、enterprise_orchestrator）。这些模块作为 PyRIT 原生框架与企业基础设施 SDK 之间的桥梁，必须遵守本节专项护栏。
+
+> **v1.5 变更**：移除 vector_glue 和 finetuning_glue 的适用范围（模块已删除），白名单同步精简。
+
+| # | 红线 | 级别 | 判定特征 |
+|---|------|------|----------|
+| R-GLUE-1 | **插件化隔离**：Glue 层模块必须通过 try/except ImportError 实现可选依赖安装，不得将企业 SDK（PyJWT、pinecone-client 等）声明为硬依赖 | BLOCKING | 缺失 try/except 包裹的企业 SDK import |
+| R-GLUE-2 | **PyRIT 原生委托**：Glue 层不得重写攻击执行逻辑（PromptSendingAttack / SkeletonKeyAttack / CrescendoAttack 等），仅允许构造 PyRIT 原生组件可消费的 payload/target/scorer 配置 | WARNING | Glue 模块内出现 attack.execute() / attack._execute() 等攻击执行逻辑 |
+| R-GLUE-3 | **配置数据流**：企业攻击参数（JWT 算法类型、向量 DB 命名空间、审计日志格式）必须走 `config/defaults.yaml → ctx.args` 链路，禁止 Glue 层硬编码 | WARNING | Glue 模块内出现攻击参数字面量（非从 ctx 读取） |
+| R-GLUE-4 | **静默降级禁止**：Glue 层模块的降级路径（企业 SDK 不可用时的降级策略）必须在 orchestration_log 中显式记录，禁止静默 skip | WARNING | Glue 模块内 except 块仅含 `pass` / `return None` 而无日志记录 |
+| R-GLUE-5 | **学术留痕**：每个企业攻击向量（JWT alg=none、向量 DB 投毒、HTTP 走私等）必须有 arXiv 引用或 CVE 编号注释 | INFO | Glue 攻击函数无 arXiv/CVE 注释 |
+
+**Glue 层攻击向量白名单**（已认可的企业攻击场景）：
+
+| 攻击向量 | 对应 Glue 模块 | 关键技术 | 引用要求 |
+|---------|--------------|---------|--------|
+| JWT 算法混淆 | `enterprise_auth_glue.py` | alg=none、RS256→HS256 降级、kid注入 | arXiv:2207.01077 或 CVE-2018-0114 |
+| HTTP 请求走私 | `gateway_glue.py` | CL.TE/TE.CL 走私、路径参数覆盖 | ANSI ISAAC 2023 |
+| 审计日志注入 | `audit_glue.py` | CRLF 注入、ANSI 注入、时间戳伪造 | CVE-2023-50164 |
+
+> **已移除白名单项**（v1.5）：向量数据库投毒、微调后门注入——需直接 SDK 访问/训练环境 API，不在黑盒 HTTP 目标测试范围内，相关攻击向量通过间接注入 seed 覆盖。
+
+### 1E. Guard 检查器登记簿（v1.4 更新为 24 项）
 
 规约各处引用的检查器汇总（**权威清单以 `core/architecture_guard.py` 实际实现为准**）：
 
@@ -69,10 +93,16 @@
 | **check_silent_degradation** | C9 (显式 gap) | WARNING | v1.2 新增 (T0-1) |
 | **check_silent_swallowing** | C9 (显式 gap) | WARNING | v1.2 新增 (T0-2) |
 | **check_dual_track** | D-11 / C7 | INFO | v1.2 新增 (T0-3) |
+| **check_glue_pluginisolation** | **R-GLUE-1** | **BLOCKING** | **v1.4 新增 (Glue 层护栏)** |
+| **check_glue_pyrit_delegation** | **R-GLUE-2** | **WARNING** | **v1.4 新增 (Glue 层护栏)** |
+| **check_glue_config_flow** | **R-GLUE-3** | **WARNING** | **v1.4 新增 (Glue 层护栏)** |
+| **check_glue_silent_degradation** | **R-GLUE-4** | **WARNING** | **v1.4 新增 (Glue 层护栏)** |
+| **check_glue_academic_citation** | **R-GLUE-5** | **INFO** | **v1.4 新增 (Glue 层护栏)** |
 
-- 本表对照 `core/architecture_guard.py` 实际实现同步（19 项，补齐全部待锚定项，新增 3 项）。
+- 本表对照 `core/architecture_guard.py` 实际实现同步（24 项，新增 5 项 Glue 层护栏检查器）。
 - **specs-guard 联动**: guard 启动时读取 `00-CONSTITUTION.md` 版本号并输出至报告脚注（裁决序基准）；版本不匹配时以 guard 实现为准、规约文档视为待同步。
 - **R9 误报白名单 (v1.2)**: `display.py`、`display_stages.py` 中通过 `_resolve('param', default)` 包裹的动态配置读取，视为已修复配置数据流断点（不报 R9）。
+- **Glue 层护栏 v1.4**: 5 项检查器由 `enterprise_orchestrator.py` 与 `core/architecture_guard.py` 协同实现，覆盖插件化隔离、PyRIT 原生委托、配置数据流、静默降级、学术留痕五大维度。
 
 **红线冲突裁决**：R-S*（安全合规）> R-L*（机器红线）> R-H*（人工红线）。安全红线与 ASR 冲突时（例如"过滤掉这个目标会更安全"），安全红线赢——但正确答案几乎总是 STOP-REPORT 让人裁决。
 
@@ -235,3 +265,5 @@ python core/architecture_guard.py --json > outputs/guard_baseline.json   # 记�
 | v1.1 | 2026-09-05 | REV-01：① 新增 1D 检查器登记簿（16 项引用汇总，级别标注，缺口登记 BL-003）；② 基线落盘路径改项目内 outputs/（Windows 兼容）；③ 第三章 L1 行交叉引用 1D | 用户会话批准 |
 | v1.2 | 2026-09-05 | REV-02：① 第二章登记 ruff pipeline/ 盲区缺口（D-16）及临时申报纪律；② R-H1/R-H3 判定特征补充源码实证（stub 注释自认降级、escalation 9 字节孪生）；③ R-S1 补考试场景授权边界说明；④ 第六章登记 50-ROADMAP 的无门禁地位；⑤ guard 实测规模 82KB 入表 | 用户会话批准 |
 | v1.3 | 2026-09-06 | REV-03 AI-300 考试合规优化：① 新增第七章 OffSec AI-300 考试合规与证据完整性（考试合规红线 7A、证据完整性约束 7B、证据自动验证检查单 7C、考试日定期自检规程 7D）；② 红线/门禁/防线本体无变更 | 用户会话批准 |
+| v1.4 | 2026-09-08 | REV-04 Glue 层专项护栏：① 新增第一章 1D Glue 层专项护栏（R-GLUE-1~R-GLUE-5：插件化隔离、PyRIT 原生委托、配置数据流、静默降级、学术留痕）；② 新增 Glue 层攻击向量白名单（JWT 混淆、向量 DB 投毒、HTTP 走私、审计日志注入、微调后门注入）；③ 1E 检查器登记簿新增 5 项 Glue 层检查器（总计 24 项） | 用户会话批准 |
+| v1.5 | 2026-09-08 | REV-05 过度工程化清理（精简白名单）：① 白名单移除向量DB投毒和微调后门注入（黑盒HTTP不可测试）；② 适用范围移除已删除模块（vector_glue、finetuning_glue）；③ 护栏数量不变（R-GLUE-1~R-GLUE-5 仍适用保留的3个模块） | 用户会话批准 |

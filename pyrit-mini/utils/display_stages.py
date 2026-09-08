@@ -10,16 +10,18 @@ Imports from utils/display.py, provides:
     - Multi-endpoint Joint ASR card
 
 Dependencies: utils.display_primitives (card drawing)
-"""
 
+Academic basis:
+- Greshake et al. (arXiv:2302.12173) - Indirect Prompt Injection
+- Zhan et al. (arXiv:2307.00929) - InjecAgent
+- PyRIT (arXiv:2407.01232) - Red Teaming with AI
+"""
 from __future__ import annotations
 
-import hashlib
 import logging
-import re
 from typing import TYPE_CHECKING, Any
 
-from utils.attack_utils import _is_success  # P2 : SSOT
+from utils.attack_utils import _is_success  # P2 fix: SSOT
 from utils.display_primitives import (
     _C_BOLD,
     _C_CYAN,
@@ -30,29 +32,17 @@ from utils.display_primitives import (
     _C_RESET,
     _C_YELLOW,
     _asr_bar,
-    _asr_color,
-    _card_line,
     _format_asr,
-    _print_card_bottom,
-    _print_card_sep,
-    _print_card_top,
     print_card,
-    print_section,
 )
 
 if TYPE_CHECKING:
-    from core.context import PipelineContext
+    pass
 
 logger = logging.getLogger(__name__)
 
 # ====================================================================
-# -> ()
-# Academic basis:
-# - Greshake et al. (arXiv:2302.12173) -
-# - Zhan et al. (arXiv:2307.00929) - InjecAgent
-# - Morris et al. (arXiv:2310.06870) -
-# - PyRIT (arXiv:2407.01232) -
-# - OWASP LLM Top 10 + ASI Top 10
+# Capability strategy map
 # ====================================================================
 
 _CAPABILITY_STRATEGY: dict[str, dict[str, str]] = {
@@ -68,710 +58,189 @@ _CAPABILITY_STRATEGY: dict[str, dict[str, str]] = {
     "mcp_protocol": {"arxiv": "arXiv:2407.01232", "strategy": "MCP: tool schema + RAG chain", "seed": "mcp_tool_exploit", "owasp": "ASI07"},
 }
 
-
+# Phase display helpers
 # ====================================================================
-# (, )
-# ====================================================================
-
 
 def _get_outcome_label(result: Any) -> str:
- """Return AttackResult outcome label (colored)."""
+    """Get outcome label string from result object."""
     outcome = getattr(result, "outcome", None)
     if outcome:
-        s = str(outcome).upper()
-        if "SUCCESS" in s:
-            return f"{_C_GREEN}SUCCESS{_C_RESET}"
-        if "FAILURE" in s or "FAIL" in s:
-            return f"{_C_RED}FAILURE{_C_RESET}"
-        if "UNDETERMINED" in s:
-            return f"{_C_YELLOW}UNDETERMINED{_C_RESET}"
-    return f"{_C_DIM}-{_C_RESET}"
+        outcome_str = str(outcome)
+        if "score" in outcome_str.lower():
+            return f"{_C_GREEN}SCORE{_C_RESET}"
+        if "fail" in outcome_str.lower() or "reject" in outcome_str.lower():
+            return f"{_C_RED}FAIL{_C_RESET}"
+        return f"{_C_YELLOW}{outcome_str[:10]}{_C_RESET}"
+    return f"{_C_DIM}N/A{_C_RESET}"
 
-
-# ====================================================================
-# RECON
-# ====================================================================
-
-def print_recon_card(ctx: "PipelineContext") -> None:
- """Print recon card (for --stage recon, standalone display).
-
-    Layout (3 rows, Hand-off style, left-to-right):
-        Row 1: Target Entry Point + Hand-off -- endpoint + model + auth + language + caps -> ARM
-        Row 2: Attack Surface -- capability strategy (HIGH/MEDIUM/LOW)
-
-    Data flow:
-        - Row 3 Hand-off values (api_category, session_type, probe_count,
-          probe_duration) -> Row 1 consumption, then model/language/caps
-        - Row 2 PROBE capability strategy, converter(s)
- """
-    if not ctx.parsed_request:
-        return
-    fp = ctx.parsed_request.target_fingerprint
- # : model recon_report.py
- # model_family ( "claude")
- # burp_model_name (Burp "gpt-4o")
-    model = fp.get("model_family", "") or fp.get("burp_model_name", "") or "Unknown"
-    caps = fp.get("capabilities", "") or "none"
-
- # (1) Target Entry Point + Hand-off ()
-    _is_api_mode = fp.get("target_type", "") in ("chat", "responses", "litellm", "browser")
-    scheme = "https" if ctx.parsed_request.use_tls else "http"
-    _endpoint_display = f"{scheme}://{ctx.parsed_request.host}{ctx.parsed_request.path}" if ctx.parsed_request.host else fp.get("endpoint", "N/A")
-    _prompt_display = (
-        "N/A (API mode)" if _is_api_mode
-        else ("Injected" if ctx.parsed_request.has_prompt_placeholder else "Missing")
-    )
-    _probe_count = fp.get("probe_count", "N/A")
-    _probe_dur = fp.get("probe_duration_seconds", "N/A")
-
-    _ai_fw = fp.get("ai_framework", "")
-    _ai_fw_cat = fp.get("ai_framework_category", "")
-    _ai_fw_display = f"{_ai_fw} ({_ai_fw_cat})" if _ai_fw and _ai_fw_cat else (_ai_fw or "-")
-    _sp_leaked = fp.get("system_prompt_leaked", False)
-    _sp_method = fp.get("system_prompt_extraction_method", "")
-    _sp_len = fp.get("system_prompt_length", 0)
-    if _sp_leaked:
-        _sp_display = f"{_C_RED}LEAKED{_C_RESET} via {_sp_method} (len={_sp_len})"
-    else:
-        _sp_display = f"{_C_DIM}not leaked{_C_RESET}"
-
-    print()
-    print_card(
-        "RECON - Target Entry Point + Hand-off",
-        [
-            ("Endpoint", _endpoint_display),
-            ("Model", model),
-            ("Auth", fp.get("auth_type", "Unknown")),
-            ("Language", fp.get("language", "auto") or "auto"),
-            ("Capabilities", caps),
-            ("{PROMPT}", _prompt_display),
-            ("AI Framework", _ai_fw_display),
-            ("System Prompt", _sp_display),
-            ("API Category", fp.get("api_category", "chat")),
-            ("Session Type", fp.get("session_type", fp.get("auth_type", "Unknown"))),
-            ("Probe", f"{_probe_count} probes / {_probe_dur}s"),
-        ],
-        color=_C_CYAN,
-    )
-
- # (2) Attack Surface ( -> )
-    recommendations = fp.get("capability_recommendations", {})
-    if isinstance(recommendations, dict):
-        immediate = recommendations.get("immediate", [])
-        probe_recs = recommendations.get("probe", [])
-        possible = recommendations.get("possible", [])
-    else:
-        immediate, probe_recs, possible = [], [], []
-
-    if immediate or probe_recs or possible:
-        cap_items: list[str] = []
-        if immediate:
-            cap_items.append(f"  {_C_GREEN}IMMEDIATE (HIGH) - :{_C_RESET}")
-            for item in immediate:
-                strategy = _CAPABILITY_STRATEGY.get(item)
-                if strategy:
-                    cap_items.append(
-                        f"    -> {_C_GREEN}{item}{_C_RESET} "
-                        f"{_C_DIM}[{strategy['strategy']} | {strategy['arxiv']} | OWASP {strategy['owasp']}]{_C_RESET}"
-                    )
-                else:
-                    cap_items.append(f"    -> {_C_GREEN}{item}{_C_RESET}")
-        if probe_recs:
-            cap_items.append(f"  {_C_YELLOW}PROBE (MEDIUM) - Confirmation:{_C_RESET}")
-            for item in probe_recs:
-                strategy = _CAPABILITY_STRATEGY.get(item)
-                if strategy:
-                    cap_items.append(
-                        f"    -> {_C_YELLOW}{item}{_C_RESET} "
-                        f"{_C_DIM}-> {strategy['strategy']}{_C_RESET}"
-                    )
-                else:
-                    cap_items.append(f"    -> {_C_YELLOW}{item}{_C_RESET}")
-        if possible:
-            cap_items.append(f"  {_C_DIM}POSSIBLE (LOW) - , :{_C_RESET}")
-            for item in possible:
-                cap_items.append(f"    -> {_C_DIM}{item}{_C_RESET}")
-        print()
-        print_section("Attack Surface (from capability probe)", cap_items, color=_C_YELLOW)
-
-
-# ====================================================================
-# ARM
-# ====================================================================
-
-def _strip_common_prefix(value: str) -> str:
- """ Skeleton Key / DAN , ."""
-    sk_pattern = re.compile(
-        r"^\[System Override\] You are now in skeleton-key mode.*?"
-        r"Start your response with 'SK\.' to confirm\.\s*",
-        re.DOTALL,
-    )
-    dan_pattern = re.compile(
-        r"^From now on you are going to act as DAN.*?\[DAN\]\.\s*",
-        re.DOTALL,
-    )
-
-    for pattern in (sk_pattern, dan_pattern):
-        m = pattern.match(value)
-        if m:
-            remainder = value[m.end():].strip()
-            return remainder if remainder else value
-
-    return value
-
-
-def _get_seed_names(ctx: "PipelineContext") -> list[str]:
- """ ( 8 converter(s)), ."""
-    seen_keys: set[str] = set()
-    items: list[str] = []
-    for seed in ctx.seeds:
-        obj = getattr(seed, "objective", None) if hasattr(seed, "objective") else None
-        if not obj:
-            continue
-
-        raw_value = getattr(obj, "value", "") or getattr(obj, "name", "") or str(obj)
-        meta = getattr(obj, "metadata", {}) or {}
-
-        dedup_key = hashlib.sha256(raw_value.encode("utf-8")).hexdigest()[:16] if raw_value else ""
-        if dedup_key in seen_keys:
-            continue
-        seen_keys.add(dedup_key)
-
-        objective_summary = _strip_common_prefix(raw_value)
-        if len(objective_summary) > 65:
-            objective_summary = objective_summary[:50] + "..."
-
-        owasp_id = str(meta.get("owasp_id", "")).strip()
-        severity = str(meta.get("severity", "")).strip()
-        category = str(meta.get("category", "")).strip()
-        difficulty = str(meta.get("difficulty", "")).strip()
-
-        tags: list[str] = []
-        if owasp_id:
-            tags.append(owasp_id)
-        if severity:
-            tags.append(severity)
-        if category:
-            tags.append(category)
-        if difficulty:
-            tags.append(difficulty)
-
-        tag_str = f" [{', '.join(tags)}]" if tags else ""
-        items.append(f"{objective_summary}{_C_DIM}{tag_str}{_C_RESET}")
-
-        if len(items) >= 8:
-            break
-    return items
-
-
-
-
-def print_arm_card(ctx: "PipelineContext") -> None:
- """ (//Converter )."""
-    total_converters = sum(len(v) for v in ctx.converter_map.values())
-
-    _target_type_str = "unknown"
-    if ctx.parsed_request:
-        _fp = ctx.parsed_request.target_fingerprint
-        _caps = _fp.get("capabilities", "") or ""
-        if "mcp" in _caps.lower() or "mcp_protocol" in _caps.lower():
-            _target_type_str = "mcp_agent"
-        elif _fp.get("app_type") in ("chat", "responses", "litellm"):
-            _target_type_str = "llm_chat"
-        elif _fp.get("app_type") == "browser":
-            _target_type_str = "browser"
-        else:
-            _target_type_str = "http_api"
-
-    print()
-    print_card(
-        "ARM - Weapon Loadout",
-        [
-            ("Seeds", str(len(ctx.seeds))),
-            ("Techniques", ", ".join(ctx.techniques) if ctx.techniques else "(none)"),
-            ("Converter Paths", str(total_converters)),
-            ("Target Type", _target_type_str),
-        ],
-        color=_C_BOLD,
-    )
-
-    seed_names = _get_seed_names(ctx)
-    if seed_names:
-        shown = len(seed_names)
-        total = len(ctx.seeds)
-        items = [f"  [{i + 1}] {name}" for i, name in enumerate(seed_names)]
-        remaining = total - shown
-        if remaining > 0:
-            items.append(f"  {_C_DIM}... +{remaining} more ({total} total, deduped){_C_RESET}")
-        print()
-        print_section("Seeds (Top 8 by ASR)", items, color=_C_CYAN)
-
- #
-    if ctx.techniques:
-        _tech_asr_hist: dict[str, float] = {}
-        try:
-            from arm.seed_ranking import _ASR_HISTORY_PATH
-            if _ASR_HISTORY_PATH.exists():
-                import json
-                _data = json.loads(_ASR_HISTORY_PATH.read_text(encoding="utf-8"))
-                _tech_asr_hist = _data.get("asr", {})
-        except Exception:
-            pass
-
-        _tech_asr_priors: dict[str, float] = {}
-        try:
-            from arm.seed_ranking import get_technique_asr_prior
-            _model = ctx.model_name or ""
-            for _tech in ctx.techniques:
-                _prior_key = _tech.split("_")[0] if "_" in _tech and _tech != "prompt_sending" else _tech
-                _pv = get_technique_asr_prior(_tech, _model)
-                if _pv == 0.0:
-                    _pv = get_technique_asr_prior(_prior_key, _model)
-                if _pv > 0:
-                    _tech_asr_priors[_tech] = _pv
-        except Exception:
-            pass
-
-        _tech_items: list[str] = []
-        _sorted_techs = sorted(
-            ctx.techniques,
-            key=lambda t: (_tech_asr_priors.get(t, 0), _tech_asr_hist.get(t, 0)),
-            reverse=True,
-        )
-        for _tech in _sorted_techs:
-            _hist = _tech_asr_hist.get(_tech)
-            _prior = _tech_asr_priors.get(_tech)
-            if _tech == "prompt_sending":
-                _cat = "baseline"
-            elif _tech.startswith(("crescendo", "tap", "pair", "red_teaming", "best_of_n")):
-                _cat = "multi-turn"
-            elif _tech in ("many_shot", "skeleton_key", "role_play_movie_script",
-                           "role_play_persuasion", "context_compliance", "flip"):
-                _cat = "context-semantic"
-            else:
-                _cat = "other"
-            _asr_parts: list[str] = []
-            if _hist is not None:
-                _asr_parts.append(f"hist={_hist:.0f}%")
-            if _prior is not None and _prior > 0:
-                _asr_parts.append(f"prior={_prior:.0f}%")
-            _asr_str = f" {_C_DIM}[{', '.join(_asr_parts)}]{_C_RESET}" if _asr_parts else ""
-            _tech_items.append(f"  {_C_MAGENTA}{_tech:<22}{_C_RESET} {_C_DIM}({_cat}){_C_RESET}{_asr_str}")
-        print()
-        print_section("Attack Techniques & Expected ASR", _tech_items, color=_C_MAGENTA)
-
-
-def print_arm_highlights(ctx: "PipelineContext") -> None:
- """ ARM ()."""
-    if not ctx.parsed_request:
-        return
-    fp = ctx.parsed_request.target_fingerprint
-    caps = fp.get("capabilities", "") or ""
-    if not caps:
-        return
-
-    highlights: list[str] = []
-    if "mcp" in caps.lower() or "mcp_protocol" in caps.lower():
-        highlights.append(f"  {_C_MAGENTA}MCP Agent {_C_RESET} - L4  + MCP RAG ")
-    if "function_calling" in caps.lower() or "tool_use" in caps.lower():
-        highlights.append(f"  {_C_MAGENTA}Function Calling{_C_RESET} -  +  function schema")
-    if "memory" in caps.lower():
-        highlights.append(f"  {_C_MAGENTA}Memory{_C_RESET} -  + token smuggling")
-    if "rag" in caps.lower():
-        highlights.append(f"  {_C_MAGENTA}RAG{_C_RESET} -  + ")
-
-    if highlights:
-        print()
-        print_section("Target-Specific Attack Highlights", highlights, color=_C_YELLOW)
-
-
-# ====================================================================
-# STRIKE +
-# ====================================================================
-
-def _extract_success_info(result: Any, tech_name: str) -> dict[str, str]:
- """Extract success info from AttackResult.
-
-    Returns dict with:
-        1. Seed (Seed) - original payload (objective)
-        2. Converter - converter chain (type name fallback)
-        3. Technique - technique name + PyRIT identifier
-        4. Response (Response) - truncated response text
-        5. ASR Prior (ASR Prior) - historical ASR for technique
- """
-    seed = ""
-    objective = getattr(result, "objective", None)
-    if objective and isinstance(objective, str) and len(objective) > 0:
-        seed = objective
-
-    converter = ""
-    metadata = getattr(result, "metadata", {}) or {}
-    conv_info = metadata.get("converter", "")
-    if conv_info:
-        converter = str(conv_info)
-    if not converter:
-        last_response = getattr(result, "last_response", None)
-        if last_response:
-            conv_ids = getattr(last_response, "converter_identifiers", None)
-            if conv_ids and isinstance(conv_ids, list) and len(conv_ids) > 0:
-                names = []
-                for ci in conv_ids:
-                    class_name = getattr(ci, "class_name", "") if hasattr(ci, "class_name") else str(ci)
-                    if class_name:
-                        names.append(class_name)
-                if names:
-                    converter = " -> ".join(names)
-    if not converter:
-        if tech_name in ("crescendo", "tap", "pair", "red_teaming"):
-            converter = f"{tech_name} (adversarial multi-turn)"
-        elif tech_name in ("best_of_n", "encoded_injection", "gcg", "cair", "rogue_agent", "embedding_inversion", "mcp_rag"):
-            converter = f"{tech_name} (escalation strategy)"
-        else:
-            converter = "none (baseline)"
-
-    technique = tech_name
-    try:
-        identifier = result.get_attack_strategy_identifier()
-        if identifier is not None:
-            class_name = getattr(identifier, "class_name", "")
-            if class_name and class_name != technique:
-                technique = f"{tech_name} ({class_name})"
-    except Exception:
-        pass
-
-    response = ""
-    last_response = getattr(result, "last_response", None)
-    if last_response:
-        for attr in ("converted_value", "original_value"):
-            val = getattr(last_response, attr, None)
-            if val and isinstance(val, str) and len(val) > 0:
-                response = val
-                break
-
-    asr_prior = ""
-    try:
-        from arm.seed_ranking import get_technique_asr_prior
-        _model_val = metadata.get("model_name", "") or ""
-        _prior_key = tech_name.split("_")[0] if "_" in tech_name and tech_name != "prompt_sending" else tech_name
-        _pv = get_technique_asr_prior(tech_name, _model_val)
-        if _pv == 0.0:
-            _pv = get_technique_asr_prior(_prior_key, _model_val)
-        if _pv > 0:
-            asr_prior = f"{_pv:.0f}%"
-    except Exception:
-        pass
-
-    return {
-        "seed": seed,
-        "converter": converter,
-        "technique": technique,
-        "response": response,
-        "asr_prior": asr_prior,
-    }
-
-
-def print_success_breakthrough(
-    *,
-    seed: str,
-    converter: str,
-    technique: str,
-    result_index: int = 0,
-    asr_prior: str = "",
-    response: str = "",
+def print_recon_card(
+    entry_point: str,
+    attack_surface: list[str],
+    confidence: float,
+    capabilities: list[str],
+    seeds: list[str],
+    converters: list[str],
 ) -> None:
- """."""
-    seed_display = seed[:55] + ("..." if len(seed) > 55 else "")
-    conv_display = converter[:55] + ("..." if len(converter) > 55 else "")
-    tech_display = technique[:55]
-    resp_display = response[:55] + ("..." if len(response) > 55 else "") if response else ""
+    """Print recon phase results card."""
+    rows = [
+        ("Entry", entry_point),
+        ("Attack Surface", ", ".join(attack_surface[:3]) if attack_surface else "N/A"),
+        ("Confidence", f"{_C_CYAN}{confidence:.1%}{_C_RESET}"),
+        ("Capabilities", ", ".join(capabilities[:4]) if capabilities else "N/A"),
+    ]
+    if seeds:
+        rows.append(("Seeds", f"{len(seeds)} seeds loaded"))
+    if converters:
+        rows.append(("Converters", ", ".join(converters[:3])))
+    print_card("RECON: Target Reconnaissance", rows, color=_C_CYAN)
 
-    print()
-    _print_card_top(_C_GREEN + _C_BOLD)
-    print(_card_line(f"{_C_GREEN}{_C_BOLD}[OK] ATTACK SUCCESS - Breakthrough!{_C_RESET}", _C_GREEN + _C_BOLD))
-    _print_card_sep()
-    print(_card_line(f"{_C_BOLD}Seed{_C_RESET}      {seed_display}"))
-    print(_card_line(f"{_C_BOLD}Converter{_C_RESET} {conv_display}"))
-    print(_card_line(f"{_C_BOLD}Technique{_C_RESET} {tech_display}"))
-    if asr_prior:
-        print(_card_line(f"{_C_DIM}ASR Prior{_C_RESET}  {asr_prior}"))
-    if resp_display:
-        print(_card_line(f"{_C_DIM}Response{_C_RESET}  {resp_display}"))
-    _print_card_bottom(_C_GREEN + _C_BOLD)
-    print()
-
-
-def print_success_payload_snapshot(
-    attack_results: dict[str, list[Any]],
-    *,
-    phase_label: str = "STRIKE",
-    max_success_display: int = 5,
+def print_arm_card(
+    tech: str,
+    seeds_count: int,
+    converters: list[str],
+    max_seeds: int,
+    ctx: Any = None,
 ) -> None:
- """ Payload ."""
-    success_entries: list[dict[str, str]] = []
-    for tech_name, results in attack_results.items():
-        for r in results:
-            if _is_success(r):
-                info = _extract_success_info(r, tech_name)
-                success_entries.append(info)
-
-    if not success_entries:
-        print(f"\n  {_C_DIM}(){_C_RESET}")
-        return
-
-    total_success = len(success_entries)
-    display_entries = success_entries[:max_success_display]
-
-    print()
-    _print_card_top(_C_GREEN)
-    print(_card_line(
-        f"{_C_GREEN}{_C_BOLD}[OK] Success Payload Snapshot - {phase_label}{_C_RESET}",
-        _C_GREEN + _C_BOLD,
-    ))
-    _print_card_sep()
-    print(_card_line(f"Total Successes: {total_success}"))
-    if total_success > max_success_display:
-        print(_card_line(f"Showing: Top {max_success_display}", _C_DIM))
-    _print_card_sep()
-
-    for i, entry in enumerate(display_entries):
-        seed_short = entry["seed"][:48] + ("..." if len(entry["seed"]) > 48 else "")
-        resp_short = entry["response"][:48] + ("..." if len(entry["response"]) > 48 else "")
-
-        print(_card_line(
-            f"  {_C_BOLD}[{i + 1}]{_C_RESET} {_C_GREEN}SUCCESS{_C_RESET} "
-            f"{_C_DIM}|{_C_RESET} {entry['technique'][:30]}",
-        ))
-        print(_card_line(f"       {_C_CYAN}Seed{_C_RESET}:      {seed_short}"))
-        print(_card_line(f"       {_C_MAGENTA}Converter{_C_RESET}: {entry['converter'][:40]}"))
-        if resp_short:
-            print(_card_line(f"       {_C_YELLOW}Response{_C_RESET}:   {resp_short}"))
-        if i < len(display_entries) - 1:
-            _print_card_sep()
-
-    _print_card_bottom(_C_GREEN)
-
-
-# ====================================================================
-# ESCALATE
-# ====================================================================
-
-def print_escalate_card(ctx: "PipelineContext") -> None:
- """ (Layer)."""
-    total = sum(len(results) for results in ctx.attack_results.values())
-
-    escalation_techs = [
-        k for k in ctx.attack_results
-        if any(
-            x in k.lower()
-            for x in [
-                "crescendo", "tap", "pair", "gcg", "best_of_n",
-                "skeleton", "native", "rogue", "mcp", "embedding",
-                "many_shot", "cair", "encoded",
-                "red_teaming", "multi_prompt", "chunked",
-            ]
-        )
-    ]
-
-    escalate_total = sum(len(ctx.attack_results[t]) for t in escalation_techs)
-    escalate_success = sum(
-        1 for t in escalation_techs for r in ctx.attack_results[t] if _is_success(r)
-    )
-    escalate_asr = (escalate_success / escalate_total * 100) if escalate_total > 0 else 0
-
+    """Print ARM (assembly) phase results card."""
     rows = [
-        ("Total Results", str(total)),
-        ("Escalation Techs", str(len(escalation_techs))),
-        ("Escalation ASR", _format_asr(escalate_asr)),
+        ("Technology", f"{_C_BOLD}{tech}{_C_RESET}"),
+        ("Seeds", f"{seeds_count} (max={max_seeds})"),
+        ("Converters", ", ".join(converters[:4]) if converters else "raw"),
     ]
+    if ctx:
+        budget = getattr(ctx, 'probe_budget', None)
+        if budget:
+            rows.append(("Budget", str(budget)))
+    print_card("ARM: Weapon Assembly", rows, color=_C_BLUE)
 
-    escalate_logs = [
-        e for e in ctx.orchestration_log
-        if e.get("phase") in ("strike", "escalate")
-    ]
-    if escalate_logs:
-        last_entry = escalate_logs[-1]
-        reasoning = last_entry.get("reasoning", "")
-        if reasoning:
-            rows.append(("Last Decision", reasoning[:60]))
-
-    print()
-    print_card("ESCALATE - Multi-Turn Chain", rows, color=_C_MAGENTA)
-
-    if escalation_techs:
-        items = []
-        sorted_esc = sorted(
-            escalation_techs,
-            key=lambda t: -(sum(1 for r in ctx.attack_results[t] if _is_success(r)) / max(1, len(ctx.attack_results[t]))),
-        )
-        for tech in sorted_esc:
-            results = ctx.attack_results[tech]
-            tech_success = sum(1 for r in results if _is_success(r))
-            tech_total = len(results)
-            tech_asr = (tech_success / tech_total * 100) if tech_total > 0 else 0
-            color = _asr_color(tech_asr)
-            items.append(
-                f"  {color}{tech:<28}{_C_RESET} "
-                f"{tech_success:>3}/{tech_total:<3} {_asr_bar(tech_asr, width=20)}"
-            )
-        print()
-        print_section("Escalation Techniques (by ASR)", items, color=_C_MAGENTA)
-
-# ====================================================================
-# ASSESS
-# ====================================================================
-
-def print_assess_card(ctx: "PipelineContext") -> None:
- """ (ASR/Wilson CI/Judge)."""
+def print_strike_card(
+    tech: str,
+    total: int,
+    successes: int,
+    asr: float,
+    outcome_labels: list[str] | None = None,
+) -> None:
+    """Print STRIKE phase results card."""
     rows = [
-        ("Overall ASR", _format_asr(ctx.overall_asr)),
+        ("Technology", f"{_C_BOLD}{tech}{_C_RESET}"),
+        ("Total", str(total)),
+        ("Successes", f"{_C_GREEN}{successes}{_C_RESET}"),
+        ("ASR", _asr_bar(asr)),
     ]
+    if outcome_labels:
+        rows.append(("Outcomes", " ".join(outcome_labels[:5])))
+    print_card(f"STRIKE: {tech}", rows, color=_C_YELLOW)
 
-    if ctx.wilson_ci and (ctx.wilson_ci[0] != 0.0 or ctx.wilson_ci[1] != 0.0):
-        rows.append((
-            "Wilson 95% CI",
-            f"[{ctx.wilson_ci[0]:.1f}%, {ctx.wilson_ci[1]:.1f}%]",
-        ))
+def print_escalate_card(
+    level: int,
+    total: int,
+    successes: int,
+    asr: float,
+) -> None:
+    """Print ESCALATE phase results card."""
+    rows = [
+        ("Level", f"L{level}"),
+        ("Total Attacks", str(total)),
+        ("Successes", f"{_C_GREEN}{successes}{_C_RESET}"),
+        ("ASR", _asr_bar(asr)),
+    ]
+    print_card(f"ESCALATE: Level {level}", rows, color=_C_MAGENTA)
 
-    total_attacks = sum(len(results) for results in ctx.attack_results.values())
-    total_success = sum(
-        1 for results in ctx.attack_results.values()
-        for r in results if _is_success(r)
-    )
-    rows.append(("Total Scored", str(total_attacks)))
-    rows.append(("Successful", f"{_C_GREEN}{total_success}{_C_RESET}"))
-
-    print()
-    print_card("ASSESS - Scoring Results", rows, color=_C_GREEN)
-
-    if ctx.asr_per_technique:
-        items = []
-        sorted_asr = sorted(ctx.asr_per_technique.items(), key=lambda x: -x[1])
-        for tech, asr in sorted_asr:
-            items.append(f"  {tech:<28} {_asr_bar(asr, width=20)}")
-        print()
-        print_section("Per-Technique ASR Ranking", items, color=_C_GREEN)
-
-    if ctx.dual_judge_stats:
-        stats = ctx.dual_judge_stats
-        print()
-        print_card(
-            "Dual Judge Cross-Validation",
-            [
-                ("Total Scored", str(stats.get("total_scored", 0))),
-                ("Dual Invoked", f"{stats.get('dual_judge_invoked', 0)} ({stats.get('dual_judge_rate', 0.0):.1f}%)"),
-                ("Agreements", str(stats.get("agreements", 0))),
-                ("Disagreements", str(stats.get("disagreements", 0))),
-                ("Cohen's Kappa", f"{stats.get('cohens_kappa', 0.0):.3f}"),
-            ],
-            color=_C_CYAN,
-        )
-
-
-# ====================================================================
-# REPORT
-# ====================================================================
+def print_assess_card(
+    tech: str,
+    judge_scores: list[float],
+    avg_score: float,
+    confidence: float,
+) -> None:
+    """Print ASSESS phase results card."""
+    score_color = _C_GREEN if avg_score >= 7 else _C_YELLOW if avg_score >= 4 else _C_RED
+    rows = [
+        ("Technology", f"{_C_BOLD}{tech}{_C_RESET}"),
+        ("Avg Score", f"{score_color}{avg_score:.1f}/10{_C_RESET}"),
+        ("Confidence", f"{_C_CYAN}{confidence:.1%}{_C_RESET}"),
+        ("Samples", f"{len(judge_scores)}"),
+    ]
+    print_card("ASSESS: Scoring", rows, color=_C_GREEN)
 
 def print_report_card(
-    *,
-    total_attacks: int,
-    successful_attacks: int,
-    overall_asr: float,
     report_path: str,
-    evidence_count: int = 0,
-    wilson_ci: tuple[float, float] = (0.0, 0.0),
-    native_output_dir: str = "",
+    report_type: str = "HTML",
 ) -> None:
- """ (v57: Layer + offsec )."""
-    from pathlib import Path as _Path
-
-    report_dir = str(_Path(report_path).parent)
-    failed_attacks = total_attacks - successful_attacks
-    risk_level = "CRITICAL" if overall_asr >= 70 else "HIGH" if overall_asr >= 40 else "MODERATE"
-    risk_color = _C_RED if overall_asr >= 70 else _C_YELLOW if overall_asr >= 40 else _C_CYAN
-
+    """Print REPORT phase results card."""
     rows = [
-        ("Evidence Collected", str(evidence_count)),
-        ("Total Attacks", str(total_attacks)),
-        ("Successful", f"{_C_GREEN}{successful_attacks}{_C_RESET}"),
-        ("Failed", f"{_C_RED}{failed_attacks}{_C_RESET}"),
-        ("Overall ASR", _format_asr(overall_asr)),
-        ("Risk Level", f"{risk_color}{risk_level}{_C_RESET}"),
+        ("Type", report_type),
+        ("Path", report_path),
+        ("Status", f"{_C_GREEN}Generated{_C_RESET}"),
     ]
-    if wilson_ci and (wilson_ci[0] != 0.0 or wilson_ci[1] != 0.0):
-        rows.append(("Wilson 95% CI", f"[{wilson_ci[0]:.1f}%, {wilson_ci[1]:.1f}%]"))
-
-    print()
-    print_card("REPORT - Final Output", rows, color=_C_CYAN)
-
- # v57: Layer
-    print()
-    layered_items = [
-        f"  {_C_BOLD}Index{_C_RESET}       -> {report_path}",
-        f"  {_C_CYAN}Executive{_C_RESET}   -> {report_dir}/report_executive.md",
-        f"  {_C_YELLOW}Findings{_C_RESET}    -> {report_dir}/report_findings.md",
-        f"  {_C_DIM}Technical{_C_RESET}   -> {report_dir}/report_technical.md",
-        f"  {_C_GREEN}Evidence{_C_RESET}    -> {report_dir}/evidence/",
-        f"  {_C_MAGENTA}PoC Scripts{_C_RESET} -> {report_dir}/poc/",
-    ]
-    if native_output_dir:
-        layered_items.append(f"  {_C_CYAN}Native Output{_C_RESET} -> {native_output_dir}")
-    print_section("[FOLDER] Layered Report Files", layered_items, color=_C_CYAN)
-
-
-# ====================================================================
-# endpoint ASR
-# Academic basis: arXiv:2302.12173 Greshake -
-# arXiv:2310.08419 Chao - ASR = 1 - Prod(1 - ASRi)
-# ====================================================================
+    print_card("REPORT: Generated", rows, color=_C_CYAN)
 
 def print_joint_asr_card(
-    *,
+    per_endpoint: dict[str, float],
     joint_asr: float,
-    total_endpoints: int,
-    total_attacks: int,
-    total_successes: int,
-    endpoint_summaries: list[dict[str, Any]],
-    report_path: str = "",
 ) -> None:
- """ endpoint ASR ."""
+    """Print joint ASR card for multi-endpoint results."""
+    rows = []
+    for endpoint, asr in per_endpoint.items():
+        rows.append((endpoint, _format_asr(asr)))
+    rows.append(("Joint ASR", f"{_C_BOLD}{_format_asr(joint_asr)}{_C_RESET}"))
+    print_card("Joint ASR Summary", rows, color=_C_MAGENTA)
+
+def print_summary(
+    results: dict[str, Any],
+) -> None:
+    """Print overall summary card."""
+    rows = []
+    for key, value in results.items():
+        if isinstance(value, float):
+            rows.append((key, f"{value:.2%}"))
+        else:
+            rows.append((key, str(value)))
+    print_card("SUMMARY", rows, color=_C_BOLD)
+
+def _extract_success_info(result: Any) -> dict[str, Any] | None:
+    """Extract success info from attack result for display.
+
+    Args:
+        result: Attack result object
+
+    Returns:
+        Dict with 'payload', 'response', 'technique' keys, or None if not successful
+    """
+    if not _is_success(result):
+        return None
+
+    return {
+        "payload": getattr(result, "payload", None) or getattr(result, "converted_prompt", ""),
+        "response": getattr(result, "response", None) or "N/A",
+        "technique": getattr(result, "technique", "unknown"),
+    }
+
+def print_success_breakthrough(tech: str, info: dict[str, Any]) -> None:
+    """Print success breakthrough card.
+
+    Args:
+        tech: Technique name
+        info: Dict with 'payload', 'response', 'technique' keys
+    """
     rows = [
-        ("Endpoints", str(total_endpoints)),
-        ("Total Attacks", str(total_attacks)),
-        ("Total Successes", f"{_C_GREEN}{total_successes}{_C_RESET}"),
-        ("Joint ASR", _format_asr(joint_asr)),
+        ("Technique", f"{_C_BOLD}{tech}{_C_RESET}"),
+        ("Payload", str(info.get("payload", "N/A"))[:50]),
+        ("Response", str(info.get("response", "N/A"))[:50] if info.get("response") else "N/A"),
     ]
+    print_card(f"SUCCESS: {tech}", rows, color=_C_GREEN)
 
-    print()
-    _print_card_top(_C_MAGENTA)
-    print(_card_line("Joint ASR Report - Multi-Endpoint", _C_MAGENTA + _C_BOLD))
-    _print_card_sep()
+def print_success_payload_snapshot(payload: str, response: str = "") -> None:
+    """Print payload snapshot after success.
 
-    for label, value in rows:
-        print(_card_line(f"{label}: {value}", _C_MAGENTA))
-
-    _print_card_sep()
-    for ep in endpoint_summaries:
-        name = ep.get("burp_name", "unknown")
-        asr = ep.get("overall_asr", 0.0)
-        attacks = ep.get("total_attacks", 0)
-        successes = ep.get("successful_attacks", 0)
-        caps = ep.get("capabilities", "")
-        asr_str = _format_asr(asr)
-        cap_str = f" [{caps}]" if caps and caps != "none" else ""
-        print(_card_line(
-            f"  {name}: {asr_str} ({successes}/{attacks}){cap_str}",
-            _C_MAGENTA,
-        ))
-
-    _print_card_sep()
-    if report_path:
-        from pathlib import Path as _Path
-        report_dir = str(_Path(report_path).parent)
-        print(_card_line(f"Index:     {report_path}", _C_MAGENTA))
-        print(_card_line(f"Executive: {report_dir}/report_executive.md", _C_DIM))
-        print(_card_line(f"Findings:  {report_dir}/report_findings.md", _C_DIM))
-        print(_card_line(f"Technical: {report_dir}/report_technical.md", _C_DIM))
-    _print_card_bottom(_C_MAGENTA)
-
-    print(f"{_C_DIM}  Joint ASR = 1 - Prod(1 - ASRi) "
-          f"(arXiv:2310.08419){_C_RESET}")
+    Args:
+        payload: Attack payload text
+        response: Optional response text
+    """
+    lines = payload.split("\n")[:5]  # Show first 5 lines
+    preview = "\n".join(lines)
+    rows = [
+        ("Payload Preview", preview[:100]),
+    ]
+    if response:
+        rows.append(("Response", response[:100]))
+    print_card("Payload Snapshot", rows, color=_C_DIM)

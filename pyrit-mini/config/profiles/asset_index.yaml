@@ -169,6 +169,49 @@ assets:
       - poisoning
       tier: 1
       asr_prior: high
+    rag_advanced_seeds:
+      path: _attack_surface/T1_LLM08_rag_advanced_seeds
+      category: rag_advanced_attack
+      owasp_ids:
+      - LLM04
+      - LLM08
+      attack_vectors:
+      - poisoned_rag_blackbox
+      - retrieval_ranking_manipulation
+      - chunk_boundary_exploit
+      - multi_tenant_isolation_bypass
+      - embedding_inversion_attack
+      - badrag_retrieval_contamination
+      - knowledge_base_extraction
+      tier: 1
+      asr_prior: high
+    vector_db_poisoning:
+      path: _attack_surface/T1_LLM08_vector_db_poisoning
+      category: rag_vector_attack
+      owasp_ids:
+      - LLM08
+      attack_vectors:
+      - indirect_injection_rag
+      - knowledge_base_poisoning
+      - embedding_similarity_attack
+      - retrieval_enumeration
+      - cross_user_leak
+      - retrieval_priority_manipulation
+      tier: 1
+      asr_prior: high
+    finetuning_indirect_injection:
+      path: _attack_surface/T1_LLM03_finetuning_indirect_injection
+      category: supply_chain_indirect_injection
+      owasp_ids:
+      - LLM03
+      - LLM01
+      attack_vectors:
+      - trigger_word_backdoor
+      - context_triggered_behavior
+      - persona_backdoor
+      - encoded_trigger
+      tier: 2
+      asr_prior: medium
     ma_cross_agent_injection:
       path: _attack_surface/T1_ASI06-09_multi_agent/ma_cross_agent_injection
       category: multi_agent_attack
@@ -287,6 +330,14 @@ attack_surface_seed_mapping:
     priority: 1
     seeds:
     - rag_full_attack_surface
+    - rag_advanced_seeds
+    scorer: web_vuln_detected
+  rag_advanced_surface:
+    priority: 1
+    seeds:
+    - rag_advanced_seeds
+    - vector_db_poisoning
+    - finetuning_indirect_injection
     scorer: web_vuln_detected
   multi_agent_system:
     priority: 1
@@ -330,7 +381,7 @@ burp_profile_rules:
     - rag
     - retrieval
     - knowledge_base
-    attack_surface: rag_system
+    attack_surface: rag_advanced_surface
   - name: agent_system
     match_type: filename_contains
     patterns:
@@ -353,5 +404,13 @@ references:
   url: https://arxiv.org/abs/2402.04249
 - name: InjecAgent (arXiv:2307.00929)
   url: https://arxiv.org/abs/2307.00929
+- name: PoisonedRAG (arXiv:2406.04245)
+  url: https://arxiv.org/abs/2406.04245
+- name: BADRAG (arXiv:2404.02112)
+  url: https://arxiv.org/abs/2404.02112
+- name: EmbeddingPrivacy (arXiv:2310.06870)
+  url: https://arxiv.org/abs/2310.06870
+- name: ChunkingExtraction (arXiv:2308.14032)
+  url: https://arxiv.org/abs/2308.14032
 - name: RedEye (arXiv:2202.03286)
   url: https://arxiv.org/abs/2202.03286

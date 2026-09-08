@@ -27,7 +27,7 @@
 |------|------|--------|
 | `strike/escalation_attacks.py` | 使用 PyRIT 原生 `RedTeamingAttack`, `CrescendoAttack`, `TAPAttack`, `PAIRAttack` ✓ | 合规 |
 | `strike/multi_turn_attacks.py` | Best-of-N 委托给 `adaptive_executor._best_of_n_retry` ✓ | 合规 |
-| `strike/escalation_chain.py` | 使用 PyRIT 原生 SkeletonKeyAttack ✓ | 合规 |
+| `strike/escalation_chain.py` | ~~已删除 (2026-09-08)~~ | 死代码清理 |
 
 **结论**: 攻击模块整体合规，原生使用率良好。
 
@@ -52,9 +52,9 @@
 
 | 位置 | 问题 | 债务 ID |
 |------|------|---------|
-| `strike/escalation.py` (941行) | 门面函数，大量 re-export 自 escalation_chain.py 和 escalation_attacks.py | **D-10** |
-| `strike/escalation_attacks.py` (1058行) | 编码损坏，与 escalation_chain.py 功能重叠 | **D-10** |
-| `strike/escalation_chain.py` (1125行) | 包含 L1-L4 全部升级逻辑的核心实现 | 主实现 |
+| `strike/escalation.py` (136行) | 门面入口 stub | ✅ 已精简 |
+| `strike/escalation_chain.py` | ~~已删除~~ | ✅ 死代码清理 2026-09-08 |
+| `strike/escalation_attacks.py` | ~~已删除~~ | ✅ 死代码清理 |
 | `utils/display.py:2957行` | 硬编码 `_CONVERTER_ASR_LABELS` 与 asr_priors.yaml 重复 | **D-07** |
 
 **审计意见**:
@@ -69,7 +69,7 @@
 | 位置 | 问题 |
 |------|------|
 | `utils/display.py:2957行` | 单文件 2957 行远超 500 行上限，变更窗口过大 |
-| `strike/escalation_chain.py:1124行` | 单文件 1124 行，超出模块粒度上限 |
+| `strike/escalation_chain.py` | ~~已删除~~ | ✅ R-SIZE 已清理 |
 | `strike/escalation.py:941行` | 单文件 941 行，超出模块粒度上限 |
 
 **审计意见**: 三个超大文件导致任何变更都自然违反 C4 粒度上限。
@@ -353,7 +353,7 @@
 ### Tier 0 — 立即修复（阻断性）
 
 1. **删除 root 非法文件**: `test_backward_compat.py`, `test_campaign_v2.py` → 移入 tests/
-2. **删除 `strike/escalation_attacks.py`**: 全文编码损坏，功能已并入 escalation_chain.py
+2. ✅ **已删除** `strike/escalation_attacks.py` (编码损坏) 和 `escalation_chain.py` (死代码) — 2026-09-08 清理
 3. **钉住 pyrit 依赖**: `pyrit==1.0.*` 精确版本
 4. **清理 re-export 债务**: escalation.py 中移除 `_llm_judge_rescore` 死 re-export
 

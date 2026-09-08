@@ -5,14 +5,12 @@
 
 imports generator.py , :
     -  (Technique x OWASP)
-    - 
-    - 
-    - 
-    - MITRE ATLAS 
-    -  Findings 
-    - 
-    - CSV 
-    - ZIP 
+    -
+    - MITRE ATLAS
+    -  Findings
+    -
+    - CSV
+    - ZIP
 """
 
 from __future__ import annotations
@@ -29,12 +27,11 @@ from report.owasp_constants import _MITRE_ATLAS_TECHNIQUES
 
 logger = logging.getLogger(__name__)
 
-
 def _build_heatmap_data(
     evidence: EvidenceCollection,
     evidence_list: list[VulnerabilityEvidence],
 ) -> tuple[list[str], list[dict[str, Any]]]:
- """ ASR (Technique x OWASP).
+    """ ASR (Technique x OWASP).
 
     Args:
         evidence: .
@@ -44,7 +41,7 @@ def _build_heatmap_data(
         (owasp_ids, rows) :
         - owasp_ids: OWASP ID  ()
         - rows: ,  technique, cells, overall_css, overall_display
- """
+    """
  # OWASP ID ()
     owasp_ids_set: set[str] = set()
     tech_owasp_asr: dict[str, dict[str, tuple[int, int]]] = {}
@@ -93,9 +90,8 @@ def _build_heatmap_data(
 
     return owasp_ids, rows
 
-
 def _asr_to_css_class(asr: float) -> str:
- """ ASR CSS ."""
+    """ ASR CSS ."""
     if asr >= 50:
         return "heat-critical"
     if asr >= 25:
@@ -104,13 +100,12 @@ def _asr_to_css_class(asr: float) -> str:
         return "heat-medium"
     return "heat-low"
 
-
 def _build_escalation_dashboard_data(evidence: EvidenceCollection) -> list[dict[str, Any]]:
- """.
+    """.
 
     :  (0.82, 0.65, 0.50, 0.30)  ASR,
-     ASR 
-    : imports evidence  ASR per technique, 
+     ASR
+    : imports evidence  ASR per technique,
 
     5 converter(s):
         Stage 1: Single-Turn (baseline techniques)
@@ -128,7 +123,7 @@ def _build_escalation_dashboard_data(evidence: EvidenceCollection) -> list[dict[
 
     Returns:
         5 converter(s), converter(s) stage, technique, asr, asr_num, escalated.
- """
+    """
  # : (stage_name, display_technique, matching_keywords)
     stage_defs = [
         ("Stage 1", "Single-Turn", ["prompt_sending", "baseline", "single"]),
@@ -143,7 +138,7 @@ def _build_escalation_dashboard_data(evidence: EvidenceCollection) -> list[dict[
 
     stages: list[dict[str, Any]] = []
     for i, (stage_name, display_tech, keywords) in enumerate(stage_defs):
- # , 
+     # ,
         stage_evidence = [
             ev for ev in evidence.evidence
             if any(kw in ev.technique_name.lower() for kw in keywords)
@@ -154,13 +149,13 @@ def _build_escalation_dashboard_data(evidence: EvidenceCollection) -> list[dict[
             success = sum(1 for ev in stage_evidence if ev.is_success)
             matched_asr = (success / total * 100) if total > 0 else 0.0
         else:
- # Stage 1 fallback: ASR (baseline = )
+         # Stage 1 fallback: ASR (baseline = )
             if i == 0:
                 matched_asr = overall_asr
             else:
                 matched_asr = 0.0
 
- # 
+ #
         if matched_asr >= 90:
             escalated = "stop"
         elif matched_asr > 0 and i < len(stage_defs) - 1:
@@ -178,12 +173,11 @@ def _build_escalation_dashboard_data(evidence: EvidenceCollection) -> list[dict[
 
     return stages
 
-
 def _build_technique_effectiveness_matrix(
     evidence: EvidenceCollection,
     evidence_list: list[VulnerabilityEvidence],
 ) -> list[str]:
- """ (Markdown ).
+    """ (Markdown ).
 
     Args:
         evidence: .
@@ -191,12 +185,12 @@ def _build_technique_effectiveness_matrix(
 
     Returns:
         Markdown  ().
- """
+    """
     lines: list[str] = []
     lines.append("## Attack Technique Effectiveness Matrix")
     lines.append("")
 
- # x OWASP ASR 
+ # x OWASP ASR
     tech_data: dict[str, dict[str, dict[str, int]]] = {}
     owasp_ids_set: set[str] = set()
 
@@ -216,13 +210,13 @@ def _build_technique_effectiveness_matrix(
 
     owasp_ids = sorted(owasp_ids_set)
 
- # 
+ #
     header = "| Technique | " + " | ".join(owasp_ids) + " | Overall |"
     separator = "|-----------|" + "|".join(["---" for _ in owasp_ids]) + "|---|"
     lines.append(header)
     lines.append(separator)
 
- # 
+ #
     for tech, owasp_data in sorted(tech_data.items()):
         cells: list[str] = []
         total_s = 0
@@ -243,9 +237,8 @@ def _build_technique_effectiveness_matrix(
     lines.append("")
     return lines
 
-
 def _build_score_consistency_section(evidence: EvidenceCollection) -> list[str]:
- """ ().
+    """ ().
 
     v57 : all Evidence , ,
      ( 45  "Score | Post-hoc Dual Judge")
@@ -255,14 +248,14 @@ def _build_score_consistency_section(evidence: EvidenceCollection) -> list[str]:
 
     Returns:
         Markdown .
- """
+    """
     from report.generator import _classify_score_consistency
 
     lines: list[str] = []
     lines.append("## Score Consistency Analysis")
     lines.append("")
 
- # Evidence 
+ # Evidence
     consistency_map: list[tuple[str, str, str]] = []  # (evidence_id, scorer_names, consistency)
     for ev in evidence.evidence:
         score_details = ev.score_details
@@ -277,16 +270,18 @@ def _build_score_consistency_section(evidence: EvidenceCollection) -> list[str]:
         consistency = _classify_score_consistency(score_details)
         consistency_map.append((ev.evidence_id, scorer_names, consistency))
 
- # 
+ #
     all_same = len({c for _, _, c in consistency_map}) == 1
     if all_same and consistency_map:
- # : Evidence 
+     # : Evidence
         unique_consistency = consistency_map[0][2]
         unique_scorer = consistency_map[0][1]
-        lines.append(f"All {len(consistency_map)} evidence items scored with **{unique_scorer}** - consistency: **{unique_consistency}**.")
+        lines.append(
+            f"All {
+                len(consistency_map)} evidence items scored with **{unique_scorer}** - consistency: **{unique_consistency}**.")
         lines.append("")
     else:
- # : , 
+     # : ,
         lines.append("| Evidence ID | Scorer(s) | Consistency |")
         lines.append("|-------------|-----------|-------------|")
         for eid, scorer_names, consistency in consistency_map:
@@ -295,16 +290,15 @@ def _build_score_consistency_section(evidence: EvidenceCollection) -> list[str]:
 
     return lines
 
-
 def _finding_to_dict(finding: OWASPFinding) -> dict[str, Any]:
- """ Finding ( JSON ).
+    """ Finding ( JSON ).
 
     Args:
         finding: OWASPFinding .
 
     Returns:
         .
- """
+    """
     return {
         "finding_id": finding.finding_id,
         "owasp_id": finding.owasp_id,
@@ -322,9 +316,8 @@ def _finding_to_dict(finding: OWASPFinding) -> dict[str, Any]:
         "results": finding.results,
     }
 
-
 def _render_attack_summary_csv(evidence: EvidenceCollection) -> str:
- """ CSV.
+    """ CSV.
 
     : Evidence ID, OWASP ID, OWASP Category, Technique, Converter Chain,
         Success, ASR, MITRE ATLAS, Confidence, Severity, Risk Score
@@ -334,11 +327,11 @@ def _render_attack_summary_csv(evidence: EvidenceCollection) -> str:
 
     Returns:
         CSV .
- """
+    """
     output = io.StringIO()
     writer = csv.writer(output)
 
- # 
+ #
     writer.writerow([
         "Evidence ID", "OWASP ID", "OWASP Category", "Technique",
         "Converter Chain", "Success", "ASR", "MITRE ATLAS",
@@ -363,9 +356,8 @@ def _render_attack_summary_csv(evidence: EvidenceCollection) -> str:
 
     return output.getvalue()
 
-
 def _render_coverage_matrix_csv(evidence: EvidenceCollection) -> str:
- """ OWASP CSV.
+    """ OWASP CSV.
 
     : OWASP ID, Category, Standard, Tested, Success, Failed, ASR
 
@@ -376,11 +368,11 @@ def _render_coverage_matrix_csv(evidence: EvidenceCollection) -> str:
 
     Returns:
         CSV .
- """
+    """
     output = io.StringIO()
     writer = csv.writer(output)
 
- # 
+ #
     writer.writerow(["OWASP ID", "Category", "Standard", "Tested", "Success", "Failed", "ASR"])
 
  # LLM Top 10
@@ -411,19 +403,18 @@ def _render_coverage_matrix_csv(evidence: EvidenceCollection) -> str:
 
     return output.getvalue()
 
-
 def _export_evidence_zip(output_dir: Path, evidence: EvidenceCollection) -> None:
- """Output directoryall ZIP .
+    """Output directoryall ZIP .
 
     Args:
         output_dir: Output directory.
         evidence:  ().
- """
+    """
     output_dir = Path(output_dir)
     zip_path = output_dir / "evidence_package.zip"
 
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
- # Output directory
+     # Output directory
         for file_path in output_dir.rglob("*"):
             if file_path == zip_path:
                 continue

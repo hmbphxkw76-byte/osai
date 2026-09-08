@@ -6,7 +6,7 @@
  Burp :
     1. : PromptSendingAttack + HTTPTarget + AttackScoringConfig
     2.  AttackExecutor converter(s)
-    3. : asyncio.wait_for + 
+    3. : asyncio.wait_for +
 
 :
     attack = PromptSendingAttack(objective_target=target, attack_scoring_config=scoring_config)
@@ -20,11 +20,11 @@ L5 v35  (FIRST_SUCCESS ):
           ASR  post-hoc  Judge .
 
     PyRIT SequentialAttack (arXiv:2407.01232)  FIRST_SUCCESS ,
-     execute_attack_from_seed_groups_async 
+     execute_attack_from_seed_groups_async
 
 Academic basis:
     - PyRIT SequentialAttack (arXiv:2407.01232): FIRST_SUCCESS ,
-      converter(s) , 
+      converter(s) ,
     - Wei et al. (arXiv:2307.15043):  >2 Layer ASR imports 12%  4%.
     - Zeng et al. (arXiv:2402.19181):  authority ASR 38.4% .
     - DrAttack (arXiv:2402.14266):  ASR 40-60% .
@@ -55,7 +55,7 @@ from arm.seed_ranking import _make_seed_key  # R9: collision-resistant seed key
 from core.context import PipelineContext
 from strike._scoring import _build_first_success_scoring_config, _build_scoring_config
 
-# P1 : SequentialAttack 
+# P1 : SequentialAttack
 from strike._sequential import _manual_multi_path_loop, _try_native_sequential_attack
 from strike.adaptive_executor import _best_of_n_retry  # noqa: F401
 
@@ -64,7 +64,7 @@ from utils.attack_utils import _is_success  # noqa: F401
 
 
 def _import_progress_funcs():
- """from, display.py -> core.context ."""
+    """from, display.py -> core.context ."""
     from utils.display import (
         print_converter_path_done,
         print_converter_path_start,
@@ -80,15 +80,13 @@ def _import_progress_funcs():
         print_strike_phase_summary,
     )
 
-
 # V2: converter ( RandomTranslationConverter, TranslationConverter )
-# arm/converter_selector.py _get_candidate_converters 
+# arm/converter_selector.py _get_candidate_converters
 
 logger = logging.getLogger(__name__)
 
-
 async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
- """.
+    """.
 
     L5 v35:  (FIRST_SUCCESS ).
          1 converter(s) (), :
@@ -97,16 +95,16 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
          post-hoc  Judge .
 
     Academic basis:
-        - PyRIT SequentialAttack (arXiv:2407.01232): FIRST_SUCCESS 
+        - PyRIT SequentialAttack (arXiv:2407.01232): FIRST_SUCCESS
         - Wei et al. (arXiv:2307.15043):  >2 Layer ASR imports 12%  4%
-        - Zeng et al. (arXiv:2402.19181): authority ASR 38.4% 
+        - Zeng et al. (arXiv:2402.19181): authority ASR 38.4%
 
     Args:
         ctx: .
 
     Returns:
          {technique_name: [AttackResult, ...]}.
- """
+    """
     from pyrit.executor.attack import PromptSendingAttack
     from pyrit.executor.attack.core.attack_executor import AttackExecutor
 
@@ -147,22 +145,22 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
     incomplete_objectives: list[tuple[str, Any]] = []
 
     if candidate_converters:
- # L5 v50: SequentialAttack(FIRST_SUCCESS) 
- # arXiv:2407.01232 -- PyRIT SequentialAttack + FIRST_SUCCESS 
- # converter = 1 PromptSendingAttack = 1 SequentialChildAttack 
- # (SubStringScorer+Inverter) Skip (0 token)
- #
- # Rule 2 (PyRIT native first): SequentialAttack 
- # Rule 10: SequentialChildAttack.seed_group , fallback 
- #
- # Academic basis:
- # - PyRIT SequentialAttack (arXiv:2407.01232): FIRST_SUCCESS 
- # - Wei et al. (arXiv:2307.15043): 
- # - Zeng et al. (arXiv:2402.19181): authority ASR 38.4% 
- # - DrAttack (arXiv:2402.14266): ASR 40-60% 
+     # L5 v50: SequentialAttack(FIRST_SUCCESS)
+     # arXiv:2407.01232 -- PyRIT SequentialAttack + FIRST_SUCCESS
+     # converter = 1 PromptSendingAttack = 1 SequentialChildAttack
+     # (SubStringScorer+Inverter) Skip (0 token)
+     #
+     # Rule 2 (PyRIT native first): SequentialAttack
+     # Rule 10: SequentialChildAttack.seed_group , fallback
+     #
+     # Academic basis:
+     # - PyRIT SequentialAttack (arXiv:2407.01232): FIRST_SUCCESS
+     # - Wei et al. (arXiv:2307.15043):
+     # - Zeng et al. (arXiv:2402.19181): authority ASR 38.4%
+     # - DrAttack (arXiv:2402.14266): ASR 40-60%
 
- # SequentialAttack ()
- # SequentialChildAttack.seed_group , 
+     # SequentialAttack ()
+     # SequentialChildAttack.seed_group ,
         sequential_results = await _try_native_sequential_attack(
             ctx=ctx,
             candidate_converters=candidate_converters,
@@ -172,7 +170,7 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
         )
 
         if sequential_results is not None:
- # SequentialAttack 
+         # SequentialAttack
             all_results, incomplete_objectives = sequential_results
             logger.info(
                 "L5 v50: Native SequentialAttack(FIRST_SUCCESS) completed: "
@@ -180,7 +178,7 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
                 len(all_results), len(incomplete_objectives),
             )
         else:
- # Fallback: ()
+         # Fallback: ()
             logger.info(
                 "L5 v50: Falling back to manual multi-path loop "
                 "(%d seeds too large for SequentialAttack per-seed binding)",
@@ -198,7 +196,7 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
  # ( escalation )
         ctx.seeds = original_seeds
     else:
- # converter: PromptSendingAttack
+     # converter: PromptSendingAttack
         logger.info("No converters configured, using raw prompts (baseline)")
  # v53: Use native PrependedConversationConfig via PromptSendingAttack constructor
  # R2 (PyRIT Native First): prepended_conversation_config controls converter
@@ -235,7 +233,7 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
 
             return ctx.attack_results
 
- # 
+ #
     ctx.attack_results["prompt_sending"] = all_results
     _backfill_metadata(all_results, original_seeds, converter_names=_get_converter_names(candidate_converters))
 
@@ -255,7 +253,7 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
         len(incomplete_objectives),
     )
 
- # 
+ #
     ctx._failed_objectives = [obj for obj, _ in unique_incomplete]
 
  # Best-of-N Retry
@@ -266,8 +264,8 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
         )
         await _best_of_n_retry(ctx, unique_incomplete)
 
- # L5 v48: 
- # Academic basis: Arbis et al. (arXiv:2306.01943) S4.5 -- 
+ # L5 v48:
+ # Academic basis: Arbis et al. (arXiv:2306.01943) S4.5 --
  # port_expander , attack_results
     extra_targets = getattr(ctx, "extra_objective_targets", {})
     if extra_targets:
@@ -277,7 +275,7 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
         )
         for port, port_target in extra_targets.items():
             try:
- # v53: Use native PrependedConversationConfig
+             # v53: Use native PrependedConversationConfig
                 port_prepended_config = _build_prepended_conversation_config(ctx)
                 port_attack = PromptSendingAttack(
                     objective_target=port_target,
@@ -308,17 +306,84 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
  # v58: STRIKE DONE main.py print_strike_report_async ,
  # Ensure payload , .
  # executor elapsed time .
+    # === Gap #2: Feedback Loop - Attack Success -> Re-Recon ===
+    await _run_feedback_loop(ctx, all_results)
+
     ctx._strike_elapsed = time.monotonic() - _strike_start
 
     return ctx.attack_results
 
 
+async def _run_feedback_loop(ctx: Any, all_results: list[Any]) -> None:
+    """Execute feedback loop: analyze success -> discover new targets -> expand.
+
+    Gap #2 Implementation:
+        1. Extract intelligence from successful responses (model IDs, paths, providers)
+        2. Re-probe discovered paths to confirm they exist
+        3. Generate targeted seeds for new discoveries
+        4. Log to orchestration_log for audit trail
+    """
+    try:
+        from strike.feedback_loop import (
+            aggregate_intelligence,
+            generate_follow_up_seeds,
+            run_feedback_recon,
+        )
+        from utils.attack_utils import _is_success
+
+        successful_results = [r for r in all_results if _is_success(r)]
+        if not successful_results:
+            return
+
+        intel = aggregate_intelligence(successful_results)
+        if not intel.has_actionable():
+            return
+
+        logger.info(
+            "[Feedback Loop] Intelligence: models=%d, paths=%d, providers=%d",
+            len(intel.model_ids), len(intel.api_paths), len(intel.providers),
+        )
+
+        if intel.tokens:
+            logger.warning(
+                "[Feedback Loop] SECURITY: %d API token(s) leaked in responses.",
+                len(intel.tokens),
+            )
+
+        reprobe_result = await run_feedback_recon(ctx, intel)
+        follow_up_seeds = generate_follow_up_seeds(intel)
+
+        if hasattr(ctx, "orchestration_log"):
+            ctx.orchestration_log.append({
+                "phase": "strike",
+                "decision": "feedback_loop_recon",
+                "input": {
+                    "successful_attacks": len(successful_results),
+                    "extracted_models": intel.model_ids,
+                    "extracted_paths": intel.api_paths,
+                    "extracted_providers": intel.providers,
+                },
+                "output": {
+                    "reprobe_status": reprobe_result.get("status"),
+                    "new_endpoints_found": len(reprobe_result.get("new_endpoints", [])),
+                    "follow_up_seeds": len(follow_up_seeds),
+                },
+                "reasoning": (
+                    f"Feedback: {len(intel.model_ids)} models + "
+                    f"{len(intel.api_paths)} paths from successful attacks"
+                ),
+            })
+
+    except Exception as e:
+        logger.debug("[Feedback Loop] Non-fatal: %s", e)
+
+
 def _get_converter_names(converters: list[Any]) -> str:
- """v52: Extract converter class names for metadata backfill.
+    """v52: Extract converter class names for metadata backfill.
 
     Returns comma-separated converter type names (e.g. "PersuasionConverter, ROT13Converter").
     Returns empty string if no converters or empty list.
- """
+    """
     if not converters:
         return ""
     names = []
@@ -336,24 +401,23 @@ def _get_converter_names(converters: list[Any]) -> str:
             names.append(type_name)
     return ", ".join(names)
 
-
 def _backfill_metadata(
     results: list[Any],
     seed_groups: list[Any],
     *,
     converter_names: str = "",
 ) -> None:
- """imports metadata owasp_id AttackResult.metadata.
+    """imports metadata owasp_id AttackResult.metadata.
 
-    PyRIT AttackExecutor  SeedObjective.metadata 
+    PyRIT AttackExecutor  SeedObjective.metadata
     AttackResult.metadata. .
 
      (3Layer fallback):
-        1.  objective  100 
+        1.  objective  100
         2.  objective  30  (converter )
         3.  ()
- """
- # objective -> metadata 
+    """
+ # objective -> metadata
     obj_to_metadata: dict[str, dict[str, Any]] = {}
     metadata_list: list[dict[str, Any]] = []
     for group in seed_groups:
@@ -373,7 +437,7 @@ def _backfill_metadata(
         objective = getattr(result, "objective", "") or ""
         obj_key = _make_seed_key(objective)
 
- # 1. 
+ # 1.
         seed_metadata = obj_to_metadata.get(obj_key)
 
  # 2. R9: SHA256 hash precise match is sufficient, fuzzy match replaced by index fallback
@@ -394,7 +458,7 @@ def _backfill_metadata(
             except Exception:
                 pass
         elif converter_names:
- # v52: no seed metadata match, but still record converter info
+         # v52: no seed metadata match, but still record converter info
             merged = dict(existing_metadata)
             if "converter" not in merged:
                 merged["converter"] = converter_names
@@ -407,9 +471,8 @@ def _backfill_metadata(
     if backfilled > 0:
         logger.info("Backfilled metadata to %d attack results", backfilled)
 
-
 def _build_prepended_conversation_config(ctx: PipelineContext) -> Any:
- """v53: Build native PrependedConversationConfig for SkeletonKey pre-injection.
+    """v53: Build native PrependedConversationConfig for SkeletonKey pre-injection.
 
     R2 (PyRIT Native First): Use native PrependedConversationConfig instead of
     manually constructing list[Message] and passing via broadcast_fields.
@@ -437,12 +500,12 @@ def _build_prepended_conversation_config(ctx: PipelineContext) -> Any:
 
     Returns:
         PrependedConversationConfig | None (None if build fails).
- """
+    """
     from pyrit.executor.attack import PrependedConversationConfig
     from pyrit.models import ChatMessageRole, Message
 
     try:
- # R2 (PyRIT Native First): Use SkeletonKeyAttack native prompt files
+     # R2 (PyRIT Native First): Use SkeletonKeyAttack native prompt files
         sk_prompt = None
         sk_acceptance = None
 
@@ -511,14 +574,13 @@ def _build_prepended_conversation_config(ctx: PipelineContext) -> Any:
 
     return None
 
-
 async def _retrieve_partial_results(ctx: PipelineContext, technique_name: str) -> None:
- """imports CentralMemory .
+    """imports CentralMemory .
 
     Args:
         ctx: .
         technique_name: .
- """
+    """
     from pyrit.memory import CentralMemory
 
     memory = CentralMemory.get_memory_instance()
@@ -534,33 +596,32 @@ async def _retrieve_partial_results(ctx: PipelineContext, technique_name: str) -
     except Exception as e:
         logger.warning("Failed to retrieve partial results: %s", e)
 
-
 def _create_objective_scorer(ctx: PipelineContext) -> Any:
- """ -- L5 v21 PyRIT SelfAskTrueFalseScorer.
+    """ -- L5 v21 PyRIT SelfAskTrueFalseScorer.
 
     .. deprecated:: L5 v34
          _build_scoring_config .
         v34  AttackScoringConfig(), all post-hoc  Judge .
          post-hoc fallback  (_post_hoc_judge_success) .
 
-    L5 v21: 
+    L5 v21:
         AdaptiveDualJudgeScorer  self._first_judge.score_async() ,
         PyRIT Scorer  score  memory (add_scores_to_memory).
          AdaptiveDualJudgeScorer  score ,
-        AttackExecutor  add_scores_to_memory 
+        AttackExecutor  add_scores_to_memory
         IntegrityError: UNIQUE constraint failed: ScoreEntries.id.
 
          PyRIT 1.0.1's Scorer  --  scorer  scorer
         converter(s) prompt_request_response_id  score.
 
-        :  SelfAskTrueFalseScorer,  scorer 
+        :  SelfAskTrueFalseScorer,  scorer
         .  Judge  (~15-25%), .
 
     Academic basis:
-        - Zheng et al. (arXiv:2306.05685): LLM-as-a-Judge  Judge 
-        - Zhang et al. (arXiv:2308.07920):  Judge  
+        - Zheng et al. (arXiv:2306.05685): LLM-as-a-Judge  Judge
+        - Zhang et al. (arXiv:2308.07920):  Judge
           PyRIT  scorer  ( 1.0.1 )
- """
+    """
  # L5 v21: PyRIT SelfAskTrueFalseScorer
     if ctx.scoring_target:
         try:
@@ -568,8 +629,10 @@ def _create_objective_scorer(ctx: PipelineContext) -> Any:
 
             from pyrit.score import SelfAskTrueFalseScorer, TrueFalseQuestion
 
-            calibrated_rubric_path = Path(__file__).resolve().parent.parent / "data" / "scorers" / "calibrated_task_achieved.yaml"
-            blackbox_rubric_path = Path(__file__).resolve().parent.parent / "data" / "scorers" / "blackbox_task_achieved.yaml"
+            calibrated_rubric_path = Path(__file__).resolve().parent.parent / "data" / \
+                "scorers" / "calibrated_task_achieved.yaml"
+            blackbox_rubric_path = Path(__file__).resolve().parent.parent / "data" / \
+                "scorers" / "blackbox_task_achieved.yaml"
             if calibrated_rubric_path.exists():
                 question = TrueFalseQuestion.from_yaml(calibrated_rubric_path)
                 scorer = SelfAskTrueFalseScorer.from_question(
@@ -609,9 +672,8 @@ def _create_objective_scorer(ctx: PipelineContext) -> Any:
 
     return None
 
-
 def _create_auxiliary_scorers(ctx: PipelineContext) -> list[Any]:
- """.
+    """.
 
     .. deprecated:: L5 v34
          _build_scoring_config .
@@ -619,15 +681,15 @@ def _create_auxiliary_scorers(ctx: PipelineContext) -> list[Any]:
         .
 
     L5 :
-        - SelfAskLikertScorer: Likert  (1-5), 
-        - : , 
+        - SelfAskLikertScorer: Likert  (1-5),
+        - : ,
 
     Args:
         ctx: .
 
     Returns:
          ().
- """
+    """
     scorers: list[Any] = []
 
     chat_target = ctx.scoring_target or ctx.adversarial_target

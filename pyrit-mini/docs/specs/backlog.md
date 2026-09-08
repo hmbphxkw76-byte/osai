@@ -11,7 +11,7 @@
 | BL-004 | 2026-09-05 | SKILL.md frontmatter 指向宪法（降位为 ⑤ 细则后收口） | 宪法第五章遗留迁移项 |
 | BL-005 | 2026-09-05 | docs/implementation_checklist.md 并入 specs/templates/task-spec.md 后转存档 | 宪法第五章遗留迁移项 | ✅ **completed** 2026-09-06：文件已删除，职能由 task-spec.md 接管 |
 | BL-006 | 2026-09-05 | D-09 文档收敛：SKILL.md / docs/ 与 specs/ 职责重叠，按蓝图第八章消除方向执行 | 蓝图第八章 | ✅ **partial** 2026-09-06：B/C 类旧文档全部删除，specs/ 金字塔确立为唯一权威源；SKILL.md 死引用已清理；BL-011 本体收敛仍待执行 |
-| BL-007 | 2026-09-05 | escalation.py vs escalation_chain.py 孪生 diff 确认（两文件仅差 9 字节）→ 执行 D-10 合并任务 | REV-02 审计 D-10 |
+| BL-007 | 2026-09-05 | escalation.py vs escalation_chain.py 孪生 diff 确认（两文件仅差 9 字节）→ **已清理**：escalation_chain.py 已删除（死代码/语法错误） | ✅ **completed** 2026-09-08 |
 | BL-008 | 2026-09-05 | report/output.py docstring mojibake（UTF-8/GBK 混写）修复，随 D-16 工具链任务 | REV-02 审计 D-16 |
 | BL-009 | 2026-09-05 | pyproject.toml：移除 ruff `exclude = [... "pipeline"]`、依赖钉 `pyrit==1.0.*`，随 D-16 工具链任务（路线图 T0-3） | REV-02 审计 D-16 |
 | BL-010 | 2026-09-05 | data/seeds/asr_history.json 运行时产物迁出 git（→ outputs/），.gitignore 补齐（NEG-7），随 D-16 任务 | REV-02 审计 D-16 |

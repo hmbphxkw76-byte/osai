@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Git Hooks - pre-commit / pre-push 
+"""Git Hooks - pre-commit / pre-push
 
  git commit  git push  architecture_guard.py
- BLOCKING 
+ BLOCKING
 
 :
     python core/setup_hooks.py          # hooks
@@ -27,9 +27,8 @@ if hasattr(sys.stderr, "reconfigure"):
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-
 def find_git_root() -> str | None:
- """ git """
+    """ git """
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--git-dir"],
@@ -47,9 +46,8 @@ def find_git_root() -> str | None:
         pass
     return None
 
-
 def _find_python_exe() -> str:
- """ Python hook """
+    """ Python hook """
     try:
         result = subprocess.run(
             [sys.executable, "-c", "import sys; print(sys.executable)"],
@@ -58,12 +56,11 @@ def _find_python_exe() -> str:
         )
         if result.returncode == 0:
             exe = result.stdout.strip()
- # Windows 
+ # Windows
             return exe.replace("/", "\\")
     except Exception:
         pass
     return sys.executable.replace("/", "\\")
-
 
 _GIT_ROOT = find_git_root()
 _HOOKS_DIR = None
@@ -79,7 +76,7 @@ if _GIT_ROOT:
 _PROJECT_NAME = _PROJECT_ROOT.name
 _PYTHON_EXE = _find_python_exe()
 
-# Hook - {python_exe} PATH 
+# Hook - {python_exe} PATH
 _PRE_COMMIT_HOOK = """#!/bin/sh
 # Combined pre-commit hook for {repo_name} + architecture_guard
 # Auto-installed by: python {project_name}/core/setup_hooks.py
@@ -175,9 +172,8 @@ HOOKS = {
     "pre-push": _PRE_PUSH_HOOK,
 }
 
-
 def install_hooks() -> int:
- """ Git hooks"""
+    """ Git hooks"""
     if not _HOOKS_DIR or not os.path.exists(_HOOKS_DIR):
         print("ERROR: .git/hooks/ directory not found")
         return 1
@@ -211,9 +207,8 @@ def install_hooks() -> int:
     print("    (Git hooks run static guard only - dry-run is runtime verification)")
     return 0
 
-
 def remove_hooks() -> int:
- """ Git hooks"""
+    """ Git hooks"""
     for name in HOOKS:
         if not _HOOKS_DIR:
             continue
@@ -230,7 +225,6 @@ def remove_hooks() -> int:
     print("  python main.py --dry-run --max-seeds 1  (R10 runtime verification)")
     return 0
 
-
 def main(argv: list[str] | None = None) -> int:
     if not _GIT_ROOT:
         print("ERROR: Not a git repository (.git/ not found)")
@@ -240,7 +234,6 @@ def main(argv: list[str] | None = None) -> int:
         return remove_hooks()
 
     return install_hooks()
-
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))

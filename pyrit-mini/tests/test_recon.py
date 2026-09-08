@@ -22,14 +22,14 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 
 class TestBurpParser:
- """Test Burp HTTP request parsing (step (1))."""
+    """Tests for burp request parsing."""
 
     def test_parse_basic_post_request(self, tmp_path):
- """Parse a minimal POST request with {PROMPT} placeholder."""
+        """Parse a minimal POST request with {PROMPT} placeholder."""
         from recon.burp_parser import parse_burp_request
 
         request_file = tmp_path / "request.txt"
- # Write a proper HTTP request with CRLF line endings
+        # Write a proper HTTP request with CRLF line endings
         request_file.write_bytes(
             b"POST /api/chat HTTP/1.1\r\n"
             b"Host: localhost:8080\r\n"
@@ -44,7 +44,7 @@ class TestBurpParser:
         assert parsed.has_prompt_placeholder is True
 
     def test_parse_request_auto_injects_prompt_placeholder(self, tmp_path):
- """Request without {PROMPT} should have it auto-injected by burp_parser."""
+        """Request without {PROMPT} should have it auto-injected by burp_parser."""
         from recon.burp_parser import parse_burp_request
 
         request_file = tmp_path / "request.txt"
@@ -57,19 +57,19 @@ class TestBurpParser:
         )
         parsed = parse_burp_request(str(request_file))
         assert parsed is not None
- # burp_parser auto-injects {PROMPT} when not present in the body
+        # burp_parser auto-injects {PROMPT} when not present in the body
         assert parsed.has_prompt_placeholder is True
         assert "{PROMPT}" in parsed.body
 
 
 class TestTargetRouter:
- """Test target router (step (2))."""
+    """Tests for target router."""
 
     @pytest.mark.asyncio
     async def test_create_target_missing_burp_request(self, tmp_path):
- """create_target should raise FileNotFoundError for missing burp request."""
-        from core.context import PipelineContext
+        """create_target should raise FileNotFoundError for missing burp request."""
         from recon.target_router import create_target
+        from core.context import PipelineContext
 
         args = MagicMock()
         args.burp = "nonexistent.txt"

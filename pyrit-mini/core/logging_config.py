@@ -1,8 +1,8 @@
-"""Logging configurationSignal handling - imports main.py 
+"""Logging configurationSignal handling - imports main.py
 
 :
     - setup_logging():  Handler  ( WARNING+,  INFO)
-    - switch_log_file():  endpoint 
+    - switch_log_file():  endpoint
     - install_signal_handlers(): SIGINT/SIGTERM graceful exit
 """
 
@@ -26,14 +26,13 @@ _top_level_file_handler: logging.FileHandler | None = None
 _signal_fired: bool = False
 _global_ctx: Any = None
 
-
 def setup_logging(output_dir: Path, verbose: bool = False) -> None:
- """ Handler : +WARNING, INFO.
+    """ Handler : +WARNING, INFO.
 
     Args:
-        output_dir: Output directory, pipeline.log 
+        output_dir: Output directory, pipeline.log
         verbose: True  INFO ()
- """
+    """
     global _current_file_handler, _top_level_file_handler
 
     root = logging.getLogger()
@@ -58,14 +57,13 @@ def setup_logging(output_dir: Path, verbose: bool = False) -> None:
         logger.info("--verbose :  INFO ")
     logger.info("Pipeline log -> %s", log_path)
 
-
 def switch_log_file(output_dir: Path) -> None:
- """ output_dir ( endpoint ).
+    """ output_dir ( endpoint ).
 
     Layer pipeline.log  (dual-write),
      per-endpoint pipeline.log
-     Handler 
- """
+     Handler
+    """
     global _current_file_handler
 
     root = logging.getLogger()
@@ -90,38 +88,35 @@ def switch_log_file(output_dir: Path) -> None:
 
     logger.info("Pipeline log switched -> %s", log_path)
 
-
 def install_signal_handlers(ctx: Any = None) -> None:
- """ SIGINT/SIGTERM Signal handling - graceful exit + 
+    """ SIGINT/SIGTERM Signal handling - graceful exit +
 
     Production-grade:
-        1. : ,  event loop 
+        1. : ,  event loop
         2. :  (os._exit)
- """
+    """
     global _global_ctx
     _global_ctx = ctx
 
     signal.signal(signal.SIGINT, _signal_handler)
     signal.signal(signal.SIGTERM, _signal_handler)
 
-
 def _signal_handler(signum: int, frame) -> None:
- """SIGINT/SIGTERM Signal handling - graceful exit + """
+    """SIGINT/SIGTERM Signal handling - graceful exit + """
     global _signal_fired
     if _signal_fired:
- # : , 
+     # : ,
         os._exit(130)
     _signal_fired = True
     print("\n[!] Received interrupt signal, ... ( Ctrl+C )", file=sys.stderr)
- # KeyboardInterrupt asyncio.run 
+ # KeyboardInterrupt asyncio.run
     raise KeyboardInterrupt
 
-
 def configure_root_logging(verbose: bool = False) -> None:
- """ root logger ( + ).
+    """ root logger ( + ).
 
-     setup_logging() , 
- """
+     setup_logging() ,
+    """
     logging.basicConfig(
         level=logging.WARNING,
         format=_LOG_FORMAT,
@@ -130,22 +125,21 @@ def configure_root_logging(verbose: bool = False) -> None:
  # : INFO ()
     for _pkg in ("core", "recon", "arm", "strike", "assess", "report"):
         logging.getLogger(_pkg).setLevel(logging.INFO)
- # 
+ #
     logging.getLogger("alembic").setLevel(logging.WARNING)
     logging.getLogger("pyrit").setLevel(logging.WARNING)
     logging.getLogger("sqlalchemy").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
- # 
+ #
     import warnings
     warnings.filterwarnings("ignore", category=SyntaxWarning, module="confusables")
 
-
 def flush_and_close_handlers() -> None:
- """Ensure all FileHandler flush + close, pipeline.log .
+    """Ensure all FileHandler flush + close, pipeline.log .
 
     : logging.FileHandler ,  flush/close
-    , 
- """
+    ,
+    """
     global _current_file_handler, _top_level_file_handler
     _logger = logging.getLogger(__name__)
     try:
@@ -156,7 +150,7 @@ def flush_and_close_handlers() -> None:
                     h.flush()
                     h.close()
                 except Exception as e:
- # R-H2 compliant: Do not silently swallow errors, debug 
+                 # R-H2 compliant: Do not silently swallow errors, debug
                     _logger.debug("Failed to flush/close FileHandler (non-fatal): %s", e)
  # root logger handlers
         root_logger.handlers = [
@@ -166,5 +160,5 @@ def flush_and_close_handlers() -> None:
         _current_file_handler = None
         _top_level_file_handler = None
     except Exception as e:
- # R-H2 compliant: Do not silently swallow errors, debug 
+     # R-H2 compliant: Do not silently swallow errors, debug
         _logger.debug("flush_and_close_handlers failed (non-fatal): %s", e)

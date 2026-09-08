@@ -178,7 +178,34 @@
 | NFR-7 | 离线可检 | 报告/PoC 生成不依赖网络（考试环境审查点）；依赖锁定（pyproject 钉 pyrit==1.0.* 区间，D-16 修复项） |
 | NFR-8 | 考试鲁棒性 | 任一阶段失败不影响其他阶段输出；partial 结果可独立生成报告（REQ-126） |
 
-## 第五章：需求变更流程（防偏航核心）
+## 第五章：企业AI红队Glue层需求（v1.6 增补，v1.7 精简）
+
+> **背景**：AI-enabled enterprise systems的攻击覆盖面不仅限于LLM prompt层，还包括认证集成、API Gateway、审计系统等企业基础设施。本章定义Glue层的企业攻击需求。
+
+> **v1.7 变更（过度工程化清理）**：移除向量DB攻击（REQ-128）和Fine-tuning攻击（REQ-131）需求。原因：需要向量DB SDK直接访问或训练环境API访问，黑盒HTTP目标测试场景无法执行。相关攻击向量通过间接注入seed覆盖。
+
+| ID | 陈述 | 关键验收 | Glue模块 |
+|----|------|---------|---------|
+| REQ-127 | **认证攻击覆盖** | JWT alg=none/RS256→HS256/kid注入/OAuth Scope提升/Session固定攻击全部可执行，通过PyRIT HTTPTarget发送 | enterprise_auth_glue |
+| REQ-128 | ~~**向量DB攻击覆盖**~~ | ~~已移除（黑盒HTTP不可测试）：需向量DB SDK直接访问，相关攻击通过间接注入seed覆盖~~ | ~~已删除~~ |
+| REQ-129 | **API Gateway攻击覆盖** | 速率限制测试/请求走私/缓存投毒全部可执行，并发度可配置 | api_gateway_glue |
+| REQ-130 | **审计逃逸攻击覆盖** | 日志注入（CRLF/ANSI/时间戳伪造）可执行 | audit_evasion_glue |
+| REQ-131 | ~~**Fine-tuning攻击覆盖**~~ | ~~已移除（黑盒HTTP不可测试）：需训练环境API访问，相关攻击通过间接注入seed覆盖~~ | ~~已删除~~ |
+| REQ-132 | **统一编排器** | EnterpriseAttackOrchestrator整合所有Glue模块，提供单一入口run_full_assessment | enterprise_orchestrator |
+| REQ-133 | **延迟导入机制** | 所有专用工具（PyJWT、pinecone、milvus、openai等）采用try/except ImportError导入，无硬依赖 | 全部Glue模块 |
+| REQ-134 | **攻击成功率度量** | 每次攻击返回结构化结果（attack_type、result、analysis），支持ASR统计 | 全部Glue模块 |
+
+### 企业攻击ASR基线
+
+| 攻击类别 | 基线ASR | 学术依据 |
+|---------|---------|---------|
+| 认证攻击（JWT alg=none） | 38.4% | arXiv:2402.19181 |
+| API Gateway速率限制 | 60-80% | OWASP API Top 10 |
+| 审计逃逸（日志注入） | 70-90% | OWASP Log Injection |
+
+> **已移除基线**：向量DB投毒、Fine-tuning后门——黑盒HTTP不可测试，通过间接注入seed覆盖。
+
+## 第六章：需求变更流程（防偏航核心）
 
 **任何新想法（无论来自用户还是 AI）进入代码的唯一路径**：
 
@@ -194,7 +221,7 @@
 - 用户口头提出的新功能 = 一个待写的 change-proposal，**不是**开工指令；
 - 评审未完成前，AI 可以做的只有：写提案、回答澄清问题、做不落码的调研。
 
-## 第六章：负需求（禁止清单）
+## 第七章：负需求（禁止清单）
 
 与正向需求同等效力的"不做"需求：
 
@@ -236,3 +263,5 @@
 | v1.3 | 2026-09-06 | REV-03 代码审计（remediation/audit-remediation.md）：① 新增第 3B 章 P0-NEW 需求缺口 REQ-114~119（升级链可达、多 agent 种子完整、MCP 动态链路、死代码清零、编码损坏、场景特异性）；② 状态登记表补 REQ-114~119 open 态 | — |
 | v1.4 | 2026-09-06 | REV-04 AI-300 考试需求优化：① 新增第 3C 章 P0-EXAM 考试关键需求 REQ-120~126（快速指纹、一键攻击、时间盒降级、证据实时落盘、卡死切换、Token 监控、报告即时生成）+ 考试日时间盒分配标准 + 考试攻击优先级规则；② 新增 NFR-8 考试鲁棒性；③ 更新状态登记表（REQ-120~126 exam 态） | 用户会话批准 |
 | v1.5 | 2026-09-06 | REV-07 目录结构重构：① Burp 目标文件从 config/campaigns/targets/ 扁平化迁移至 config/targets/；② asset_index.yaml 迁移至 config/profiles/ (固定参数集)；③ 4 Campaign 重命名清晰化：rapid_recon→quick_scan, full_spectrum_max_asr→deep_spectrum, mcp_agent_targeted→mcp_targeted, standard_redteam 保留；④ 删除 config/campaigns/ 目录 | 用户会话批准 |
+| v1.6 | 2026-09-08 | REV-08 企业AI红队融合解决方案：① 新增第五章企业AI红队Glue层需求 REQ-127~134（认证攻击、向量DB攻击、API Gateway攻击、审计逃逸、Fine-tuning攻击、统一编排器、延迟导入、ASR度量）；② 新增企业攻击ASR基线表 | 用户会话批准 |
+| v1.7 | 2026-09-08 | REV-09 过度工程化清理（精简Glue层需求）：① 移除向量DB攻击需求 REQ-128（黑盒HTTP不可测试）；② 移除Fine-tuning攻击需求 REQ-131（黑盒HTTP不可测试）；③ 审计逃逸需求 REQ-130 精简为仅日志注入（移除SIEM/审计路径）；④ 更新企业攻击ASR基线表 | 用户会话批准 |

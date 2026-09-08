@@ -1,13 +1,13 @@
-"""display_native.py - PyRIT 
+"""display_native.py - PyRIT
 
 R2 PyRIT  Output :
     1. :  PyRIT  output_attack_async(result, format='pretty') + StdoutSink
     2. : converter(s) AttackResult  output  ()
-    3. : per-objective per-attempt 
+    3. : per-objective per-attempt
 
 :
     -  PyRIT  output  (pyrit.output)
-    -  False,  fallback 
+    -  False,  fallback
     - /
 """
 
@@ -18,7 +18,6 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-
 async def print_native_attack_result(
     result: Any,
     *,
@@ -26,11 +25,11 @@ async def print_native_attack_result(
     include_adversarial: bool = True,
     include_pruned: bool = True,
 ) -> bool:
- """ PyRIT output_attack_async converter(s) AttackResult .
+    """ PyRIT output_attack_async converter(s) AttackResult .
 
     R2 PyRIT :  pyrit.output ,
-     prompt/response 
- """
+     prompt/response
+    """
     if result is None:
         logger.debug("No result to display (result is None)")
         return False
@@ -51,9 +50,8 @@ async def print_native_attack_result(
         logger.debug("Native attack output failed: %s - falling back to summary", e)
         return False
 
-
 async def print_native_scenario_result(scenario_result: Any) -> bool:
- """ PyRIT output_scenario_async ScenarioResult ."""
+    """ PyRIT output_scenario_async ScenarioResult ."""
     if scenario_result is None:
         logger.debug("No ScenarioResult to display (scenario_result is None)")
         return False
@@ -72,9 +70,8 @@ async def print_native_scenario_result(scenario_result: Any) -> bool:
         logger.debug("Native scenario output failed: %s - falling back to summary", e)
         return False
 
-
 async def print_technique_trail(scenario_result: Any) -> None:
- """ per-objective per-attempt (PyRIT : 'Inspecting which techniques were tried')."""
+    """ per-objective per-attempt (PyRIT : 'Inspecting which techniques were tried')."""
     if scenario_result is None:
         return
 
@@ -129,9 +126,8 @@ async def print_technique_trail(scenario_result: Any) -> None:
             else:
                 print("(no technique identifiers found)")
 
-
 def _get_technique_class_name(result: Any) -> str:
- """imports AttackResult ( technique trail )."""
+    """imports AttackResult ( technique trail )."""
     try:
         identifier = result.get_attack_strategy_identifier()
         if identifier is not None:

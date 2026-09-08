@@ -19,10 +19,8 @@ from assess.asr_manager import (
 )
 from assess.asr_stats import compute_cohens_kappa
 from assess.score_pipeline import precompute_outcomes_async
-from assess.scorer import create_objective_scorer
 
 __all__ = [
-    "create_objective_scorer",
     "precompute_outcomes_async",
     "compute_asr",
     "compute_overall_asr",

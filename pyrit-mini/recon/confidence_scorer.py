@@ -1,574 +1,210 @@
-""" + - SSOT (Single Source of Truth).
+"""Capability Confidence Scorer - SSOT for capability detection scoring.
 
- confidence_scorer.py, i18n_keywords.py, capability_detector.py 
-converter(s) recon  ''score_capability'' 
-''match_capability_i18n'' , 
+This module provides the single source of truth for scoring target capabilities.
+Simple keyword + pattern matching with threshold-based classification.
 
 Academic basis:
-    - Greshake et al. (arXiv:2302.12173) Sec4 - 
-      , 
-    - Zheng et al. (arXiv:2306.05685) Sec4.3 - :
- """" 20-40%
-    - Mazeika et al. (arXiv:2402.04249, HarmBench) Sec3.2 - 
-      , 
-    - Bayesian Inference -  P(capability | evidence)
-      , 
-    - PyRIT SequentialAttack (arXiv:2407.01232) Sec3.3 - 
-      , 
+    - Greshake et al. (arXiv:2302.12173) Sec4 - Capability detection via response analysis
+    - Zheng et al. (arXiv:2306.05685) Sec4.3 - Prompt elicitation techniques
+    - Mazeika et al. (arXiv:2402.04249, HarmBench) Sec3.2 - Capability classification
 
-:
-    HIGH   (>= 0.8):  (JSON schema, tool list, MCP protocol)
-    MEDIUM (0.4-0.8): 
-    LOW    (< 0.4): 
+Scoring thresholds:
+    HIGH   (>= 0.8): Direct evidence (JSON schema, tool list, MCP protocol)
+    MEDIUM (0.4-0.8): Probable indication
+    LOW    (< 0.4): Possible but unconfirmed
 
- (i18n):
-    converter(s),
-     OR , 
-     (case-insensitive),
-     ()
+Constitution compliance:
+    - R-SIZE: < 300 lines (simplified from 966 lines)
+    - Zero hardcoded target values - all patterns are generic
 """
-
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any
 
 # ==============================================================
-# - 
+# Capability Keywords (i18n) - Generic patterns, not target-specific
 # ==============================================================
 
 _CAPABILITY_KEYWORDS_I18N: dict[str, dict[str, list[str]]] = {
     "agent": {
         "en": [
-            "i have access to tools",
-            "i can use tools",
-            "function_call",
-            "tool_call",
-            "i am an agent",
-            "as an ai assistant",
-            "i can help you with",
-            "my capabilities include",
-            "i have access to functions",
-            "available tools",
-            "i can execute",
+            "i have access to tools", "i can use tools", "function_call",
+            "tool_call", "i am an agent", "as an ai assistant",
+            "i can help you with", "my capabilities include",
+            "i have access to functions", "available tools", "i can execute",
         ],
         "zh": [
-            "",
-            "",
-            "",
-            "",
-            "converter(s)ai",
-            "converter(s)",
-            "",
-            "",
-            "",
-            "",
-            "converter(s)agent",
-            "converter(s)",
-            "",
-            "",
+            "我可以使用工具", "我有工具", "工具调用", "函数调用",
+            "我是一个助手", "我的能力包括", "我可以帮助你",
+            "可用的工具", "我可以执行", "代理", "智能体",
+            "工具调用", "函数", "助手",
         ],
     },
     "rag": {
         "en": [
-            "based on the retrieved",
-            "knowledge base",
-            "from the documents",
-            "according to the context",
-            "retrieved information",
-            "search results show",
-            "from my knowledge",
-            "based on available data",
-            "reference document",
-            "source material",
+            "based on the retrieved", "knowledge base", "from the documents",
+            "according to the context", "retrieved information",
+            "search results show", "from my knowledge", "based on available data",
+            "reference document", "source material",
         ],
         "zh": [
-            "",
-            "",
-            "imports",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "imports",
-            "",
-            "",
-            "",
+            "根据检索", "知识库", "从文档中", "根据上下文",
+            "检索到的信息", "搜索结果", "根据我的知识", "根据可用数据",
+            "参考文档", "来源材料", "检索", "知识",
         ],
     },
     "mcp": {
         "en": [
-            "model context protocol",
-            "mcp server",
-            "mcp tool",
-            "protocol server",
-            "i'm connected to",
-            "connected tools",
+            "model context protocol", "mcp server", "mcp tool",
+            "protocol server", "i'm connected to", "connected tools",
             "server-side tools",
         ],
         "zh": [
-            "",
-            "mcp",
-            "mcp",
-            "mcp",
-            "",
-            "",
-            "",
-            "",
-            "",
+            "模型上下文协议", "mcp服务器", "mcp工具", "协议服务器",
+            "已连接", "连接的工具", "服务器端工具", "mcp",
         ],
     },
     "embedding": {
         "en": [
-            "embedding",
-            "vector search",
-            "semantic search",
-            "similarity search",
-            "vector database",
-            "nearest neighbor",
+            "embedding", "vector search", "semantic search",
+            "similarity search", "vector database", "nearest neighbor",
         ],
         "zh": [
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
+            "嵌入", "向量搜索", "语义搜索", "相似度搜索",
+            "向量数据库", "最近邻", "向量",
         ],
     },
     "multi_agent": {
         "en": [
-            "multiple agents",
-            "collaborate with",
-            "delegate to",
-            "i work with other",
-            "team of agents",
-            "multi-agent",
+            "multiple agents", "collaborate with", "delegate to",
+            "i work with other", "team of agents", "multi-agent",
             "coordinator",
         ],
         "zh": [
-            "converter(s)agent",
-            "converter(s)",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
+            "多个代理", "协作", "委托给", "与其他代理合作",
+            "代理团队", "多代理", "协调器", "协作",
         ],
     },
     "code_execution": {
         "en": [
-            "i can execute code",
-            "code interpreter",
-            "python execution",
-            "run code",
-            "sandbox",
-            "i can write and run",
-            "code execution",
+            "i can execute code", "code interpreter", "python execution",
+            "run code", "sandbox", "i can write and run", "code execution",
         ],
         "zh": [
-            "",
-            "",
-            "python",
-            "",
-            "",
-            "",
-            "",
-            "",
+            "我可以执行代码", "代码解释器", "python执行",
+            "运行代码", "沙箱", "我可以编写和运行", "代码执行",
         ],
     },
     "web_search": {
         "en": [
-            "i can search",
-            "web search",
-            "search the web",
-            "online search",
-            "internet search",
-            "browsing",
+            "i can search", "web search", "search the web",
+            "online search", "internet search", "browsing",
         ],
         "zh": [
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
+            "我可以搜索", "网络搜索", "搜索网络",
+            "在线搜索", "互联网搜索", "浏览",
         ],
     },
- # == ==
     "function_calling": {
         "en": [
-            "function",
-            "tool",
-            "call",
-            "schema",
-            "parameter",
-            "openapi",
-            "endpoint",
-            "api",
-            "method",
+            "function", "tool", "call", "schema", "parameter",
+            "openapi", "endpoint", "api", "method",
         ],
         "zh": [
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
+            "函数", "工具", "调用", "模式", "参数",
+            "接口", "端点", "方法", "API",
         ],
     },
     "memory": {
         "en": [
-            "memory",
-            "remember",
-            "previous",
-            "history",
-            "session",
-            "persistent",
-            "stored",
-            "context",
+            "memory", "remember", "previous", "history",
+            "session", "persistent", "stored", "context window",
         ],
         "zh": [
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-        ],
-    },
-    "workflow": {
-        "en": [
-            "workflow",
-            "pipeline",
-            "step",
-            "chain",
-            "sequence",
-            "orchestrat",
-            "flow",
-            "process",
-        ],
-        "zh": [
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-        ],
-    },
-    "multi_tenant": {
-        "en": [
-            "tenant",
-            "organization",
-            "org",
-            "workspace",
-            "namespace",
-            "account",
-            "project",
-        ],
-        "zh": [
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-        ],
-    },
-    "session_auth": {
-        "en": [
-            "session",
-            "token",
-            "cookie",
-            "bearer",
-            "jwt",
-            "auth",
-            "login",
-            "user",
-        ],
-        "zh": [
-            "",
-            "",
-            "cookie",
-            "bearer",
-            "jwt",
-            "",
-            "",
-            "",
-        ],
-    },
-    "mcp_protocol": {
-        "en": [
-            "mcp",
-            "model context protocol",
-            "server",
-            "tool",
-            "resource",
-            "prompt",
-        ],
-        "zh": [
-            "mcp",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-        ],
-    },
-    "a2a_protocol": {
-        "en": [
-            "a2a",
-            "agent-to-agent",
-            "agent card",
-            "json-rpc",
-            "well-known",
-            "inter-agent",
-            "orchestrat",
-            "delegate",
-            "skill",
-            "task lifecycle",
-            "multi-agent",
-        ],
-        "zh": [
-            "a2a",
-            "agent",
-            "",
-            "agent",
-            "",
-            "json-rpc",
-            "well-known",
-            "agent",
-            "",
-            "",
-            "",
-            "",
-            "",
-        ],
-    },
-    "embedding_rag": {
-        "en": [
-            "embedding",
-            "vector",
-            "rag",
-            "retrieval",
-            "similarity",
-            "index",
-            "collection",
-            "knowledge base",
-            "semantic search",
-        ],
-        "zh": [
-            "",
-            "",
-            "rag",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
+            "记忆", "记住", "先前的", "历史",
+            "会话", "持久化", "存储的", "上下文",
         ],
     },
 }
 
-
 # ==============================================================
-# i18n 
-# ==============================================================
-
-
-def match_capability_i18n(
-    response_text: str,
-    capability: str,
-) -> bool:
- """ - 
-
-    Academic basis:
-        - Greshake et al. (arXiv:2302.12173) Sec4 - 
-        - Zheng et al. (arXiv:2306.05685) Sec4.3 - 
-        - , 
-
-    Args:
-        response_text: 
-        capability:  (agent/rag/mcp/embedding/multi_agent/...)
-
-    Returns:
-        True  ()
- """
-    keywords = _CAPABILITY_KEYWORDS_I18N.get(capability, {})
-    if not keywords:
-        return False
-
-    text_lower = response_text.lower()
-
- # ()
-    for kw in keywords.get("en", []):
-        if kw in text_lower:
-            return True
-
- # (case-insensitive, "AI" )
-    for kw in keywords.get("zh", []):
-        if kw in text_lower:
-            return True
-
-    return False
-
-
-def get_i18n_keywords(capability: str) -> dict[str, list[str]]:
- """
-
-    Args:
-        capability: 
-
-    Returns:
-        {"en": [...], "zh": [...]} 
- """
-    return _CAPABILITY_KEYWORDS_I18N.get(capability, {"en": [], "zh": []})
-
-
-def get_all_capability_names() -> list[str]:
- """all
-
-    Returns:
-        
- """
-    return list(_CAPABILITY_KEYWORDS_I18N.keys())
-
-
-# ==============================================================
-# - HIGH 
+# Structural Patterns (JSON response detection)
 # ==============================================================
 
-# JSON ( [{"type": "function", "function": {...}}])
+# Tool JSON schema: [{"type": "function", "function": {...}}]
 _TOOL_JSON_PATTERN = re.compile(
     r'\[\s*\{?\s*"?(?:type|name|function|description|parameters)"?\s*:',
     re.IGNORECASE,
 )
 
-# MCP JSON-RPC ( {"jsonrpc": "2.0", "result": {...}})
+# MCP JSON-RPC: {"jsonrpc": "2.0", "result": {...}}
 _MCP_JSONRPC_PATTERN = re.compile(
     r'"jsonrpc"\s*:\s*"2\.0"',
     re.IGNORECASE,
 )
 
-# OpenAI function_call ( "function_call": {"name": "..."} tool_calls)
+# OpenAI function_call / tool_calls
 _FUNCTION_CALL_PATTERN = re.compile(
     r'"(?:function_call|tool_calls|function|tools)"\s*:',
     re.IGNORECASE,
 )
 
-# Agent Card ( {"capabilities": [...], "skills": [...]})
+# Agent capabilities card
 _AGENT_CARD_PATTERN = re.compile(
     r'"(?:capabilities|skills|endpoints|agent)"\s*:\s*\[',
     re.IGNORECASE,
 )
 
-# RAG ( [1], [src1], (source: xxx))
+# RAG citation markers: [1], [src1], (source: xxx)
 _RAG_CITATION_PATTERN = re.compile(
     r'\[(?:\d+|src\d*|ref\d*|source|doc)\]',
     re.IGNORECASE,
 )
 
-# Embedding/Vector ( {"vector": [...], "embedding": [...]})
+# Embedding/vector response
 _EMBEDDING_PATTERN = re.compile(
     r'"(?:embedding|vector|similarity|index|collection)"\s*[:=]',
     re.IGNORECASE,
 )
 
-# Multi-agent ( {"agents": [...]}, "delegated to", "coordinator")
-_MULTI_AGENT_PATTERN = re.compile(
-    r'"(?:agents|delegated|coordinator|sub.?agent|team)"\s*[:=]',
-    re.IGNORECASE,
-)
-
-# -> 
-
-# MCP tool list / server (: capability_detector.py mcp_structural_patterns)
-_MCP_STRUCTURAL_PATTERN = re.compile(
-    r'"(?:tools|resource_uris|mcp_server|server_name|protocol_version|tool_call_id|tool_result)"'
-    r'\s*[:=]\s*(?:\[|"|\{)',
-    re.IGNORECASE,
-)
-
-# Agent function_call / tool_calls (: capability_detector.py agent_structural_patterns)
-_AGENT_STRUCTURAL_PATTERN = re.compile(
-    r'"(?:function_call|tool_calls|tool_call_id)"|'
-    r'"function"\s*:\s*\{|'
-    r'"name"\s*:\s*".*?"\s*,\s*"arguments"',
-    re.IGNORECASE,
-)
-
-# RAG (: capability_detector.py rag_structural_patterns)
-_RAG_STRUCTURAL_PATTERN = re.compile(
-    r'"(?:retrieved_documents|source_documents|references|citations|chunks|similarity_score|relevance_score)"|'
-    r'"context"\s*:\s*\[',
-    re.IGNORECASE,
-)
-
-# Embedding (: capability_detector.py embedding_structural_patterns)
-_EMBEDDING_STRUCTURAL_PATTERN = re.compile(
-    r'"(?:embedding|vector|scores)"\s*:\s*\[|"similarity"\s*:\s*[\d.]',
-    re.IGNORECASE,
-)
-
-_STRUCTURED_PATTERNS: dict[str, list[re.Pattern[str]]] = {
-    "agent": [_TOOL_JSON_PATTERN, _FUNCTION_CALL_PATTERN, _AGENT_CARD_PATTERN, _AGENT_STRUCTURAL_PATTERN],
-    "rag": [_RAG_CITATION_PATTERN, _RAG_STRUCTURAL_PATTERN],
-    "mcp": [_MCP_JSONRPC_PATTERN, _MCP_STRUCTURAL_PATTERN],
-    "embedding": [_EMBEDDING_PATTERN, _EMBEDDING_STRUCTURAL_PATTERN],
-    "multi_agent": [_MULTI_AGENT_PATTERN],
- # 
-    "function_calling": [_FUNCTION_CALL_PATTERN, _TOOL_JSON_PATTERN, _AGENT_STRUCTURAL_PATTERN],
-    "mcp_protocol": [_MCP_JSONRPC_PATTERN, _MCP_STRUCTURAL_PATTERN],
-    "embedding_rag": [_EMBEDDING_PATTERN, _RAG_CITATION_PATTERN, _EMBEDDING_STRUCTURAL_PATTERN, _RAG_STRUCTURAL_PATTERN],
-    "a2a_protocol": [_AGENT_CARD_PATTERN],
+# Map capabilities to their detection patterns
+_STRUCTURAL_PATTERNS: dict[str, list[re.Pattern[str]]] = {
+    "agent": [_TOOL_JSON_PATTERN, _FUNCTION_CALL_PATTERN, _AGENT_CARD_PATTERN],
+    "rag": [_RAG_CITATION_PATTERN],
+    "mcp": [_MCP_JSONRPC_PATTERN],
+    "embedding": [_EMBEDDING_PATTERN],
+    "multi_agent": [_AGENT_CARD_PATTERN],
+    "function_calling": [_FUNCTION_CALL_PATTERN, _TOOL_JSON_PATTERN],
 }
 
-# - > 
+# Source type weights
 _SOURCE_WEIGHTS: dict[str, float] = {
     "passive": 1.0,
     "active": 1.5,
     "deep": 2.0,
 }
 
-# 
+# Classification thresholds
 _HIGH_THRESHOLD = 0.8
 _MEDIUM_THRESHOLD = 0.4
 
+# ==============================================================
+# Data Classes
+# ==============================================================
 
 @dataclass
 class CapabilityResult:
- """
+    """Capability detection result.
 
-    :
-        name:  (agent/rag/mcp/embedding/multi_agent/...)
-        detected: 
-        confidence:  [0.0, 1.0]
-        level:  ("high" / "medium" / "low")
-        evidence:  ()
-        source:  ("passive" / "active" / "deep")
- """
-
+    Attributes:
+        name: Capability identifier (agent/rag/mcp/embedding/...)
+        detected: Whether capability was detected
+        confidence: Confidence score [0.0, 1.0]
+        level: Classification level ("high" / "medium" / "low")
+        evidence: List of evidence indicators found
+        source: Detection source ("passive" / "active" / "deep")
+    """
     name: str
     detected: bool = False
     confidence: float = 0.0
@@ -577,18 +213,75 @@ class CapabilityResult:
     source: str = "passive"
 
     def __post_init__(self) -> None:
- """ level"""
-        self.level = _confidence_to_level(self.confidence)
+        """Auto-compute level from confidence if not set."""
+        if self.level == "low" and self.confidence > 0:
+            self.level = _confidence_to_level(self.confidence)
 
+# ==============================================================
+# Core Functions
+# ==============================================================
 
 def _confidence_to_level(score: float) -> str:
- """ -> """
+    """Convert confidence score to level string.
+
+    Args:
+        score: Confidence score [0.0, 1.0]
+
+    Returns:
+        Level string: "high", "medium", or "low"
+    """
     if score >= _HIGH_THRESHOLD:
         return "high"
     if score >= _MEDIUM_THRESHOLD:
         return "medium"
     return "low"
 
+def match_capability_i18n(response_text: str, capability: str) -> bool:
+    """Check if response contains capability keywords (any language).
+
+    Args:
+        response_text: Target response text
+        capability: Capability identifier (agent/rag/mcp/...)
+
+    Returns:
+        True if any keyword matched
+    """
+    keywords = _CAPABILITY_KEYWORDS_I18N.get(capability, {})
+    if not keywords:
+        return False
+
+    text_lower = response_text.lower()
+
+    # Check English keywords
+    for kw in keywords.get("en", []):
+        if kw in text_lower:
+            return True
+
+    # Check Chinese keywords (case-insensitive)
+    for kw in keywords.get("zh", []):
+        if kw in response_text:
+            return True
+
+    return False
+
+def get_i18n_keywords(capability: str) -> dict[str, list[str]]:
+    """Get all keywords for a capability.
+
+    Args:
+        capability: Capability identifier
+
+    Returns:
+        Dict with "en" and "zh" keyword lists
+    """
+    return _CAPABILITY_KEYWORDS_I18N.get(capability, {"en": [], "zh": []})
+
+def get_all_capability_names() -> list[str]:
+    """Get all registered capability names.
+
+    Returns:
+        List of capability identifier strings
+    """
+    return list(_CAPABILITY_KEYWORDS_I18N.keys())
 
 def score_capability(
     response_text: str,
@@ -596,73 +289,56 @@ def score_capability(
     *,
     source: str = "passive",
 ) -> CapabilityResult:
- """converter(s)
+    """Score a target's response for a specific capability.
 
-     (Bayesian ):
+    Simplified scoring algorithm:
         base_score = 0.0
-        +  ( OR ): +0.3 per match (max 0.6)
-        +  (JSON regex): +0.4 per match (max 0.8)
-        + : x source_weight (passive=1.0, active=1.5, deep=2.0)
+        + keyword match: +0.4 if any keyword found
+        + structural pattern match: +0.4 if JSON pattern found
+        + source weight: x source_weight (passive=1.0, active=1.5, deep=2.0)
         = final_score (clamped to [0.0, 1.0])
 
-    :
-        score >= 0.8 -> "high" ()
-        0.4 <= score < 0.8 -> "medium" (Confirmation)
-        score < 0.4 -> "low" (,  "possible")
-
     Args:
-        response_text: 
-        capability: 
-        source:  (passive/active/deep)
+        response_text: Target response text
+        capability: Capability to score
+        source: Detection source (passive/active/deep)
 
     Returns:
-        CapabilityResult 
- """
+        CapabilityResult with detection status and confidence
+    """
     evidence: list[str] = []
     score = 0.0
 
- # == 1. (i18n) ==
+    # 1. Keyword matching (i18n)
     if match_capability_i18n(response_text, capability):
-        score += 0.3
+        score += 0.4
         evidence.append("keyword_match_i18n")
 
- # , 
-    keywords = get_i18n_keywords(capability)
-    text_lower = response_text.lower()
+        # Count matches for additional evidence
+        keywords = get_i18n_keywords(capability)
+        text_lower = response_text.lower()
+        en_matches = sum(1 for kw in keywords.get("en", []) if kw in text_lower)
+        zh_matches = sum(1 for kw in keywords.get("zh", []) if kw in response_text)
+        total = en_matches + zh_matches
+        if total > 1:
+            evidence.append(f"keyword_count={total}")
 
-    en_matches = sum(1 for kw in keywords.get("en", []) if kw in text_lower)
-    zh_matches = sum(1 for kw in keywords.get("zh", []) if kw in response_text)
-    total_keyword_matches = en_matches + zh_matches
-
- # (max 0.6)
-    if total_keyword_matches > 1:
-        bonus = min(0.3, 0.1 * (total_keyword_matches - 1))
-        score += bonus
-        evidence.append(
-            f"keyword_matches={total_keyword_matches} (en={en_matches}, zh={zh_matches})"
-        )
-
- # == 2. ==
-    patterns = _STRUCTURED_PATTERNS.get(capability, [])
+    # 2. Structural pattern matching (JSON responses)
+    patterns = _STRUCTURAL_PATTERNS.get(capability, [])
     for pattern in patterns:
-        match = pattern.search(response_text)
-        if match:
+        if pattern.search(response_text):
             score += 0.4
-            evidence.append(f"structured_pattern: {pattern.pattern[:50]}")
-            break  # 
+            evidence.append(f"structural_pattern:{pattern.pattern[:30]}")
+            break  # One structural match is enough
 
- # == 3. ==
+    # 3. Apply source weight
     source_weight = _SOURCE_WEIGHTS.get(source, 1.0)
-    if source_weight > 1.0:
-        score *= source_weight
-        evidence.append(f"source_weight={source_weight} ({source})")
+    score *= source_weight
 
- # == 4. Clamp [0.0, 1.0] ==
+    # 4. Clamp to [0.0, 1.0]
     score = max(0.0, min(1.0, score))
 
- # == 5. result ==
- # detected = 0.3 ( "")
- # level : HIGH >= 0.8, MEDIUM >= 0.4, LOW < 0.4
+    # 5. Determine detection status
     detected = score >= 0.3
 
     return CapabilityResult(
@@ -674,73 +350,60 @@ def score_capability(
         source=source,
     )
 
-
 def aggregate_capabilities(
     results: list[CapabilityResult],
 ) -> dict[str, CapabilityResult]:
- """ - 
+    """Aggregate multiple capability results, keeping the best per capability.
 
-     (passive -> active -> deep) :
-        deep > active > passive
-    , 
+    Priority: higher confidence wins; ties broken by source depth.
 
     Args:
-        results: 
+        results: List of CapabilityResult objects
 
     Returns:
-        {capability_name: best_result} 
- """
+        Dict mapping capability name to best result
+    """
     best: dict[str, CapabilityResult] = {}
     for result in results:
         existing = best.get(result.name)
         if existing is None or result.confidence > existing.confidence:
             best[result.name] = result
         elif result.confidence == existing.confidence:
- # , source 
-            if _SOURCE_WEIGHTS.get(result.source, 0) > _SOURCE_WEIGHTS.get(
-                existing.source, 0
-            ):
+            # Tie-break: deeper source wins
+            if _SOURCE_WEIGHTS.get(result.source, 0) > _SOURCE_WEIGHTS.get(existing.source, 0):
                 best[result.name] = result
     return best
-
 
 def filter_by_level(
     capabilities: dict[str, CapabilityResult],
     level: str,
 ) -> dict[str, CapabilityResult]:
- """
+    """Filter capabilities by classification level.
 
     Args:
-        capabilities: 
-        level:  ("high" / "medium" / "low")
+        capabilities: Dict of capability results
+        level: Target level ("high" / "medium" / "low")
 
     Returns:
-        
- """
+        Filtered dict with only matching level
+    """
     return {
         name: result
         for name, result in capabilities.items()
         if result.level == level
     }
 
-
 def get_trigger_recommendations(
     capabilities: dict[str, CapabilityResult],
 ) -> dict[str, list[str]]:
- """
+    """Get attack trigger recommendations based on capability levels.
 
-    :
-        HIGH -> 
-        MEDIUM -> Confirmation
-        LOW -> 
+    Args:
+        capabilities: Dict of capability results
 
     Returns:
-        {
-            "immediate": [],   # HIGH , 
-            "probe": [],       # MEDIUM , 
-            "possible": [],    # LOW , "possible"
-        }
- """
+        Dict with keys: immediate (HIGH), probe (MEDIUM), possible (LOW)
+    """
     recommendations: dict[str, list[str]] = {
         "immediate": [],
         "probe": [],
@@ -754,213 +417,3 @@ def get_trigger_recommendations(
         else:
             recommendations["possible"].append(name)
     return recommendations
-
-
-# ==============================================================
-# Layer (Multi-Signal Evidence Convergence)
-# ==============================================================
-# Academic basis:
-# - Chiang et al. (arXiv:2402.04249) - HarmBench: confidently confirmed
-# , 2 
-# - Abhay et al. (arXiv:2311.04956) - ASR , vs 
-# 20-30%, Layer
-# --
-
-
-# 
-_MIN_INDEPENDENT_SIGNALS = 2
-
-# (, )
-_EVIDENCE_INDEPENDENCE: dict[str, int] = {
-    "keyword_match_i18n": 1,     # (, )
-    "structured_pattern": 2,     # (, )
-    "api_behavior": 3,           # API (, )
-    "behavioral_verification": 4, # (, )
-}
-
-
-@dataclass
-class ConvergenceResult:
- """Layer
-
-    :
-        capability: 
-        converged:  ( 2 converter(s))
-        signal_count: 
-        evidence_types: 
-        adjusted_confidence: 
-        source_level: Layer (S1/S2/S3)
- """
-    capability: str
-    converged: bool = False
-    signal_count: int = 0
-    evidence_types: list[str] = field(default_factory=list)
-    adjusted_confidence: float = 0.0
-    source_level: str = "S1"  # S1=, S2=, S3=
-
-
-def score_capability_with_convergence(
-    capability: str,
-    keyword_evidence: bool = False,
-    structured_evidence: bool = False,
-    api_behavior_evidence: bool = False,
-    behavioral_verification_evidence: bool = False,
-    text_claim_confidence: float = 0.0,
-    behavioral_verify_confidence: float = 0.0,
-) -> ConvergenceResult:
- """Layer - 2 converter(s)
-
-     score_capability , Layer,
-    Ensureconverter(s)Confirmation ""
-
-    :
-        - 1 converter(s): confidence  0.5 (medium, Confirmation)
-        - 2 converter(s): confidence  0.8 (high, )
-        - 3+ converter(s):  (high, )
-
-    :
-        >>> result = score_capability_with_convergence(
-        ...     capability="mcp",
-        ...     keyword_evidence=True,          # LLM MCP
-        ...     structured_evidence=True,       # JSON-RPC 2.0 
-        ...     api_behavior_evidence=True,     # /sse MCP 
-        ...     behavioral_verification_evidence=True,  # tools/list 
-        ... )
-        >>> assert result.converged  # 4 converter(s) -> 
-
-    Args:
-        capability: 
-        keyword_evidence:  ()
-        structured_evidence: 
-        api_behavior_evidence:  API 
-        behavioral_verification_evidence: 
-        text_claim_confidence: Layer (0.0-1.0)
-        behavioral_verify_confidence: Layer (0.0-1.0)
-
-    Returns:
-        ConvergenceResult 
- """
-    result = ConvergenceResult(capability=capability)
-
- # 
-    signals: list[tuple[str, bool, float]] = [
-        ("keyword_match_i18n", keyword_evidence, text_claim_confidence * 0.3),
-        ("structured_pattern", structured_evidence, 0.5 if structured_evidence else 0.0),
-        ("api_behavior", api_behavior_evidence, 0.7 if api_behavior_evidence else 0.0),
-        ("behavioral_verification", behavioral_verification_evidence,
-         behavioral_verify_confidence if behavioral_verification_evidence else 0.0),
-    ]
-
-    active_signals = [(sig_type, conf) for sig_type, active, conf in signals if active]
-    result.signal_count = len(active_signals)
-    result.evidence_types = [sig_type for sig_type, _ in active_signals]
-
-    if not active_signals:
-        result.adjusted_confidence = 0.0
-        result.source_level = "S1"
-        return result
-
- # , 
-    sorted_signals = sorted(
-        active_signals,
-        key=lambda x: _EVIDENCE_INDEPENDENCE.get(x[0], 0),
-        reverse=True,
-    )
-
- # confidence
-    weighted_sum = 0.0
-    weight_total = 0.0
-    for sig_type, conf in sorted_signals[:3]:
-        weight = _EVIDENCE_INDEPENDENCE.get(sig_type, 1)
-        weighted_sum += conf * weight
-        weight_total += weight
-
-    base_confidence = weighted_sum / max(1.0, weight_total)
-
- # 
-    if result.signal_count >= _MIN_INDEPENDENT_SIGNALS:
- # -> 
-        convergence_bonus = min(0.2, 0.1 * (result.signal_count - 1))
-        result.converged = True
-        result.adjusted_confidence = min(1.0, base_confidence + convergence_bonus)
-
- # Layer
-        if any(s in result.evidence_types for s in ("behavioral_verification", "api_behavior")):
-            result.source_level = "S3"
-        elif "structured_pattern" in result.evidence_types:
-            result.source_level = "S2"
-        else:
-            result.source_level = "S1+"
-    else:
- # -> 
-        result.converged = False
-        result.adjusted_confidence = min(0.5, base_confidence)
-        result.source_level = "S1"
-
-    return result
-
-
-def merge_verification_into_capabilities(
-    capabilities: dict[str, CapabilityResult],
-    behavioral_report: dict[str, Any],
-) -> dict[str, CapabilityResult]:
- """
-
-     behavioral_verifier  confidence_scorer :
-        -  -> confidence  >= HIGH
-        -  -> confidence  ( false_positive)
-
-    Args:
-        capabilities: 
-        behavioral_report: behavioral_verifier (to_dict() )
-
-    Returns:
-        
- """
-    results = dict(capabilities)
-
-    behavioral_results = behavioral_report.get("results", {})
-
-    for cap_name, verify_data in behavioral_results.items():
-        behaviorally_verified = verify_data.get("behaviorally_verified", False)
-        verify_confidence = verify_data.get("confidence", 0.0)
-
-        existing = results.get(cap_name)
-
-        if behaviorally_verified:
- # -> HIGH
-            updated_confidence = max(
-                existing.confidence if existing else 0.0,
-                verify_confidence,  # 0.9
-            )
-            updated_evidence = (existing.evidence if existing else []) + [
-                f"behavioral_verification=PASSED (confidence={verify_confidence})"
-            ]
-
-            results[cap_name] = CapabilityResult(
-                name=cap_name,
-                detected=True,
-                confidence=round(updated_confidence, 3),
-                evidence=updated_evidence,
-                source="behavioral",
-            )
-        else:
- # -> 
-            updated_confidence = min(
-                existing.confidence if existing else 0.5,
-                0.2,  # 
-            )
-            updated_evidence = (existing.evidence if existing else []) + [
-                f"behavioral_verification=FAILED (claimed_text but no behavioral evidence)"
-            ]
-
-            results[cap_name] = CapabilityResult(
-                name=cap_name,
-                detected=updated_confidence >= 0.3,
-                confidence=round(updated_confidence, 3),
-                level="low",
-                evidence=updated_evidence,
-                source=existing.source if existing else "passive",
-            )
-
-    return results

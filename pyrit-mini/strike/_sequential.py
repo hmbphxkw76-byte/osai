@@ -11,8 +11,8 @@ imports strike/executor.py  (P1 ).
 2. _manual_multi_path_loop: Fallback  ()
 
 Academic basis:
-    - PyRIT SequentialAttack (arXiv:2407.01232): FIRST_SUCCESS 
-    - Wei et al. (arXiv:2307.15043):  
+    - PyRIT SequentialAttack (arXiv:2407.01232): FIRST_SUCCESS
+    - Wei et al. (arXiv:2307.15043):
 """
 from __future__ import annotations
 
@@ -24,7 +24,6 @@ from typing import Any
 from utils.attack_utils import _is_success  # P2 \u4f18\u5316: SSOT
 
 logger = logging.getLogger(__name__)
-
 
 async def _try_native_sequential_attack(
     *,
@@ -40,13 +39,13 @@ async def _try_native_sequential_attack(
     converter(s) converter(s) PromptSendingAttack child attack,
     SequentialAttack  FIRST_SUCCESS : Skip.
 
-    : SequentialAttack converter(s) child  seed_group, 
-     (Rule 10 MUST NOT: SequentialAttack.seed_group 
+    : SequentialAttack converter(s) child  seed_group,
+     (Rule 10 MUST NOT: SequentialAttack.seed_group
      sequential execute_attack_from_seed_groups_async ).
 
     Academic basis:
-        - PyRIT SequentialAttack (arXiv:2407.01232) — FIRST_SUCCESS 
-        - Wei et al. (arXiv:2307.15043) —  
+        - PyRIT SequentialAttack (arXiv:2407.01232) — FIRST_SUCCESS
+        - Wei et al. (arXiv:2307.15043) —
 
     Args:
         ctx: .
@@ -96,7 +95,7 @@ async def _try_native_sequential_attack(
 
     for sg_idx, sg in enumerate(ctx.seeds):
         # L5 v40: per-seed-group converter prioritization
-        #    seed_group  category,  category_converter_map 
+        #    seed_group  category,  category_converter_map
         #    converter  candidate_converters
         #   Academic basis: Greshake et al. (arXiv:2302.12173) —
         #      category, converter  category
@@ -107,8 +106,8 @@ async def _try_native_sequential_attack(
             if sg_category:
                 break
 
-        # L5 v40: per-seed-group converter 
-        sg_ordered_converters = candidate_converters  # : 
+        # L5 v40: per-seed-group converter
+        sg_ordered_converters = candidate_converters  # :
         if sg_category:
             try:
                 from arm.seed_ranker import load_asr_priors
@@ -150,7 +149,7 @@ async def _try_native_sequential_attack(
         prepended_config = _build_prepended_conversation_config(ctx)
 
         # Build child attacks: one path per converter
-        # L5 v40:  per-seed-group  converter 
+        # L5 v40:  per-seed-group  converter
         child_attacks: list[SequentialChildAttack] = []
         for conv in sg_ordered_converters:
             conv_name = type(conv).__name__
@@ -188,7 +187,7 @@ async def _try_native_sequential_attack(
         try:
             seq_kwargs: dict[str, Any] = {"objective": objective}
 
-            # : SequentialAttack 
+    # : SequentialAttack
             if _native_seq_fn is not None:
                 try:
                     _native_seq_fn(
@@ -207,11 +206,11 @@ async def _try_native_sequential_attack(
             )
             all_results.append(result)
 
-            # L5 v52:  SequentialAttack result  success/failure 
-            # SequentialAttack(FIRST_SUCCESS)  result,  outcome
-            #  outcome != SUCCESS,  objective  incomplete list
-            #  Best-of-N Retry
-            # Academic basis: arXiv:2407.01232 — PyRIT SequentialAttack result 
+    # L5 v52:  SequentialAttack result  success/failure
+    # SequentialAttack(FIRST_SUCCESS)  result,  outcome
+    #  outcome != SUCCESS,  objective  incomplete list
+    #  Best-of-N Retry
+    # Academic basis: arXiv:2407.01232 — PyRIT SequentialAttack result
             from pyrit.models import AttackOutcome
 
             seq_outcome = getattr(result, "outcome", None)
@@ -232,7 +231,6 @@ async def _try_native_sequential_attack(
         )
     return all_results, all_incomplete
 
-
 async def _manual_multi_path_loop(
     *,
     ctx: Any,
@@ -252,7 +250,7 @@ async def _manual_multi_path_loop(
 
     Academic basis:
         - PyRIT SequentialAttack (arXiv:2407.01232): FIRST_SUCCESS ,
-           execute_attack_from_seed_groups_async 
+           execute_attack_from_seed_groups_async
         - Wei et al. (arXiv:2307.15043):  >2 Layer ASR imports 12%  4%
 
     Args:
@@ -283,7 +281,7 @@ async def _manual_multi_path_loop(
     remaining_seeds = list(ctx.seeds)
     total_converters = len(candidate_converters)
 
-    # 
+    #
     try:
         from utils.display import print_converter_path_done, print_converter_path_start
         _path_start_fn = print_converter_path_start
@@ -309,7 +307,7 @@ async def _manual_multi_path_loop(
             prepended_conversation_config=prepended_config,
         )
 
-        # : 
+        # :
         if _path_start_fn is not None:
             try:
                 _path_start_fn(
@@ -339,7 +337,7 @@ async def _manual_multi_path_loop(
             path_results = list(result.completed_results)
             all_results.extend(path_results)
             incomplete_objectives.extend(result.incomplete_objectives)
-            # : 
+    # :
             if result.incomplete_objectives:
                 failed_indices = {idx for idx, _ in result.incomplete_objectives}
                 remaining_seeds = [
@@ -351,7 +349,7 @@ async def _manual_multi_path_loop(
             _path_elapsed = time.monotonic() - _path_start_time
             _path_success = sum(1 for r in path_results if _is_success(r))
 
-            # : 
+    # :
             if _path_done_fn is not None:
                 try:
                     _path_done_fn(

@@ -1,4 +1,4 @@
-"""PyRIT output Layer - PyRIT 1.0.1 output 
+"""PyRIT output Layer - PyRIT 1.0.1 output
 
 # arXiv:2407.01232 - PyRIT, native output module (output_attack_async, output_scenario_async)
 # arXiv:2402.12109 - Russinovich et al., CrescendoAttack (multi-turn progressive escalation)
@@ -8,15 +8,14 @@
 # arXiv:2402.05124 - Anthropic, ManyShotJailbreakAttack (many-shot jailbreaking)
 
  PyRIT  'pyrit.output' LayerEnsure
- PyRIT  OffSec AI-300 
-
+ PyRIT  OffSec AI-300
 
 PyRIT  output :
     Sink () -> PrinterBase () -> Domain Printer ()
 
 :
-    - pretty (ANSI-colored): PyRIT 
-    - markdown: Jupyter/PyRIT  markdown 
+    - pretty (ANSI-colored): PyRIT
+    - markdown: Jupyter/PyRIT  markdown
 
 :
     - output_native_attack_results:  output_attack_async converter(s) AttackResult
@@ -24,9 +23,9 @@ PyRIT  output :
     - generate_native_output_files:  (attack_results.md + scenario_result.md)
 
 OffSec AI-300 :
-    - R2 PyRIT :  pyrit.output 
-    - R6 :  output + 
-    - :  PyRIT 
+    - R2 PyRIT :  pyrit.output
+    - R6 :  output +
+    - :  PyRIT
 """
 
 from __future__ import annotations
@@ -40,7 +39,6 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     pass
 
-
 async def output_native_attack_results(
     attack_results: dict[str, list[Any]],
     output_dir: Path,
@@ -49,7 +47,7 @@ async def output_native_attack_results(
     include_adversarial_conversation: bool = True,
     include_pruned_conversations: bool = True,
 ) -> int:
- """ PyRIT output_attack_async converter(s) AttackResult
+    """ PyRIT output_attack_async converter(s) AttackResult
 
     :
         - output_dir/native_output/attack_<technique>_<index>.md (markdown )
@@ -62,15 +60,15 @@ async def output_native_attack_results(
         - : Header -> Summary -> Conversation History -> Metadata -> Footer
 
     Args:
-        attack_results: {technique_name: [AttackResult, ...]} 
+        attack_results: {technique_name: [AttackResult, ...]}
         output_dir: Output directory
         include_auxiliary_scores:  (OffSec: True)
         include_adversarial_conversation:  (OffSec: True)
-        include_pruned_conversations: 
+        include_pruned_conversations:
 
     Returns:
-         AttackResult 
- """
+         AttackResult
+    """
     from pyrit.output import FileSink, output_attack_async
 
     native_dir = output_dir / "native_output"
@@ -78,13 +76,13 @@ async def output_native_attack_results(
 
     count = 0
     fallback_count = 0
- # v57: native output fallback warnings, 
+ # v57: native output fallback warnings,
     _fb_markdown_count = 0
     _fb_pretty_count = 0
     for technique_name, results in attack_results.items():
         safe_name = technique_name.replace("/", "_").replace("\\", "_")
         for i, result in enumerate(results):
- # - Markdown (PyRIT ) -
+         # - Markdown (PyRIT ) -
             md_path = native_dir / f"attack_{safe_name}_{i + 1}.md"
             try:
                 await output_attack_async(
@@ -101,7 +99,7 @@ async def output_native_attack_results(
                     "Native markdown output failed for %s[%d]: %s - using fallback",
                     technique_name, i, e,
                 )
- # Fallback: AttackResult 
+ # Fallback: AttackResult
                 fb_written = _write_fallback_attack_output(result, md_path, fmt="markdown")
                 if fb_written:
                     fallback_count += 1
@@ -123,7 +121,7 @@ async def output_native_attack_results(
                     "Native pretty output failed for %s[%d]: %s - using fallback",
                     technique_name, i, e,
                 )
- # Fallback: pretty 
+ # Fallback: pretty
                 _write_fallback_attack_output(result, txt_path, fmt="pretty")
                 _fb_pretty_count += 1
 
@@ -145,14 +143,13 @@ async def output_native_attack_results(
             total, native_dir, count, fallback_count,
         )
     elif count == 0 and fallback_count == 0:
- # L5 v41: In dry-run mode, 0 AttackResult is expected (strike is
- # skipped). Downgrade to INFO to avoid false-alarm WARNING.
+     # L5 v41: In dry-run mode, 0 AttackResult is expected (strike is
+     # skipped). Downgrade to INFO to avoid false-alarm WARNING.
         logger.info(
             "PyRIT native output: 0 AttackResult saved "
             "(dry-run or no attack results - expected if --dry-run)"
         )
     return total
-
 
 async def output_native_scenario_result(
     scenario_result: Any | None,
@@ -160,7 +157,7 @@ async def output_native_scenario_result(
     *,
     sort_groups_by_success_rate: bool = True,
 ) -> bool:
- """ PyRIT output_scenario_async ScenarioResult
+    """ PyRIT output_scenario_async ScenarioResult
 
     :
         - output_dir/native_output/scenario_result.txt (pretty , ANSI-colored)
@@ -175,11 +172,11 @@ async def output_native_scenario_result(
     Args:
         scenario_result: PyRIT ScenarioResult  ( None)
         output_dir: Output directory
-        sort_groups_by_success_rate: 
+        sort_groups_by_success_rate:
 
     Returns:
-        True 
- """
+        True
+    """
     if scenario_result is None:
         logger.debug("No ScenarioResult to output (scenario_result is None)")
         return False
@@ -217,35 +214,34 @@ async def output_native_scenario_result(
 
     return True
 
-
 async def generate_native_output_files(
     attack_results: dict[str, list[Any]],
     scenario_result: Any | None,
     output_dir: Path,
 ) -> Path:
- """all PyRIT 
+    """all PyRIT
 
      PyRIT  output :
-        1. native_output/attack_*.md - converter(s) AttackResult  markdown 
-        2. native_output/attack_*.txt - converter(s) AttackResult  pretty 
-        3. native_output/scenario_result.txt - ScenarioResult  pretty 
-        4. native_output/scenario_result.md - ScenarioResult  markdown 
-        5. native_output/README.md - 
+        1. native_output/attack_*.md - converter(s) AttackResult  markdown
+        2. native_output/attack_*.txt - converter(s) AttackResult  pretty
+        3. native_output/scenario_result.txt - ScenarioResult  pretty
+        4. native_output/scenario_result.md - ScenarioResult  markdown
+        5. native_output/README.md -
 
      (report.md/report.html ) :
         - native_output/ - PyRIT  ()
-        - report.md / report.html - OffSec AI-300 
+        - report.md / report.html - OffSec AI-300
         - evidence/ -  JSON
-        - poc/ - PoC 
+        - poc/ - PoC
 
     Args:
-        attack_results: {technique_name: [AttackResult, ...]} 
+        attack_results: {technique_name: [AttackResult, ...]}
         scenario_result: ScenarioResult  ( None)
         output_dir: Output directory
 
     Returns:
-        native_output 
- """
+        native_output
+    """
     native_dir = output_dir / "native_output"
     native_dir.mkdir(parents=True, exist_ok=True)
 
@@ -268,33 +264,32 @@ async def generate_native_output_files(
     )
     return native_dir
 
-
 def _write_fallback_attack_output(
     result: Any,
     path: Path,
     *,
     fmt: str = "markdown",
 ) -> bool:
- """ PyRIT output_attack_async fallback 
+    """ PyRIT output_attack_async fallback
 
-    imports AttackResult 
+    imports AttackResult
      PyRIT : Header -> Summary -> Conversation -> Footer
 
     : output_attack_async  CentralMemory.get_memory_instance()
-     conversation  endpoint  setup_environment 
+     conversation  endpoint  setup_environment
     CentralMemory  AttackResult  conversation_id
-     DB  output 
+     DB  output
 
     Args:
-        result: PyRIT AttackResult 
-        path: 
+        result: PyRIT AttackResult
+        path:
         fmt:  ("markdown"  "pretty")
 
     Returns:
-        True 
- """
+        True
+    """
     try:
- # AttackResult ( PyRIT 1.0.1 model )
+     # AttackResult ( PyRIT 1.0.1 model )
         outcome = getattr(result, "outcome", None)
         outcome_str = str(outcome).upper() if outcome else "UNKNOWN"
         objective = getattr(result, "objective", "") or ""
@@ -310,24 +305,30 @@ def _write_fallback_attack_output(
             sc = getattr(last_score, "score_type", "")
             score_lines.append(f"  - Scorer: {type(last_score).__name__} | Type: {sc} | Value: {sv} | Rationale: {sr}")
 
- # conversation - last_response (MessagePiece) 
+ # conversation - last_response (MessagePiece)
         conv_pieces: list[str] = []
         try:
             last_response = getattr(result, "last_response", None)
             if last_response:
                 role = getattr(last_response, "role", "assistant")
-                val = getattr(last_response, "converted_value", "") or getattr(last_response, "original_value", "") or ""
+                val = getattr(
+                    last_response,
+                    "converted_value",
+                    "") or getattr(
+                    last_response,
+                    "original_value",
+                    "") or ""
                 if val:
                     conv_pieces.append(f"  [{role}] {val[:500]}")
         except Exception:
             pass
 
- # Fallback: last_response , objective 
+ # Fallback: last_response , objective
         if not conv_pieces:
             if objective:
                 conv_pieces.append(f"  [user] {objective[:500]}")
 
- # 
+ #
         if fmt == "markdown":
             score_section = score_lines if score_lines else ["  (no scores available)"]
             conv_section = conv_pieces if conv_pieces else ["  (no conversation data available)"]
@@ -385,15 +386,14 @@ def _write_fallback_attack_output(
         logger.debug("Fallback output also failed for %s: %s", path, e)
         return False
 
-
 def _generate_readme(attack_count: int, scenario_ok: bool) -> str:
- """ native_output README.md
+    """ native_output README.md
 
      PyRIT 1.0.1  output :
         - PrettyAttackResultMemoryPrinter ( ANSI )
         - MarkdownAttackResultMemoryPrinter (Jupyter/ Markdown)
         - PrettyScenarioResultMemoryPrinter ()
- """
+    """
     lines = [
         "# PyRIT Native Output",
         "",

@@ -31,7 +31,7 @@
 | 1 | **规则无裁决序**：R1-R11/D1-D6 散落在 SKILL.md、docs/、guard、yaml 注释四处，冲突时 AI 随机选择 | SKILL.md 单文件 810→1400+ 行（v1.2 实测 57KB，膨胀仍在继续）；R6 宣称"override R1/R4 when they conflict"但无全局序 | 裁决序 + C12 |
 | 2 | **"做什么"无规格**：需求未 ID 化、无验收标准，AI 用"怎么做"的自由发挥填补空白 | target_profiles.yaml 26 个 profile 无任何代码加载（规格与现实脱钩） | C6 + 20-REQUIREMENTS |
 | 3 | **任务粒度失控**：一次变更加删 20+ 文件，AI 中途必然自由发挥 | assess/ 双轨重构进行到一半（judge_manager/asr_manager/score_pipeline 合并版与拆分版并存）；utils/display.py 达 119KB | C4 + 30-TASKS 粒度上限 |
-| 4 | **双轨未被禁止**：每次变更都可能新增平行实现而非修改现有实现 | main.py（87KB）与 pipeline/ 镜像；escalation.py 与 escalation_chain.py 仅差 9 字节；asr_tracker.py 纯 re-export 兼容层 | C3 SSOT |
+| 4 | **双轨未被禁止**：每次变更都可能新增平行实现而非修改现有实现 | main.py（87KB）与 pipeline/ 镜像；asr_tracker.py 纯 re-export 兼容层 | C3 SSOT |
 | 5 | **汇报不透明**：stub/降级静默进主干，"已验证"未真验证 | encoded_injection.py / cair.py / multi_turn_attacks.py 为返回空的 stub 但被升级链编排 | C9 + C10 |
 
 **宪法的存在意义**：把这五条根因变成可判定、可拒绝、可熔断的硬条款。
@@ -77,6 +77,12 @@
 ### C2 — ASR 至上（ASR Supremacy）
 
 任何变更**不得降低对目标的攻击成功率上限**。
+
+**侦察模块核心原则 (v1.5 增补)**：每个侦察模块必须能回答"这个信息如何帮助我攻破目标？"——若答案不明确，则该模块存在偏离红队目标的风险。判定标准：
+- 模块必须包含直接关联 ASR 的关键词（attack_surface/endpoint/seed/vector/injection/bypass/payload）
+- 模块必须有学术引用（arXiv 注释）支撑其与攻击成功率的相关性
+- 纯监控类逻辑（运行时漂移检测、行为验证）不属于侦察模块，应迁移至 `core/runtime/` 或 `strike/` 阶段
+- 信息收集类逻辑（端口扫描、API 词表枚举）若收集的指标不直接用于攻击决策，属于过度工程化
 
 - 单轮 ASR < 90% 必须可触发升级链；评分分歧默认 OR 聚合；每 `ConverterConfiguration` 恰 1 个 converter（串联使 ASR 12%→4%）；攻击执行路径只准 0-token 评分器。
 - **边界（v1.1 增补）**：本条仅在 R-S1~R-S5（40-GUARDRAILS 第一章 1C）授权边界内生效。仅攻击授权目标、密钥纪律、测试隔离等安全红线**不受本条豁免**；ASR 与安全红线冲突时安全红线优先（40-GUARDRAILS 第一章冲突裁决），且正确动作几乎总是 STOP-REPORT 交人工裁决。**边界之外没有 ASR。**
@@ -175,6 +181,20 @@ python main.py --max-seeds 1 --stage strike
 
 - **判定**：任何会话内"顺手"改宪法条款 → 违例。
 
+### C13 — 企业攻击扩展（Enterprise Attack Extension）
+
+> **v1.4 增补**：为覆盖企业级 AI 系统（认证、向量 DB、网关、审计、微调）的攻击面，允许 Glue 层扩展 PyRIT 原生框架，但必须遵守 40-GUARDRAILS R-GLUE-1~R-GLUE-5 护栏。
+
+**Glue 层三原则**：
+
+1. **插件化隔离**：企业 SDK（PyJWT 等）通过 `try/except ImportError` 实现可选依赖，缺失时降级到 PyRIT 原生能力而非阻断流水线（R-GLUE-1）。
+2. **PyRIT 原生委托**：Glue 层仅构造 payload/target/scorer 配置，攻击执行一律委托给 `PromptSendingAttack` / `SkeletonKeyAttack` / `CrescendoAttack` 等 PyRIT 原生类（R-GLUE-2）。
+3. **攻击向量白名单**：新增企业攻击场景须在 40-GUARDRAILS 1D 白名单登记（JWT 混淆、HTTP 走私、审计日志注入），未登记场景须走 change-proposal 流程（C12）。
+4. **黑盒可测性约束**：Glue 模块仅包含可通过 HTTP 端点黑盒测试的攻击向量。需要直接 SDK 访问（向量 DB 客户端、训练环境 API等）的攻击通过间接注入 seed 覆盖，不得在 Glue 层保留无效代码（v1.5 增补）。
+
+- **判定**：Glue 模块内出现攻击执行逻辑（而非配置构造）→ 违例；企业 SDK 硬依赖（无 try/except）→ 违例；未在白名单登记的新攻击向量 → 违例；Glue 模块包含黑盒不可测试的攻击逻辑 → 违例（v1.5 增补）。
+- **自动检查**：`check_glue_pluginisolation()` / `check_glue_pyrit_delegation()` / `check_glue_config_flow()` / `check_glue_silent_degradation()` / `check_glue_academic_citation()`。
+
 ---
 
 ## 第四章：违宪症状速查表
@@ -193,6 +213,9 @@ python main.py --max-seeds 1 --stage strike
 | 无 dry-run 证据的"完成" | C10 |
 | AI 静默处理了规格矛盾 | C11 |
 | 一次 diff 动了 10+ 文件 | C4 + 30-TASKS 粒度上限 |
+| Glue 模块含攻击执行逻辑（非配置构造） | C13 |
+| 企业 SDK 硬依赖（无 try/except ImportError） | C13 |
+| 未在白名单登记的新企业攻击向量 | C13 |
 
 ---
 
@@ -293,3 +316,5 @@ data/burp/   recon      arm+strike  executor   report
 | v1.1 | 2026-09-05 | REV-01 评审修正：① C2 增补安全边界条款，堵住"宪法压倒 R-S 安全红线"的裁决空洞；② 裁决序补 ⑤ 红线与 ② 蓝图冲突规则；③ 第 0 条方针 2 加边界注；④ 第六章附则，消除制宪配套 bootstrap 死锁。guard 检查器无变更（均为裁决规则澄清，无可机器化新条款） | 用户会话批准 |
 | v1.2 | 2026-09-05 | REV-02 源码对齐（审计 github.com/hmbphxkw76-byte/osai/pyrit-mini @0b8e28c）：① 第一章根因实证更新（SKILL.md 实测 57KB/1400+ 行；display.py 119KB；escalation 孪生）；② 第六章配套资产清单纳入 50-ROADMAP.md（任务顺序与 vibe coding 会话模型的登记处）；③ 第五章迁移项补 BL-011。条款正文 C1-C12 无变更 | 用户会话批准 |
 | v1.3 | 2026-09-06 | REV-03 AI-300 考试专项优化：① 新增第七章 OffSec AI-300/OSAI 考试专项附录（考试日决策树 7A、目标类型→PyRIT 攻击映射表 7B、PyRIT 原生攻击速查 7C、考试合规速查 7D）；② 条款正文 C1-C12 无变更（均为考试操作指引） | 用户会话批准 |
+| v1.4 | 2026-09-08 | REV-04 企业攻击扩展：① 新增 C13 企业攻击扩展条款（Glue 层三原则：插件化隔离、PyRIT 原生委托、攻击向量白名单）；② 违宪症状速查表新增 3 项 C13 症状（Glue 攻击执行逻辑、企业 SDK 硬依赖、未登记攻击向量）；③ 配套 40-GUARDRAILS R-GLUE-1~R-GLUE-5 护栏 + 50-ROADMAP 阶段 1B | 用户会话批准 |
+| v1.5 | 2026-09-08 | REV-05 过度工程化清理（黑盒可测性约束）：① C13 新增原则 4「黑盒可测性约束」：Glue 模块仅包含 HTTP 端点可测试的攻击向量，移除无法通过黑盒 HTTP 测试的 vector_db_glue.py（需向量DB SDK直访）和 fine_tuning_glue.py（需训练环境API）；② 精简 audit_evasion_glue.py 为仅日志注入（移除 SIEM 告警疲劳/审计路径逃逸）；③ 同步化 enterprise_auth_glue.py（移除 async/await）；④ 更新 40-GUARDRAILS 白名单移除向量DB投毒和微调后门注入 | 用户会话批准 |

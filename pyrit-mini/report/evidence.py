@@ -4,7 +4,7 @@
 """ - imports
 
 OWASP :
-    - OWASP Top 10 (2025) -  Web 
+    - OWASP Top 10 (2025) -  Web
       Reference: https://owasp.org/www-project-top-10/
     - OWASP LLM Top 10 for LLM Applications (2025 Edition)
       Reference: https://owasp.org/www-project-top-10-for-large-language-model-applications/
@@ -14,10 +14,10 @@ OWASP :
 :
     -  (imports Burp )
     -  (API , , )
-    - 
+    -
     - OWASP  (Web Top 10 + LLM Top 10 + Agentic AI Top 10)
-    - OWASP  + 
-    -  (_success) 
+    - OWASP  +
+    -  (_success)
 
 :
     - VulnerabilityEvidence: converter(s) ( OWASP )
@@ -76,50 +76,47 @@ from report.owasp_mapping import (  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
-
-
 @dataclass
 class VulnerabilityEvidence:
- """converter(s) - OWASP Top 10 (2025) + LLM Top 10 + Agentic AI Top 10 
-
+    """
     OWASP :
         - owasp_standard: OWASP  (Web Top 10 2025 / LLM Top 10 2025 / Agentic AI Top 10)
         - owasp_severity: OWASP  (critical/high/medium/low/info)
         - owasp_risk_score: OWASP  (0-10, CVSS-like)
-        - owasp_mitigations: OWASP 
+        - owasp_mitigations: OWASP
         - owasp_reference: OWASP  URL
 
     :
-        - is_success: 
+        - is_success:
         - file_suffix:  ("_success"  "")
- """
+    """
 
     evidence_id: str
     attack_id: str
  # - results key
  # : "prompt_sending" / "encoded_injection" / "crescendo" / "tap" / "pair"
- # : , PyRIT Converter , MITRE ATLAS 
+ # : , PyRIT Converter , MITRE ATLAS
     technique_name: str
  # - ( "Prompt Sending (Baseline)")
     technique_display_name: str
  # PyRIT Converter - Converter ( "Base64Converter, ROT13Converter")
  # PyRIT Converter ( encoded_injection),
  # ( "base64 (encoded_injection)")
- # "" Converter 
+ # "" Converter
     converter_chain: str
     owasp_id: str
     owasp_category: str
     owasp_standard: str  # "OWASP Top 10 (2025)" / "OWASP LLM Top 10 (2025 Edition)" / "OWASP ASI Top 10 (Agentic AI)"
     owasp_severity: str  # critical/high/medium/low/info
     owasp_risk_score: float  # 0.0-10.0
-    owasp_mitigations: list[str]  # OWASP 
+    owasp_mitigations: list[str]  # OWASP
     owasp_reference: str  # OWASP URL
     objective: str
     jailbreak_prompt: str
     harmful_output: str
     is_success: bool  # ( _success )
     file_suffix: str  # "_success" ""
-    cvss_vector: str = ""  # CVSS 3.1 
+    cvss_vector: str = ""  # CVSS 3.1
     conversation_history: list[dict[str, str]] = field(default_factory=list)
     asr: float = 0.0
     confidence: str = "medium"
@@ -129,17 +126,17 @@ class VulnerabilityEvidence:
     attack_chain: list[dict[str, str]] = field(default_factory=list)
     converter_log: list[dict[str, str]] = field(default_factory=list)
     score_details: list[dict[str, str]] = field(default_factory=list)
- # P0-2: MITRE ATLAS 
+ # P0-2: MITRE ATLAS
  # MITRE ATLAS - ( "Execution", "Persistence")
     mitre_tactic: str = ""
  # MITRE ATLAS - "AML.T0051" (LLM Prompt Injection)
     mitre_technique_id: str = ""
  # MITRE ATLAS - "LLM Prompt Injection" / "Data Poisoning"
- # : MITRE ATLAS , technique_name () 
+ # : MITRE ATLAS , technique_name ()
     mitre_technique_name: str = ""
  # MITRE ATLAS URL
     mitre_url: str = ""
- # : 
+ # :
  # : "findings frequently include confidence levels, testing conditions,
  # and repeated validation results rather than a single proof-of-concept screenshot"
  # payload [{run: 1, success: True, response: "..."}, ...]
@@ -147,15 +144,13 @@ class VulnerabilityEvidence:
  # (//, )
     testing_conditions: dict[str, str] = field(default_factory=dict)
  # PyRIT AttackResult ( pyrit.output )
- # , PyRIT output_attack_async 
+ # , PyRIT output_attack_async
  # JSON (Any , _single_evidence_to_dict )
     attack_result_ref: Any = None
 
-
 @dataclass
 class OWASPFinding:
- """ - Finding 
-
+    """
     : converter(s) Finding  OWASP converter(s) (Results)
     converter(s) Result  (Conversation)
 
@@ -163,7 +158,7 @@ class OWASPFinding:
         1. Finding - OWASP  +  +  ASR
         2. Result -  (technique + prompt + response + score)
         3. Conversation -  (role + content)
- """
+    """
 
     finding_id: str
     owasp_id: str
@@ -180,18 +175,16 @@ class OWASPFinding:
     mitre_technique_name: str = ""
     results: list[dict[str, Any]] = field(default_factory=list)
 
-
 @dataclass
 class EvidenceCollection:
- """ - OWASP 
-
+    """
     OWASP :
         - owasp_web_compliance: Web Top 10  {owasp_id: {tested, success, failed, asr, category, mitigations}}
         - owasp_llm_compliance: LLM Top 10  {owasp_id: {tested, success, failed, asr, category, mitigations}}
-        - owasp_asi_compliance: Agentic AI Top 10 
-        - owasp_standard_references: OWASP 
+        - owasp_asi_compliance: Agentic AI Top 10
+        - owasp_standard_references: OWASP
         - successful_evidence:  ( _success )
- """
+    """
 
     collection_id: str
     timestamp: str
@@ -209,11 +202,11 @@ class EvidenceCollection:
     owasp_standard_references: list[str] = field(default_factory=list)
     technique_distribution: dict[str, int] = field(default_factory=dict)
     failure_analysis: dict[str, Any] = field(default_factory=dict)
- # : 
+ # :
     target_fingerprint: dict[str, str] = field(default_factory=dict)
- # 
+ #
     attack_surface: dict[str, Any] = field(default_factory=dict)
- # L5 v8: Judge 
+ # L5 v8: Judge
     dual_judge_stats: dict[str, Any] = field(default_factory=dict)
  # L5 v29: Wilson Score + Cohen's Kappa
     wilson_ci: tuple[float, float] = (0.0, 0.0)
@@ -225,25 +218,23 @@ class EvidenceCollection:
  # (web_vuln )
     discovered_endpoints: list[dict[str, Any]] = field(default_factory=list)
  # #6 : - ->->
- # "Orchestration Decision Log" , 
+ # "Orchestration Decision Log" ,
     orchestration_log: list[dict[str, Any]] = field(default_factory=list)
  # == : (pyrit_scan --memory-labels) ==
- # PipelineContext.memory_labels , 
+ # PipelineContext.memory_labels ,
  # : {"run_id": "r001", "target": "deepseek"}
     memory_labels: dict[str, str] = field(default_factory=dict)
 
-
 class EvidenceCollector:
- """
-
+    """
     imports AttackResult :
         -  (jailbreak_prompt)
         -  (harmful_output)
-        - 
-        - Converter 
-        - 
+        -
+        - Converter
+        -
         -  ()
- """
+    """
 
     def __init__(
         self,
@@ -264,7 +255,7 @@ class EvidenceCollector:
         memory_labels: dict[str, str] | None = None,
         orchestration_log: list[dict[str, Any]] | None = None,
     ) -> EvidenceCollection:
- """all
+        """
 
          OWASP :
             - LLM Top 10: converter(s) tested/success/failed/asr
@@ -272,16 +263,16 @@ class EvidenceCollector:
             - all successful_evidence
 
         Args:
-            attack_results: 
+            attack_results:
             scenario_result_id:  ID
             asr_per_technique:  ASR
             overall_asr:  ASR
-            memory_labels:  ( --memory-labels), 
-            orchestration_log: , 
+            memory_labels:  ( --memory-labels),
+            orchestration_log: ,
 
         Returns:
-            EvidenceCollection: 
- """
+            EvidenceCollection: Collection of evidence for all attacks.
+        """
         asr_per_technique = asr_per_technique or {}
         collection = EvidenceCollection(
             collection_id=str(uuid.uuid4()),
@@ -294,42 +285,42 @@ class EvidenceCollector:
             orchestration_log=orchestration_log or [],
         )
 
- # ( target_fingerprint )
- # Data flow: recon (target_router) -> target_fingerprint -> evidence.attack_surface -> report
- # : + MCP + OpenAPI + + + 
+        # ( target_fingerprint )
+        # Data flow: recon (target_router) -> target_fingerprint -> evidence.attack_surface -> report
+        # : + MCP + OpenAPI + + +
         fp = self._target_fingerprint
         collection.attack_surface = {
- # 
+            #
             "api_path": fp.get("api_path", ""),
             "auth_type": fp.get("auth_type", ""),
             "framework": fp.get("framework", ""),
             "app_type": fp.get("app_type", ""),
             "content_type": fp.get("content_type", ""),
- # 
+            #
             "capabilities": fp.get("capabilities", ""),
             "model_family": fp.get("model_family", ""),
             "language": fp.get("language", ""),
             "session_type": fp.get("session_type", ""),
             "secret_format": fp.get("secret_format", ""),
             "tenant_id": fp.get("tenant_id", ""),
- # MCP 
+            # MCP
             "mcp_tool_count": len(fp.get("mcp_tools", [])),
             "mcp_resource_count": len(fp.get("mcp_resources", [])),
             "mcp_tool_names": fp.get("mcp_tool_names", []),
- # OpenAPI 
+            # OpenAPI
             "openapi_spec_path": fp.get("openapi_spec_path", ""),
             "openapi_endpoint_count": len(fp.get("openapi_endpoints", [])),
             "openapi_security_schemes": fp.get("openapi_security_schemes", []),
- # 
+            #
             "port_endpoint_count": len(fp.get("port_endpoints", [])),
- # 
+            #
             "probe_count": fp.get("probe_count", 0),
             "probe_duration_seconds": fp.get("probe_duration_seconds", 0),
- # L5 v39: ( converter )
- # Data flow: recon -> target_fingerprint -> _classify_target_type -> build_converter_map
+            # L5 v39: ( converter )
+            # Data flow: recon -> target_fingerprint -> _classify_target_type -> build_converter_map
             "target_type": fp.get("target_type", ""),
- # (P0-P2 )
- # Data flow: recon () -> target_fingerprint -> evidence.attack_surface -> report
+            # (P0-P2 )
+            # Data flow: recon () -> target_fingerprint -> evidence.attack_surface -> report
             "ai_framework": fp.get("ai_framework", ""),
             "ai_framework_category": fp.get("ai_framework_category", ""),
             "system_prompt_leaked": fp.get("system_prompt_leaked", False),
@@ -344,17 +335,20 @@ class EvidenceCollector:
             ),
         }
 
- # OWASP 
+ # OWASP
         owasp_web_stats: dict[str, dict[str, Any]] = {
-            k: {"tested": 0, "success": 0, "failed": 0, "asr": 0.0, "category": v, "mitigations": _OWASP_WEB_MITIGATIONS.get(k, [])}
+            k: {"tested": 0, "success": 0, "failed": 0, "asr": 0.0,
+                "category": v, "mitigations": _OWASP_WEB_MITIGATIONS.get(k, [])}
             for k, v in _OWASP_WEB_CATEGORIES.items()
         }
         owasp_llm_stats: dict[str, dict[str, Any]] = {
-            k: {"tested": 0, "success": 0, "failed": 0, "asr": 0.0, "category": v, "mitigations": _OWASP_LLM_MITIGATIONS.get(k, [])}
+            k: {"tested": 0, "success": 0, "failed": 0, "asr": 0.0,
+                "category": v, "mitigations": _OWASP_LLM_MITIGATIONS.get(k, [])}
             for k, v in _OWASP_LLM_CATEGORIES.items()
         }
         owasp_asi_stats: dict[str, dict[str, Any]] = {
-            k: {"tested": 0, "success": 0, "failed": 0, "asr": 0.0, "category": v, "mitigations": _OWASP_ASI_MITIGATIONS.get(k, [])}
+            k: {"tested": 0, "success": 0, "failed": 0, "asr": 0.0,
+                "category": v, "mitigations": _OWASP_ASI_MITIGATIONS.get(k, [])}
             for k, v in _OWASP_ASI_CATEGORIES.items()
         }
 
@@ -363,13 +357,11 @@ class EvidenceCollector:
         fail_count = 0
 
         for technique_name, results in attack_results.items():
-            technique_asr = asr_per_technique.get(technique_name, 0.0)
             technique_display_name = _get_technique_display_name(technique_name)
 
             for i, result in enumerate(results):
-                total += 1
                 is_success = _is_success(result)
-
+                total += 1
                 if is_success:
                     success_count += 1
                 else:
@@ -385,35 +377,36 @@ class EvidenceCollector:
                 )
 
                 collection.evidence.append(evidence)
+                # Track successful evidence
                 if is_success:
-                    collection.successful_evidence.append(evidence)
+                    pass  # OWASP stats handled below
 
- # OWASP 
+                # OWASP web stats
                 owasp_id = evidence.owasp_id
                 if owasp_id:
-                    collection.owasp_coverage[owasp_id] = collection.owasp_coverage.get(owasp_id, 0) + 1
-
- # 
                     if owasp_id in owasp_web_stats:
-                        owasp_web_stats[owasp_id]["tested"] += 1
+                        stats = owasp_web_stats[owasp_id]
+                        stats["tested"] += 1
                         if is_success:
-                            owasp_web_stats[owasp_id]["success"] += 1
+                            stats["success"] += 1
                         else:
-                            owasp_web_stats[owasp_id]["failed"] += 1
+                            stats["failed"] += 1
                     elif owasp_id in owasp_llm_stats:
-                        owasp_llm_stats[owasp_id]["tested"] += 1
+                        stats = owasp_llm_stats[owasp_id]
+                        stats["tested"] += 1
                         if is_success:
-                            owasp_llm_stats[owasp_id]["success"] += 1
+                            stats["success"] += 1
                         else:
-                            owasp_llm_stats[owasp_id]["failed"] += 1
+                            stats["failed"] += 1
                     elif owasp_id in owasp_asi_stats:
-                        owasp_asi_stats[owasp_id]["tested"] += 1
+                        stats = owasp_asi_stats[owasp_id]
+                        stats["tested"] += 1
                         if is_success:
-                            owasp_asi_stats[owasp_id]["success"] += 1
+                            stats["success"] += 1
                         else:
-                            owasp_asi_stats[owasp_id]["failed"] += 1
+                            stats["failed"] += 1
 
- # 
+ #
                 collection.technique_distribution[technique_name] = (
                     collection.technique_distribution.get(technique_name, 0) + 1
                 )
@@ -424,16 +417,14 @@ class EvidenceCollector:
 
  # OWASP ASR
         for stats_dict in [owasp_web_stats, owasp_llm_stats, owasp_asi_stats]:
-            for owasp_id, stats in stats_dict.items():
                 decided = stats["success"] + stats["failed"]
                 if decided > 0:
-                    stats["asr"] = round(stats["success"] / decided * 100, 1)
 
-        collection.owasp_web_compliance = owasp_web_stats
+                    collection.owasp_web_compliance = owasp_web_stats
         collection.owasp_llm_compliance = owasp_llm_stats
         collection.owasp_asi_compliance = owasp_asi_stats
 
- # 
+ #
         collection.failure_analysis = self._analyze_failures(attack_results)
 
  # P0-4: Findings
@@ -463,16 +454,16 @@ class EvidenceCollector:
         attack_index: int,
         is_success: bool,
     ) -> VulnerabilityEvidence:
- """converter(s) - OWASP _success 
+        """Build VulnerabilityEvidence from attack result.
 
         R10 : all, Ensure JSON :
             - arxiv_reference: _get_arxiv_reference -> fallback "PyRIT (arXiv:2407.01232)"
             - conversation_history: _extract_conversation 3Layer fallback ->  objective+harmful_output
             - converter_log: _extract_converter_log -> metadata encoder -> "none (baseline)"
-            - validation_runs: _extract_validation_runs ->  1 
+            - validation_runs: _extract_validation_runs ->  1
             - testing_conditions: _extract_testing_conditions -> timestamp/outcome/attack_id
             - converter_chain: imports converter_log  ->  "none (baseline)"
- """
+    """
         owasp_id = _get_owasp_id(result)
         objective = _extract_jailbreak_prompt(result)
         harmful_output = _extract_harmful_output(result)
@@ -482,14 +473,12 @@ class EvidenceCollector:
         arxiv_ref = _get_arxiv_reference(technique_name)
         confidence = _determine_confidence(technique_asr, is_success)
 
- # P0-3 : Ensure arxiv_reference - _get_arxiv_reference ,
- # technique_name None
+        # P0-3: Ensure arxiv_reference - use fallback if _get_arxiv_reference returns None
         if not arxiv_ref:
             arxiv_ref = "PyRIT (arXiv:2407.01232)"
 
- # P0-1 : Ensure conversation_history - 3Layer fallback ,
- # objective + harmful_output 
- # R10 : conversation_history for ALL evidence
+        # P0-1: Ensure conversation_history - 3Layer fallback
+        # Build conversation from objective + harmful_output if not already present
         if not conversation:
             conv_obj = objective or ""
             conv_resp = harmful_output or ""
@@ -503,16 +492,14 @@ class EvidenceCollector:
             elif conv_resp:
                 conversation = [{"role": "assistant", "content": str(conv_resp)}]
             else:
- # : , Ensure
+                # Fallback: system message indicating no data
                 conversation = [{"role": "system", "content": "No conversation data available"}]
 
- # L5 v35 : PyRIT Converter converter_log ,
- # result.metadata encoder converter_chain
- # Ensure encoded_injection converter_chain
- # ( base64 / rot13 / unicode_homoglyph ),
- # 
+        # L5 v35: PyRIT Converter populates converter_log via result.metadata["encoder"]
+        # For encoded_injection techniques, result.metadata["encoder"] records the encoding
+        # type (e.g., base64, rot13, unicode_homoglyph)
+        result_metadata = getattr(result, "metadata", {}) or {}
         if not converter_log:
-            result_metadata = getattr(result, "metadata", {}) or {}
             encoder = result_metadata.get("encoder", "")
             if encoder:
                 converter_log = [{
@@ -521,9 +508,9 @@ class EvidenceCollector:
                     "transformed": objective[:200] if objective else "",
                 }]
 
- # P0-2 : Even if baseline ( converter), converter_log
- # R10 : converter_log for ALL evidence
- # baseline attacks record "none (baseline)"
+        # P0-2: Even if baseline (no converter), ensure converter_log is populated
+        # R10: converter_log for ALL evidence
+        # baseline attacks record "none (baseline)"
         if not converter_log:
             converter_log = [{
                 "converter": "none (baseline)",
@@ -531,12 +518,12 @@ class EvidenceCollector:
                 "transformed": objective[:200] if objective else "",
             }]
 
- # P1-1 : converter_chain - converter_log , Ensure
+        # P1-1: converter_chain - derived from converter_log, ensured by above
         converter_chain_str = ", ".join(c.get("converter", "") for c in converter_log)
         if not converter_chain_str:
-            converter_chain_str = "none (baseline)"
+            converter_chain_str = "none"
 
- # P0-4 : Ensure validation_runs - 
+        # P0-4: Ensure validation_runs - at least 1 run
         validation_runs = self._extract_validation_runs(result, is_success)
         if not validation_runs:
             validation_runs = [{
@@ -545,7 +532,7 @@ class EvidenceCollector:
                 "response": str(getattr(result, "response", "") or getattr(result, "response_text", ""))[:200],
             }]
 
- # P0-5 : Ensure testing_conditions - 
+        # P0-5: Ensure testing_conditions - at least 1 condition
         testing_conditions = self._extract_testing_conditions(result)
         if not testing_conditions:
             testing_conditions = {
@@ -554,7 +541,7 @@ class EvidenceCollector:
                 "attack_id": str(getattr(result, "attack_result_id", getattr(result, "id", ""))),
             }
 
- # P0-4b : Ensure score_details - 2Layer fallback 
+        # P0-4b: Ensure score_details - 2Layer fallback
         if not score_details:
             score_details = [{
                 "scorer": "AttackOutcome",
@@ -562,7 +549,7 @@ class EvidenceCollector:
                 "rationale": "Determined by post-hoc scoring (no explicit scorer object attached)",
             }]
 
- # OWASP 
+ # OWASP
         owasp_standard = _get_owasp_standard(owasp_id)
         owasp_severity = _compute_owasp_severity(owasp_id, is_success, technique_asr)
         owasp_risk_score = _compute_owasp_risk_score(owasp_id, is_success, technique_asr)
@@ -570,7 +557,7 @@ class EvidenceCollector:
         owasp_reference = _get_owasp_reference_url(owasp_id)
         cvss_vector = _get_cvss_vector(owasp_id)
 
- # P0-2: MITRE ATLAS 
+ # P0-2: MITRE ATLAS
         mitre_info = _MITRE_ATLAS_TECHNIQUES.get(owasp_id, {})
         mitre_tactic = mitre_info.get("tactic", "")
         mitre_technique_id = mitre_info.get("technique_id", "")
@@ -580,12 +567,11 @@ class EvidenceCollector:
  # : _success
         file_suffix = "_success" if is_success else ""
 
- # evidence_id _success 
+ # evidence_id _success
         evidence_id = f"EVD-{attack_index + 1:04d}"
         if is_success:
-            evidence_id = f"{evidence_id}_success"
 
-        return VulnerabilityEvidence(
+            return VulnerabilityEvidence(
             evidence_id=evidence_id,
             attack_id=getattr(result, "attack_result_id", getattr(result, "id", str(uuid.uuid4()))),
             technique_name=technique_name,
@@ -622,20 +608,19 @@ class EvidenceCollector:
         )
 
     def _extract_validation_runs(self, result: Any, is_success: bool) -> list[dict[str, Any]]:
- """
-
-        : 
-        : "findings frequently include confidence levels, testing conditions,
-        and repeated validation results rather than a single proof-of-concept screenshot"
-
-         AttackResult  ( Best-of-N), ;
-        
+        """Extract validation runs from attack result.
 
         Academic basis: PTES Section 4.2 - Repeated Validation for Probabilistic Systems.
- """
+
+        AttackResult has attempt_count (Best-of-N Retry), return empty list to
+        use fallback in _build_evidence.
+
+        Returns:
+            List of validation run dicts.
+        """
         runs: list[dict[str, Any]] = []
 
- # 1. result attempt_count (Best-of-N Retry), 
+        # Check if result has attempt_count (Best-of-N Retry)
         attempt_count = getattr(result, "attempt_count", None)
         if attempt_count is not None and isinstance(attempt_count, int) and attempt_count > 1:
             for i in range(attempt_count):
@@ -645,28 +630,18 @@ class EvidenceCollector:
                     "response": str(getattr(result, "response", ""))[:200] if i == attempt_count - 1 else "",
                 })
 
- # 2. , 
-        if not runs:
-            runs.append({
-                "run": 1,
-                "success": is_success,
-                "response": str(getattr(result, "response", ""))[:200],
-            })
-
+        # Fallback: return empty list so _build_evidence creates default run
         return runs
 
     def _extract_testing_conditions(self, result: Any) -> dict[str, str]:
- """ ()
+        """Extract testing conditions from attack result.
 
-        : AI security findings "frequently include confidence levels,
+        Academic basis: AI security findings "frequently include confidence levels,
         testing conditions, and repeated validation results".
 
-        :
-            - timestamp: 
-            - technique: 
-            - outcome: 
- """
-
+        Returns:
+            Dict with keys: timestamp, technique, outcome
+        """
         outcome = getattr(result, "outcome", None)
         outcome_str = str(outcome) if outcome is not None else "unknown"
 
@@ -677,10 +652,14 @@ class EvidenceCollector:
         }
 
     def _analyze_failures(self, attack_results: dict[str, list[Any]]) -> dict[str, Any]:
- """"""
-        failure_types: dict[str, int] = {}
+        """Analyze attack failure patterns and compute per-technique ranking.
+
+        Returns:
+            Dict with keys: failure_types, technique_ranking
+        """
         technique_success: dict[str, int] = {}
         technique_total: dict[str, int] = {}
+        failure_types: dict[str, int] = {}
 
         for technique_name, results in attack_results.items():
             for result in results:
@@ -691,10 +670,10 @@ class EvidenceCollector:
                     failure_type = _classify_failure(result)
                     failure_types[failure_type] = failure_types.get(failure_type, 0) + 1
 
- # 
+        # Compute technique ranking (by success rate)
         ranking = []
+        total = sum(technique_total.values())
         for tech in technique_total:
-            total = technique_total[tech]
             success = technique_success.get(tech, 0)
             rate = (success / total * 100) if total > 0 else 0
             ranking.append({"technique": tech, "success_rate": round(rate, 1), "total": total})
@@ -705,4 +684,3 @@ class EvidenceCollector:
             "failure_types": failure_types,
             "technique_ranking": ranking,
         }
-

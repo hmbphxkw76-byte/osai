@@ -28,6 +28,8 @@ seeds/
 │   └── T1_LLM01_token_smuggling_evasion.prompt
 │
 ├── _attack_surface/                # Full attack surface coverage
+│   ├── T1_LLM03_finetuning_indirect_injection.prompt  # Fine-tuning间接注入 (5种子)
+│   ├── T1_LLM08_vector_db_poisoning.prompt            # 向量DB投毒间接注入 (6种子)
 │   ├── T1_ASI02_mcp_full_surface/  # MCP attack surface (12 sub-files)
 │   │   ├── mcp_tool_enum.prompt
 │   │   ├── mcp_server_injection.prompt

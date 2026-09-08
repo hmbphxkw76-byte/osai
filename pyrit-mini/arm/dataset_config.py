@@ -1,7 +1,7 @@
 """PyRIT CompoundDatasetAttackConfiguration ?X?
 
 [:
-    - PyRIT (arXiv:2407.01232) ?Microsoft,  Scenario + Dataset 
+    - PyRIT (arXiv:2407.01232) ?Microsoft,  Scenario + Dataset
     - CompoundDatasetAttackConfiguration: XBEUREUR?
       XX? XXX?
 
@@ -26,12 +26,11 @@ logger = logging.getLogger(__name__)
 
 _SEEDS_DIR = Path(__file__).resolve().parent.parent / "data" / "seeds"
 
-
 def build_compound_dataset_config(
     seed_names: str,
     max_seeds: int = 25,
 ) -> Any | None:
- """ PyRIT CompoundDatasetAttackConfiguration?
+    """ PyRIT CompoundDatasetAttackConfiguration?
 
     XX?(data/seeds/*.prompt) eng?PyRIT Memory X?
      CompoundDatasetAttackConfiguration ?
@@ -44,7 +43,7 @@ def build_compound_dataset_config(
 
     Returns:
         CompoundDatasetAttackConfiguration , ?None (??
- """
+    """
     try:
         from pyrit.scenario import (
             CompoundDatasetAttackConfiguration,
@@ -108,12 +107,11 @@ def build_compound_dataset_config(
     )
     return compound
 
-
 def build_text_adaptive_dataset_config(
     seed_names: str,
     max_seeds: int = 25,
 ) -> Any | None:
- """ TextAdaptive XEUR?
+    """ TextAdaptive XEUR?
 
     TextAdaptive EUR?DatasetAttackConfiguration ,
     X?CompoundDatasetAttackConfiguration ?
@@ -125,11 +123,11 @@ def build_text_adaptive_dataset_config(
 
     Returns:
         DatasetAttackConfiguration , ?None (??
- """
+    """
     names = [s.strip() for s in seed_names.split(",") if s.strip()]
 
     if len(names) <= 1:
- # X? EUR?DatasetAttackConfiguration
+     # X? EUR?DatasetAttackConfiguration
         name = names[0] if names else "elite_jailbreaks"
         seed_path = _SEEDS_DIR / f"{name}.prompt"
         if not seed_path.exists():
@@ -152,4 +150,3 @@ def build_text_adaptive_dataset_config(
 
  # X? CompoundDatasetAttackConfiguration
     return build_compound_dataset_config(seed_names, max_seeds)
-

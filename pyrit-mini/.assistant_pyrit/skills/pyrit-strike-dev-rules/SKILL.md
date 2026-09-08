@@ -615,7 +615,7 @@ pyrit-mini/
 ├── core/                 # context.py, config.py, architecture_guard.py, setup_hooks.py
 ├── recon/                # burp_parser.py, target_router.py, target_builder.py, capability_detector.py, capability_probe.py, recon_report.py, mcp_enumerator.py, port_expander.py, auth_state_manager.py, confidence_scorer.py
 ├── arm/                  # seed_ranker.py, seed_ranking.py, seed_auto_expander.py, converter_presets.py, converter_chains.py, converter_selector.py, technique_picker.py, dataset_config.py
-├── strike/               # executor.py, escalation.py, escalation_chain.py, escalation_level1/2/3.py, adaptive_executor.py, native_attacks.py, multi_turn_attacks.py, technique_registry.py, gcg_generator.py, cair.py, embedding_inversion.py, encoded_injection.py, many_shot_cot_executor.py, mcp_rag_attack.py, rogue_agent.py
+├── strike/               # executor.py, escalation.py, adaptive_executor.py, native_attacks.py, multi_turn_attacks.py, technique_registry.py, gcg_generator.py, cair.py, embedding_inversion.py, encoded_injection.py, many_shot_cot_executor.py, mcp_rag_attack.py, rogue_agent.py
 ├── assess/               # scorer.py, adaptive_dual_judge.py, asr_tracker.py, asr_stats.py, asr_history.py, dual_judge.py, judge_utils.py, response_parser.py
 ├── report/               # evidence.py, evidence_extract.py, generator.py, poc_generator.py, pyrit_native_output.py, report_html.py, report_markdown.py, report_sections.py, report_utils.py, sarif_report.py, owasp_constants.py, owasp_mapping.py, output.py
 ├── targets/              # rate_limited.py, content_filter.py

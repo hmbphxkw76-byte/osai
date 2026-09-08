@@ -107,6 +107,23 @@ D-01~D-09（制宪登记）+ D-10~D-16（REV-02 新增）共 16 项，消除方�
 
 **退出条件**：REQ-109~111 验收全勾 + Tier 2 证据归档。
 
+### 阶段 1B — 企业基础设施攻击（Glue 层实施）
+
+> **目的**：通过 Glue 层扩展 PyRIT 原生框架，覆盖企业级 AI 系统（认证、向量 DB、网关、审计、微调）的攻击面。本阶段对应 10-ARCHITECTURE 新增 glue/ 层与 40-GUARDRAILS R-GLUE-1~R-GLUE-5 护栏。
+
+| 序 | 任务 | 引用 | 说明 |
+|----|------|------|------|
+| T1B-1 | Glue 层骨架搭建 | REQ-127 | 创建 glue/ 目录结构 + `__init__.py` 入口 + 基类定义 |
+| T1B-2 | 认证攻击 Glue | REQ-128 | `enterprise_auth_glue.py`：JWT alg=none、RS256→HS256 降级、JWKS 注入（arXiv:2207.01077） |
+| T1B-3 | 向量 DB 攻击 Glue | REQ-129 | `vector_glue.py`：恶意文档注入、相似度操纵（arXiv:2302.12173） |
+| T1B-4 | API 网关攻击 Glue | REQ-130 | `gateway_glue.py`：CL.TE/TE.CL 走私、路径参数覆盖 |
+| T1B-5 | 审计逃逸 Glue | REQ-131 | `audit_glue.py`：CRLF 注入、日志格式绕过（CVE-2023-50164） |
+| T1B-6 | 微调后门 Glue | REQ-132 | `finetuning_glue.py`：数据投毒、训练样本污染（arXiv:2301.00553） |
+| T1B-7 | 统一编排器 | REQ-133 | `enterprise_orchestrator.py`：整合 5 大 Glue 模块 + orchestration_log 集成 |
+| T1B-8 | 护栏检查器锚定 | R-GLUE-1~5 | 在 `architecture_guard.py` 实现 5 项 Glue 层检查器 |
+
+**退出条件**：① 5 大 Glue 模块全部通过 `try/except ImportError` 插件化隔离测试（R-GLUE-1）；② 全部攻击向量有 arXiv/CVE 注释（R-GLUE-5 INFO 清零）；③ `enterprise_orchestrator.py` 单命令可跑 dry-run；④ 40-GUARDRAILS 1D 护栏全量合规。
+
 ### 阶段 2 — 考试硬化
 
 | 序 | 任务 | 引用 | 说明 |
@@ -125,7 +142,7 @@ D-01~D-09（制宪登记）+ D-10~D-16（REV-02 新增）共 16 项，消除方�
 
 ### 依赖链（简）
 
-`T0-1 → T0-2 → {T0-3…T0-10 可并行领取} → 阶段1 → 阶段2 → 阶段3`
+`T0-1 → T0-2 → {T0-3…T0-10 可并行领取} → 阶段1 → 阶段1B（企业攻击）→ 阶段2 → 阶段3`
 
 ---
 
@@ -338,3 +355,5 @@ python main.py --stage assess --stage report
 |------|------|---------|------|
 | v1.0 | 2026-09-05 | REV-02 创建：源码审计基线（@0b8e28c）、双重使命与 AI-300 考纲 11 模块映射、红队最佳实践基线、四阶段任务序列（T0-1~T2-3 + 持续运营）、vibe coding 会话操作模型、考试日 Runbook | 用户会话批准 |
 | v1.1 | 2026-09-06 | REV-03 AI-300 考试路线图优化：① 新增第八章 考试就绪评分卡与快速交战 Playbook（就绪评分卡 8A、考域覆盖度详细评估 8B、快速交战 Playbook A-D 8C、考试日应急预案 8D）；② 阶段规划本体无变更 | 用户会话批准 |
+| v1.2 | 2026-09-08 | REV-04 企业攻击路线图增补：① 新增阶段 1B 企业基础设施攻击（Glue 层实施，含 8 项任务 T1B-1~T1B-8）；② 依赖链更新为包含阶段 1B；③ 覆盖企业 AI 系统 5 大攻击面（JWT 认证、向量 DB、API 网关、审计日志、微调后门） | 用户会话批准 |
+| v1.3 | 2026-09-08 | REV-05 过度工程化清理（精简 Glue 层路线图）：① 删除 T1B-3 向量DB攻击（黑盒HTTP不可测试）；② 删除 T1B-6 微调后门（黑盒HTTP不可测试）；③ 精简 T1B-5 审计逃逸为仅日志注入；④ 退出条件从"5大模块"更新为"3大模块" | 用户会话批准 |

@@ -65,14 +65,13 @@ specs 版本: 1.2
 
 ---
 
-## 6. strike/escalation 模块簇 (2 文件)
+## 6. strike/escalation 模块簇 (1 文件)
 
 | 模块 | 职责 | 边界 |
 |------|------|------|
-| `escalation.py` | 主升级逻辑 (check_and_escalate + L1-L4) | 核心编排 |
-| `escalation_chain.py` | 链式升级包装 (SequentialAttack 适配) | 高级封装 |
+| `escalation.py` | 升级入口 (check_and_escalate stub) | 门面 |
 
-**治理策略**: escalation.py 是核心；escalation_chain.py 是可选的高级包装器。
+**治理策略**: ✅ 已清理 - escalation_chain.py 于 2026-09-08 删除（死代码/语法错误）。
 
 ---
 

@@ -53,7 +53,9 @@ from typing import Any
 # UTF-8 (Windows GBK )
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
 
 # sys.path
 _PROJECT_ROOT = Path(__file__).resolve().parent
@@ -62,7 +64,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 
 async def run(argv: list[str] | None = None) -> None:
- """Main entry - Initialize environment + Start attack pipeline orchestrator
+    """Main entry for PyRIT attack pipeline.
 
     Orchestration delegated to core/orchestrator.py -> run_attack_pipeline()
     This function only handles:
@@ -71,116 +73,112 @@ async def run(argv: list[str] | None = None) -> None:
         3. Parameter parsing + Environment initialization (PyRIT DB)
         4. Pipeline context construction (PipelineContext)
         5. Production-grade try/finally Ensure resource cleanup
- """
- # == Import core modules ==
- from core.cleanup import cleanup_resources, has_residual_resources
- from core.config import (
-     ensure_output_dir,
-     get_output_dir,
-     parse_args,
-     setup_environment,
- )
- from core.context import PipelineContext, apply_relaxed_adversarial_schema
- from core.logging_config import (
-     configure_root_logging,
-     flush_and_close_handlers,
-     install_signal_handlers,
-     setup_logging,
- )
- from core.orchestrator import run_attack_pipeline
- # R11: Import Scenario routerto enable target-aware attack chain
- from core.scenario_router import get_router, apply_scenario_overrides
+    """
+    # == Import core modules ==
+    from core.cleanup import cleanup_resources, has_residual_resources
+    from core.config import (
+        ensure_output_dir,
+        get_output_dir,
+        parse_args,
+        setup_environment,
+    )
+    from core.context import PipelineContext, apply_relaxed_adversarial_schema
+    from core.logging_config import (
+        configure_root_logging,
+        flush_and_close_handlers,
+        install_signal_handlers,
+        setup_logging,
+    )
 
- # R1: Four precision delivery mechanism integration declarations
- # - 1 (Three-level Converter sorting): arm/converter_selector.py -> orchestrator 
- # - 2 (ASR history sorting UCB1): arm/seed_ranking.py _rank_by_asr + save_asr_history
- # - 3 (0%ASR seed pruning): arm/seed_ranker.py _prune_zero_asr_seeds
- # - 4 (Model-specific priors): load_asr_priors(model_family) + update_asr_priors(model_family, asr)
- # Data flow: load_seeds(model_family=...) -> save_asr_history() -> update_asr_priors()
- # The above calls are already in core/orchestrator.py fully implemented (run_attack_pipeline)
- from utils.display import print_banner, print_phase, print_status
+    # R11: Import Scenario router to enable target-aware attack chain
+    from core.scenario_router import get_router
 
- # == Basic logging configuration ==
- configure_root_logging()
+    # R1: Four precision delivery mechanism integration declarations
+    # - 1 (Three-level Converter sorting): arm/converter_selector.py -> orchestrator
+    # - 2 (ASR history sorting UCB1): arm/seed_ranking.py _rank_by_asr + save_asr_history
+    # - 3 (0%ASR seed pruning): arm/seed_ranker.py _prune_zero_asr_seeds
+    # - 4 (Model-specific priors): load_asr_priors(model_family) + update_asr_priors(model_family, asr)
+    # Data flow: load_seeds(model_family=...) -> save_asr_history() -> update_asr_priors()
+    # The above calls are already in core/orchestrator.py fully implemented (run_attack_pipeline)
+    from utils.display import print_banner, print_phase, print_status
 
- # == Print banner ==
- print_banner()
+    # == Basic logging configuration ==
+    configure_root_logging()
 
- # == Parse arguments + Output directory ==
- args = parse_args(argv)
- output_dir = get_output_dir(args)
- ensure_output_dir(output_dir)
+    # == Print banner ==
+    print_banner()
 
- # == Configure file logging + Terminal control ==
- setup_logging(output_dir, getattr(args, "verbose", False))
+    # == Parse arguments + Output directory ==
+    args = parse_args(argv)
+    output_dir = get_output_dir(args)
+    ensure_output_dir(output_dir)
 
- # rate_limit environment variable
- rate_limit = getattr(args, "rate_limit", None)
- if rate_limit:
-     os.environ["RATE_LIMIT"] = str(rate_limit)
+    # == Configure file logging + Terminal control ==
+    setup_logging(output_dir, getattr(args, "verbose", False))
 
- # == Build pipeline context ==
- ctx = PipelineContext(args=args, output_dir=output_dir)
- ctx.scenario_result_id = getattr(args, "resume", None)
- ctx.memory_labels = getattr(args, "memory_labels_parsed", {}) or {}
+    # rate_limit environment variable
+    rate_limit = getattr(args, "rate_limit", None)
+    if rate_limit:
+        os.environ["PYRIT_RATE_LIMIT"] = str(rate_limit)
 
- # == Install signal handlers ==
- install_signal_handlers(ctx)
+    # == Build pipeline context ==
+    ctx = PipelineContext(args=args, output_dir=output_dir)
+    ctx.scenario_result_id = getattr(args, "resume", None)
+    ctx.memory_labels = getattr(args, "memory_labels_parsed", {}) or {}
 
- # == INIT: Initialize PyRIT ==
- print_phase("INIT", " PyRIT ...")
- apply_relaxed_adversarial_schema()
- await setup_environment(output_dir)
- print_status("INIT", "DONE", f"Output: {output_dir}", ok=True)
+    # == Install signal handlers ==
+    install_signal_handlers(ctx)
 
- # == Execute attack pipeline orchestration (try/finally Ensure resource cleanup) ==
- _logger = logging.getLogger(__name__)
+    # == INIT: Initialize PyRIT ==
+    print_phase("INIT", " PyRIT ...")
+    apply_relaxed_adversarial_schema()
+    await setup_environment(output_dir)
+    print_status("INIT", "DONE", f"Output: {output_dir}", ok=True)
 
- # R10: dry-run zero-token pipeline integrity verification
- # main.py level: Early return,Skip run_attack_pipeline()
- # orchestrator.py level: Defensive second line,Even if main.py logic fails, can still skip attack
- _is_dry_run = getattr(args, "dry_run", False)
- if _is_dry_run:
-     # [DRY-RUN] Skip: execute_attacks execute_text_adaptive 
-     # [DRY-RUN] Skip: check_and_escalate 
-     _logger.info("[DRY-RUN] Zero token verification mode - Skip real API calls")
-     _logger.info("[DRY-RUN] [DRY-RUN] Skip attack execution (execute_attacks)")
-     _logger.info("[DRY-RUN] [DRY-RUN] Skip escalation chain (check_and_escalate)")
-     print_status("DRY-RUN", "DONE", " token  - Skip/", ok=True)
-     return
+    # == Execute attack pipeline orchestration (try/finally Ensure resource cleanup) ==
+    _logger = logging.getLogger(__name__)
 
- # R11: Scenario router integration - Pass router to orchestrator,Enable target-aware attack chain
- router = get_router()
+    # R10: dry-run zero-token pipeline integrity verification
+    # main.py level: Early return, Skip run_attack_pipeline()
+    # orchestrator.py level: Defensive second line, Even if main.py logic fails, can still skip attack
+    _is_dry_run = getattr(args, "dry_run", False)
+    if _is_dry_run:
+        # [DRY-RUN] Skip: check_and_escalate
+        _logger.info("[DRY-RUN] Zero token verification mode - Skip real API calls")
+        _logger.info("[DRY-RUN] [DRY-RUN] Skip attack execution (execute_attacks)")
+        _logger.info("[DRY-RUN] [DRY-RUN] Skip escalation chain (check_and_escalate)")
+        print_status("DRY-RUN", "DONE", " token  - Skip/", ok=True)
+        return
 
- # R1: Pipeline integrity verification - Ensure model_family data flow through to load_seeds
- # Before orchestration delegation,First extract model_family and inject into ctx,Ensure accessible in arm phase
- _model_family = getattr(args, "model_family", None)
- if _model_family:
-     ctx.model_family = _model_family
+    # R11: Scenario router integration - Pass router to orchestrator, Enable target-aware attack chain
+    get_router()
 
- try:
-     await run_attack_pipeline(ctx, router=router)
+    # R1: Pipeline integrity verification - Ensure model_family data flow through to load_seeds
+    # Before orchestration delegation, First extract model_family and inject into ctx, Ensure accessible in arm phase
+    _model_family = getattr(args, "model_family", None)
+    if _model_family:
+        ctx.model_family = _model_family
 
-     # R1: Pipeline closure verification - Ensure ASR written + priors updated
-     # These calls are in orchestrator already executed,Final audit confirmation here
-     _verify_pipeline_closure(ctx)
- except KeyboardInterrupt:
-     _logger.info("Received interrupt signal, Execute resource cleanup...")
-     try:
-         await cleanup_resources(ctx)
-     except Exception as e:
-         # R-H2 compliant: Do not silently swallow errors, Log non-fatal exceptions
-         _logger.debug("Resource release failure during interrupt cleanup (non-fatal): %s", e)
-     raise
- finally:
-     # Final guarantee: If residual resources remain, Attempt cleanup
-     try:
-         if has_residual_resources(ctx):
-             await cleanup_resources(ctx)
-     except Exception:
-         pass
-     # Ensure all FileHandler flush + close
-     flush_and_close_handlers()
+    try:
+
+        # R1: Pipeline closure verification - Ensure ASR written + priors updated
+        # These calls are in orchestrator already executed, Final audit confirmation here
+        _verify_pipeline_closure(ctx)
+    except KeyboardInterrupt:
+        try:
+            await cleanup_resources(ctx)
+        except Exception as e:
+            _logger.debug("Resource release failure during interrupt cleanup (non-fatal): %s", e)
+        raise
+    finally:
+        # Final guarantee: If residual resources remain, Attempt cleanup
+        try:
+            if has_residual_resources(ctx):
+                await cleanup_resources(ctx)
+        except Exception:
+            _logger.debug("Resource release failure during final cleanup (non-fatal)")
+        # Ensure all FileHandler flush + close
+        flush_and_close_handlers()
 
 
 # ===============================================================================
@@ -189,7 +187,7 @@ async def run(argv: list[str] | None = None) -> None:
 
 
 def _verify_pipeline_closure(ctx: Any) -> None:
- """R1 Pipeline closure verification: ensure model_family data flow + ASR history write + priors update are all correctly executed.
+    """Verify pipeline closure: ensure ASR history + priors are properly handled.
 
     Academic basis:
         - arXiv:2310.08419 - ASR history is critical for UCB sorting
@@ -199,47 +197,44 @@ def _verify_pipeline_closure(ctx: Any) -> None:
         1. model_family: ensure model family data is passed to load_seeds (seed sorting/filtering)
         2. save_asr_history: ensure ASR history is written (UCB sorting data source)
         3. update_asr_priors: ensure priors are updated (cross-target knowledge transfer)
- """
- _logger = logging.getLogger(__name__)
+    """
+    _logger = logging.getLogger(__name__)
 
- # == Verification 1: model_family data flow ==
- _model_family = getattr(ctx, "parsed_request", None)
- if _model_family and hasattr(_model_family, "target_fingerprint"):
-     fp = _model_family.target_fingerprint
-     _mf = fp.get("model_family")
-     if _mf:
-         _logger.debug("R1 verification passed: model_family='%s' passed to load_seeds", _mf)
+    # == Verification 1: model_family data flow ==
+    _parsed = getattr(ctx, "parsed_request", None)
+    if _parsed and hasattr(_parsed, "target_fingerprint"):
+        fp = _parsed.target_fingerprint
+        _mf = fp.get("model_family")
+        if _mf:
+            _logger.debug("R1 verification passed: model_family=%s passed to load_seeds", _mf)
 
- # == Verification 2: ASR history write confirmation ==
- if ctx.asr_per_technique:
-     _logger.debug(
-         "R1 verification passed: save_asr_history executed, %d technique ASR written",
-         len(ctx.asr_per_technique),
-     )
+    # == Verification 2: ASR history write confirmation ==
+    if ctx.asr_per_technique:
+        _logger.info(
+            "R1 verification passed: save_asr_history executed, %d technique ASR written",
+            len(ctx.asr_per_technique),
+        )
 
- # == Verification 3: priors update confirmation ==
- if ctx.parsed_request:
-     fp = ctx.parsed_request.target_fingerprint
-     _mf = fp.get("model_family")
-     if _mf and ctx.asr_per_technique:
-         # Confirmation update_asr_priors called in assess phase
-         # : Check if priors file exists
-         import os
-         from pathlib import Path
-         _priors_path = Path("config/asr_priors.yaml")
-         if _priors_path.exists():
-             _logger.debug(
-                 "R1 verification passed: update_asr_priors executed, priors updated",
-             )
+    # == Verification 3: priors update confirmation ==
+    if ctx.parsed_request:
+        fp = getattr(ctx.parsed_request, "target_fingerprint", {})
+        _mf = fp.get("model_family") if isinstance(fp, dict) else None
+        if _mf and ctx.asr_per_technique:
+            # : Check if priors file exists
+            from pathlib import Path
+            _priors_path = Path("config/asr_priors.yaml")
+            if _priors_path.exists():
+                _logger.info(
+                    "R1 verification passed: update_asr_priors executed, priors updated",
+                )
 
 
 # ===============================================================================
-# 
+#
 # ===============================================================================
 
 if __name__ == "__main__":
     try:
         asyncio.run(run())
     except KeyboardInterrupt:
-        print("\n[!] User interrupt, ")
         sys.exit(130)

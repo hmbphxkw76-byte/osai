@@ -3,18 +3,18 @@
 # arXiv:2407.01232 - PyRIT, native attack patterns
 # arXiv:2302.12173 - Greshake et al., PromptSendingAttack
 # arXiv:2402.14266 - SKELETONKEY, SkeletonKey
-"""many_shot_cot_executor - Many-Shot Jailbreak + CoT 
+"""many_shot_cot_executor - Many-Shot Jailbreak + CoT
 
- PyRIT  ManyShotJailbreakAttack 
+ PyRIT  ManyShotJailbreakAttack
 Many-Shot Jailbreak  prompt  faux Q/A ,
- in-context learning 
+ in-context learning
 
-R2 (PyRIT Native First):  ManyShotJailbreakAttack , 
-R6 Sec6.4: 
+R2 (PyRIT Native First):  ManyShotJailbreakAttack ,
+R6 Sec6.4:
 
 Academic basis:
-    - Anthropic (arXiv:2402.05124) - Many-Shot Jailbreaking, 100 shots ASR 
-    - PyRIT (arXiv:2407.01232) -  ManyShotJailbreakAttack 
+    - Anthropic (arXiv:2402.05124) - Many-Shot Jailbreaking, 100 shots ASR
+    - PyRIT (arXiv:2407.01232) -  ManyShotJailbreakAttack
     - Wei et al. (arXiv:2307.10292) - CoT Hijack ASR 45-60%
 """
 
@@ -31,31 +31,30 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-
 async def run_many_shot_cot_attack(
     ctx: PipelineContext,
     objectives: list[str],
 ) -> dict[str, list[Any]]:
- """Many-Shot Jailbreak - PyRIT ManyShotJailbreakAttack.
+    """Many-Shot Jailbreak - PyRIT ManyShotJailbreakAttack.
 
     Academic basis: Anthropic (arXiv:2402.05124) -  ASR
 
      PyRIT  ManyShotJailbreakAttack :
-        1. Load PyRIT  many-shot 
-        2.  prompt  faux Q/A 
-        3.  PromptSendingAttack 
+        1. Load PyRIT  many-shot
+        2.  prompt  faux Q/A
+        3.  PromptSendingAttack
 
-    R2 (PyRIT native first):  ManyShotJailbreakAttack , 
-    R6 Sec6.4: 
+    R2 (PyRIT native first):  ManyShotJailbreakAttack ,
+    R6 Sec6.4:
 
     Args:
         ctx:  ( objective_target, scoring_target).
         objectives: .
 
     Returns:
-        {technique_name: [AttackResult, ...]} 
+        {technique_name: [AttackResult, ...]}
          ManyShotJailbreakAttack ,  ()
- """
+    """
     if not objectives:
         return {}
 
@@ -94,9 +93,9 @@ async def run_many_shot_cot_attack(
             continue
 
         try:
- # ManyShotJailbreakAttack
- # PyRIT : many-shot , prompt
- # arXiv:2402.05124 - 100 shots ASR 
+         # ManyShotJailbreakAttack
+         # PyRIT : many-shot , prompt
+         # arXiv:2402.05124 - 100 shots ASR
             attack = ManyShotJailbreakAttack(
                 objective_target=ctx.objective_target,
                 attack_scoring_config=first_success_scoring,
@@ -104,8 +103,8 @@ async def run_many_shot_cot_attack(
             )
 
  # ManyShotJailbreakAttack PromptSendingAttack,
- # execute_async(objective=...) 
- # prepended_conversation SkeletonKey 
+ # execute_async(objective=...)
+ # prepended_conversation SkeletonKey
             execute_kwargs: dict[str, Any] = {"objective": objective}
             if prepended_conv:
                 execute_kwargs["prepended_conversation"] = prepended_conv

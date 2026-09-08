@@ -1,15 +1,15 @@
-"""Burp Suite HTTP -> PyRIT HTTPTarget 
+"""Burp Suite HTTP -> PyRIT HTTPTarget
 
 :
-    - sse_parser: SSE 
-    - fingerprint: AI /SDK 
+    - sse_parser: SSE
+    - fingerprint: AI /SDK
     - prompt_injector: Prompt  & ID
-    - api_classifier: API 
+    - api_classifier: API
 
 ::
 
     POST /api/chat HTTP/1.1
-    Host: target.example.com
+    Host: <target_host>
     Content-Type: application/json
     Cookie: session_id=xxx
     ...
@@ -44,26 +44,25 @@ from recon.prompt_injector import (
 logger = logging.getLogger(__name__)
 
 # ====================================================================
-# P1-05: TargetFingerprint Schema 
+# P1-05: TargetFingerprint Schema
 # Academic basis: C3 - dict[str, str] ,
 # typo ( "chat_id" vs "chatid") (str/int/bool )
-# 2024-2025 Python AI 
+# 2024-2025 Python AI
 # ====================================================================
-
 
 @dataclass
 class TargetFingerprint:
- """ - Schema, 
+    """ - Schema,
 
     :
-        Phase 1 (parse-time):  ''burp_parser._parse_raw_http'' 
+        Phase 1 (parse-time):  ''burp_parser._parse_raw_http''
             (HTTP , )
-        Phase 2 (probe-time):  (capability_detector/target_router) 
+        Phase 2 (probe-time):  (capability_detector/target_router)
             (,  None /  / False)
 
-    :  ''get'' / ''__getitem__'' / ''__setitem__'' , 
-     ''fp["key"]'' ,  attribute 
- """
+    :  ''get'' / ''__getitem__'' / ''__setitem__'' ,
+     ''fp["key"]'' ,  attribute
+    """
 
  # == Phase 1: HTTP (, _extract_fingerprint ) ==
     framework: str = "Unknown"
@@ -104,39 +103,38 @@ class TargetFingerprint:
     extra: dict[str, Any] = field(default_factory=dict)
 
     def get(self, key: str, default: Any = None) -> Any:
- """ dict.get()"""
+        """Dict-like .get() with attribute + extra fallback."""
         if hasattr(self, key) and not key.startswith("_"):
             val = getattr(self, key)
             return val if val is not None else default
         return self.extra.get(key, default)
 
     def __getitem__(self, key: str) -> Any:
- """ dict[key] """
+        """Dict-like [key] access with attribute + extra fallback."""
         if hasattr(self, key) and not key.startswith("_"):
             return getattr(self, key)
         return self.extra[key]
 
     def __setitem__(self, key: str, value: Any) -> None:
- """ dict[key] = value attribute, extra"""
+        """Dict-like [key] = value with attribute + extra storage."""
         if hasattr(self, key) and not key.startswith("_"):
             setattr(self, key, value)
         else:
             self.extra[key] = value
 
     def to_dict(self) -> dict[str, Any]:
- """ JSON ()"""
+        """Convert to JSON-serializable dict, filtering empty values."""
         from dataclasses import asdict
 
         result = asdict(self)
         extra = result.pop("extra", {})
         result.update(extra)
- # None / / False, 
+        # Filter None/empty/False/zero values for compact output
         return {k: v for k, v in result.items() if v not in (None, "", [], False, 0, 0.0)}
-
 
 @dataclass
 class ParsedBurpRequest:
- """ Burp """
+    """ Burp """
 
     method: str
     url: str
@@ -159,14 +157,12 @@ class ParsedBurpRequest:
     burp_model_list: str | None = None
     api_category: str = "chat"
 
-
 # ====================================================================
-# 
+#
 # ====================================================================
-
 
 def parse_burp_request(file_path: str | Path) -> ParsedBurpRequest:
- """ Burp HTTP 
+    """ Burp HTTP
 
     ::
 
@@ -180,21 +176,20 @@ def parse_burp_request(file_path: str | Path) -> ParsedBurpRequest:
      Burp  HTTP  (Request + Response)
 
     Args:
-        file_path: Burp 
+        file_path: Burp
 
     Returns:
-        ParsedBurpRequest: 
+        ParsedBurpRequest:
 
     Raises:
-        FileNotFoundError: 
-        ValueError: HTTP 
- """
+        FileNotFoundError:
+        ValueError: HTTP
+    """
     raw = Path(file_path).read_text(encoding="utf-8", errors="replace")
     return _parse_raw_http(raw)
 
-
 def build_raw_http_request(parsed: ParsedBurpRequest) -> str:
- """ HTTP (CRLF )"""
+    """ HTTP (CRLF )"""
     lines = [f"{parsed.method} {parsed.path} {parsed.http_version}"]
 
     for key, value in parsed.raw_headers:
@@ -212,20 +207,18 @@ def build_raw_http_request(parsed: ParsedBurpRequest) -> str:
         request += "\r\n\r\n"
     return request
 
-
 # ====================================================================
-# 
+#
 # ====================================================================
-
 
 def _parse_raw_http(raw: str) -> ParsedBurpRequest:
- """ HTTP 
+    """ HTTP
 
     L5 v19 :  Burp  header  body ,
      body  header
 
     P2-20 :  Burp  HTTP  (Request + Response)
- """
+    """
     normalized = raw.replace("\r\n", "\n")
 
     request_section, response_section = _split_request_response(normalized)
@@ -313,7 +306,7 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
                 original_prompt_value[:80],
             )
 
- # + 
+ # +
     has_placeholder = "{PROMPT}" in body or "{PROMPT}" in path
     if not has_placeholder and body and api_category == "chat":
         body = inject_prompt_placeholder(body)
@@ -335,7 +328,7 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
     has_chat_id_placeholder = False
     initial_chat_id_from_body: str | None = None
 
- # Burp Response 
+ # Burp Response
     burp_model_name: str | None = None
     burp_model_list: str | None = None
 
@@ -353,7 +346,7 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
             logger.info("Extracted model list from Burp Response (length=%d)", len(burp_model_list))
             fingerprint.extra["burp_model_list"] = "yes"
 
- # Request body ID and inject into {CHAT_ID} 
+ # Request body ID and inject into {CHAT_ID}
     if body:
         try:
             orig_body_data = json.loads(body)
@@ -400,14 +393,13 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
         api_category=api_category,
     )
 
-
 def _extract_fingerprint(
     headers: dict[str, str],
     path: str,
     host: str,
     response_section: str | None = None,
 ) -> TargetFingerprint:
- """imports HTTP (Phase 1 )"""
+    """imports HTTP (Phase 1 )"""
     server = headers.get("server", "")
     x_powered = headers.get("x-powered-by", "")
     if "next" in (server + x_powered).lower():
@@ -436,7 +428,7 @@ def _extract_fingerprint(
 
     content_type = headers.get("content-type", "unknown")
 
- # 
+ #
     path_lower = path.lower()
     if "/challenges/" in path_lower or "/scenarios/" in path_lower or "/arena/" in path_lower:
         app_type = "Testing/Arena"
@@ -469,12 +461,11 @@ def _extract_fingerprint(
         ai_framework_category=ai_fw_cat,
     )
 
-
 def _split_request_response(normalized: str) -> tuple[str, str | None]:
- """ Burp HTTP Request Response 
+    """ Burp HTTP Request Response
 
-     ''HTTP/<digit>''  Response 
- """
+     ''HTTP/<digit>''  Response
+    """
     lines = normalized.split("\n")
 
     response_start_idx: int | None = None
@@ -497,7 +488,6 @@ def _split_request_response(normalized: str) -> tuple[str, str | None]:
 
     return request_section, response_section
 
-
 # ID ()
 _CHAT_ID_FIELD_NAMES = frozenset({
     "chatid", "chat_id", "chatidvalue", "chatsessionid", "chat_session_id",
@@ -507,7 +497,6 @@ _CHAT_ID_FIELD_NAMES = frozenset({
     "threadid", "thread_id",
     "req_id", "requestid", "request_id",
 })
-
 
 # Re-exports from capability_detector and target_builder for backwards compatibility
 from recon.capability_detector import (  # noqa: F401, E402
@@ -522,5 +511,4 @@ from recon.target_builder import (  # noqa: F401, E402
     ChatIdStateManager,
     RequestPreprocessor,
     build_http_target,
-    build_httpx_api_target,
 )

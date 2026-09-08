@@ -1,6 +1,6 @@
-"""capability_detector - imports burp_parser.py 
+"""capability_detector - imports burp_parser.py
 
-, , , 
+, , ,
 
  ''recon.confidence_scorer'' (SSOT),
 /
@@ -8,7 +8,7 @@
  LLM :
      parsed.body  ( {PROMPT} ),
      {PROMPT} ,  body ,
-    Ensure Baidu/Qwen/DeepSeek  body 
+    Ensure Baidu/Qwen/DeepSeek  body
 """
 
 import json
@@ -25,24 +25,23 @@ _TLS_VERIFY = _get_tls_verify_from_config()
 
 logger = logging.getLogger(__name__)
 
-
 def _build_probe_body(parsed: Any, probe_text: str) -> str:
- """imports parsed.body body
+    """imports parsed.body body
 
      parsed.body ( {PROMPT}  {CHAT_ID} ),
      {PROMPT} , {CHAT_ID}  ID
      parsed.body , fallback  {"prompt": probe_text}
 
     Args:
-        parsed:  Burp 
+        parsed:  Burp
         probe_text:  ( "hi"  prompt)
 
     Returns:
-         body 
- """
+         body
+    """
     if parsed.body and "{PROMPT}" in parsed.body:
         body = parsed.body.replace("{PROMPT}", probe_text)
- # {CHAT_ID} 
+ # {CHAT_ID}
         if "{CHAT_ID}" in body:
             chat_id_val = parsed.chat_id or ""
             body = body.replace("{CHAT_ID}", chat_id_val)
@@ -50,23 +49,22 @@ def _build_probe_body(parsed: Any, probe_text: str) -> str:
  # fallback: JSON body
     return json.dumps({"prompt": probe_text}, ensure_ascii=False)
 
-
 async def probe_response_path(parsed: Any) -> str | None:
- """
+    """
 
      ( "hi"  {PROMPT}),  JSON ,
      ( ''choices[0].message.content'')
 
      LLM  body :
          parsed.body ( {PROMPT} )  {PROMPT} ,
-         body , Ensure Baidu/Qwen/DeepSeek 
+         body , Ensure Baidu/Qwen/DeepSeek
 
     Args:
-        parsed:  Burp 
+        parsed:  Burp
 
     Returns:
          JSON ,  None
- """
+    """
     import httpx
 
  # body: parsed.body {PROMPT}
@@ -104,11 +102,11 @@ async def probe_response_path(parsed: Any) -> str | None:
  # ()
             detected_lang = _detect_language(content)
             if detected_lang:
- # P1-05: 
+             # P1-05:
                 parsed.target_fingerprint.language = detected_lang
                 logger.info("Detected target language: %s", detected_lang)
 
- # SSE (Server-Sent Events) 
+ # SSE (Server-Sent Events)
             content_type = response.headers.get("content-type", "")
             if "text/event-stream" in content_type or content.startswith("event:") or content.startswith("data:"):
                 logger.info("Probe detected SSE response format (Content-Type: %s)", content_type)
@@ -119,19 +117,19 @@ async def probe_response_path(parsed: Any) -> str | None:
                 probe_chat_id = _extract_chat_id_from_response(content)
                 if probe_chat_id:
                     parsed.chat_id = probe_chat_id
- # P1-05: 
+ # P1-05:
                     parsed.target_fingerprint.chat_id = probe_chat_id
                     logger.info("Probe extracted chat_id from SSE response: %s", probe_chat_id)
- # L5 v53: 
+ # L5 v53:
                 probe_model_name, probe_model_list = _extract_model_info_from_response(content)
                 if probe_model_name:
                     parsed.burp_model_name = probe_model_name
- # P1-05: 
+ # P1-05:
                     parsed.target_fingerprint.burp_model_name = probe_model_name
                     logger.info("Probe extracted model name from response: %s", probe_model_name)
                 if probe_model_list:
                     parsed.burp_model_list = probe_model_list
- # P1-05: extra dict Schema 
+ # P1-05: extra dict Schema
                     parsed.target_fingerprint.extra["burp_model_list"] = "yes"
                     logger.info("Probe extracted model list from response")
                 return None
@@ -140,45 +138,45 @@ async def probe_response_path(parsed: Any) -> str | None:
             if json_path:
                 logger.info("Probe inferred JSON path: %s", json_path)
                 parsed.response_json_path = json_path
- # L5 v53: 
+ # L5 v53:
                 from recon.burp_parser import _extract_model_info_from_response
                 probe_model_name, probe_model_list = _extract_model_info_from_response(content)
                 if probe_model_name:
                     parsed.burp_model_name = probe_model_name
- # P1-05: 
+ # P1-05:
                     parsed.target_fingerprint.burp_model_name = probe_model_name
                     logger.info("Probe extracted model name from JSON response: %s", probe_model_name)
                 if probe_model_list:
                     parsed.burp_model_list = probe_model_list
- # P1-05: extra dict Schema 
+ # P1-05: extra dict Schema
                     parsed.target_fingerprint.extra["burp_model_list"] = "yes"
                     logger.info("Probe extracted model list from JSON response")
- # - 
+ # -
  # Academic basis: Greshake et al. (arXiv:2302.12173), Zhan et al. (arXiv:2307.00929)
                 capabilities = _probe_capabilities(content)
  # ( model_family)
                 bool_caps = [k for k, v in capabilities.items() if v is True]
                 model_family = capabilities.get("model_family", "")
                 if model_family:
- # P1-05: 
+                 # P1-05:
                     parsed.target_fingerprint.model_family = model_family
                     logger.info("Probe detected model family: %s", model_family)
                 if bool_caps:
- # P1-05: extra dict (capabilities list, Schema )
+                 # P1-05: extra dict (capabilities list, Schema )
                     parsed.target_fingerprint.extra["capabilities"] = ",".join(bool_caps)
                     logger.info("Probe detected capabilities: %s", bool_caps)
                 return json_path
             else:
                 logger.info("Probe could not infer JSON path, using default")
- # Even if JSON 
+ # Even if JSON
                 capabilities = _probe_capabilities(content)
                 bool_caps = [k for k, v in capabilities.items() if v is True]
                 model_family = capabilities.get("model_family", "")
                 if model_family:
- # P1-05: 
+                 # P1-05:
                     parsed.target_fingerprint.model_family = model_family
                 if bool_caps:
- # P1-05: extra dict 
+                 # P1-05: extra dict
                     parsed.target_fingerprint.extra["capabilities"] = ",".join(bool_caps)
                     logger.info("Probe detected capabilities (no JSON path): %s", bool_caps)
                 return None
@@ -187,34 +185,33 @@ async def probe_response_path(parsed: Any) -> str | None:
         logger.warning("Response probe failed: %s", e)
         return None
 
-
 async def probe_active_capabilities(parsed: Any) -> dict[str, bool]:
- """ - prompt
+    """ - prompt
 
     Academic basis:
-        - Greshake et al. (arXiv:2302.12173) - 
+        - Greshake et al. (arXiv:2302.12173) -
         - Zhan et al. (arXiv:2307.00929) - InjecAgent
         - Anthropic MCP Specification (2024)
 
      ():
-        1.  "list available tools"  Agent/MCP 
+        1.  "list available tools"  Agent/MCP
         2.  "what documents are in your knowledge base"  RAG
-        3. 
+        3.
 
      LLM :
          parsed.body  {PROMPT},
-         {"prompt": "..."} body 
+         {"prompt": "..."} body
 
     Args:
-        parsed:  Burp 
+        parsed:  Burp
 
     Returns:
-        
- """
+
+    """
     import httpx
 
- # prompt - 
- # P2-20: model_identity - 
+ # prompt -
+ # P2-20: model_identity -
  # Academic basis: Mazeika et al. (arXiv:2406.18510) - WILDTEAMING
  # , ASR
     probe_prompts = {
@@ -232,15 +229,15 @@ async def probe_active_capabilities(parsed: Any) -> dict[str, bool]:
         if key.lower() not in ("content-length", "host"):
             probe_headers[key] = value
 
- # AsyncClient , TCP 
- # Academic basis: Arbis et al. (arXiv:2306.01943) Sec4.5 - 
+ # AsyncClient , TCP
+ # Academic basis: Arbis et al. (arXiv:2306.01943) Sec4.5 -
     async with httpx.AsyncClient(
         timeout=15.0,
         follow_redirects=True,
         verify=_TLS_VERIFY,
     ) as client:
         for probe_type, probe_prompt in probe_prompts.items():
- # parsed.body {PROMPT}, body 
+         # parsed.body {PROMPT}, body
             probe_body = _build_probe_body(parsed, probe_prompt)
 
             try:
@@ -262,7 +259,7 @@ async def probe_active_capabilities(parsed: Any) -> dict[str, bool]:
                 content = response.text
                 detected = _probe_capabilities(content)
 
- # 
+ #
  # model_family ( "gpt"), bool
                 for cap, val in detected.items():
                     if not val:
@@ -283,28 +280,27 @@ async def probe_active_capabilities(parsed: Any) -> dict[str, bool]:
 
     return capabilities
 
-
 def _probe_capabilities(response_text: str) -> dict[str, bool]:
- """imports - ''confidence_scorer'' SSOT
+    """imports - ''confidence_scorer'' SSOT
 
     Academic basis:
-        - Greshake et al. (arXiv:2302.12173) - , Agent 
-        - Zhan et al. (arXiv:2307.00929) - InjecAgent, Agent 
-        - arXiv:2402.04249 - HarmBench 
+        - Greshake et al. (arXiv:2302.12173) - , Agent
+        - Zhan et al. (arXiv:2307.00929) - InjecAgent, Agent
+        - arXiv:2402.04249 - HarmBench
 
     :
          ''confidence_scorer.py'',
-         SSOT ,  {capability: bool} 
+         SSOT ,  {capability: bool}
          7  (agent/rag/mcp/embedding/multi_agent/code_execution/web_search)
-        ;  (function_calling/memory/workflow ) 
-        capability_probe.py  ''deep_probe_capabilities'' 
+        ;  (function_calling/memory/workflow )
+        capability_probe.py  ''deep_probe_capabilities''
 
     Args:
-        response_text: 
+        response_text:
 
     Returns:
         model_family ,  bool
- """
+    """
     if not response_text or len(response_text) < 10:
         return {}
 
@@ -312,7 +308,7 @@ def _probe_capabilities(response_text: str) -> dict[str, bool]:
 
  # == SSOT: ==
     for cap_name in get_all_capability_names():
- # ( deep_probe_capabilities )
+     # ( deep_probe_capabilities )
         if cap_name.startswith(("function_calling", "memory", "workflow",
                                 "multi_tenant", "session_auth",
                                 "mcp_protocol", "a2a_protocol", "embedding_rag")):
@@ -322,13 +318,12 @@ def _probe_capabilities(response_text: str) -> dict[str, bool]:
 
  # == (WILDTEAMING , ) ==
  # Academic basis: Mazeika et al. (arXiv:2406.18510) - WILDTEAMING
- # (GPT/Claude/Gemini/Llama) 
+ # (GPT/Claude/Gemini/Llama)
     model_family = _detect_model_family(response_text)
     if model_family:
         capabilities["model_family"] = model_family
 
     return capabilities
-
 
 # v58: - key yaml asr_priors ,
 # patterns ().
@@ -336,7 +331,7 @@ def _probe_capabilities(response_text: str) -> dict[str, bool]:
 # "I am Claude 3.5 Sonnet" -> "claude-3.5-sonnet" ()
 # "I am Claude" -> "claude-3" ( fallback, yaml claude )
 _MODEL_PATTERNS: list[tuple[str, list[str]]] = [
- # == OpenAI / GPT == -> 
+    # == OpenAI / GPT == ->
     ("gpt-5", ["gpt-5", "gpt5"]),
     ("gpt-4o-mini", ["gpt-4o-mini", "gpt4o-mini"]),
     ("gpt-4o", ["gpt-4o", "gpt4o"]),
@@ -346,7 +341,7 @@ _MODEL_PATTERNS: list[tuple[str, list[str]]] = [
     ("o3", ["o3"]),
     ("o1", ["o1"]),
     ("gpt-4", ["chatgpt", "openai", "i am chatgpt", "i'm chatgpt", "i am an openai"]),
- # == Anthropic / Claude ==
+    # == Anthropic / Claude ==
     ("claude-4.5-sonnet", ["claude 4.5 sonnet", "claude-4.5-sonnet", "claude 4.5"]),
     ("claude-4-sonnet", ["claude 4 sonnet", "claude-4-sonnet", "claude sonnet 4", "claude-sonnet-4"]),
     ("claude-4-opus", ["claude 4 opus", "claude-4-opus", "claude opus 4", "claude-opus-4"]),
@@ -355,39 +350,39 @@ _MODEL_PATTERNS: list[tuple[str, list[str]]] = [
     ("claude-3.5", ["claude 3.5", "claude-3.5"]),
     ("claude-3", ["claude 3", "claude-3"]),
     ("claude-3", ["claude", "anthropic", "i am claude", "i'm claude"]),
- # == Google / Gemini ==
+    # == Google / Gemini ==
     ("gemini-2.5-pro", ["gemini 2.5 pro", "gemini-2.5-pro"]),
     ("gemini-2.5-flash", ["gemini 2.5 flash", "gemini-2.5-flash"]),
     ("gemini-2.0-flash", ["gemini 2.0 flash", "gemini-2.0-flash"]),
     ("gemini-1.5-pro", ["gemini 1.5 pro", "gemini-1.5-pro", "gemini pro"]),
     ("gemini-2.0-flash", ["gemini flash"]),
     ("gemini-1.5-pro", ["gemini", "google ai", "i am gemini", "i'm gemini"]),
- # == Meta / Llama ==
+    # == Meta / Llama ==
     ("llama-4-maverick", ["llama 4 maverick", "llama maverick", "llama-4-maverick"]),
     ("llama-4", ["llama 4", "llama-4", "llama scout"]),
     ("llama-3.1-405b", ["llama 3.1", "llama-3.1"]),
     ("llama-3-70b", ["llama 3", "llama-3"]),
     ("llama-2-70b", ["llama 2", "llama-2"]),
     ("llama-4", ["llama", "meta ai", "i am llama", "i'm llama"]),
- # == xAI / Grok ==
+    # == xAI / Grok ==
     ("grok-3", ["grok 4", "grok 3", "grok-4", "grok-3"]),
     ("grok-3", ["grok", "xai", "i am grok", "i'm grok"]),
- # == Mistral ==
+    # == Mistral ==
     ("mistral-large-2", ["mistral large 2", "mistral-large-2", "magistral"]),
     ("mistral-large-2", ["mistral", "mistral large", "mistral small", "codestral"]),
- # == Cohere / Command ==
+    # == Cohere / Command ==
     ("command-r-plus", ["command r+", "command-r-plus"]),
     ("command-a", ["command a", "command-a"]),
     ("command-a", ["cohere"]),
- # == Amazon / Nova ==
+    # == Amazon / Nova ==
     ("nova-micro", ["nova micro"]),
     ("nova-lite", ["nova lite"]),
- # nova yaml , bedrock fallback -> default
+    # nova yaml , bedrock fallback -> default
     ("nova-micro", ["amazon nova", "amazon bedrock", "nova pro"]),
- # == Microsoft / Phi ==
+    # == Microsoft / Phi ==
     ("phi-4", ["phi-4"]),
     ("phi-4", ["phi-3.5", "microsoft phi"]),
- # == Qwen / ==
+    # == Qwen / ==
     ("qwen3-235b", ["qwen3-235b", "qwen3 235b"]),
     ("qwen3-72b", ["qwen3-72b", "qwen3 72b"]),
     ("qwen3-32b", ["qwen3-32b", "qwen3 32b"]),
@@ -396,47 +391,46 @@ _MODEL_PATTERNS: list[tuple[str, list[str]]] = [
     ("qwen-max", ["qwen-max", "qwen max"]),
     ("qwen-32b", ["qwen-32b", "qwen 32b"]),
     ("qwen3-32b", ["qwen", "", "", "tongyi"]),
- # == DeepSeek / ==
+    # == DeepSeek / ==
     ("deepseek-v3.1", ["deepseek-v3.1", "deepseek v3.1"]),
     ("deepseek-r1", ["deepseek-r1", "deepseek r1"]),
     ("deepseek-v3", ["deepseek-v3", "deepseek v3"]),
     ("deepseek-v3", ["deepseek", ""]),
- # == ERNIE / ==
+    # == ERNIE / ==
     ("ernie-4.5", ["ernie x1", "ernie 4.5", "ernie-4.5"]),
     ("ernie-4.5", ["", "", "baidu ai", ""]),
- # == Doubao / ==
+    # == Doubao / ==
     ("doubao-pro", ["doubao-1.5", "doubao 1.5", "doubao", "", "seed-talk", "seed_talk"]),
- # == Kimi / ==
+    # == Kimi / ==
     ("kimi-k2", ["kimi k2", "kimi-k2"]),
     ("kimi-k2", ["kimi", "", "moonshot"]),
- # == GLM / ==
+    # == GLM / ==
     ("glm-5", ["glm-5.2", "glm-5", "glm 5", "glm-4.6", "glm-z1"]),
     ("glm-5", ["glm", "", "chatglm", "zhipu"]),
- # == Yi / ==
+    # == Yi / ==
     ("yi-lightning", ["yi-lightning", "yi lightning"]),
     ("yi-large", ["yi-large", "yi large"]),
     ("yi-large", ["yi-", "", "01.ai"]),
- # == MiniMax ==
+    # == MiniMax ==
     ("minimax-text-01", ["minimax-01", "minimax 01", "minimax-text-01"]),
     ("minimax-text-01", ["minimax", "abab"]),
- # == InternLM ==
+    # == InternLM ==
     ("internlm3", ["internlm3", "internlm 3", "internlm-3"]),
     ("internlm3", ["internlm"]),
- # == Gemma (Google open) ==
+    # == Gemma (Google open) ==
     ("gemma-3", ["gemma 3", "gemma-3"]),
     ("gemma-2", ["gemma 2", "gemma-2"]),
     ("gemma-2", ["gemma"]),
- # == Baichuan ( yaml, fallback to default) ==
+    # == Baichuan ( yaml, fallback to default) ==
     ("baichuan-4", ["baichuan-4", "baichuan", ""]),
- # == Step ( yaml, fallback to default) ==
+    # == Step ( yaml, fallback to default) ==
     ("step-3", ["step-3", "step-2", "", "stepfun"]),
 ]
 
-
 def _detect_model_family(text: str) -> str | None:
- """imports LLM ( yaml key ).
+    """imports LLM ( yaml key ).
 
-    v58 :  ( "claude"), 
+    v58 :  ( "claude"),
      yaml converter(s) "claude"  key (claude-3, ASR=73.6%),
      ( claude-3.5-sonnet, ASR=14%),  prior .
 
@@ -445,14 +439,14 @@ def _detect_model_family(text: str) -> str | None:
      yaml  key (/ ASR ).
 
     Academic basis: Mazeika et al. (arXiv:2406.18510) - WILDTEAMING
-        ,  ASR 
+        ,  ASR
 
     Args:
-        text: 
+        text:
 
     Returns:
          ( "claude-3.5-sonnet"),  None
- """
+    """
     if not text or len(text) < 3:
         return None
 
@@ -465,24 +459,23 @@ def _detect_model_family(text: str) -> str | None:
 
     return None
 
-
 def _detect_language(text: str) -> str | None:
- """imports (/)
+    """imports (/)
 
      Unicode :
         -  (CJK Unified Ideographs U+4E00-U+9FFF)  > 5% -> "zh"
         -  -> "en"
 
     Args:
-        text: 
+        text:
 
     Returns:
         "zh"  "en",  None
- """
+    """
     if not text or len(text) < 10:
         return None
 
- # 
+ #
     cjk_count = sum(1 for ch in text if "\u4e00" <= ch <= "\u9fff")
     total_chars = len(text)
 
@@ -494,12 +487,11 @@ def _detect_language(text: str) -> str | None:
         return "zh"
     return "en"
 
-
 def _infer_json_path(content: str) -> str | None:
- """imports JSON 
+    """imports JSON
 
-    converter(s),  JSON 
- """
+    converter(s),  JSON
+    """
     try:
         data = json.loads(content)
     except (json.JSONDecodeError, TypeError):
