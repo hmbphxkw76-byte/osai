@@ -94,9 +94,49 @@
 | HTTP 请求走私 | `strike/web_attacks.py` | CL.TE/TE.CL 走私、路径参数覆盖 | ANSI ISAAC 2023 |
 | 审计日志注入 | `strike/audit_evasion.py` | CRLF 注入、ANSI 注入、时间戳伪造 | CVE-2023-50164 |
 
-### 1E. Guard 检查器登记簿（v1.4 更新为 24 项）
+### 1E-DRIFT. 规范漂移检测护栏（v1.6 新增）
 
-规约各处引用的检查器汇总（**权威清单以 `tools/guard.py` 实际实现为准**）：
+> 完整规约见 [60-REDTEAM-DELIVERY-FRAMEWORK.md §11](60-REDTEAM-DELIVERY-FRAMEWORK.md)
+> 检测引擎：`tools/drift_detector.py`（独立于 `tools/guard.py`，专责「规范-代码」双向漂移）
+
+| # | 红线 | 级别 | 检查内容 | 检查器 |
+|---|------|------|----------|--------|
+| R-DRIFT-1 | PyRIT API 解析验证 | BLOCKING | 宪法/规约引用的原生类是否能 `import` 解析（防止 PyRIT 版本升级导致 API 失效） | `check_pyrit_api_resolution()` |
+| R-DRIFT-2 | 规范表格-代码同步 | WARNING | 规约文档引用的文件路径是否存在（防止文档引用已删除/重命名的模块） | `check_spec_code_sync()` |
+| R-DRIFT-3 | 版本变更锁定 | BLOCKING | 安装版本是否匹配 `pyproject.toml` 锁定（防止依赖更新引入未适配的 API 变更） | `check_version_lock()` |
+| R-DRIFT-4 | 契约消费验证 | INFO | `PipelineContext` 字段是否在各阶段被实际消费（防止字段僵尸/未使用） | `check_context_contract_usage()` |
+| R-DRIFT-5 | 原生模式违规 | WARNING | 检测自研 `base64_encode`/`check_refusal`/`regex_match` 等替代原生组件的函数 | `check_native_patterns()` |
+
+**R-DRIFT-* 判定逻辑**：
+- ✅ PASS: 全部检测通过 → INFO (不阻断)
+- ⚠️ WARNING: R-DRIFT-2 文件失同步 / R-DRIFT-5 自研替代 → 提示修复，**不阻断 push**
+- � BLOCKING: R-DRIFT-1 PyRIT API 无法解析 / R-DRIFT-3 版本锁定失效 → **阻断 push**
+
+**调用方式**：
+```bash
+# 快速检测 (不含版本锁定，开发期高频)
+py -m tools.drift_detector
+pyrit-drift
+
+# 全量检测 (含版本锁定，pre-push 和 CI 使用)
+py -m tools.drift_detector --full
+pyrit-drift --full
+
+# JSON 报告输出 (CI 集成)
+py -m tools.drift_detector --full --report
+pyrit-drift --full --report
+```
+
+**自动化集成位置**：
+| Hook/阶段 | 命令 | 触发时机 |
+|-----------|------|----------|
+| `pre-push` | `py -m tools.drift_detector --full` | 每次 push |
+| 手动开发 | `pyrit-drift` | 开发时实时检测 |
+| CI/CD | `pyrit-drift --full --report` | 定期审计/PR 检查 |
+
+### 1F. Guard 检查器登记簿（v1.6 更新为 29 项）
+
+规约各处引用的检查器汇总（**权威清单以 `tools/guard.py` + `tools/drift_detector.py` 实际实现为准**）：
 
 | 检查器 | 条款/红线 | 级别 | 备注 |
 |--------|----------|------|------|
@@ -125,10 +165,12 @@
 | **check_glue_silent_degradation** | **R-GLUE-4** | **WARNING** | **v1.4 新增 (Glue 层护栏)** |
 | **check_glue_academic_citation** | **R-GLUE-5** | **INFO** | **v1.4 新增 (Glue 层护栏)** |
 
-- 本表对照 `tools/guard.py` + `tools/guard_extended.py` 实际实现同步（24 项，新增 5 项 Glue 层护栏检查器）。
+- 本表对照 `tools/guard.py` + `tools/guard_extended.py` 实际实现同步（29 项 = 24 基座 + 5 漂移检测）。
+- **R-DRIFT 专项 (v1.6)**: 5 项漂移检测检查器由 `tools/drift_detector.py` 实现，独立于 `tools/guard.py`，专责「规范-代码」双向漂移（PyRIT API 解析 / 文件同步 / 版本锁定 / 契约消费 / 原生模式）。
 - **specs-guard 联动**: guard 启动时读取 `00-CONSTITUTION.md` 版本号并输出至报告脚注（裁决序基准）；版本不匹配时以 guard 实现为准、规约文档视为待同步。
 - **R9 误报白名单 (v1.2)**: `display.py`、`display_stages.py` 中通过 `_resolve('param', default)` 包裹的动态配置读取，视为已修复配置数据流断点（不报 R9）。
 - **Glue 层护栏 v1.4**: 5 项检查器由 `enterprise_orchestrator.py` 与 `tools/guard.py` 协同实现，覆盖插件化隔离、PyRIT 原生委托、配置数据流、静默降级、学术留痕五大维度。
+- **R-DRIFT 护栏 v1.6**: 5 项漂移检测检查器覆盖 PyRIT API 可解析性、规范-代码文件同步、版本锁定、PipelineContext 契约消费、原生优先模式违规。
 
 **红线冲突裁决**：R-S*（安全合规）> R-L*（机器红线）> R-H*（人工红线）。安全红线与 ASR 冲突时（例如"过滤掉这个目标会更安全"），安全红线赢——但正确答案几乎总是 STOP-REPORT 让人裁决。
 
