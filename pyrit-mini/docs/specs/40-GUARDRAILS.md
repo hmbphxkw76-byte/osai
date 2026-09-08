@@ -110,7 +110,7 @@
 **R-DRIFT-* 判定逻辑**：
 - ✅ PASS: 全部检测通过 → INFO (不阻断)
 - ⚠️ WARNING: R-DRIFT-2 文件失同步 / R-DRIFT-5 自研替代 → 提示修复，**不阻断 push**
-- � BLOCKING: R-DRIFT-1 PyRIT API 无法解析 / R-DRIFT-3 版本锁定失效 → **阻断 push**
+- [BLOCKING]: R-DRIFT-1 PyRIT API 无法解析 / R-DRIFT-3 版本锁定失效 → **阻断 push**
 
 **调用方式**：
 ```bash

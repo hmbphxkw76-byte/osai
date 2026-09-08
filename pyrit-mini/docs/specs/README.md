@@ -10,7 +10,7 @@
 | L1 | [10-ARCHITECTURE.md](10-ARCHITECTURE.md) | 技术蓝图：分层依赖 / ctx 契约 / 不变量 / ADR / 债务簿 / PyRIT攻击引擎 / Glue层 | v2.1 |
 | L2 | [20-REQUIREMENTS.md](20-REQUIREMENTS.md) | 需求登记：P0/P1/P0-NEW/P0-EXAM / NFR / NEG / 企业Glue需求 / 状态登记表 | v1.7 |
 | L3 | [30-TASKS.md](30-TASKS.md) | 任务协议：生命周期 / 粒度上限 / 八步协议 / STOP-REPORT / 考试变体 | v1.3 |
-| L4 | [40-GUARDRAILS.md](40-GUARDRAILS.md) | 红线 R-L / R-H / R-S / R-WEB / R-DRIFT / 四步门禁 / 三层防线 / 登记簿 / 考试合规 | v1.5 |
+| L4 | [40-GUARDRAILS.md](40-GUARDRAILS.md) | 红线 R-L / R-H / R-S / R-WEB / R-DRIFT / 四步门禁 / 三层防线 / 登记簿 (29项) / 考试合规 | v1.6 |
 | 配套 | [50-ROADMAP.md](50-ROADMAP.md) | 路线图：AI-300 考纲映射 / 红队实践 / 任务序列 / 会话模型 / Runbook | v1.3 |
 | 配套 | [60-REDTEAM-DELIVERY-FRAMEWORK.md](60-REDTEAM-DELIVERY-FRAMEWORK.md) | 红队交付保障框架：R-DELIVERY 规则 / 实时监视 (watch/quick) / 自动启动 / Git hooks | v2.2 |
 | 配套 | [45-DATA-FLOW-INTEGRITY.md](45-DATA-FLOW-INTEGRITY.md) | 数据流完整性规约：Phase 字段契约 / 数据传递规则 / Git hooks | v1.0 |
