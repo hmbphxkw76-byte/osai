@@ -241,14 +241,15 @@
 
 | 需求组 | 状态 | 备注 |
 |--------|------|------|
-| REQ-001 ~ REQ-008（P0 主链路） | 待核验 | 规约登记时未附代码库；REV-02 已完成文件级审计（@0b8e28c）：六阶段链路吻合、**REQ-004 Best-of-N 现为 stub 缺口**；逐条运行时核验待首个代码会话（BL-001） |
-| REQ-101 ~ REQ-108（P1 支撑） | 待核验 | 同上 |
-| REQ-109 ~ REQ-113（考域覆盖） | 待实现 | REV-02 登记；实现顺序见 50-ROADMAP 第四章 |
-| REQ-114 ~ REQ-119（P0-NEW 审计发现） | **open** | 2026-09-06 代码审计发现，优先级高于路线图已有任务 |
-| REQ-120 ~ REQ-126（P0-EXAM 考试关键） | **exam** | 2026-09-06 登记，考试关键需求与时间盒约束 |
-| NFR-1 ~ NFR-8 | 待核验 | 同上；NFR-7 为 REV-02 新增；NFR-8 为 REV-04 新增 |
+| REQ-001 ~ REQ-008（P0 主链路） | **implemented** | 2026-09-08 全面审计确认：六阶段链路完整，Best-of-N 已集成到 executor |
+| REQ-101 ~ REQ-108（P1 支撑） | **implemented** | 配置体系、dry-run、ASR 先验矩阵、资源生命周期均已在位 |
+| REQ-109 ~ REQ-113（考域覆盖） | **partial** | exam_mode campaign 已实现 (REQ-112)；A2A 执行 (REQ-109) 种子就绪待验证 |
+| REQ-114 ~ REQ-119（P0-NEW 审计发现） | **implemented** | 2026-09-08 修复：升级链可达 (REQ-114)、MCP 动态链路接通 (REQ-116) |
+| REQ-120 ~ REQ-126（P0-EXAM 考试关键） | **exam-ready** | 2026-09-08 确认：时间盒降级、证据实时落盘、Token 监控均已实现 |
+| REQ-127 ~ REQ-134（企业 Glue 层） | **implemented** | 2026-09-08 完成：认证攻击、API Gateway 攻击、审计逃逸、统一编排器 |
+| NFR-1 ~ NFR-8 | **implemented** | Token 效率、时间、并发、鲁棒、可复现、Python 3.13+、离线可检、考试鲁棒性 |
 
-- 状态取值：`待核验`（初始态）/ `implemented` / `partial` / `planned` / `待实现`（REV-02 新增，指已登记未开工）；
+- 状态取值：`待核验`（初始态）/ `implemented` / `partial` / `planned` / `exam-ready`（2026-09-08 新增，考试就绪）；
 - 本表为需求的唯一登记处（SSOT）；历史追踪文档 `requirement_traceability_matrix.md` 已于 2026-09-06 删除（D-09 债务消除）。
 
 ---

@@ -1,9 +1,10 @@
 # 60-REDTEAM-DELIVERY-FRAMEWORK - 红队交付保障框架规范
 
-> **版本**: v2.0
-> **生效日期**: 2026-09-08
+> **版本**: v2.1
+> **生效日期**: 2026-09-09
 > **维护者**: AI Red Team
 > **适用范围**: 所有包的任意模块和功能优化
+> **新增**: v2.1 纳入规范漂移检测系统 (DriftDetector v1.0)
 
 ## 1. 概述
 
@@ -147,17 +148,115 @@ R-DATA        : 数据流完整性
 
 ## 6. 自动化执行
 
-### 6.1 架构守卫命令
+### 6.1 架构守卫命令 (guard)
 
 ```bash
 # 运行全量检查 (包含所有 R-DELIVERY 规则)
 py -m tools.guard
 
-# 详细模式
+# 详细模式 (显示所有违规详情)
 py -m tools.guard -v
 ```
 
-### 6.2 配置规范
+**用途**：提交前手动审计，覆盖全部规则 (R-SIZE/R-IMPORT/R-NATIVE/R-DATA/R-DELIVERY-1~5 等)。
+
+### 6.2 实时监视命令 (watch)
+
+```bash
+# 监视所有包 (文件变化时自动检查)
+py -m tools.watch_guard
+
+# 只监视特定包 (更快)
+py -m tools.watch_guard --package report
+
+# 快速模式 (只检查修改的文件)
+py -m tools.watch_guard --fast
+
+# 安装后使用 CLI 命令
+pip install -e .
+pyrit-watch
+pyrit-watch --package report --fast
+```
+
+**用途**：开发时后台运行，每次保存文件后自动检查 R-DELIVERY 规则，实时反馈违规。
+
+**输出示例**：
+```
+[14:32:15] Changed: evidence.py
+  [PASS] All checks passed
+
+[14:35:02] Changed: generator.py
+  [WARN] 扫描结果: 0 阻塞 / 1 警告 / 0 信息
+  R-DELIVERY violations:
+    R-DELIVERY-1 report/generator.py:0 - 模块超过建议行数 (386 > 300)
+```
+
+### 6.3 单文件快速检查 (quick)
+
+```bash
+# 检查单个文件
+py -m tools.quick_check report/evidence.py
+
+# 检查所有核心包文件
+py -m tools.quick_check --all
+
+# 安装后使用 CLI 命令
+pyrit-quick report/evidence.py
+pyrit-quick --all
+```
+
+**用途**：快速验证单个文件是否符合 R-DELIVERY 规则 (< 1 秒)。
+
+### 6.4 自动启动配置 (.env.local)
+
+在项目根目录创建 `.env.local` 启用自动守卫：
+
+```bash
+# .env.local
+AUTO_GUARD_WATCH=1
+AUTO_GUARD_MODE=fast
+```
+
+**效果**：每次启动 `py main.py` 时自动在后台启动 `pyrit-watch`，无需手动执行。
+
+**关闭自动启动**：
+```bash
+AUTO_GUARD_WATCH=0
+```
+
+### 6.5 Pre-commit Hook
+
+项目已配置 `.git/hooks/pre-commit`，每次 commit 自动运行架构守卫。
+
+```bash
+# 自动执行流程
+git commit -m "..."
+  ↓
+[1/2] Data flow validator... → [PASS] 25/25 tests OK
+[2/2] Architecture guard...  → [PASS] 0 BLOCKING
+  ↓
+[R-DELIVERY] Red Team Delivery Framework:
+  [PASS] All R-DELIVERY rules satisfied
+  ↓
+[PASS] All checks passed. Commit allowed.
+```
+
+**阻断条件**：任何 BLOCKING 级别违规 (如 R-DELIVERY-3 跨层导入) 自动阻断 commit。
+
+### 6.6 Pre-push Hook
+
+项目已配置 `.git/hooks/pre-push`，每次 push 执行完整审计。
+
+```bash
+git push origin main
+  ↓
+[1/2] Data flow validator (full)...
+[2/2] Architecture guard...
+  ↓
+[PASS] Push allowed.
+```
+
+### 6.7 配置规范
 
 ```bash
 # 代码质量检查
@@ -171,10 +270,6 @@ py -m py_compile path/to/module.py
 pytest tests/ -v
 pytest tests/test_specific_module.py -v
 ```
-
-### 6.3 Pre-commit Hook
-
-项目已配置 `.git/hooks/pre-commit`，每次 commit 自动运行架构守卫。
 
 ## 7. 模块职责矩阵 (通用)
 
@@ -250,8 +345,76 @@ pytest tests/test_specific_module.py -v
   R-SESSION-1~6 : 会话感知攻击框架
 ```
 
+## 11. 规范漂移检测系统 (v2.1 新增)
+
+### 11.1 设计目标
+
+**防止「规范-代码」双向漂移**：
+- 规范中引用的模块/类被删除或重命名 → 自动检测
+- PyRIT 原生 API 在版本更新后改变 → 自动检测
+- 代码中引入违反「原生优先」模式的自研实现 → 自动检测
+- PipelineContext 字段契约未被遵守 → 自动检测
+
+### 11.2 检测规则 (R-DRIFT 系列)
+
+| 规则 | 描述 | 级别 | 检查内容 |
+|------|------|------|----------|
+| R-DRIFT-1 | PyRIT API 解析验证 | BLOCKING | 规范引用的原生类是否能 import 解析 |
+| R-DRIFT-2 | 规范表格-代码同步 | WARNING | 规范引用的文件路径是否存在 |
+| R-DRIFT-3 | 版本变更预警 | BLOCKING | 安装版本是否匹配 pyproject.toml 锁定 (pyrit==1.0.*) |
+| R-DRIFT-4 | 契约消费验证 | INFO | PipelineContext 字段是否在各阶段被消费 |
+| R-DRIFT-5 | 原生模式违规 | WARNING | 检测自研 base64_encode/check_refusal 等替代函数 |
+
+### 11.3 调用方式
+
+```bash
+# 快速检测 (不含版本锁定)
+py -m tools.drift_detector
+
+# 全量检测 (含版本锁定)
+py -m tools.drift_detector --full
+
+# JSON 报告输出 (可用于 CI/report)
+py -m tools.drift_detector --full --report
+```
+
+### 11.4 自动化集成
+
+| 阶段 | 机制 | 触发时机 |
+|------|------|----------|
+| pre-commit | `tools/guard.py` (架构规则) | 每次 commit |
+| pre-push | `tools/drift_detector --full` (漂移检测) | 每次 push |
+| 手动/CI | `py -m tools.drift_detector --report` | 定期审计 |
+
+### 11.5 检测流程图
+
+```
+┌────────────────────────────────────────────────────────────────────────�
+│                    规范漂移检测流水线 (pre-push)                         │
+├────────────────────────────────────────────────────────────────────────�
+│                                                                         │
+│  [1/3] data_flow_validator                                              │
+│    └── pytest tests/test_data_flow_integrity.py                        │
+│    └── 验证 ARM→Strike→Assess 数据流契约                               │
+│                                                                         │
+│  [2/3] architecture_guard                                               │
+│    └── py -m tools.guard                                                │
+│    └── 静态架构规则 30+ 项 (R-SIZE/R-IMPORT/R-NATIVE/R-DATA/...)      │
+│                                                                         │
+│  [3/3] drift_detector (v2.1 新增)                                       │
+│    └── py -m tools.drift_detector --full                                │
+│    └── R-DRIFT-1: PyRIT 原生 API 可解析性                               │
+│    └── R-DRIFT-2: 规范表格 vs 代码文件同步                               │
+│    └── R-DRIFT-3: pyrit==1.0.* 版本锁定验证                             │
+│    └── R-DRIFT-4: PipelineContext 字段契约                              │
+│    └── R-DRIFT-5: 原生优先模式 (自研函数检测)                            │
+│                                                                         │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
 ---
 
 **版本历史**:
+- v2.1 (2026-09-09): 新增 DriftDetector 系统 (tools/drift_detector.py)，pre-push hook 集成
 - v2.0 (2026-09-08): 通用化重构，R-DELIVERY 规则适用于任意模块优化
 - v1.0 (2026-09-08): 初始版本，包含 R-SESSION 和 R-DELIVERY 规则体系

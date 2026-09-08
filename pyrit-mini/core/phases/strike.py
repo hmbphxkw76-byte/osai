@@ -177,6 +177,13 @@ async def _run_strike_phase(
         f"Attack={_attack_count}, Success={_success_count}, ASR={_strike_asr:.1f}%",
         ok=True)
 
+    # === 数据流完整性快照: post_strike ===
+    try:
+        from tools.data_flow_hooks import snapshot_hook
+        snapshot_hook(ctx, "post_strike")
+    except Exception as e:
+        logger.debug("[Strike] Data flow snapshot skipped: %s", e)
+
 
 async def _run_web_attacks_phase(ctx: "PipelineContext") -> None:
     """(4.2) WEB ATTACKS: Web security attacks (JWT/Gateway/Audit).

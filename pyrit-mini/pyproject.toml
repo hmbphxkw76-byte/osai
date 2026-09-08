@@ -26,6 +26,7 @@ pyrit-hooks = "tools.hooks:main"
 pyrit-scenarios = "tools.scenarios:main"
 pyrit-poc = "tools.poc:main"
 pyrit-dataflow = "tools.data_flow_validator:main"
+pyrit-drift = "tools.drift_detector:main"
 pyrit-hooks-local = "tools.install_hooks_local:main"
 
 [tool.setuptools.packages.find]

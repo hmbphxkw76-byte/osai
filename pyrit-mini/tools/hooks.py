@@ -143,7 +143,7 @@ exit 0
 _PRE_PUSH_HOOK = """#!/bin/sh
 # Combined pre-push hook for {project_name}
 # Auto-installed by: py -m tools.install_hooks
-# 运行全量 data_flow_validator + architecture_guard
+# 运行全量 data_flow_validator + architecture_guard + drift_detector
 
 REPOROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PROJECT_DIR="$REPO_ROOT/{project_name}"
@@ -166,7 +166,7 @@ fi
 cd "$PROJECT_DIR"
 
 # --- 1. data_flow_validator (全量测试) ---
-echo "  [1/2] Running data flow integrity tests (full)..."
+echo "  [1/3] Running data flow integrity tests (full)..."
 if [ -f "$PROJECT_DIR/tools/data_flow_validator.py" ]; then
     $PYTHON -m pytest tests/test_data_flow_integrity.py -v --tb=short -p no:cacheprovider --no-header 2>&1 | tail -3
     DF_EXIT=${PIPESTATUS[0]}
@@ -181,13 +181,29 @@ else
 fi
 
 # --- 2. architecture_guard ---
-echo "  [2/2] Running architecture_guard..."
+echo "  [2/3] Running architecture_guard..."
 $PYTHON -m tools.guard
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -ne 0 ]; then
     echo "PUSH BLOCKED - Architecture guard BLOCKING"
     exit 1
+fi
+
+# --- 3. drift_detector (全量漂移检测) ---
+echo "  [3/3] Running drift_detector (full)..."
+if [ -f "$PROJECT_DIR/tools/drift_detector.py" ]; then
+    $PYTHON -m tools.drift_detector --full
+    DRIFT_EXIT=$?
+    if [ $DRIFT_EXIT -ne 0 ]; then
+        echo "  [FAIL] drift_detector: 检测到阻断级规范漂移"
+        echo "    PUSH BLOCKED - Fix drift violations first"
+        echo "    查看详细: py -m tools.drift_detector --full --report"
+        exit 1
+    fi
+    echo "  [PASS] drift_detector"
+else
+    echo "  [SKIP] drift_detector"
 fi
 
 echo "All checks passed. Push allowed."

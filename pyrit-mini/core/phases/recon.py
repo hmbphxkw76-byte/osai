@@ -165,6 +165,13 @@ async def _run_recon_phase(
                     )
                 print_status("RECON", "DONE", "", ok=True)
 
+    # === 数据流完整性快照: post_recon ===
+    try:
+        from tools.data_flow_hooks import snapshot_hook
+        snapshot_hook(ctx, "post_recon")
+    except Exception as e:
+        logger.debug("[Recon] Data flow snapshot skipped: %s", e)
+
 async def _run_mcpsec_reconnaissance(
         ctx: "PipelineContext", target_url: str) -> None:
     """Execute MCPSec reconnaissance phase with production-grade observability.

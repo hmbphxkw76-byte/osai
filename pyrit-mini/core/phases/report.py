@@ -88,3 +88,10 @@ async def _run_report_phase(
         native_output_dir=str(_native_dir) if _native_dir.exists() else "",
     )
     print_status("REPORT", "DONE", "", ok=True)
+
+    # === 数据流完整性快照: post_report ===
+    try:
+        from tools.data_flow_hooks import snapshot_hook
+        snapshot_hook(ctx, "post_report")
+    except Exception as e:
+        logger.debug("[Report] Data flow snapshot skipped: %s", e)

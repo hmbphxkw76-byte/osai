@@ -136,3 +136,10 @@ async def _run_assess_phase(
             "Wilson Score 95% CI + Cohen's Kappa "
         ),
     })
+
+    # === 数据流完整性快照: post_assess ===
+    try:
+        from tools.data_flow_hooks import snapshot_hook
+        snapshot_hook(ctx, "post_assess")
+    except Exception as e:
+        logger.debug("[Assess] Data flow snapshot skipped: %s", e)

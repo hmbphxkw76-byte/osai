@@ -365,9 +365,25 @@ async def run_escalation_chain(
         strategy_name,
     )
 
+    # Stealth: Initialize timing executor from ctx config (Escalation chain)
+    # Architecture alignment: ctx.stealth_config -> StealthExecutor -> inter-objective delays
+    _stealth_esc = None
+    _stealth_esc_config = getattr(ctx, "stealth_config", None)
+    if _stealth_esc_config and getattr(_stealth_esc_config, "enabled", False):
+        from strike.stealth_exec import StealthExecutor
+        _stealth_esc = StealthExecutor(_stealth_esc_config)
+
     # Execute strategy
     all_results: list[Any] = []
-    for objective in objectives_to_escalate:
+    for obj_idx, objective in enumerate(objectives_to_escalate):
+        # Stealth: Apply human-paced delay between escalation objectives
+        # Breaks SIEM rate anomaly detection on multi-turn attacks
+        if _stealth_esc is not None and obj_idx > 0:
+            try:
+                await _stealth_esc.pre_request_delay()
+            except Exception:
+                pass
+
         try:
             if strategy_name == "skeleton_key":
                 result = await execute_skeleton_key_attack(ctx, objective)

@@ -1,5 +1,5 @@
 """
-流水线 Phase 数据流快照钩子
+流水线 Phase 数据流快照钩子 — Recon → ARM → Strike → Assess → Report/Evidence 全链路
 
 用法: 在每个 phase 模块中导入并调用
 
@@ -7,10 +7,21 @@
     
     # 在 phase 执行完时调用
     snapshot_hook(ctx, "post_recon")
+    snapshot_hook(ctx, "post_arm")
+    snapshot_hook(ctx, "post_strike")
+    snapshot_hook(ctx, "post_assess")
+    snapshot_hook(ctx, "post_report")
     
     # 在流水线结束时验证
     from tools.data_flow_hooks import validate_and_report
     report = validate_and_report(ctx)
+
+全链路阶段映射:
+    Recon Phase  → snapshot_hook(ctx, "post_recon")
+    ARM Phase    → snapshot_hook(ctx, "post_arm")
+    Strike Phase → snapshot_hook(ctx, "post_strike")
+    Assess Phase → snapshot_hook(ctx, "post_assess")
+    Report Phase → snapshot_hook(ctx, "post_report")
 """
 
 from __future__ import annotations
@@ -65,7 +76,7 @@ def validate_and_report(ctx: Any) -> str:
     """
     执行完整数据流验证并返回格式化报告
     
-    在流水线结束时调用，返回可读报告字符串。
+    在流水线结束时调用（Report 阶段完成后），返回可读报告字符串。
     
     Args:
         ctx: PipelineContext 实例
@@ -77,8 +88,10 @@ def validate_and_report(ctx: Any) -> str:
     validator.set_context(ctx)
 
     # 如果还有最后阶段未快照，补齐
-    if "post_assess" not in validator.snapshots:
-        validator.snapshot("post_assess")
+    if "post_report" not in validator.snapshots:
+        if "post_assess" not in validator.snapshots:
+            validator.snapshot("post_assess")
+        validator.snapshot("post_report")
 
     report = validator.validate_all()
     formatted = format_report(report)
@@ -98,6 +111,7 @@ def validate_quick(ctx: Any) -> bool:
     快速数据流验证 — 仅检查关键字段
     
     使用独立验证器，避免全局状态污染。
+    覆盖 Recon → ARM → Strike → Assess → Report/Evidence 全链路。
     
     Returns:
         是否通过
@@ -106,7 +120,8 @@ def validate_quick(ctx: Any) -> bool:
     local_validator = DataFlowValidator(ctx)
 
     # 自动生成各阶段快照
-    for phase in ["recon", "arm", "strike", "assess"]:
+    phases = ["recon", "arm", "strike", "assess", "report"]
+    for phase in phases:
         snap_key = f"post_{phase}"
         local_validator.snapshot(snap_key)
 
@@ -137,6 +152,7 @@ def integrate_with_phases() -> None:
         ("core.phases.arm", "arm", "post_arm"),
         ("core.phases.strike", "strike", "post_strike"),
         ("core.phases.assess", "assess", "post_assess"),
+        ("core.phases.report", "report", "post_report"),
     ]
 
     for module_name, phase_name, snapshot_name in phase_modules:

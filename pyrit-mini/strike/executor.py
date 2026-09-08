@@ -39,11 +39,11 @@ from core.context import PipelineContext
 # Best-of-N retry from adaptive_executor
 from strike.adaptive_executor import _best_of_n_retry  # noqa: F401
 
-# P2 : _is_success utils.attack_utils.SSOT
-from utils.attack_utils import _is_success  # noqa: F401
-
 # Session-Aware Attack Framework: SessionStateManager
 from strike.session import SessionStateManager  # noqa: F401
+
+# P2 : _is_success utils.attack_utils.SSOT
+from utils.attack_utils import _is_success  # noqa: F401
 
 
 def _import_progress_funcs():
@@ -211,7 +211,25 @@ async def _try_native_sequential_attack(
     except Exception:
         _native_seq_fn = None
 
+    # Stealth: Initialize timing executor from ctx config (SequentialAttack path)
+    # Architecture alignment: ctx.stealth_config -> StealthExecutor -> inter-seed delays
+    _stealth_exec_seq = None
+    _stealth_config_seq = getattr(ctx, "stealth_config", None)
+    if _stealth_config_seq and getattr(_stealth_config_seq, "enabled", False):
+        from strike.stealth_exec import StealthExecutor
+        _stealth_exec_seq = StealthExecutor(_stealth_config_seq)
+
     for sg_idx, sg in enumerate(ctx.seeds):
+        # Stealth: Apply human-paced delay between seed groups
+        # (SequentialAttack path: each seed is one attack sequence)
+        if _stealth_exec_seq is not None and sg_idx > 0:
+            try:
+                _delay = await _stealth_exec_seq.pre_request_delay()
+                if _delay > 1.0:
+                    logger.debug("[Stealth] SeqAttack inter-seed delay: %.1fs", _delay)
+            except Exception:
+                pass
+
         sg_category = ""
         for seed in getattr(sg, "seeds", []):
             meta = getattr(seed, "metadata", {}) or {}
@@ -872,15 +890,29 @@ async def _run_feedback_loop(ctx: Any, all_results: list[Any]) -> None:
             len(_intel_model_ids), len(_intel_api_paths), len(_intel_providers),
         )
 
-        # Inline: run_feedback_recon (HEAD re-probe)
+        # Inline: run_feedback_recon (HEAD re-probe with stealth timing)
         reprobe_status = "skipped"
         new_endpoints: list[str] = []
         try:
             if _intel_api_paths and hasattr(ctx, "objective_target"):
                 import aiohttp
                 from aiohttp import ClientSession
+
+                # Stealth: Apply timing to HEAD re-probe requests
+                _stealth_fb = None
+                _stealth_fb_config = getattr(ctx, "stealth_config", None)
+                if _stealth_fb_config and getattr(_stealth_fb_config, "enabled", False):
+                    from strike.stealth_exec import StealthExecutor
+                    _stealth_fb = StealthExecutor(_stealth_fb_config)
+
                 async with ClientSession() as session:
-                    for path in _intel_api_paths:
+                    for path_idx, path in enumerate(_intel_api_paths):
+                        # Stealth: Delay between HEAD re-probe requests
+                        if _stealth_fb is not None and path_idx > 0:
+                            try:
+                                await _stealth_fb.pre_request_delay()
+                            except Exception:
+                                pass
                         try:
                             base_url = getattr(ctx, "base_url", "") or ""
                             if base_url:

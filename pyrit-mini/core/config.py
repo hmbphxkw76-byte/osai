@@ -166,6 +166,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
  # == ==
     parser.add_argument("--html-report", action="store_true", default=False, help=" HTML ")
 
+ # == Stealth: SIEM evasion timing ==
+ # --stealth: Paretorate shaping, session isolation
+ # : a (100%15%), c (2%), b (0.1%)
+ # : stealth_exec.StealthConfig.from_level()
+ # arXiv:2306.05685 - Crothers et al., Adaptive attack timing
+ # arXiv:2204.01326 - Zhang et al., Behavioral biometrics evasion
+    parser.add_argument(
+        "--stealth",
+        type=str,
+        default=None,
+        choices=["a", "c", "b"],
+        metavar="LEVEL",
+        help=" SIEM : a (100%%15%%), c (2%%), "
+             "b (0.1%%); + + Pareto",
+    )
+
  # == P2-2: output-format ==
  # : md / html / json / sarif / poc / csv / all ()
  # : --output-format md,json  md+json

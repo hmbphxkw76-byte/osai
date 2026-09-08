@@ -45,9 +45,39 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+
+def auto_start_guard_watcher() -> None:
+    """Check .env.local and auto-start guard watcher if enabled.
+
+    Environment variables:
+        AUTO_GUARD_WATCH=1  — Enable auto-watch
+        AUTO_GUARD_MODE=fast — Watch mode (fast/full)
+    """
+    if os.environ.get("AUTO_GUARD_WATCH") != "1":
+        return
+
+    mode = os.environ.get("AUTO_GUARD_MODE", "fast")
+    project_root = Path(__file__).resolve().parent
+
+    # Start watcher in background (non-blocking)
+    try:
+        subprocess.Popen(
+            [sys.executable, "-m", "tools.watch_guard", "--" + mode],
+            cwd=str(project_root),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
+            if sys.platform == "win32"
+            else 0,
+        )
+        print("  [AUTO-GUARD] Real-time watcher started (mode: {mode})".format(mode=mode))
+    except Exception as e:
+        print(f"  [AUTO-GUARD] Failed to start watcher: {e}")
 
 # UTF-8 (Windows GBK )
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
@@ -107,6 +137,9 @@ async def run(argv: list[str] | None = None) -> None:
     # == Print banner ==
     print_banner()
 
+    # == Auto-start guard watcher (if enabled in .env.local) ==
+    auto_start_guard_watcher()
+
     # == Parse arguments + Output directory ==
     args = parse_args(argv)
     output_dir = get_output_dir(args)
@@ -124,6 +157,13 @@ async def run(argv: list[str] | None = None) -> None:
     ctx = PipelineContext(args=args, output_dir=output_dir)
     ctx.scenario_result_id = getattr(args, "resume", None)
     ctx.memory_labels = getattr(args, "memory_labels_parsed", {}) or {}
+
+    # == Stealth: SIEM evasion timing (optional) ==
+    # Data flow: CLI --stealth -> StealthConfig -> ctx.stealth_config -> strike/executor
+    stealth_level = getattr(args, "stealth", None)
+    if stealth_level:
+        from strike.stealth_exec import StealthConfig
+        ctx.stealth_config = StealthConfig.from_level(stealth_level)
 
     # == Install signal handlers ==
     install_signal_handlers(ctx)

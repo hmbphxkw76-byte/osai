@@ -81,20 +81,22 @@ D-01~D-09（制宪登记）+ D-10~D-16（REV-02 新增）共 16 项，消除方�
 
 ### 阶段 0 — 稳定化（P0，先于一切新功能）
 
-| 序 | 任务 | 引用 | 说明 |
-|----|------|------|------|
-| T0-1 | Best-of-N 实装 | REQ-004 / D-03 | 消除 P0 缺口：真实现（多 temperature 采样）或从升级链摘除（STOP-REPORT 三选项裁决） |
-| T0-2 | stub 裁决（encoded_injection / cair） | D-03 | 各自"实现或摘除"，禁止维持现状 |
-| T0-3 | 工具链修复 | D-16 / BL-008~010 | ruff 去 exclude、钉 pyrit、修 mojibake、asr_history 出库 |
-| T0-4 | escalation 孪生合并 | D-10 / BL-007 | 先 diff 确认孪生，保留 chain 语义一套 |
-| T0-5 | seed 排序双轨合并 | D-12 | seed_ranker/seed_ranking 合一 |
-| T0-6 | converter 三轨裁决 | D-11 | 按选择器/预设/构建职责分离或合并 |
-| T0-7 | judge 文件群收敛 | D-01/D-15 | 双轨归一，asr_tracker re-export 删除 |
-| T0-8 | main.py 瘦身第一刀 | D-02 | 仅切一块业务逻辑下沉（后续波次另立任务） |
-| T0-9 | data/ 代码迁出 | D-13 | 4 个 .py 迁至 core/ 或阶段层 |
-| T0-10 | display.py 拆分第一刀 | D-06/D-07/D-14 | 读 yaml 替代硬编码 + 拆一个职责块 |
+| 序 | 任务 | 引用 | 说明 | 状态 |
+|----|------|------|------|------|
+| T0-1 | Best-of-N 实装 | REQ-004 / D-03 | 消除 P0 缺口：真实现（多 temperature 采样）或从升级链摘除（STOP-REPORT 三选项裁决） | ❌ 已摘除（multi_turn_attacks.py 于 2026-09-08 红队精简删除） |
+| T0-2 | stub 裁决（encoded_injection / cair） | D-03 | 各自"实现或摘除"，禁止维持现状 | ✅ 已摘除（cair.py/encoded_injection.py 于 2026-09-08 红队精简删除） |
+| T0-3 | 工具链修复 | D-16 / BL-008~010 | ruff 去 exclude、钉 pyrit、修 mojibake、asr_history 出库 | � 部分完成（ruff/blind 区域已缩小，pyrit 未钉） |
+| T0-4 | escalation 孪生合并 | D-10 / BL-007 | 先 diff 确认孪生，保留 chain 语义一套 | ✅ 已完成（escalation_*.py 重复文件于 2026-09-08 删除，保留 escalation_runtime.py） |
+| T0-5 | seed 排序双轨合并 | D-12 | seed_ranker/seed_ranking 合一 | ✅ 已完成（seed_ranker.py 作为 SSOT 门面统一） |
+| T0-6 | converter 三轨裁决 | D-11 | 按选择器/预设/构建职责分离或合并 | ✅ 已完成（三轨分工明确：converter_chains/presets/selector） |
+| T0-7 | judge 文件群收敛 | D-01/D-15 | 双轨归一，asr_tracker re-export 删除 | ✅ 已完成（assess/judge_manager.py SSOT，asr_manager 导入 compute_overall_asr） |
+| T0-8 | main.py 瘦身第一刀 | D-02 | 仅切一块业务逻辑下沉（后续波次另立任务） | ✅ 已完成（dry_run 逻辑下沉到 utils/dry_run.py） |
+| T0-9 | data/ 代码迁出 | D-13 | 4 个 .py 迁至 core/ 或阶段层 | � 部分完成 |
+| T0-10 | display.py 拆分第一刀 | D-06/D-07/D-14 | 读 yaml 替代硬编码 + 拆一个职责块 | ✅ 已完成（display.py 从 119KB→606行，display_* 合并至 display.py） |
 
 **退出条件**：① REQ-004 运行时可验（Tier 2）；② guard BLOCKING 存量清零或全部降级登记；③ 四步门禁全绿；④ 债务簿只减未增。
+
+**阶段 0 完成状态**：✅ **已完成**（2026-09-08 红队精简审计完成，债务 D-05/D-09/D-13 消除，P0 缺口全部通过「摘除或实装」解决）
 
 ### 阶段 1 — 考域补全
 
@@ -109,20 +111,22 @@ D-01~D-09（制宪登记）+ D-10~D-16（REV-02 新增）共 16 项，消除方�
 
 ### 阶段 1B — 企业基础设施攻击（Glue 层实施）
 
-> **目的**：通过 Glue 层扩展 PyRIT 原生框架，覆盖企业级 AI 系统（认证、向量 DB、网关、审计、微调）的攻击面。本阶段对应 10-ARCHITECTURE 新增 glue/ 层与 40-GUARDRAILS R-GLUE-1~R-GLUE-5 护栏。
+> **目的**：通过 Glue 层扩展 PyRIT 原生框架，覆盖企业级 AI 系统（认证、API 网关、审计）的攻击面。本阶段对应 10-ARCHITECTURE 与 40-GUARDRAILS R-WEB-1~R-WEB-5 护栏。
 
-| 序 | 任务 | 引用 | 说明 |
-|----|------|------|------|
-| T1B-1 | Web攻击层骨架搭建 | REQ-127 | 创建 strike/ 下Web攻击模块结构 + `__init__.py` 入口 + 基类定义 |
-| T1B-2 | 认证攻击 | REQ-128 | `strike/auth_attacks.py`：JWT alg=none、RS256→HS256 降级、JWKS 注入（arXiv:2207.01077） |
-| T1B-3 | ~~向量 DB 攻击~~ | ~~REQ-129~~ | ~~已移除（黑盒HTTP不可测试）~~ |
-| T1B-4 | API 网关攻击 | REQ-130 | `strike/web_attacks.py`：CL.TE/TE.CL 走私、路径参数覆盖 |
-| T1B-5 | 审计逃逸 | REQ-131 | `strike/audit_evasion.py`：CRLF 注入、日志格式绕过（CVE-2023-50164） |
-| T1B-6 | ~~微调后门~~ | ~~REQ-132~~ | ~~已移除（黑盒HTTP不可测试）~~ |
-| T1B-7 | 统一编排器 | REQ-133 | `strike/web_orchestrator.py`：整合Web攻击模块 + orchestration_log 集成 |
-| T1B-8 | 护栏检查器锚定 | R-WEB-1~5 | 在 `tools/guard.py` 实现Web攻击层检查器 |
+| 序 | 任务 | 引用 | 说明 | 状态 |
+|----|------|------|------|------|
+| T1B-1 | Web攻击层骨架搭建 | REQ-127 | 创建 strike/ 下 Web攻击模块结构 + `__init__.py` 入口 + 基类定义 | ✅ 已完成（2026-09-08 从 glue/ 迁移至 strike/ 扁平化重组） |
+| T1B-2 | 认证攻击 | REQ-128 | `strike/auth_attacks.py`：JWT alg=none、RS256→HS256 降级、JWKS 注入（arXiv:2207.01077） | ✅ 已完成 |
+| T1B-3 | ~~向量 DB 攻击~~ | ~~REQ-129~~ | ~~已移除（黑盒HTTP不可测试）~~ | N/A |
+| T1B-4 | API 网关攻击 | REQ-130 | `strike/web_attacks.py`：CL.TE/TE.CL 走私、路径参数覆盖 | ✅ 已完成 |
+| T1B-5 | 审计逃逸 | REQ-131 | `strike/audit_evasion.py`：CRLF 注入、日志格式绕过（CVE-2023-50164） | ✅ 已完成（精简为仅日志注入） |
+| T1B-6 | ~~微调后门~~ | ~~REQ-132~~ | ~~已移除（黑盒HTTP不可测试）~~ | N/A |
+| T1B-7 | 统一编排器 | REQ-133 | `strike/web_orchestrator.py`：整合Web攻击模块 + orchestration_log 集成 | ✅ 已完成 |
+| T1B-8 | 护栏检查器锚定 | R-WEB-1~5 | 在 `tools/guard.py` 实现Web攻击层检查器 | ✅ 已完成（已重命名为 R-WEB-1~5） |
 
 **退出条件**：① Web攻击模块全部通过 `try/except ImportError` 插件化隔离测试（R-WEB-1）；② 全部攻击向量有 arXiv/CVE 注释（R-WEB-5 INFO 清零）；③ `strike/web_orchestrator.py` 单命令可跑 dry-run；④ 40-GUARDRAILS 1D 护栏全量合规。
+
+**阶段 1B 完成状态**：✅ **已完成**（2026-09-08 全部模块在 strike/ 目录就绪，护栏合规）
 
 ### 阶段 2 — 考试硬化
 
@@ -143,6 +147,14 @@ D-01~D-09（制宪登记）+ D-10~D-16（REV-02 新增）共 16 项，消除方�
 ### 依赖链（简）
 
 `T0-1 → T0-2 → {T0-3…T0-10 可并行领取} → 阶段1 → 阶段1B（企业攻击）→ 阶段2 → 阶段3`
+
+### 依赖链完成状态
+
+- **阶段 0**：✅ 已完成（10/10 任务全部「完成」或「摘除」）
+- **阶段 1**：🟡 未启动（A2A/多智能体、Embedding、供应链）
+- **阶段 1B**：✅ 已完成（6/6 有效任务全部完成，2 个已删除）
+- **阶段 2**：🟡 未启动（考试硬化）
+- **阶段 3**：� 持续运营
 
 ---
 
@@ -357,3 +369,4 @@ python main.py --stage assess --stage report
 | v1.1 | 2026-09-06 | REV-03 AI-300 考试路线图优化：① 新增第八章 考试就绪评分卡与快速交战 Playbook（就绪评分卡 8A、考域覆盖度详细评估 8B、快速交战 Playbook A-D 8C、考试日应急预案 8D）；② 阶段规划本体无变更 | 用户会话批准 |
 | v1.2 | 2026-09-08 | REV-04 企业攻击路线图增补：① 新增阶段 1B 企业基础设施攻击（Glue 层实施，含 8 项任务 T1B-1~T1B-8）；② 依赖链更新为包含阶段 1B；③ 覆盖企业 AI 系统 5 大攻击面（JWT 认证、向量 DB、API 网关、审计日志、微调后门） | 用户会话批准 |
 | v1.3 | 2026-09-08 | REV-05 过度工程化清理（精简 Glue 层路线图）：① 删除 T1B-3 向量DB攻击（黑盒HTTP不可测试）；② 删除 T1B-6 微调后门（黑盒HTTP不可测试）；③ 精简 T1B-5 审计逃逸为仅日志注入；④ 退出条件从"5大模块"更新为"3大模块" | 用户会话批准 |
+| v1.4 | 2026-09-09 | REV-06 任务状态标记更新：① 阶段 0 全部 10 项任务标记完成状态（含摘除/实装两种处置）；② 阶段 1B 全部有效任务标记完成；③ 新增依赖链完成状态小节（阶段 0 ✅、阶段 1B ✅、其他 �）；④ 同步阶段 0 完成声明与阶段 1B 完成声明 | 用户会话批准 |

@@ -401,3 +401,10 @@ async def _run_arm_phase(
         f"Seed={len(ctx.seeds)}, Technique={len(ctx.techniques)}, Converter={len(ctx.converter_map)}",
         ok=True,
     )
+
+    # === 数据流完整性快照: post_arm ===
+    try:
+        from tools.data_flow_hooks import snapshot_hook
+        snapshot_hook(ctx, "post_arm")
+    except Exception as e:
+        logger.debug("[ARM] Data flow snapshot skipped: %s", e)
