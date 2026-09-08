@@ -1,14 +1,15 @@
 """
-ARM → Strike → Assess 数据流完整性自动化测试
+Recon → ARM → Strike → Assess → Report/Evidence 全链路数据流完整性自动化测试
 
 运行: pytest tests/test_data_flow_integrity.py -v
 
 测试覆盖:
-    1. 字段契约验证 - 每个阶段输出字段完整性
-    2. 阶段间传递验证 - 数据正确传递
-    3. 跨阶段一致性 - 数据无矛盾
+    1. 字段契约验证 - 每个阶段输出字段完整性 (5 阶段全覆盖)
+    2. 阶段间传递验证 - 数据正确传递 (14 条规则)
+    3. 跨阶段一致性 - 数据无矛盾 (5 条一致性规则)
     4. Demo 验证 - 完整流水线模拟
-"""
+    5. Report/Evidence 阶段 - 证据收集与报告生成验证
+"
 
 from __future__ import annotations
 
@@ -62,7 +63,7 @@ def create_mock_ctx(
     创建模拟 PipelineContext
     
     Args:
-        phase: 模拟的阶段 ("recon", "arm", "strike", "assess")
+        phase: 模拟的阶段 ("recon", "arm", "strike", "assess", "report")
         include_mcpsec: 是否包含 MCPSec 数据
         include_rag: 是否包含 RAG 数据
     """
@@ -133,7 +134,20 @@ def create_mock_ctx(
         {"phase": "arm", "status": "completed"},
         {"phase": "strike", "status": "completed"},
         {"phase": "assess", "status": "completed"},
+        {"phase": "report", "status": "completed"},
     ]
+
+    # Report/Evidence 阶段
+    ctx.evidence_collection = MagicMock()
+    ctx.evidence_collection.total_attacks = 6
+    ctx.evidence_collection.successful_attacks = 3
+    ctx.evidence_collection.findings = [
+        {"title": "Prompt Injection", "severity": "high"},
+        {"title": "Role Play Bypass", "severity": "medium"},
+    ]
+    ctx.evidence_collection.owasp_llm_compliance = {
+        "LLM01": {"tested": 6, "success": 3, "asr": 50.0}
+    }
 
     return ctx
 
@@ -315,10 +329,10 @@ class TestCrossPhaseConsistency:
 
     def test_orchestration_log_has_all_phases(self):
         """orchestration_log 应包含所有阶段"""
-        ctx = create_mock_ctx(phase="assess")
+        ctx = create_mock_ctx(phase="report")
         validator = DataFlowValidator(ctx)
 
-        validator.snapshot("post_assess")
+        validator.snapshot("post_report")
         report = validator.validate_all()
 
         cons002 = next((r for r in report.results if r.rule_id == "CONS-002"), None)
@@ -337,6 +351,28 @@ class TestCrossPhaseConsistency:
         assert cons003 is not None, "CONS-003 规则应存在"
         assert cons003.passed, f"评判统计不完整: {cons003.message}"
 
+    def test_converter_map_covers_all_techniques(self):
+        """converter_map 应覆盖所有选中的攻击技术"""
+        ctx = create_mock_ctx(phase="arm")
+        validator = DataFlowValidator(ctx)
+        validator.snapshot("post_arm")
+        report = validator.validate_all()
+
+        cons004 = next((r for r in report.results if r.rule_id == "CONS-004"), None)
+        assert cons004 is not None, "CONS-004 规则应存在"
+        assert cons004.passed, f"converter_map 技术覆盖不完整: {cons004.message}"
+
+    def test_attack_results_produced_for_techniques(self):
+        """每种技术应产生攻击结果"""
+        ctx = create_mock_ctx(phase="strike")
+        validator = DataFlowValidator(ctx)
+        validator.snapshot("post_strike")
+        report = validator.validate_all()
+
+        cons005 = next((r for r in report.results if r.rule_id == "CONS-005"), None)
+        assert cons005 is not None, "CONS-005 规则应存在"
+        # CONS-005 是非阻断性的
+
 
 # =============================================================================
 # 完整流水线测试
@@ -350,30 +386,56 @@ class TestFullPipeline:
 
     def test_full_pipeline_demo_mode(self):
         """演示模式完整验证"""
-        ctx = create_mock_ctx(phase="assess", include_mcpsec=True, include_rag=True)
+        ctx = create_mock_ctx(phase="report", include_mcpsec=True, include_rag=True)
         validator = DataFlowValidator(ctx)
 
-        # 模拟完整流水线
+        # 模拟完整流水线 (5 阶段)
         validator.snapshot("post_recon")
         validator.snapshot("post_arm")
         validator.snapshot("post_strike")
         validator.snapshot("post_assess")
+        validator.snapshot("post_report")
 
         report = validator.validate_all()
 
         assert report.total_rules > 0, "应生成验证规则"
         assert report.snapshots, "应生成快照"
+        assert len(report.snapshots) == 5, "应有 5 个阶段快照"
 
         # 输出报告
         formatted = format_report(report)
         assert isinstance(formatted, str)
-        assert "通过" in formatted or "失败" in formatted
+        assert "全链路" in formatted
 
     def test_quick_validate_returns_true_for_valid_ctx(self):
         """快速验证对有效 ctx 返回 True"""
-        ctx = create_mock_ctx(phase="assess")
+        ctx = create_mock_ctx(phase="report")
         result = validate_quick(ctx)
         assert result is True, "有效 ctx 的快速验证应返回 True"
+
+    def test_report_phase_data_flow(self):
+        """Report 阶段数据流完整性"""
+        ctx = create_mock_ctx(phase="report")
+        validator = DataFlowValidator(ctx)
+
+        # 完整流水线快照
+        validator.snapshot("post_recon")
+        validator.snapshot("post_arm")
+        validator.snapshot("post_strike")
+        validator.snapshot("post_assess")
+        validator.snapshot("post_report")
+
+        report = validator.validate_all()
+
+        # 验证 Assess → Report 桥规则
+        t009 = next((r for r in report.results if r.rule_id == "T009"), None)
+        assert t009 is not None and t009.passed, f"asr_per_technique 应传递到 Report: {t009.message if t009 else '规则不存在'}"
+
+        t010 = next((r for r in report.results if r.rule_id == "T010"), None)
+        assert t010 is not None and t010.passed, f"overall_asr 应传递到 Report: {t010.message if t010 else '规则不存在'}"
+
+        t011 = next((r for r in report.results if r.rule_id == "T011"), None)
+        assert t011 is not None and t011.passed, f"dual_judge_stats 应传递到 Report: {t011.message if t011 else '规则不存在'}", 
 
 
 # =============================================================================

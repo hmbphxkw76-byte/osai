@@ -267,10 +267,11 @@ class ArchitectureGuard:
         return main_lines
 
     def check_data_flow_integrity(self) -> None:
-        """R-DATA-1: ARM → Strike → Assess 数据流完整性验证
+        """R-DATA-1: Recon → ARM → Strike → Assess → Report/Evidence 全链路数据流完整性验证
         
         检查 PipelineContext 在各 Phase 边界的数据传递是否完整一致。
         通过 import data_flow_validator 运行自动化测试。
+        覆盖 5 阶段 × (字段契约 + 传递规则 + 跨阶段一致性) = 完整验证链。
         """
         import subprocess
         import sys
@@ -308,7 +309,7 @@ class ArchitectureGuard:
                     severity=Severity.INFO,
                     file="tools/data_flow_validator.py",
                     line=1,
-                    description="数据流完整性验证通过: 25/25 测试 PASS",
+                    description="全链路数据流完整性验证通过: Recon→ARM→Strike→Assess→Report/Evidence 无断点",
                     fix_hint="",
                 ))
         except subprocess.TimeoutExpired:

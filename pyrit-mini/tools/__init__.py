@@ -14,10 +14,18 @@ tools/ - CLI 开发/运维工具目录
     py -m tools.hooks              # Git hooks 安装 (原 py core/setup_hooks.py)
     py -m tools.scenarios          # 场景列表 (原 py -m core.scenario_router)
     py -m tools.poc                # PoC 生成器 (CLI 模式)
+    py -m tools.watch_guard        # 实时文件监视 (开发时持续检测)
+    py -m tools.quick_check        # 单文件快速架构检查
+    py -m tools.data_flow_validator  # ARM→Strike→Assess 数据流完整性验证
+    py -m tools.drift_detector     # 规范漂移检测器 (v2.1 新增)
 
 对应 entry_points (pyproject.toml):
     pyrit-guard = "tools.guard:main"
     pyrit-hooks = "tools.hooks:main"
     pyrit-scenarios = "tools.scenarios:main"
     pyrit-poc = "tools.poc:main"
+    pyrit-watch = "tools.watch_guard:main"
+    pyrit-quick = "tools.quick_check:main"
+    pyrit-dataflow = "tools.data_flow_validator:main"
+    pyrit-drift = "tools.drift_detector:main"
 """

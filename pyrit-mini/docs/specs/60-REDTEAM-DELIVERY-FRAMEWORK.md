@@ -1,6 +1,6 @@
 # 60-REDTEAM-DELIVERY-FRAMEWORK - 红队交付保障框架规范
 
-> **版本**: v2.1
+> **版本**: v2.2
 > **生效日期**: 2026-09-09
 > **维护者**: AI Red Team
 > **适用范围**: 所有包的任意模块和功能优化
@@ -415,6 +415,7 @@ py -m tools.drift_detector --full --report
 ---
 
 **版本历史**:
+- v2.2 (2026-09-09): 新增 watch/quick 实时监视命令文档，.env.local 自动启动配置，pre-commit/pre-push hook 完整流程
 - v2.1 (2026-09-09): 新增 DriftDetector 系统 (tools/drift_detector.py)，pre-push hook 集成
 - v2.0 (2026-09-08): 通用化重构，R-DELIVERY 规则适用于任意模块优化
 - v1.0 (2026-09-08): 初始版本，包含 R-SESSION 和 R-DELIVERY 规则体系

@@ -10,8 +10,10 @@
 | L1 | [10-ARCHITECTURE.md](10-ARCHITECTURE.md) | 技术蓝图：分层依赖 / ctx 契约 / 不变量 / ADR / 债务簿 / PyRIT攻击引擎 / Glue层 | v2.1 |
 | L2 | [20-REQUIREMENTS.md](20-REQUIREMENTS.md) | 需求登记：P0/P1/P0-NEW/P0-EXAM / NFR / NEG / 企业Glue需求 / 状态登记表 | v1.7 |
 | L3 | [30-TASKS.md](30-TASKS.md) | 任务协议：生命周期 / 粒度上限 / 八步协议 / STOP-REPORT / 考试变体 | v1.3 |
-| L4 | [40-GUARDRAILS.md](40-GUARDRAILS.md) | 红线 R-L / R-H / R-S / R-WEB / 四步门禁 / 三层防线 / 登记簿 / 考试合规 | v1.5 |
+| L4 | [40-GUARDRAILS.md](40-GUARDRAILS.md) | 红线 R-L / R-H / R-S / R-WEB / R-DRIFT / 四步门禁 / 三层防线 / 登记簿 / 考试合规 | v1.5 |
 | 配套 | [50-ROADMAP.md](50-ROADMAP.md) | 路线图：AI-300 考纲映射 / 红队实践 / 任务序列 / 会话模型 / Runbook | v1.3 |
+| 配套 | [60-REDTEAM-DELIVERY-FRAMEWORK.md](60-REDTEAM-DELIVERY-FRAMEWORK.md) | 红队交付保障框架：R-DELIVERY 规则 / 实时监视 (watch/quick) / 自动启动 / Git hooks | v2.2 |
+| 配套 | [45-DATA-FLOW-INTEGRITY.md](45-DATA-FLOW-INTEGRITY.md) | 数据流完整性规约：Phase 字段契约 / 数据传递规则 / Git hooks | v1.0 |
 | 配套 | [templates/task-spec.md](templates/task-spec.md) | 任务规格模板 + 考试变体 | v1.1 |
 | 配套 | [templates/change-proposal.md](templates/change-proposal.md) | 变更提案模板 | v1.0 |
 | 配套 | [backlog.md](backlog.md) | 唯一待办池 | v1.2 |
@@ -60,9 +62,25 @@
 - `remediation/audit-remediation.md` 每条整改项引用本目录的 REQ/C/I 条款
 - 整改完成后必须同步更新 `20-REQUIREMENTS.md` 状态与本目录 `backlog.md`
 
+## CLI 命令速查 (tools/)
+
+开发期常用工具入口 (`pip install -e .` 后 entry_points 可用)：
+
+| 命令 | 功能 | 使用场景 |
+|------|------|----------|
+| `pyrit-guard` (或 `py -m tools.guard`) | 宪法守卫 (R-H1/H2/H3 + 红线护栏) | 每次开发后、提交前 |
+| `pyrit-drift` (或 `py -m tools.drift_detector`) | 规范漂移检测 (快速模式，不含版本锁定) | **开发时高频检测** |
+| `pyrit-drift --full` | 规范漂移检测 (全量模式，含版本锁定) | 发布前/CI/CD |
+| `pyrit-drift --full --report` | JSON 报告输出 | CI 集成 |
+| `pyrit-dataflow` (或 `py -m tools.data_flow_validator`) | 数据流完整性验证 (ARM→Strike→Assess) | commit/push 时自动触发 |
+| `pyrit-watch` (或 `py -m tools.watch_guard`) | 实时文件监视 | 开发期持续运行 |
+| `pyrit-quick` (或 `py -m tools.quick_check`) | 单文件快速架构检查 | 修改单个模块后 |
+| `pyrit-hooks` (或 `py -m tools.hooks`) | Git hooks 安装 | 初始化工作区 |
+
+**别名规律**：`py -m tools.xxx` = `pyrit-xxx`（entry_points 注册）
+
 ## 边界说明
 
 - 本目录**只含规约层文档**。被治理的代码库位于 github.com/hmbphxkw76-byte/osai/pyrit-mini。
 - 规约文件被修改时，**必须**同步更新：文件头版本号、文末版本记录表、本索引版本列。
-- 45-DATA-FLOW-INTEGRITY.md 与 60-REDTEAM-DELIVERY-FRAMEWORK.md 为新增专项规约，独立维护。
 - 已删除文档：35-MULTIMODAL_ASSESSMENT.md / 36-LLM06_SANDBOX_ESCAPE_OPTIMIZATION.md / MIGRATION.md（2026-09-09 清理）。
