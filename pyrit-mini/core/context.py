@@ -102,6 +102,17 @@ class PipelineContext:
     overall_asr: float = 0.0
     wilson_ci: tuple[float, float] = (0.0, 0.0)
     dual_judge_stats: dict[str, Any] = field(default_factory=dict)
+ # L5 v63: ASR Adaptive Engine (Dynamic Prior Evolution)
+ # Data flow: main.py -> ASRAdaptiveEngine + ASRPriorUpdater -> ctx.asr_engine/ctx.asr_updater
+ # -> arm phase (cold-start prior injection, epsilon-greedy exploration)
+ # -> strike phase (dynamic technique selection based on UCB1)
+ # -> assess phase (EMA real-time ASR update, temporal decay)
+ # Academic basis:
+ #   - Auer et al. (2002) - UCB1 algorithm
+ #   - Sutton & Barto (2018) - Epsilon-Greedy exploration
+ #   - Crothers et al. (arXiv:2306.05685) - Adaptive attack timing
+    asr_engine: Any = None  # ASRAdaptiveEngine instance
+    asr_updater: Any = None  # ASRPriorUpdater instance
  # L5 v9: scorer ,
     scorer: Any = None
 

@@ -416,19 +416,24 @@ async def run_typo_fuzzing(
     max_concurrent: int = 2,
     test_queries: list[str] | None = None,
     variants_per_query: int = 3,
+    stealth_mode: bool = True,
 ) -> TypoFuzzingReport:
     """Run complete typo fuzzing pipeline against RAG endpoint.
 
+    Stealth enhancement: When stealth_mode=True, uses sequential probing
+    with lognormal-distributed delays to avoid burst detection.
+
     This is the MAIN ENTRY POINT for typo fuzzing.
-    Orchestrates: query selection → typo generation → parallel probing → result aggregation.
+    Orchestrates: query selection → typo generation → probing → result aggregation.
 
     Args:
         parsed_request: Parsed HTTP request template
         use_tls: Whether to use HTTPS
         api_key: Optional API key
-        max_concurrent: Max concurrent requests (stealth bound)
+        max_concurrent: Max concurrent requests (ignored in stealth mode, forced to 1)
         test_queries: Custom queries to test (overrides default set)
         variants_per_query: Max typo variants per query
+        stealth_mode: Enable inter-probe stealth timing ""
 
     Returns:
         TypoFuzzingReport with complete fuzzy matching capability assessment
@@ -472,6 +477,7 @@ async def run_typo_fuzzing(
     ) as session:
 
         sem = asyncio.Semaphore(max_concurrent)
+        timer = None
 
         async def _probe_one(query: str) -> RAGResponseMetadata | None:
             async with sem:
@@ -479,14 +485,33 @@ async def run_typo_fuzzing(
 
         # Phase 1: Probe original queries (baseline)
         original_results: dict[str, RAGResponseMetadata | None] = {}
-        probe_tasks = [_probe_one(q) for q in test_queries]
-        probe_results = await asyncio.gather(*probe_tasks, return_exceptions=True)
 
-        for query, result in zip(test_queries, probe_results):
-            if isinstance(result, Exception):
-                original_results[query] = None
-            else:
-                original_results[query] = result
+        if stealth_mode:
+            # Stealth: sequential probing with lognormal delays
+            from recon.stealth_timing import StealthTimer
+            timer = StealthTimer(base_delay=5.0, enable_logging=False)
+
+            for query in test_queries:
+                await timer.next_request()
+                try:
+                    result = await _probe_one(query)
+                    original_results[query] = result
+                except Exception:
+                    original_results[query] = None
+        else:
+            # Legacy burst mode
+            probe_tasks = [_probe_one(q) for q in test_queries]
+            probe_results = await asyncio.gather(*probe_tasks, return_exceptions=True)
+
+            for query, result in zip(test_queries, probe_results):
+                if isinstance(result, Exception):
+                    original_results[query] = None
+                else:
+                    original_results[query] = result
+
+        # Inter-phase delay (stealth: wait between baseline and typo probing)
+        if stealth_mode and timer:
+            await timer.explicit_delay(8.0)
 
         # Phase 2: Generate typo variants and probe
         typo_tasks: list[tuple[str, str, str]] = []  # (original_query, typo_query, strategy)
@@ -497,18 +522,36 @@ async def run_typo_fuzzing(
 
         if not typo_tasks:
             logger.warning("Typo fuzzer: no variants generated")
+            if timer:
+                timer.log_session_summary()
             return report
 
         # Probe typo variants
-        sem2 = asyncio.Semaphore(max_concurrent)
-        async def _probe_typo(task: tuple[str, str, str]) -> tuple[str, str, str, RAGResponseMetadata | None]:
-            async with sem2:
-                orig, typo, strat = task
-                result = await _send_and_parse_safe(session, base_url, parsed_request, typo, api_key)
-                return (orig, typo, strat, result)
+        typo_probe_results: list[Any] = []
+        if stealth_mode:
+            # Stealth: sequential probing with lognormal delays
+            for task in typo_tasks:
+                await timer.next_request()
+                try:
+                    orig, typo, strat = task
+                    result = await _send_and_parse_safe(session, base_url, parsed_request, typo, api_key)
+                    typo_probe_results.append((orig, typo, strat, result))
+                except Exception as e:
+                    typo_probe_results.append((task[0], task[1], task[2], e))
+        else:
+            # Legacy burst mode
+            sem2 = asyncio.Semaphore(max_concurrent)
+            async def _probe_typo(task: tuple[str, str, str]) -> tuple[str, str, str, RAGResponseMetadata | None]:
+                async with sem2:
+                    orig, typo, strat = task
+                    result = await _send_and_parse_safe(session, base_url, parsed_request, typo, api_key)
+                    return (orig, typo, strat, result)
 
-        typo_probe_tasks = [_probe_typo(t) for t in typo_tasks]
-        typo_probe_results = await asyncio.gather(*typo_probe_tasks, return_exceptions=True)
+            typo_probe_tasks = [_probe_typo(t) for t in typo_tasks]
+            typo_probe_results = await asyncio.gather(*typo_probe_tasks, return_exceptions=True)
+
+        if timer:
+            timer.log_session_summary()
 
         # Phase 3: Compute degradation
         for result in typo_probe_results:

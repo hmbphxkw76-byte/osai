@@ -137,15 +137,6 @@ class VulnerabilityEvidence:
  # MITRE ATLAS URL
     mitre_url: str = ""
  # :
- # : "findings frequently include confidence levels, testing conditions,
- # and repeated validation results rather than a single proof-of-concept screenshot"
- # payload [{run: 1, success: True, response: "..."}, ...]
-    validation_runs: list[dict[str, Any]] = field(default_factory=list)
- # (//, )
-    testing_conditions: dict[str, str] = field(default_factory=dict)
- # PyRIT AttackResult ( pyrit.output )
- # , PyRIT output_attack_async
- # JSON (Any , _single_evidence_to_dict )
     attack_result_ref: Any = None
 
 @dataclass
@@ -377,9 +368,9 @@ class EvidenceCollector:
                 )
 
                 collection.evidence.append(evidence)
-                # Track successful evidence
+                # Track successful evidence (P0-1 fix: was `pass`, now appends)
                 if is_success:
-                    pass  # OWASP stats handled below
+                    collection.successful_evidence.append(evidence)
 
                 # OWASP web stats
                 owasp_id = evidence.owasp_id
@@ -415,12 +406,8 @@ class EvidenceCollector:
         collection.successful_attacks = success_count
         collection.failed_attacks = fail_count
 
- # OWASP ASR
-        for stats_dict in [owasp_web_stats, owasp_llm_stats, owasp_asi_stats]:
-                decided = stats["success"] + stats["failed"]
-                if decided > 0:
-
-                    collection.owasp_web_compliance = owasp_web_stats
+        # OWASP compliance stats (P0-2 fix: removed buggy loop, direct assignment)
+        collection.owasp_web_compliance = owasp_web_stats
         collection.owasp_llm_compliance = owasp_llm_stats
         collection.owasp_asi_compliance = owasp_asi_stats
 
@@ -523,25 +510,7 @@ class EvidenceCollector:
         if not converter_chain_str:
             converter_chain_str = "none"
 
-        # P0-4: Ensure validation_runs - at least 1 run
-        validation_runs = self._extract_validation_runs(result, is_success)
-        if not validation_runs:
-            validation_runs = [{
-                "run": 1,
-                "success": is_success,
-                "response": str(getattr(result, "response", "") or getattr(result, "response_text", ""))[:200],
-            }]
-
-        # P0-5: Ensure testing_conditions - at least 1 condition
-        testing_conditions = self._extract_testing_conditions(result)
-        if not testing_conditions:
-            testing_conditions = {
-                "timestamp": datetime.now().isoformat(),
-                "outcome": str(getattr(result, "outcome", "unknown")),
-                "attack_id": str(getattr(result, "attack_result_id", getattr(result, "id", ""))),
-            }
-
-        # P0-4b: Ensure score_details - 2Layer fallback
+        # P0-4: score_details - single fallback (no pseudo validation_runs)
         if not score_details:
             score_details = [{
                 "scorer": "AttackOutcome",
@@ -602,54 +571,8 @@ class EvidenceCollector:
             mitre_technique_id=mitre_technique_id,
             mitre_technique_name=mitre_technique_name,
             mitre_url=mitre_url,
-            validation_runs=validation_runs,
-            testing_conditions=testing_conditions,
             attack_result_ref=result,
         )
-
-    def _extract_validation_runs(self, result: Any, is_success: bool) -> list[dict[str, Any]]:
-        """Extract validation runs from attack result.
-
-        Academic basis: PTES Section 4.2 - Repeated Validation for Probabilistic Systems.
-
-        AttackResult has attempt_count (Best-of-N Retry), return empty list to
-        use fallback in _build_evidence.
-
-        Returns:
-            List of validation run dicts.
-        """
-        runs: list[dict[str, Any]] = []
-
-        # Check if result has attempt_count (Best-of-N Retry)
-        attempt_count = getattr(result, "attempt_count", None)
-        if attempt_count is not None and isinstance(attempt_count, int) and attempt_count > 1:
-            for i in range(attempt_count):
-                runs.append({
-                    "run": i + 1,
-                    "success": is_success if i == attempt_count - 1 else False,
-                    "response": str(getattr(result, "response", ""))[:200] if i == attempt_count - 1 else "",
-                })
-
-        # Fallback: return empty list so _build_evidence creates default run
-        return runs
-
-    def _extract_testing_conditions(self, result: Any) -> dict[str, str]:
-        """Extract testing conditions from attack result.
-
-        Academic basis: AI security findings "frequently include confidence levels,
-        testing conditions, and repeated validation results".
-
-        Returns:
-            Dict with keys: timestamp, technique, outcome
-        """
-        outcome = getattr(result, "outcome", None)
-        outcome_str = str(outcome) if outcome is not None else "unknown"
-
-        return {
-            "timestamp": datetime.now().isoformat(),
-            "outcome": outcome_str,
-            "attack_id": str(getattr(result, "attack_result_id", getattr(result, "id", ""))),
-        }
 
     def _analyze_failures(self, attack_results: dict[str, list[Any]]) -> dict[str, Any]:
         """Analyze attack failure patterns and compute per-technique ranking.

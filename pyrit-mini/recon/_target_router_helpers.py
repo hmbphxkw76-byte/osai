@@ -20,12 +20,12 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any
 
-from adapters.rate_limited import RateLimitedTarget
 from recon.adaptive_probe_config import compute_probe_budget
 from recon.capability_detector import probe_active_capabilities
 from recon.guardrail_detector import detect_guardrail
 from recon.model_seed_mapper import get_seeds_for_model
 from recon.stealth_config import get_stealth_manager
+from recon.target_wrapper import RateLimitedTarget
 
 if TYPE_CHECKING:
     from core.context import PipelineContext
@@ -348,7 +348,13 @@ async def _run_background_probes(
     if counter.can_probe(3, _MAX_PROBE_COUNT):
         try:
             from recon.system_prompt_extractor import extract_system_prompt
-            sp_result = await extract_system_prompt(parsed)
+            # Derive stealth_mode from ctx.stealth_policy
+            stealth_mode = True
+            if ctx is not None:
+                policy = getattr(ctx, "stealth_policy", None)
+                if isinstance(policy, dict) and policy.get("name") == "aggressive":
+                    stealth_mode = False
+            sp_result = await extract_system_prompt(parsed, stealth_mode=stealth_mode)
             counter.add(3)
             if sp_result.get("system_prompt_leaked"):
              # P1-05:
@@ -380,7 +386,13 @@ async def _run_background_probes(
     if counter.can_probe(8, _MAX_PROBE_COUNT):
         try:
             from recon.capability_probe import deep_probe_capabilities
-            deep_caps = await deep_probe_capabilities(parsed)
+            # Derive stealth_mode from ctx.stealth_policy
+            stealth_mode = True
+            if ctx is not None:
+                policy = getattr(ctx, "stealth_policy", None)
+                if isinstance(policy, dict) and policy.get("name") == "aggressive":
+                    stealth_mode = False
+            deep_caps = await deep_probe_capabilities(parsed, stealth_mode=stealth_mode)
             counter.add(8)
             if deep_caps:
              # P1-05:
@@ -414,7 +426,15 @@ async def _run_background_probes(
     if counter.can_probe(5, _MAX_PROBE_COUNT):
         try:
             from recon.openapi_discoverer import discover_openapi_spec
-            openapi_result = await discover_openapi_spec(parsed)
+            # Derive stealth_mode from ctx.stealth_policy
+            stealth_mode = True
+            if ctx is not None:
+                policy = getattr(ctx, "stealth_policy", None)
+                if isinstance(policy, dict) and policy.get("name") == "aggressive":
+                    stealth_mode = False
+            openapi_result = await discover_openapi_spec(
+                parsed, stealth_mode=stealth_mode,
+            )
             counter.add(5)
             if openapi_result and openapi_result.endpoints:
              # P1-05:

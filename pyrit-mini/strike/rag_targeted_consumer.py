@@ -1,33 +1,9 @@
-"""RAG Metadata Consumer — Bridge recon metadata to attack execution.
-
-This module consumes structured RAG metadata from recon phase and transforms it
-into targeted attack seeds, technique selection, and execution optimization.
-
-Architecture alignment:
-    Path C (Vulnerability-Targeted): ctx.service_profile["rag_kb_map"] → seeds
-    Path D (Adaptive): timing/score metadata → concurrency/schedule optimization
-    Path E (Technique Selection): chunking params → converter chain selection
+"""RAG Metadata Consumer — transforms recon RAG metadata into targeted seeds.
 
 Academic basis:
-    - Gao et al. (arXiv:2311.10536) — RAG response structure taxonomy
+    - Gao et al. (arXiv:2311.10536) — RAG response structure
     - Kandpal et al. (arXiv:2308.14032) — Document extraction via chunking
-    - Greshake et al. (arXiv:2302.12173) — Iterative KB probing → injection
-    - Zou et al. (arXiv:2406.04245) — PoisonedRAG: targeted document poisoning
-    - Xiang et al. (arXiv:2404.02112) — BADRAG: retrieval contamination
-
-Production-grade features:
-    - Deduplication against existing seeds
-    - Confidence scoring on all generated seeds
-    - Orchestration log audit trail
-    - Graceful degradation when metadata unavailable
-
-Constitution compliance:
-    - R-IMPORT-1: Uses existing imports (no new dependencies)
-    - R-SIZE: < 500 lines
-    - R-H3: Complements (not duplicates) embedding_inversion.py
-        - embedding_inversion.py: forces LLM to reveal KB content
-        - rag_targeted_consumer.py: exploits auto-returned metadata
-"""
+    - Zou et al. (arXiv:2406.04245) — PoisonedRAG poisoning"""
 
 from __future__ import annotations
 
@@ -37,9 +13,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-# ====================================================================
 # Section 1: Document-Aware Seed Generation
-# ====================================================================
 
 
 def generate_document_targeted_seeds(
@@ -50,31 +24,7 @@ def generate_document_targeted_seeds(
     include_chunk_boundary: bool = True,
     include_retrieval_manipulation: bool = True,
 ) -> list[dict[str, str]]:
-    """Generate targeted seeds from RAG knowledge base metadata.
-
-    Transforms parsed KB map into high-ASR attack seeds that exploit
-    specific document structure and retrieval characteristics.
-
-    Academic basis:
-        - Kandpal et al. (arXiv:2308.14032): chunk-level extraction
-        - Greshake et al. (arXiv:2302.12173): document-aware injection
-
-    Seed categories:
-        1. Document Extraction: target specific known documents
-        2. Chunk Boundary: exploit chunk_id patterns
-        3. Retrieval Manipulation: use score thresholds
-        4. Timing Exploitation: leverage cache characteristics
-
-    Args:
-        kb_map: Parsed KB map from rag_metadata_parser.KnowledgeBaseMap.to_dict()
-        max_seeds: Maximum total seeds to generate
-        include_content_extraction: Generate content extraction seeds
-        include_chunk_boundary: Generate chunk boundary seeds
-        include_retrieval_manipulation: Generate retrieval manipulation seeds
-
-    Returns:
-        List of seed dicts with 'value' and 'metadata' keys
-    """
+    """Generate targeted seeds from RAG KB metadata."""
     if not kb_map or not isinstance(kb_map, dict):
         return []
 
@@ -179,16 +129,7 @@ def _generate_chunk_boundary_seeds(
     chunk_patterns: dict[str, int],
     max_count: int = 4,
 ) -> list[dict[str, str]]:
-    """Generate seeds that exploit chunk boundaries for data exposure.
-
-    Academic basis:
-        Kandpal et al. (arXiv:2308.14032) — Data extraction via chunking:
-        Sensitive information spanning chunk boundaries may be partially
-        exposed or bypass filtering when retrieved as separate chunks.
-
-    Strategy: Request specific chunk ranges to reconstruct full document
-    content across boundaries.
-    """
+    """Generate chunk boundary exploitation seeds (Kandpal et al. arXiv:2308.14032)."""
     seeds = []
 
     if not documents:
@@ -257,20 +198,7 @@ def _generate_retrieval_manipulation_seeds(
     kb_map: dict[str, Any],
     max_count: int = 3,
 ) -> list[dict[str, str]]:
-    """Generate seeds that exploit known retrieval characteristics.
-
-    Uses inferred retrieval formula and score statistics to craft
-    queries that manipulate ranking and surface sensitive content.
-
-    Academic basis:
-        - Shafran et al. (arXiv:2402.07967) — Retrieval ranking manipulation
-        - Gao et al. (arXiv:2311.10536) — Score threshold exploitation
-
-    Strategy: Different fusion formulas require different manipulation:
-        - linear_fusion: keyword stuffing boosts bm25 component
-        - vector_only: semantic similarity manipulation
-        - dominant_lexical: exact keyword matching
-    """
+    """Generate retrieval manipulation seeds (Shafran et al. arXiv:2402.07967)."""
     seeds = []
 
     retrieval_formula = kb_map.get("inferred_retrieval_formula", "")

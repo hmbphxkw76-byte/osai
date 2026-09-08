@@ -23,12 +23,14 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from report.evidence import _MITRE_ATLAS_TECHNIQUES, EvidenceCollection
+# P1-5: 延迟导入 EvidenceCollection + _MITRE_ATLAS_TECHNIQUES
+# 避免模块级导入导致的启动依赖
+# from report.evidence import _MITRE_ATLAS_TECHNIQUES, EvidenceCollection
 
 logger = logging.getLogger(__name__)
 
 def generate_sarif_report(
-    evidence: EvidenceCollection,
+    evidence: Any,
     output_path: Path,
 ) -> Path:
     """ SARIF 2.1 yu?
@@ -40,6 +42,8 @@ def generate_sarif_report(
     Returns:
         SARIF ?
     """
+    # P1-5: 延迟导入，减少启动依赖
+    # from report.evidence import EvidenceCollection  # 仅用于类型提示，运行时不需要
     sarif = _build_sarif(evidence)
     output_path.write_text(
         json.dumps(sarif, ensure_ascii=False, indent=2, default=str),
@@ -48,7 +52,7 @@ def generate_sarif_report(
     logger.info("SARIF report saved to %s", output_path)
     return output_path
 
-def _build_sarif(evidence: EvidenceCollection) -> dict[str, Any]:
+def _build_sarif(evidence: Any) -> dict[str, Any]:
     """ SARIF 2.1 yu?"""
  #
     rules = _build_rules(evidence)
@@ -104,7 +108,9 @@ def _build_sarif(evidence: EvidenceCollection) -> dict[str, Any]:
         ],
     }
 
-def _build_rules(evidence: EvidenceCollection) -> list[dict[str, Any]]:
+def _build_rules(evidence: Any) -> list[dict[str, Any]]:
+    # P1-5: 延迟导入 MITRE ATLAS 技术映射
+    from report.evidence import _MITRE_ATLAS_TECHNIQUES
     """ SARIF ( OWASP EURX??"""
     rules: list[dict[str, Any]] = []
     seen_owasp_ids: set[str] = set()
@@ -155,7 +161,7 @@ def _build_rules(evidence: EvidenceCollection) -> list[dict[str, Any]]:
     return rules
 
 def _build_results(
-    evidence: EvidenceCollection,
+    evidence: Any,
     rule_indices: dict[str, int],
 ) -> list[dict[str, Any]]:
     """ SARIF (EUR??"""
@@ -201,7 +207,7 @@ def _build_results(
 
     return results
 
-def _build_locations(evidence: EvidenceCollection) -> list[dict[str, Any]]:
+def _build_locations(evidence: Any) -> list[dict[str, Any]]:
     """ SARIF C ( API )?"""
     fp = evidence.target_fingerprint
     if not fp:

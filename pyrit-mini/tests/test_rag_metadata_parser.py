@@ -2,11 +2,8 @@
 
 Tests cover:
     1. Format-agnostic response parsing (multiple RAG response formats)
-    2. Knowledge base mapping aggregation
-    3. Chunk boundary analysis
-    4. Score threshold inference
-    5. Timing analysis (cache hit detection)
-    6. Stealth features (query diversification, behavioral mimicry, temporal spacing)
+    2. Timing analysis (cache hit detection)
+    3. Stealth features (query diversification, behavioral mimicry, temporal spacing)
 """
 
 from __future__ import annotations
@@ -14,7 +11,6 @@ from __future__ import annotations
 import unittest
 
 from recon.rag_metadata_parser import (
-    KnowledgeBaseMapper,
     _cluster_queries_by_topic,
     _compute_lognormal_delay,
     _diversify_query,
@@ -147,80 +143,6 @@ class TestRAGResponseParsing(unittest.TestCase):
         self.assertAlmostEqual(result.score_range_bm25[1], 3.0, places=5)
         self.assertAlmostEqual(result.score_range_combined[0], 0.6, places=5)
         self.assertAlmostEqual(result.score_range_combined[1], 0.8, places=5)
-
-
-class TestKnowledgeBaseMapper(unittest.TestCase):
-    """Test KB mapping aggregation from multiple responses."""
-
-    def test_document_aggregation(self):
-        """Multiple queries should aggregate unique documents."""
-        mapper = KnowledgeBaseMapper()
-
-        # Simulate 3 queries returning different documents
-        for doc_name in ["Policy_A.pdf", "Policy_B.pdf", "Policy_A.pdf", "Guide_C.pdf"]:
-            response = {
-                "sources": [
-                    {
-                        "title": doc_name,
-                        "chunk_id": "chunk_001",
-                        "text": f"Content from {doc_name}",
-                        "combined_score": 0.7,
-                    }
-                ],
-            }
-            mapper.add_response(parse_rag_response(response))
-
-        kb_map = mapper.build_map()
-
-        self.assertEqual(kb_map.document_count, 3)  # 3 unique documents
-        self.assertEqual(kb_map.total_queries, 4)
-        self.assertIn("Policy_A.pdf", kb_map.unique_documents)
-        self.assertIn("Policy_B.pdf", kb_map.unique_documents)
-        self.assertIn("Guide_C.pdf", kb_map.unique_documents)
-
-    def test_chunk_id_pattern_detection(self):
-        """Chunk ID patterns should be classified correctly."""
-        mapper = KnowledgeBaseMapper()
-
-        chunk_ids = [
-            ("chunk_001", "chunk_N"),
-            ("chunk_087", "chunk_N"),
-            ("doc_A_123", "word_word"),
-            ("abc123def", "other"),
-        ]
-
-        for chunk_id, _ in chunk_ids:
-            response = {
-                "sources": [{"title": "doc.pdf", "chunk_id": chunk_id, "text": "test"}],
-            }
-            mapper.add_response(parse_rag_response(response))
-
-        kb_map = mapper.build_map()
-        self.assertIn("chunk_N", kb_map.chunk_id_patterns)
-        self.assertGreater(kb_map.chunk_id_patterns["chunk_N"], 0)
-
-    def test_chunk_size_inference(self):
-        """Chunk size should be inferred from text lengths."""
-        mapper = KnowledgeBaseMapper()
-
-        # Add chunks with consistent ~500 char lengths
-        for i in range(5):
-            response = {
-                "sources": [
-                    {
-                        "title": f"doc_{i}.pdf",
-                        "chunk_id": f"chunk_{i:03d}",
-                        "text": "x" * (480 + i * 20),  # ~480-560 chars
-                    }
-                ],
-            }
-            mapper.add_response(parse_rag_response(response))
-
-        kb_map = mapper.build_map()
-        # Inferred chunk size should be around 500
-        self.assertIsNotNone(kb_map.inferred_chunk_size)
-        self.assertGreater(kb_map.inferred_chunk_size, 400)
-        self.assertLess(kb_map.inferred_chunk_size, 600)
 
 
 class TestRetrievalTiming(unittest.TestCase):

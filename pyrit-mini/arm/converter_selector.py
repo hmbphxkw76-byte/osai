@@ -1,18 +1,16 @@
-"""converter_selector - Converter + + ASR .
+"""converter_selector - Converter candidate selection + ASR pruning.
 
-imports executor.py ,  (arm) :
-    - imports ctx.converter_map  Converter
-    -  ASR
-    -  AttackConverterConfig
-    - L5 v40:  category/suitable_for  converter
+Provides:
+    - _get_candidate_converters: Deduplicate + ASR-rank converter list
+    - _build_converter_config: Build AttackConverterConfig for SequentialAttack
+    - _prune_low_asr_converters: Prune converters with historical ASR < threshold
 
 Academic basis:
-    - Wei et al. (arXiv:2307.15043):  >2 Layer ASR imports 12%  4%
-    - Zeng et al. (arXiv:2402.19181):
-        - DrAttack (arXiv:2402.14266):  ASR 40-60%
+    - Wei et al. (arXiv:2307.15043): >2 layer serial stacking drops ASR 12% -> 4%
+    - Zeng et al. (arXiv:2402.19181): Authority endorsement ASR 38.4%
+    - DrAttack (arXiv:2402.14266): Decomposition ASR 40-60%
     - PyRIT (arXiv:2407.01232): SequentialAttack FIRST_SUCCESS
-    - Greshake et al. (arXiv:2302.12173): ,
-       category , converter
+    - Greshake et al. (arXiv:2302.12173): Indirect injection (file converters target-dependent)
 """
 
 import logging
@@ -21,6 +19,86 @@ from typing import Any
 from core.context import PipelineContext
 
 logger = logging.getLogger(__name__)
+
+# == Converter priority map (SSOT) ==
+# Lower number = higher priority. Based on empirical ASR from academic benchmarks.
+# LLM-Based converters (ASR 30-60%) > Selective (25-40%) > Translation (25-35%) > ...
+_CONVERTER_PRIORITY_MAP: dict[str, int] = {
+    # LLM-Based (ASR 30-60%)
+    "DecompositionConverter": 0,                    # ASR 40-60%
+    "CodeChameleonConverter": 1,                    # ASR 35-45%
+    "PersuasionConverter:authority_endorsement": 2,  # ASR 38.4%
+    "PersuasionConverter:expert_endorsement": 3,    # ASR ~35%
+    "PersuasionConverter:logical_appeal": 4,        # ASR 28.7%
+    "PolicyPuppetryConverter": 5,                  # ASR 30-40%
+    # Selective (ASR 25-40%)
+    "SelectiveTextConverter:TokenSelectionStrategy": 6,
+    "SelectiveTextConverter:WordProportionSelectionStrategy": 7,
+    # Translation (ASR 25-35%)
+    "RandomTranslationConverter": 8,
+    "TranslationConverter": 9,
+    # Template (ASR 25-35%)
+    "TemplateSegmentConverter": 10,
+    # Keyword (ASR 20-30%, 0 token)
+    "SearchReplaceConverter": 11,
+    # Variation (ASR 20-30%)
+    "VariationConverter": 12,
+    # Smuggling (ASR 20-30%)
+    "AsciiSmugglerConverter": 13,
+    # Semantic (ASR 30-40%, keyword obfuscation)
+    "ROT13Converter": 14,
+    # Tone (ASR 22.1%)
+    "ToneConverter:academic": 15,
+    # File Converters (target-dependent, ASR 15-25%)
+    "WordDocConverter:direct": 16,
+    "WordDocConverter:placeholder": 17,
+    "PDFConverter:direct": 18,
+    "PDFConverter:injection": 19,
+    # Fallback (ASR < 20%)
+    "RandomCapitalLettersConverter": 20,
+    "UnicodeSubstitutionConverter": 21,
+    "Base64Converter": 22,
+}
+
+def _merge_converter_priority(
+    base_priority: dict[str, int],
+    override_list: list[str],
+    *,
+    offset: int = 0,
+) -> dict[str, int]:
+    """Merge external priority list into base priority map.
+
+    Used by OWASP/category/suitable_for adaptive priority override.
+    Conventions:
+        - Items in override_list get priority 0..len(override_list)-1
+        - Items only in base_priority get shifted by len(override_list) + offset
+
+    Args:
+        base_priority: Original priority map (higher value = lower priority).
+        override_list: External priority ordering (first = highest priority).
+        offset: Additional offset for base-only items.
+
+    Returns:
+        Merged priority map.
+    """
+    if not override_list:
+        return base_priority
+
+    override_map: dict[str, int] = {}
+    for idx, sig in enumerate(override_list):
+        override_map[sig] = idx
+
+    max_override = len(override_list) + offset
+    merged: dict[str, int] = {}
+    all_keys = set(list(base_priority.keys()) + list(override_map.keys()))
+    for sig in all_keys:
+        if sig in override_map:
+            merged[sig] = override_map[sig]
+        else:
+            merged[sig] = base_priority.get(sig, 99) + max_override
+
+    return merged
+
 
 # == L5 v40: category converter ==
 # Academic basis: Greshake et al. (arXiv:2302.12173) -

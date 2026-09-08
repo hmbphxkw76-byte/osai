@@ -357,10 +357,9 @@ class MCPOrchestrator:
             }
 
     async def _phase_attack(self) -> None:
-        """Phase 4: Execute PyRIT attacks."""
+        """Phase 4: Execute PyRIT attacks (placeholder - requires live target)."""
         logger.info("MCPOrchestrator: Phase 4 - Execute PyRIT attacks")
 
-        # Get seeds from generation phase
         seeds_count = self._report.seed_count
         if seeds_count == 0:
             logger.info("MCPOrchestrator: no seeds available, skipping attack phase")
@@ -370,80 +369,13 @@ class MCPOrchestrator:
             }
             return
 
-        try:
-            # Use PyRIT PromptSendingAttack with generated seeds
-            # This delegates to the existing strike infrastructure
-            attack_results: dict[str, list] = {}
-
-            # Option A: Direct PromptSendingAttack
-            # This uses existing executor infrastructure
-            prompt_results = await self._run_prompt_sending_attack(seeds_count)
-            if prompt_results:
-                attack_results["prompt_sending"] = prompt_results
-
-            # Option B: SkeletonKey for prefix injection
-            sk_results = await self._run_skeleton_key_attack(seeds_count)
-            if sk_results:
-                attack_results["skeleton_key"] = sk_results
-
-            self._report.attack_results = attack_results
-            self._report.phase_results["attack"] = {
-                "status": "complete",
-                "techniques": list(attack_results.keys()),
-                "total_executions": sum(len(v) for v in attack_results.values()),
-            }
-
-            logger.info(
-                "MCPOrchestrator: attack phase complete, %d executions",
-                self._report.phase_results["attack"]["total_executions"],
-            )
-        except Exception as e:
-            logger.warning("MCPOrchestrator: attack phase failed: %s", e)
-            self._report.phase_results["attack"] = {
-                "status": "failed",
-                "error": str(e),
-            }
-
-    async def _run_prompt_sending_attack(
-        self,
-        seed_count: int,
-    ) -> list[Any]:
-        """Run PyRIT PromptSendingAttack with generated seeds."""
-        try:
-
-            # Build minimal scoring config (reuses existing infrastructure)
-            from strike._scoring import _build_first_success_scoring_config
-
-            # Create a minimal context object for scoring config
-            class _MinimalCtx:
-                def __init__(self) -> None:
-                    self.objective_target = None
-                    self.scoring_target = None
-
-            ctx = _MinimalCtx()
-            _build_first_success_scoring_config(ctx)
-
-            # Note: In production, objective_target would be a real PyRIT target
-            # connected to the MCP-enabled agent
-            logger.info("MCPOrchestrator: PromptSendingAttack configured (needs real target)")
-            return []  # Placeholder: actual execution requires live target
-
-        except Exception as e:
-            logger.debug("MCPOrchestrator: PromptSendingAttack skipped: %s", e)
-            return []
-
-    async def _run_skeleton_key_attack(
-        self,
-        seed_count: int,
-    ) -> list[Any]:
-        """Run SkeletonKey attack for prefix injection testing."""
-        try:
-
-            logger.info("MCPOrchestrator: SkeletonKeyAttack configured (needs real target)")
-            return []  # Placeholder: actual execution requires live target
-        except Exception as e:
-            logger.debug("MCPOrchestrator: SkeletonKeyAttack skipped: %s", e)
-            return []
+        # Note: Actual attack execution requires a live PyRIT target connected
+        # to the MCP-enabled agent. This is a placeholder for future implementation.
+        self._report.phase_results["attack"] = {
+            "status": "placeholder",
+            "reason": "requires live PyRIT target",
+            "seeds_available": seeds_count,
+        }
 
     async def _phase_verify(self) -> None:
         """Phase 5: Verify attacks through side-effect analysis."""

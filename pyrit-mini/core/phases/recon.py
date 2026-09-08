@@ -15,6 +15,38 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+def _derive_stealth_mode(ctx: Any) -> bool:
+    """Derive stealth_mode boolean from ctx.stealth_policy.
+
+    Extracts stealth configuration from the pipeline context and returns
+    a boolean indicating whether stealth timing should be enabled.
+
+    Logic:
+        - ctx.stealth_policy["name"] == "paranoid" -> True (aggressive stealth)
+        - ctx.stealth_policy["name"] == "balanced" -> True (default stealth)
+        - ctx.stealth_policy["name"] == "aggressive" -> False (OFF for speed)
+        - Missing/invalid policy -> True (safe default)
+
+    Args:
+        ctx: PipelineContext with stealth_policy field
+
+    Returns:
+        True if stealth mode should be enabled, False otherwise
+    """
+    policy = getattr(ctx, "stealth_policy", None)
+    if not isinstance(policy, dict):
+        return True  # Safe default
+
+    policy_name = policy.get("name", "balanced")
+
+    # Disable stealth only for "aggressive" policy (speed prioritized)
+    if policy_name == "aggressive":
+        return False
+
+    # paranoid and balanced both use stealth timing
+    return True
+
 async def _run_recon_phase(
         ctx: "PipelineContext", output_dir: Path) -> None:
     """(1) Recon : HTTP & """
@@ -51,7 +83,11 @@ async def _run_recon_phase(
         if getattr(ctx.args, "rag_probe", True) and ctx.parsed_request:
             try:
                 from recon.rag_pipeline_probe import run_rag_pipeline_probe
-                rag_profile = await run_rag_pipeline_probe(ctx.parsed_request)
+                stealth_mode = _derive_stealth_mode(ctx)
+                rag_profile = await run_rag_pipeline_probe(
+                    ctx.parsed_request,
+                    stealth_mode=stealth_mode,
+                )
                 if rag_profile.has_rag:
                     ctx.service_profile["rag_pipeline"] = rag_profile.to_dict()
                     logger.info(
@@ -73,6 +109,7 @@ async def _run_recon_phase(
                         ctx.parsed_request,
                         num_queries=num_queries,
                         max_concurrency=2,
+                        stealth_mode=stealth_mode,
                     )
                     if kb_map.document_count > 0:
                         ctx.service_profile["rag_kb_map"] = kb_map.to_dict()
@@ -93,6 +130,7 @@ async def _run_recon_phase(
                         ctx.parsed_request,
                         max_concurrency=2,
                         variants_per_query=3,
+                        stealth_mode=stealth_mode,
                     )
                     if typo_report.has_rag:
                         ctx.service_profile["rag_typo_fuzz"] = typo_report.to_dict()

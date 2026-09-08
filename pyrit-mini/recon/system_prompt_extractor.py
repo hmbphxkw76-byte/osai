@@ -92,10 +92,14 @@ _SYSTEM_PROMPT_FIELDS = [
 
 async def extract_system_prompt(
     parsed_request: Any,
+    stealth_mode: bool = True,
 ) -> dict[str, Any]:
     """imports LLM system prompt
 
      deep_probe_capabilities ,  system prompt
+
+    Stealth enhancement: When stealth_mode=True, uses sequential probing
+    with lognormal-distributed delays to avoid burst detection.
 
     Academic basis:
         - Greshake et al. (arXiv:2302.12173) Sec4 - system prompt
@@ -153,7 +157,7 @@ async def extract_system_prompt(
 
  # == ==
  # R8-1 : target , 3
- # R8-6 : Semaphore
+ # R8-6 : Semaphore (with stealth enhancement)
     from recon.capability_probe import _send_probe as _shared_send_probe
 
     async def _probe_one(name: str, prompt: str) -> tuple[str, str | None]:
@@ -164,18 +168,40 @@ async def extract_system_prompt(
             logger.debug("System prompt probe '%s' failed: %s", name, e)
             return (name, None)
 
-    tasks = [_probe_one(name, prompt) for name, prompt in probes]
-    try:
-        probe_results = await asyncio.wait_for(
-            asyncio.gather(*tasks, return_exceptions=True),
-            timeout=_PARALLEL_TIMEOUT,
-        )
-    except asyncio.TimeoutError:
-        logger.warning(
-            "System prompt extraction: parallel timeout (%ds), using partial results",
-            _PARALLEL_TIMEOUT,
-        )
-        probe_results = []
+    probe_results = []
+    if stealth_mode:
+        # Stealth: sequential probing with lognormal delays
+        from recon.stealth_timing import StealthTimer
+        timer = StealthTimer(base_delay=5.0, enable_logging=False)
+
+        for name, prompt in probes:
+            await timer.next_request()
+            result = await _probe_one(name, prompt)
+            probe_results.append(result)
+            # Bail out early on success
+            if isinstance(result, tuple) and result[1] is not None:
+                extracted = _extract_system_prompt_from_response(
+                    result[0], result[1],
+                )
+                if extracted:
+                    timer.log_session_summary()
+                    break
+
+        timer.log_session_summary()
+    else:
+        # Legacy burst mode
+        tasks = [_probe_one(name, prompt) for name, prompt in probes]
+        try:
+            probe_results = await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True),
+                timeout=_PARALLEL_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "System prompt extraction: parallel timeout (%ds), using partial results",
+                _PARALLEL_TIMEOUT,
+            )
+            probe_results = []
 
  # == ==
     for result in probe_results:

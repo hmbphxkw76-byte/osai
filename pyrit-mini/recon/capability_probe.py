@@ -75,6 +75,7 @@ _CAPABILITY_KEYWORDS: dict[str, list[str]] = {
 
 async def deep_probe_capabilities(
     parsed_request: Any,
+    stealth_mode: bool = True,
 ) -> dict[str, Any]:
     """Deep capability probe - sends prompts to detect capabilities.
 
@@ -114,7 +115,7 @@ async def deep_probe_capabilities(
         if "authorization" in header_str or "bearer" in header_str:
             results["has_session_auth"] = True
 
-    # Layer 2: Parallel prompt probing
+    # Layer 2: Prompt probing (stealth-enhanced with inter-probe delays)
     if parsed_request is None:
         return results
 
@@ -137,14 +138,28 @@ async def deep_probe_capabilities(
         except Exception:
             return (probe_name, None)
 
-    tasks = [_probe_one(name, prompt) for name, prompt in probes]
-    try:
-        probe_results = await asyncio.wait_for(
-            asyncio.gather(*tasks, return_exceptions=True),
-            timeout=_PARALLEL_TIMEOUT,
-        )
-    except asyncio.TimeoutError:
+    if stealth_mode:
+        # Stealth: sequential probing with lognormal delays
+        from recon.stealth_timing import StealthTimer
+        timer = StealthTimer(base_delay=5.0, enable_logging=False)
         probe_results = []
+
+        for name, prompt in probes:
+            await timer.next_request()
+            result = await _probe_one(name, prompt)
+            probe_results.append(result)
+
+        timer.log_session_summary()
+    else:
+        # Legacy burst mode
+        tasks = [_probe_one(name, prompt) for name, prompt in probes]
+        try:
+            probe_results = await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True),
+                timeout=_PARALLEL_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            probe_results = []
 
     # Layer 3: Confidence scoring
     from recon.confidence_scorer import (

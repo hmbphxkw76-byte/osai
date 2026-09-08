@@ -22,7 +22,7 @@ class TestReportUtils:
     """Test report utility functions."""
 
     def test_get_owasp_category_llm01(self):
-        from report.report_utils import _get_owasp_category
+        from report.report_html import _get_owasp_category
 
  # LLM01 maps to Prompt Injection, not just "LLM"
         result = _get_owasp_category("LLM01")
@@ -30,26 +30,26 @@ class TestReportUtils:
         assert len(result) > 0
 
     def test_get_owasp_category_llm10(self):
-        from report.report_utils import _get_owasp_category
+        from report.report_html import _get_owasp_category
 
         result = _get_owasp_category("LLM10")
         assert isinstance(result, str)
         assert len(result) > 0
 
     def test_get_owasp_category_invalid(self):
-        from report.report_utils import _get_owasp_category
+        from report.report_html import _get_owasp_category
 
         assert _get_owasp_category("INVALID") == "Unknown"
 
     def test_get_technique_display_name_known(self):
-        from report.report_utils import _get_technique_display_name
+        from report.evidence_extract import _get_technique_display_name
 
  # Should return a display name (not empty)
         result = _get_technique_display_name("crescendo")
         assert isinstance(result, str)
 
     def test_get_technique_display_name_unknown(self):
-        from report.report_utils import _get_technique_display_name
+        from report.evidence_extract import _get_technique_display_name
 
         result = _get_technique_display_name("nonexistent_technique")
         assert isinstance(result, str)

@@ -113,16 +113,16 @@ D-01~D-09（制宪登记）+ D-10~D-16（REV-02 新增）共 16 项，消除方�
 
 | 序 | 任务 | 引用 | 说明 |
 |----|------|------|------|
-| T1B-1 | Glue 层骨架搭建 | REQ-127 | 创建 glue/ 目录结构 + `__init__.py` 入口 + 基类定义 |
-| T1B-2 | 认证攻击 Glue | REQ-128 | `enterprise_auth_glue.py`：JWT alg=none、RS256→HS256 降级、JWKS 注入（arXiv:2207.01077） |
-| T1B-3 | 向量 DB 攻击 Glue | REQ-129 | `vector_glue.py`：恶意文档注入、相似度操纵（arXiv:2302.12173） |
-| T1B-4 | API 网关攻击 Glue | REQ-130 | `gateway_glue.py`：CL.TE/TE.CL 走私、路径参数覆盖 |
-| T1B-5 | 审计逃逸 Glue | REQ-131 | `audit_glue.py`：CRLF 注入、日志格式绕过（CVE-2023-50164） |
-| T1B-6 | 微调后门 Glue | REQ-132 | `finetuning_glue.py`：数据投毒、训练样本污染（arXiv:2301.00553） |
-| T1B-7 | 统一编排器 | REQ-133 | `enterprise_orchestrator.py`：整合 5 大 Glue 模块 + orchestration_log 集成 |
-| T1B-8 | 护栏检查器锚定 | R-GLUE-1~5 | 在 `architecture_guard.py` 实现 5 项 Glue 层检查器 |
+| T1B-1 | Web攻击层骨架搭建 | REQ-127 | 创建 strike/ 下Web攻击模块结构 + `__init__.py` 入口 + 基类定义 |
+| T1B-2 | 认证攻击 | REQ-128 | `strike/auth_attacks.py`：JWT alg=none、RS256→HS256 降级、JWKS 注入（arXiv:2207.01077） |
+| T1B-3 | ~~向量 DB 攻击~~ | ~~REQ-129~~ | ~~已移除（黑盒HTTP不可测试）~~ |
+| T1B-4 | API 网关攻击 | REQ-130 | `strike/web_attacks.py`：CL.TE/TE.CL 走私、路径参数覆盖 |
+| T1B-5 | 审计逃逸 | REQ-131 | `strike/audit_evasion.py`：CRLF 注入、日志格式绕过（CVE-2023-50164） |
+| T1B-6 | ~~微调后门~~ | ~~REQ-132~~ | ~~已移除（黑盒HTTP不可测试）~~ |
+| T1B-7 | 统一编排器 | REQ-133 | `strike/web_orchestrator.py`：整合Web攻击模块 + orchestration_log 集成 |
+| T1B-8 | 护栏检查器锚定 | R-WEB-1~5 | 在 `architecture_guard.py` 实现Web攻击层检查器 |
 
-**退出条件**：① 5 大 Glue 模块全部通过 `try/except ImportError` 插件化隔离测试（R-GLUE-1）；② 全部攻击向量有 arXiv/CVE 注释（R-GLUE-5 INFO 清零）；③ `enterprise_orchestrator.py` 单命令可跑 dry-run；④ 40-GUARDRAILS 1D 护栏全量合规。
+**退出条件**：① Web攻击模块全部通过 `try/except ImportError` 插件化隔离测试（R-WEB-1）；② 全部攻击向量有 arXiv/CVE 注释（R-WEB-5 INFO 清零）；③ `strike/web_orchestrator.py` 单命令可跑 dry-run；④ 40-GUARDRAILS 1D 护栏全量合规。
 
 ### 阶段 2 — 考试硬化
 

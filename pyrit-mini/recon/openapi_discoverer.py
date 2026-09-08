@@ -99,8 +99,12 @@ async def discover_openapi_spec(
     *,
     timeout: float = _PROBE_TIMEOUT,
     custom_paths: list[str] | None = None,
+    stealth_mode: bool = True,
 ) -> OpenAPIDiscovery | None:
     """ OpenAPI/Swagger
+
+    Stealth enhancement: When stealth_mode=True, uses sequential probing
+    with lognormal-distributed delays to avoid burst detection.
 
     Academic basis:
         - OWASP WSTG-INFO-05 - OpenAPI
@@ -163,6 +167,27 @@ async def discover_openapi_spec(
             return (path, None)
 
     tasks = [_probe_path(p) for p in paths]
+
+    if stealth_mode:
+        # Stealth: sequential probing with lognormal delays
+        from recon.stealth_timing import StealthTimer
+        timer = StealthTimer(base_delay=2.0, enable_logging=False)
+
+        for path in paths:
+            await timer.next_request()
+            result = await _probe_path(path)
+            if isinstance(result, tuple) and len(result) == 2:
+                p, spec_data = result
+                if spec_data and _is_openapi_spec(spec_data):
+                    logger.info("OpenAPI spec found at %s", p)
+                    timer.log_session_summary()
+                    return _parse_openapi_spec(p, spec_data)
+
+        timer.log_session_summary()
+        logger.info("No OpenAPI spec found on %s", host)
+        return None
+
+    # Legacy burst mode
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
  # OpenAPI spec

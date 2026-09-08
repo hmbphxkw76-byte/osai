@@ -6,18 +6,15 @@
     - generate_report: all (MD + HTML + JSON + PoC + CSV + ZIP)
     -  _generate_markdown / _generate_html / _evidence_to_dict / _single_evidence_to_dict
       ( report_markdown.py / report_html.py )
-    - _load_html_template: imports report/templates/report.html Load HTML
 
 :
     generator.py ( + ) -> report_markdown.py (MD )
                               -> report_html.py (HTML )
-                              -> report_sections.py ()
                               -> report_utils.py ()
-                              -> templates/report.html (HTML )
 
 :
     generator.py from report_html/report_markdown function (in generate_report ).
-    HTML imports,  _load_html_template() .
+    P1-4: Jinja2 removed - HTML uses pure Python string formatting.
 """
 
 from __future__ import annotations
@@ -68,57 +65,6 @@ _OWASP_ALL_CATEGORIES: dict[str, str] = {
     "ASI09": "Trust Boundary Violation",
     "ASI10": "Rogue Agent",
 }
-
-# == HTML (, ) ==
-# : report/templates/report.html
-# report_html.py _generate_html
-
-_html_template_cache: str | None = None
-
-def _load_html_template() -> str:
-    """imports report/templates/report.html Load HTML
-
-    cache I/O,
-     (cacheLoad)
-
-    Returns:
-        HTML
-
-    Raises:
-        FileNotFoundError:
-    """
-    global _html_template_cache
-
-    if _html_template_cache is not None:
-        return _html_template_cache
-
-    template_path = Path(__file__).parent / "templates" / "report.html"
-    try:
-        _html_template_cache = template_path.read_text(encoding="utf-8")
-        logger.debug("HTML template loaded from %s", template_path)
-    except FileNotFoundError:
-        logger.error(
-            "HTML template file not found at %s - using fallback minimal template",
-            template_path,
-        )
- # Production-grade: ,
-        _html_template_cache = (
-            "<!DOCTYPE html><html><head><meta charset='utf-8'>"
-            "<title>AI Red Team Assessment Report</title></head>"
-            "<body><h1>AI Red Team Assessment Report</h1>"
-            "<p>Template file not found - using fallback.</p>"
-            "<pre>{{ evidence_json }}</pre></body></html>"
-        )
-    return _html_template_cache
-
-def clear_template_cache() -> None:
-    """ HTML cache, Load
-
-    ,
-    """
-    global _html_template_cache
-    _html_template_cache = None
-    logger.debug("HTML template cache cleared")
 
 def _classify_score_consistency(score_details: list[dict[str, Any]]) -> str:
     """
@@ -193,22 +139,58 @@ def _single_evidence_to_dict(ev: Any) -> dict[str, Any]:
 
     return _impl(ev)
 
+def _parse_output_formats(args: Any) -> set[str]:
+    """ P2-2:  --output-format
+
+    :
+        - None / "all" -> {"md", "html", "json", "sarif", "poc", "csv"}
+        - "md" -> {"md"}
+        - "md,json" / "md+json" -> {"md", "json"}
+        - "html" -> {"md", "html"} (html md)
+
+    Args:
+        args: CLI
+
+    Returns:
+         format  (md/html/json/sarif/poc/csv)
+    """
+    raw = getattr(args, "output_format", None)
+
+    # --html-report : html
+    if getattr(args, "html_report", False) and not raw:
+        raw = "html"
+
+    # None / "all"
+    if not raw or raw.lower() == "all":
+        return {"md", "html", "json", "sarif", "poc", "csv"}
+
+    # + /
+    formats: set[str] = set()
+    for part in raw.replace("+", ",").split(","):
+        fmt = part.strip().lower()
+        if fmt in ("md", "html", "json", "sarif", "poc", "csv"):
+            formats.add(fmt)
+
+    # html  md ( html  md  )
+    if "html" in formats and "md" not in formats:
+        formats.add("md")
+
+    return formats if formats else {"md", "html", "json", "sarif", "poc", "csv"}
+
 async def generate_report(
     ctx: Any,
     evidence: EvidenceCollection,
     output_dir: Path,
 ) -> Path:
-    """all
+    """all ( P2-2: --output-format )
 
-    :
-        - report.md / report_success.md
-        - report.html / report_success.html ( args.html_report)
-        - evidence/evidence.json / evidence_success.json
-        - evidence/EVD-*.json (converter(s))
-        - poc/poc_*.py ( PoC )
-        - report.sarif (SARIF 2.1 ,  CI/CD )
-        - attack_summary.csv / owasp_coverage_matrix.csv
-        - evidence_package.zip
+    P2-2 output-format :
+        - md: report.md + report_findings.md + report_executive.md + report_technical.md
+        - html: report.html (md)
+        - json: evidence.json + EVD-*.json
+        - sarif: report.sarif ( CI/CD )
+        - poc: poc_*.py ( PyRIT )
+        - csv: attack_summary.csv + owasp_coverage_matrix.csv
 
     Args:
         ctx: PipelineContext .
@@ -224,6 +206,19 @@ async def generate_report(
     evidence_dir.mkdir(parents=True, exist_ok=True)
     poc_dir.mkdir(parents=True, exist_ok=True)
 
+ # == P2-2:  output-format ==
+    output_formats = _parse_output_formats(ctx.args)
+    logger.info(
+        "P2-2: output-format=%s (md=%s html=%s json=%s sarif=%s poc=%s csv=%s)",
+        output_formats,
+        "md" in output_formats,
+        "html" in output_formats,
+        "json" in output_formats,
+        "sarif" in output_formats,
+        "poc" in output_formats,
+        "csv" in output_formats,
+    )
+
  # == PyRIT Native Output (R2: PyRIT ) ==
  # Uses official pyrit.output module to generate standard-format output files.
  # This is the PyRIT-native output path, separate from the security report.
@@ -238,50 +233,50 @@ async def generate_report(
         logger.warning("PyRIT native output generation failed (non-fatal): %s", e)
 
  # == Markdown Report (OffSec AI-300 Security Report) ==
- # v57: Layer - + + +
-    from report.report_markdown import (
-        _generate_executive_markdown,
-        _generate_findings_markdown,
-        _generate_technical_markdown,
-    )
-
-    md_content = _generate_markdown(evidence)
+ # P2-2: md format
     md_path = output_dir / "report.md"
-    md_path.write_text(md_content, encoding="utf-8")
-    logger.info("Markdown report (index) saved to %s", md_path)
+    if "md" in output_formats:
+        # v57: Layer - + + +
+        from report.report_markdown import (
+            _generate_executive_markdown,
+            _generate_findings_markdown,
+            _generate_technical_markdown,
+        )
 
- # v57: Layer
-    exec_md = _generate_executive_markdown(evidence)
-    exec_md_path = output_dir / "report_executive.md"
-    exec_md_path.write_text(exec_md, encoding="utf-8")
-    logger.info("Executive summary saved to %s", exec_md_path)
+        md_content = _generate_markdown(evidence)
+        md_path.write_text(md_content, encoding="utf-8")
+        logger.info("Markdown report (index) saved to %s", md_path)
 
-    findings_md = _generate_findings_markdown(evidence)
-    findings_md_path = output_dir / "report_findings.md"
-    findings_md_path.write_text(findings_md, encoding="utf-8")
-    logger.info("Findings report saved to %s", findings_md_path)
+        # v57: Layer
+        exec_md = _generate_executive_markdown(evidence)
+        exec_md_path = output_dir / "report_executive.md"
+        exec_md_path.write_text(exec_md, encoding="utf-8")
+        logger.info("Executive summary saved to %s", exec_md_path)
 
-    tech_md = _generate_technical_markdown(evidence)
-    tech_md_path = output_dir / "report_technical.md"
-    tech_md_path.write_text(tech_md, encoding="utf-8")
-    logger.info("Technical appendix saved to %s", tech_md_path)
+        findings_md = _generate_findings_markdown(evidence)
+        findings_md_path = output_dir / "report_findings.md"
+        findings_md_path.write_text(findings_md, encoding="utf-8")
+        logger.info("Findings report saved to %s", findings_md_path)
 
- # == Markdown ==
- # v57: success_only = executive () + findings ()
-    if evidence.successful_evidence:
-        from report.report_markdown import _generate_executive_markdown as _gen_exec
+        tech_md = _generate_technical_markdown(evidence)
+        tech_md_path = output_dir / "report_technical.md"
+        tech_md_path.write_text(tech_md, encoding="utf-8")
+        logger.info("Technical appendix saved to %s", tech_md_path)
 
- # findings (success_only) , executive
-        success_findings = _generate_findings_markdown(evidence, success_only=True)
- # executive (ASR/total , findings )
-        success_exec = _gen_exec(evidence)
-        success_md = success_exec + "\n\n---\n\n" + success_findings
-        success_md_path = output_dir / "report_success.md"
-        success_md_path.write_text(success_md, encoding="utf-8")
-        logger.info("Success-only Markdown report saved to %s", success_md_path)
+        # == Markdown ==
+        # v57: success_only = executive () + findings ()
+        if evidence.successful_evidence:
+            from report.report_markdown import _generate_executive_markdown as _gen_exec
 
- # == HTML () ==
-    if getattr(ctx.args, "html_report", False):
+            success_findings = _generate_findings_markdown(evidence, success_only=True)
+            success_exec = _gen_exec(evidence)
+            success_md = success_exec + "\n\n---\n\n" + success_findings
+            success_md_path = output_dir / "report_success.md"
+            success_md_path.write_text(success_md, encoding="utf-8")
+            logger.info("Success-only Markdown report saved to %s", success_md_path)
+
+ # == HTML (P2-2: html format) ==
+    if "html" in output_formats:
         html_content = _generate_html(evidence)
         html_path = output_dir / "report.html"
         html_path.write_text(html_content, encoding="utf-8")
@@ -293,98 +288,99 @@ async def generate_report(
             success_html_path.write_text(success_html, encoding="utf-8")
             logger.info("Success-only HTML report saved to %s", success_html_path)
 
- # == evidence JSON ==
-    json_data = _evidence_to_dict(evidence)
-    json_path = evidence_dir / "evidence.json"
-    json_path.write_text(
-        json.dumps(json_data, ensure_ascii=False, indent=2, default=str),
-        encoding="utf-8",
-    )
-    logger.info("Evidence JSON saved to %s", json_path)
-
-    if evidence.successful_evidence:
-        success_json_data = _evidence_to_dict(evidence, success_only=True)
-        success_json_path = evidence_dir / "evidence_success.json"
-        success_json_path.write_text(
-            json.dumps(success_json_data, ensure_ascii=False, indent=2, default=str),
+ # == evidence JSON (P2-2: json format) ==
+    if "json" in output_formats:
+        json_data = _evidence_to_dict(evidence)
+        json_path = evidence_dir / "evidence.json"
+        json_path.write_text(
+            json.dumps(json_data, ensure_ascii=False, indent=2, default=str),
             encoding="utf-8",
         )
-        logger.info("Success-only evidence JSON saved to %s", success_json_path)
+        logger.info("Evidence JSON saved to %s", json_path)
 
- # == ==
-    for ev in evidence.evidence:
-        ev_filename = f"{ev.evidence_id}.json"
-        ev_path = evidence_dir / ev_filename
-        ev_path.write_text(
-            json.dumps(_single_evidence_to_dict(ev), ensure_ascii=False, indent=2, default=str),
-            encoding="utf-8",
-        )
+        if evidence.successful_evidence:
+            success_json_data = _evidence_to_dict(evidence, success_only=True)
+            success_json_path = evidence_dir / "evidence_success.json"
+            success_json_path.write_text(
+                json.dumps(success_json_data, ensure_ascii=False, indent=2, default=str),
+                encoding="utf-8",
+            )
+            logger.info("Success-only evidence JSON saved to %s", success_json_path)
 
- # == PoC () ==
- # : , ,
-    from report.owasp_mapping import generate_poc_script
+        # == EVD-*.json ==
+        for ev in evidence.evidence:
+            ev_filename = f"{ev.evidence_id}.json"
+            ev_path = evidence_dir / ev_filename
+            ev_path.write_text(
+                json.dumps(_single_evidence_to_dict(ev), ensure_ascii=False, indent=2, default=str),
+                encoding="utf-8",
+            )
 
-    poc_count = 0
-    poc_failed = 0
-    for ev in evidence.successful_evidence:
+ # == PoC (P2-2: poc format) ==
+    if "poc" in output_formats:
+        # : , ,
+        from report.owasp_mapping import generate_poc_script
+
+        poc_count = 0
+        poc_failed = 0
+        for ev in evidence.successful_evidence:
+            try:
+                poc_script = generate_poc_script(ev)
+                poc_path = poc_dir / f"poc_{ev.evidence_id}.py"
+                poc_path.write_text(poc_script, encoding="utf-8")
+                poc_count += 1
+                logger.debug(
+                    "PoC generated: %s (technique=%s, converter=%s)",
+                    ev.evidence_id,
+                    ev.technique_name,
+                    ev.converter_chain or "none",
+                )
+            except Exception as e:
+                poc_failed += 1
+                logger.warning(
+                    "PoC generation failed for %s (technique=%s): %s",
+                    ev.evidence_id,
+                    ev.technique_name,
+                    e,
+                    exc_info=True,
+                )
+        if poc_count:
+            logger.info("PoC scripts saved to %s (%d files)", poc_dir, poc_count)
+        if poc_failed:
+            logger.warning("PoC generation: %d succeeded, %d failed", poc_count, poc_failed)
+
+ # == SARIF (P2-2: sarif format) ==
+    if "sarif" in output_formats:
         try:
-            poc_script = generate_poc_script(ev)
-            poc_path = poc_dir / f"poc_{ev.evidence_id}.py"
-            poc_path.write_text(poc_script, encoding="utf-8")
-            poc_count += 1
-            logger.debug(
-                "PoC generated: %s (technique=%s, converter=%s)",
-                ev.evidence_id,
-                ev.technique_name,
-                ev.converter_chain or "none",
-            )
+            from report.sarif_report import generate_sarif_report
+
+            sarif_path = output_dir / "report.sarif"
+            generate_sarif_report(evidence, sarif_path)
         except Exception as e:
-            poc_failed += 1
-            logger.warning(
-                "PoC generation failed for %s (technique=%s): %s",
-                ev.evidence_id,
-                ev.technique_name,
-                e,
-                exc_info=True,
+            logger.warning("Failed to generate SARIF report: %s", e)
+
+ # == CSV (P2-2: csv format) ==
+    if "csv" in output_formats:
+        try:
+            from report.report_sections import (
+                _export_evidence_zip,
+                _render_attack_summary_csv,
+                _render_coverage_matrix_csv,
             )
-    if poc_count:
-        logger.info("PoC scripts saved to %s (%d files)", poc_dir, poc_count)
-    if poc_failed:
-        logger.warning("PoC generation: %d succeeded, %d failed", poc_count, poc_failed)
 
- # == SARIF ==
- # : SARIF (sarif_report.py)
- # CI/CD SARIF
- # : generator.py SARIF , MD/HTML/JSON
-    try:
-        from report.sarif_report import generate_sarif_report
+            csv_summary = _render_attack_summary_csv(evidence)
+            csv_summary_path = output_dir / "attack_summary.csv"
+            csv_summary_path.write_text(csv_summary, encoding="utf-8")
 
-        sarif_path = output_dir / "report.sarif"
-        generate_sarif_report(evidence, sarif_path)
-    except Exception as e:
-        logger.warning("Failed to generate SARIF report: %s", e)
+            csv_coverage = _render_coverage_matrix_csv(evidence)
+            csv_coverage_path = output_dir / "owasp_coverage_matrix.csv"
+            csv_coverage_path.write_text(csv_coverage, encoding="utf-8")
+            logger.info("CSV exports saved to %s", output_dir)
 
- # == CSV ==
-    try:
-        from report.report_sections import (
-            _export_evidence_zip,
-            _render_attack_summary_csv,
-            _render_coverage_matrix_csv,
-        )
-
-        csv_summary = _render_attack_summary_csv(evidence)
-        csv_summary_path = output_dir / "attack_summary.csv"
-        csv_summary_path.write_text(csv_summary, encoding="utf-8")
-
-        csv_coverage = _render_coverage_matrix_csv(evidence)
-        csv_coverage_path = output_dir / "owasp_coverage_matrix.csv"
-        csv_coverage_path.write_text(csv_coverage, encoding="utf-8")
-        logger.info("CSV exports saved to %s", output_dir)
-
- # == ZIP ==
-        _export_evidence_zip(output_dir, evidence)
-        logger.info("Evidence ZIP saved to %s", output_dir / "evidence_package.zip")
-    except Exception as e:
-        logger.warning("Failed to export CSV/ZIP: %s", e)
+            # == ZIP ==
+            _export_evidence_zip(output_dir, evidence)
+            logger.info("Evidence ZIP saved to %s", output_dir / "evidence_package.zip")
+        except Exception as e:
+            logger.warning("Failed to export CSV/ZIP: %s", e)
 
     return md_path

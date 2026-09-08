@@ -166,6 +166,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
  # == ==
     parser.add_argument("--html-report", action="store_true", default=False, help=" HTML ")
 
+ # == P2-2: output-format ==
+ # : md / html / json / sarif / poc / csv / all ()
+ # : --output-format md,json  md+json
+ # : --html-report  html_report=True, output-format html
+    parser.add_argument(
+        "--output-format",
+        type=str,
+        default=None,
+        metavar="FMT",
+        help=" (: all=all); "
+             "md/html/json/sarif/poc/csv; "
+             " md,json  md+html+json+sarif",
+    )
+
  # == : --memory-labels ==
  # pyrit_scan --memory-labels: CentralMemory,
  # ( label=production,target=deepseek)

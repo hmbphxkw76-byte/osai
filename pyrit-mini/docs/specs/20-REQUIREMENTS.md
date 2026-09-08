@@ -186,14 +186,14 @@
 
 | ID | 陈述 | 关键验收 | Glue模块 |
 |----|------|---------|---------|
-| REQ-127 | **认证攻击覆盖** | JWT alg=none/RS256→HS256/kid注入/OAuth Scope提升/Session固定攻击全部可执行，通过PyRIT HTTPTarget发送 | enterprise_auth_glue |
+| REQ-127 | **认证攻击覆盖** | JWT alg=none/RS256→HS256/kid注入/OAuth Scope提升/Session固定攻击全部可执行，通过PyRIT HTTPTarget发送 | strike/auth_attacks.py |
 | REQ-128 | ~~**向量DB攻击覆盖**~~ | ~~已移除（黑盒HTTP不可测试）：需向量DB SDK直接访问，相关攻击通过间接注入seed覆盖~~ | ~~已删除~~ |
-| REQ-129 | **API Gateway攻击覆盖** | 速率限制测试/请求走私/缓存投毒全部可执行，并发度可配置 | api_gateway_glue |
-| REQ-130 | **审计逃逸攻击覆盖** | 日志注入（CRLF/ANSI/时间戳伪造）可执行 | audit_evasion_glue |
+| REQ-129 | **API Gateway攻击覆盖** | 速率限制测试/请求走私/缓存投毒全部可执行，并发度可配置 | strike/web_attacks.py |
+| REQ-130 | **审计逃逸攻击覆盖** | 日志注入（CRLF/ANSI/时间戳伪造）可执行 | strike/audit_evasion.py |
 | REQ-131 | ~~**Fine-tuning攻击覆盖**~~ | ~~已移除（黑盒HTTP不可测试）：需训练环境API访问，相关攻击通过间接注入seed覆盖~~ | ~~已删除~~ |
-| REQ-132 | **统一编排器** | EnterpriseAttackOrchestrator整合所有Glue模块，提供单一入口run_full_assessment | enterprise_orchestrator |
-| REQ-133 | **延迟导入机制** | 所有专用工具（PyJWT、pinecone、milvus、openai等）采用try/except ImportError导入，无硬依赖 | 全部Glue模块 |
-| REQ-134 | **攻击成功率度量** | 每次攻击返回结构化结果（attack_type、result、analysis），支持ASR统计 | 全部Glue模块 |
+| REQ-132 | **统一编排器** | WebAttackOrchestrator整合所有Web攻击模块，提供单一入口run_full_assessment | strike/web_orchestrator.py |
+| REQ-133 | **延迟导入机制** | 所有专用工具（PyJWT、pinecone、milvus、openai等）采用try/except ImportError导入，无硬依赖 | 全部Web攻击模块 |
+| REQ-134 | **攻击成功率度量** | 每次攻击返回结构化结果（attack_type、result、analysis），支持ASR统计 | 全部Web攻击模块 |
 
 ### 企业攻击ASR基线
 

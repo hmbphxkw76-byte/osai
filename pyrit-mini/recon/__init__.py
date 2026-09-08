@@ -5,6 +5,7 @@
 Core modules:
     - burp_parser:  Burp HTTP ,  URL/Headers/Body,  {PROMPT}
     - target_router:  HTTPTarget + RateLimitedTarget,  adversarial/scoring target
+    - target_wrapper: RateLimitedTarget (concurrency control + auth recovery + capability verification)
     - capability_detector:  (agent/mcp/rag/embedding)
     - confidence_scorer:  (SSOT)
     - mcpsec_bridge: MCP (MCPSec v2.7.2 bridge)
@@ -19,6 +20,7 @@ Core modules:
     - rag_pipeline_probe: P1 RAG (KB structure + citations + chunking)
     - rag_metadata_parser: format-agnostic structured field extraction (sources/chunk_id/scores/timing)
     - rag_typo_fuzzer: query rewriting and fuzzy matching capability detection
+    - stealth_timing: Unified stealth timing module (inter-request lognormal delays)
 
 Removed modules (v1.5 Red Team Alignment):
     - health_probe: KEPT (active black-box reconnaissance - directly feeds attack)

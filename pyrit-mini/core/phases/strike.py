@@ -8,7 +8,7 @@ Academic basis:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from core.context import PipelineContext
@@ -116,6 +116,10 @@ async def _run_strike_phase(
     _attack_count_before_escalation = sum(
         len(v) for v in ctx.attack_results.values())
 
+    # === Web Security Attacks Integration ===
+    # Execute web security attacks (JWT/Gateway/Audit) using service_profile data
+    await _run_web_attacks_phase(ctx)
+
     # == : orchestration_log ==
     ctx.orchestration_log.append({
         "phase": "strike",
@@ -174,6 +178,129 @@ async def _run_strike_phase(
         "STRIKE", "DONE",
         f"Attack={_attack_count}, Success={_success_count}, ASR={_strike_asr:.1f}%",
         ok=True)
+
+
+async def _run_web_attacks_phase(ctx: "PipelineContext") -> None:
+    """(4.2) WEB ATTACKS: Web security attacks (JWT/Gateway/Audit).
+
+    Executes web security attacks using data from recon phase (service_profile).
+    Stores results in ctx.attack_results for consistency with main attacks.
+
+    Attacks:
+        - JWT: alg=none, RS256→HS256, kid injection, JWK injection
+        - Gateway: Request smuggling, cache poisoning, HTTP method tampering
+        - Audit: Log injection (CRLF/ANSI)
+
+    Data flow:
+        recon/service_profile → target_info → web_orchestrator → ctx.attack_results
+
+    Academic basis:
+        - Zeng et al. (arXiv:2402.19181): Enterprise web attack surfaces, ASR 38.4%
+        - OWASP API Security Top 2019: API4:2019 Lack of Resources & Rate Limiting
+        - PortSwigger: HTTP Request Smuggling (CL.TE / TE.CL)
+    """
+    from utils.display import print_phase
+
+    # Skip if dry run
+    _is_dry_run = getattr(ctx.args, "dry_run", False)
+    if _is_dry_run:
+        return
+
+    # Check if web attacks are enabled (via service_profile)
+    _service_profile = getattr(ctx, "service_profile", {})
+    if not _service_profile:
+        logger.debug("[WebAttacks] No service_profile data - skip")
+        return
+
+    # Check if target has web attack surface
+    _has_auth = bool(_service_profile.get("auth_type"))
+    _has_gateway = bool(_service_profile.get("gateway_type"))
+    if not _has_auth and not _has_gateway:
+        logger.debug("[WebAttacks] No web attack surface detected - skip")
+        return
+
+    try:
+        print_phase("STRIKE", "Web Security Attacks (JWT/Gateway/Audit)...")
+
+        # Build target_info from service_profile
+        target_info = _build_target_info_from_service_profile(ctx)
+
+        # Initialize web orchestrator
+        from strike.web_orchestrator import WebAttackOrchestrator
+
+        # Get endpoint URL
+        _parsed = getattr(ctx, "parsed_request", None)
+        _endpoint = ""
+        if _parsed:
+            scheme = "https" if getattr(_parsed, "use_tls", True) else "http"
+            _endpoint = f"{scheme}://{_parsed.host}{getattr(_parsed, 'path', '/')}"
+        else:
+            _endpoint = getattr(ctx.args, "endpoint", "")
+
+        if not _endpoint:
+            logger.debug("[WebAttacks] No endpoint URL - skip")
+            return
+
+        orchestrator = WebAttackOrchestrator(
+            target_endpoint=_endpoint,
+            adversarial_target=getattr(ctx, "adversarial_target", None),
+            scoring_target=getattr(ctx, "scoring_target", None),
+        )
+
+        # Run web attacks
+        results = orchestrator.run_full_assessment(target_info)
+
+        # Store results in ctx.attack_results (consistent with main attacks)
+        for attack in results.get("attacks", []):
+            attack_type = attack.get("attack_type", "web_attack")
+            if attack_type not in ctx.attack_results:
+                ctx.attack_results[attack_type] = []
+            ctx.attack_results[attack_type].append(attack)
+
+        _web_count = len(results.get("attacks", []))
+        logger.info("[WebAttacks] Completed: %d web security attacks executed", _web_count)
+
+    except Exception as e:
+        logger.warning("[WebAttacks] Web attacks phase error (non-fatal): %s", e)
+
+
+def _build_target_info_from_service_profile(ctx: "PipelineContext") -> dict:
+    """Build target_info dict from service_profile for web attacks.
+
+    Args:
+        ctx: Pipeline context with service_profile data
+
+    Returns:
+        target_info dict with jwt/oauth/session keys
+    """
+    service_profile = getattr(ctx, "service_profile", {})
+    target_info: dict[str, Any] = {}
+
+    # JWT info
+    auth_type = service_profile.get("auth_type", "")
+    if "jwt" in auth_type.lower() or "bearer" in auth_type.lower():
+        target_info["jwt"] = {
+            "claims": service_profile.get("jwt_claims", {"user": "admin"}),
+            "token": service_profile.get("jwt_token", ""),
+            "public_key": service_profile.get("jwt_public_key", ""),
+        }
+
+    # OAuth info
+    if "oauth" in auth_type.lower():
+        target_info["oauth"] = {
+            "base_url": service_profile.get("oauth_base_url", ""),
+            "client_id": service_profile.get("oauth_client_id", ""),
+            "scope": service_profile.get("oauth_scope", ""),
+        }
+
+    # Session info
+    if "session" in auth_type.lower() or "cookie" in auth_type.lower():
+        target_info["session"] = {
+            "session_id": service_profile.get("session_id", "ATTACKER_FIXED_SESSION_12345"),
+        }
+
+    return target_info
+
 
 async def _run_escalate_phase(
         ctx: "PipelineContext") -> None:

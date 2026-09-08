@@ -3,7 +3,7 @@
 > **文档层级**：L1 / 五层规约金字塔第二层
 > **效力**：定义系统的目标架构、模块边界、数据契约与架构不变量。任何代码变更必须能在本蓝图上"落点"——落不了点的变更需要先走 change-proposal 修改蓝图。
 > **读者**：实施任务前的 AI（必读相关章节）、评审 diff 的人工/AI。
-> **版本**：v1.9（2026-09-06 REV-09：targets/ → adapters/ 适配层精准命名；REV-08：config/burp/ 消除冲突；初版 2026-09-05）
+> **版本**：v1.10（2026-09-08 REV-10：adapters/ → recon/target_wrapper.py 迁移，消除死代码 content_filter.py；REV-09：targets/ → adapters/；初版 2026-09-05）
 
 ---
 
@@ -51,31 +51,28 @@ config/profiles/asset_index.yaml  ← 统一资产索引 (v63 固定参数集)
 | 编排层 | `main.py` | 六阶段顺序编排 + 多 endpoint 循环；**不得包含业务逻辑**（现状违例：87KB 巨石，D-02） |
 | 核心层 | `core/` | 配置解析（唯一默认值定义地）、PipelineContext、架构守卫、场景路由 |
 | 阶段层 | `recon/ arm/ strike/ assess/ report/` | 各攻击阶段的实现；彼此只通过 PipelineContext 交接 |
-| 适配器层 | `adapters/` | PyRIT 原生 Target 包装（限速/认证/内容过滤标记扩展） |
 | Glue层 | `glue/` | 企业AI红队Glue代码：连接专用工具（认证SDK、向量DB SDK、HTTP工具）与PyRIT框架 |
 | 支撑层 | `utils/ pipeline/` | 终端展示、缓存清理、日志、资源清理（现状违例：display.py 119KB，D-14） |
 | 数据层 | `data/` + `config/` | 种子、评分器 rubric、ASR 先验、defaults（**全部为声明式资产**，D-13 已消除：代码迁至 core/ 或 recon/；burp/ → config/targets/burp/；asset_index.yaml → config/） |
 
 ### 2.2 依赖方向矩阵（允许 ↓ / 禁止 ✗）
 
-| 依赖方 ↓ 被依赖方 → | core | recon | arm | strike | assess | report | adapters | glue | utils | data(config) |
+| 依赖方 ↓ 被依赖方 → | core | recon | arm | strike | assess | report | glue | utils | data(config) |
 |---|---|---|---|---|---|---|---|---|---|---|
-| main.py | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
-| core/ | — | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | 读写 defaults.yaml |
-| recon/ | ✓（context） | 内部 | ✗ | ✗ | ✗* | ✗ | ✓ | ✗ | ✓ | 只读 |
-| arm/ | ✓ | ✗ | 内部 | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | 只读 asr_priors；读 asr_history（I7 运行时账本） |
-| strike/ | ✓ | ✗ | ✓ | 内部 | ✓** | ✗ | ✗ | ✗ | ✓ | 只读 |
-| assess/ | ✓ | ✗ | ✗ | ✗ | 内部 | ✗ | ✗ | ✗ | ✗ | 读写 asr_history |
-| report/ | ✓ | ✗ | ✗ | ✗ | ✗ | 内部 | ✗ | ✗ | ✗ | 只读 |
-| adapters/ | ✗ | ✓*** | ✗ | ✗ | ✗ | ✗ | 内部 | ✗ | ✗ | 只读 |
-| glue/ | ✓（context） | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ | 内部 | ✓ | 只读 |
-| utils/ | ✓（context 类型） | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | 内部 | 只读 |
+| main.py | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| core/ | — | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | 读写 defaults.yaml |
+| recon/ | ✓（context） | 内部 | ✗ | ✗ | ✗* | ✗ | ✗ | ✓ | 只读 |
+| arm/ | ✓ | ✗ | 内部 | ✗ | ✗ | ✗ | ✗ | ✗ | 只读 asr_priors；读 asr_history（I7 运行时账本） |
+| strike/ | ✓ | ✗ | ✓ | 内部 | ✓** | ✗ | ✗ | ✓ | 只读 |
+| assess/ | ✓ | ✗ | ✗ | ✗ | 内部 | ✗ | ✗ | ✗ | 读写 asr_history |
+| report/ | ✓ | ✗ | ✗ | ✗ | ✗ | 内部 | ✗ | ✗ | 只读 |
+| glue/ | ✓（context） | ✗ | ✗ | ✗ | ✗ | ✗ | 内部 | ✓ | 只读 |
+| utils/ | ✓（context 类型） | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | 内部 | 只读 |
 
 \* recon/target_router 调 `assess.scorer.validate_scoring_target_capabilities` —— 已登记债务 D-04。
 \** strike → assess 仅限 `precompute_outcomes_async`（升级前预评分），不得扩大。
-\*** adapters/agent_adapter 现引用 PyRIT 原生 HTTPTarget —— 债务 D-05 已解除 (P0-03)。
-\**** utils/display 延迟导入 arm/seed_ranking 读 ASR 历史 —— 已登记债务 D-06（展示层越界）。
-\***** glue/ 依赖 utils/ 用于日志输出；glue/ 依赖 adapters/ 可选（使用HTTPTarget时无需adapters）。
+\*** utils/display 延迟导入 arm/seed_ranking 读 ASR 历史 —— 已登记债务 D-06（展示层越界）。
+\**** glue/ 依赖 utils/ 用于日志输出。
 
 **图例**（v1.1）：✓ 允许；✗ 禁止；"—" = 不适用（对角线自身单元格）或禁止（本表仅一处：main.py × 数据层——main 不得直接解析 data/config 资产，一律经 core/config.py 或阶段模块。未来新出现的"—"必须随行注明语义）。
 
@@ -287,23 +284,23 @@ recon 完成 → capability 指纹分支:
 ## 第九章：企业AI红队Glue层架构（v2.0 增补，企业攻击融合解决方案）
 
 > **目的**：定义Glue层的架构设计、模块职责、与PyRIT框架的集成方式。
-> Glue层是企业AI红队融合解决方案的核心组件，连接专用工具与PyRIT原生框架。
+> Web攻击层是红队攻击的核心组件，连接专用Web攻击模块与PyRIT原生框架。
 
-### 9.1 Glue层模块清单
+### 9.1 Web攻击层模块清单
 
 | 模块 | 职责 | 专用工具 | PyRIT集成 |
-|------|------|---------|-----------|
-| `enterprise_auth_glue.py` | 认证攻击Glue（JWT/OAuth/Session） | PyJWT | HTTPTarget |
-| `api_gateway_glue.py` | API Gateway攻击Glue（速率限制/请求走私/缓存投毒） | urllib.request | HTTPTarget |
-| `audit_evasion_glue.py` | 审计逃逸Glue（日志注入） | logging、base64 | HTTPTarget |
-| `enterprise_orchestrator.py` | 统一编排器 | 上述所有 | HTTPTarget |
+|------|------|---------|----------|
+| `strike/auth_attacks.py` | 认证攻击（JWT/OAuth/Session） | PyJWT | HTTPTarget |
+| `strike/web_attacks.py` | API Gateway攻击（速率限制/请求走私/缓存投毒） | urllib.request | HTTPTarget |
+| `strike/audit_evasion.py` | 审计逃逸（日志注入） | logging、base64 | HTTPTarget |
+| `strike/web_orchestrator.py` | 统一编排器 | 上述所有 | HTTPTarget |
 
-### 9.2 Glue层架构原则
+### 9.2 Web攻击层架构原则
 
 1. **PyRIT原生优先**（宪法C1）：所有攻击执行最终通过PyRIT的`PromptSendingAttack`和`HTTPTarget`完成
 2. **专用工具辅助**：专用工具只用于payload生成和验证，不替代PyRIT核心功能
 3. **延迟导入**：所有专用工具采用运行时`try/except ImportError`导入，避免硬依赖
-4. **SSOT合规**：统一由`enterprise_orchestrator.py`编排，避免双轨
+4. **SSOT合规**：统一由`strike/web_orchestrator.py`编排，避免双轨
 
 ### 9.3 Glue层攻击类型映射
 

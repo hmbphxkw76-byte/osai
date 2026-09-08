@@ -23,7 +23,6 @@ import os
 import time as _time
 from typing import Any
 
-from adapters.rate_limited import RateLimitedTarget
 from core.context import PipelineContext
 from core.runtime.capability_drift import get_drift_monitor
 
@@ -48,6 +47,9 @@ from recon.burp_parser import (
 
 # P2-06: TLS verify (SSOT)
 from recon.config_loader import get_tls_verify as _get_tls_verify_from_config
+
+# RateLimitedTarget: Concurrency control + auth recovery + capability verification
+from recon.target_wrapper import RateLimitedTarget
 
 _TLS_VERIFY = _get_tls_verify_from_config()
 

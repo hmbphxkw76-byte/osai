@@ -44,29 +44,27 @@
 | R-S4 | **测试隔离**：tests/ 全部 mock API 调用；禁止测试触发对真实目标的攻击流量 |
 | R-S5 | **不当武器化输出**：生成的 PoC/报告默认面向授权红队评估交付；不附加"无授权也可用"的引导性内容 |
 
-### 1D. Glue 层专项护栏（v1.4 增补，v1.5 精简）
+### 1D. Web攻击专项护栏（v1.6 更新）
 
-> **适用范围**：glue/ 目录下所有企业攻击编排模块（auth_glue、gateway_glue、audit_glue、enterprise_orchestrator）。这些模块作为 PyRIT 原生框架与企业基础设施 SDK 之间的桥梁，必须遵守本节专项护栏。
+> **适用范围**：strike/ 目录下所有Web攻击模块（auth_attacks.py、web_attacks.py、audit_evasion.py、web_orchestrator.py）。这些模块作为 PyRIT 原生框架与Web安全攻击之间的桥梁，必须遵守本节专项护栏。
 
-> **v1.5 变更**：移除 vector_glue 和 finetuning_glue 的适用范围（模块已删除），白名单同步精简。
+> **v1.6 变更**：从 glue/ 目录迁移到 strike/ 目录，模块扁平化重组。
 
 | # | 红线 | 级别 | 判定特征 |
 |---|------|------|----------|
-| R-GLUE-1 | **插件化隔离**：Glue 层模块必须通过 try/except ImportError 实现可选依赖安装，不得将企业 SDK（PyJWT、pinecone-client 等）声明为硬依赖 | BLOCKING | 缺失 try/except 包裹的企业 SDK import |
-| R-GLUE-2 | **PyRIT 原生委托**：Glue 层不得重写攻击执行逻辑（PromptSendingAttack / SkeletonKeyAttack / CrescendoAttack 等），仅允许构造 PyRIT 原生组件可消费的 payload/target/scorer 配置 | WARNING | Glue 模块内出现 attack.execute() / attack._execute() 等攻击执行逻辑 |
-| R-GLUE-3 | **配置数据流**：企业攻击参数（JWT 算法类型、向量 DB 命名空间、审计日志格式）必须走 `config/defaults.yaml → ctx.args` 链路，禁止 Glue 层硬编码 | WARNING | Glue 模块内出现攻击参数字面量（非从 ctx 读取） |
-| R-GLUE-4 | **静默降级禁止**：Glue 层模块的降级路径（企业 SDK 不可用时的降级策略）必须在 orchestration_log 中显式记录，禁止静默 skip | WARNING | Glue 模块内 except 块仅含 `pass` / `return None` 而无日志记录 |
-| R-GLUE-5 | **学术留痕**：每个企业攻击向量（JWT alg=none、向量 DB 投毒、HTTP 走私等）必须有 arXiv 引用或 CVE 编号注释 | INFO | Glue 攻击函数无 arXiv/CVE 注释 |
+| R-WEB-1 | **插件化隔离**：Web攻击模块必须通过 try/except ImportError 实现可选依赖安装，不得将企业 SDK（PyJWT等）声明为硬依赖 | BLOCKING | 缺失 try/except 包裹的企业 SDK import |
+| R-WEB-2 | **PyRIT 原生委托**：Web攻击模块不得重写攻击执行逻辑（PromptSendingAttack / SkeletonKeyAttack / CrescendoAttack 等），仅允许构造 PyRIT 原生组件可消费的 payload/target/scorer 配置 | WARNING | Web攻击模块内出现 attack.execute() / attack._execute() 等攻击执行逻辑 |
+| R-WEB-3 | **配置数据流**：Web攻击参数（JWT 算法类型、Gateway类型、审计日志格式）必须走 `config/defaults.yaml → ctx.args` 链路，禁止硬编码 | WARNING | Web攻击模块内出现攻击参数字面量（非从 ctx 读取） |
+| R-WEB-4 | **静默降级禁止**：Web攻击模块的降级路径（企业 SDK 不可用时的降级策略）必须在 orchestration_log 中显式记录，禁止静默 skip | WARNING | Web攻击模块内 except 块仅含 `pass` / `return None` 而无日志记录 |
+| R-WEB-5 | **学术留痕**：每个Web攻击向量（JWT alg=none、HTTP 走私等）必须有 arXiv 引用或 CVE 编号注释 | INFO | Web攻击函数无 arXiv/CVE 注释 |
 
-**Glue 层攻击向量白名单**（已认可的企业攻击场景）：
+**Web攻击向量白名单**（已认可的Web攻击场景）：
 
-| 攻击向量 | 对应 Glue 模块 | 关键技术 | 引用要求 |
-|---------|--------------|---------|--------|
-| JWT 算法混淆 | `enterprise_auth_glue.py` | alg=none、RS256→HS256 降级、kid注入 | arXiv:2207.01077 或 CVE-2018-0114 |
-| HTTP 请求走私 | `gateway_glue.py` | CL.TE/TE.CL 走私、路径参数覆盖 | ANSI ISAAC 2023 |
-| 审计日志注入 | `audit_glue.py` | CRLF 注入、ANSI 注入、时间戳伪造 | CVE-2023-50164 |
-
-> **已移除白名单项**（v1.5）：向量数据库投毒、微调后门注入——需直接 SDK 访问/训练环境 API，不在黑盒 HTTP 目标测试范围内，相关攻击向量通过间接注入 seed 覆盖。
+| 攻击向量 | 对应模块 | 关键技术 | 引用要求 |
+|---------|---------|---------|----------|
+| JWT 算法混淆 | `strike/auth_attacks.py` | alg=none、RS256→HS256 降级、kid注入 | arXiv:2207.01077 或 CVE-2018-0114 |
+| HTTP 请求走私 | `strike/web_attacks.py` | CL.TE/TE.CL 走私、路径参数覆盖 | ANSI ISAAC 2023 |
+| 审计日志注入 | `strike/audit_evasion.py` | CRLF 注入、ANSI 注入、时间戳伪造 | CVE-2023-50164 |
 
 ### 1E. Guard 检查器登记簿（v1.4 更新为 24 项）
 

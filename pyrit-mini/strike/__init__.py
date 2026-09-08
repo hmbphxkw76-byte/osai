@@ -1,7 +1,7 @@
 # arXiv:2402.12109 — Russinovich et al., Crescendo
 # arXiv:2407.01232 — PyRIT, framework foundation
 # arXiv:2302.12173 — Greshake et al., PromptSendingAttack
-# MCPSec Bridge - mcpsec v2.7.2 (manthanghasadiya/mcpsec)
+# MCPSec Bridge - mcpsec v2.7.2 (manthanganghasadiya/mcpsec)
 """strike - Attack execution module.
 
 6-phase attack pipeline with PyRIT native AttackExecutor:
@@ -9,8 +9,15 @@
 Core modules:
     - executor: PromptSendingAttack execution (FIRST_SUCCESS)
     - arm/converter_selector: Converter selection + OWASP mapping (arm/)
-    - escalation: Multi-level escalation (Crescendo/TAP/PAIR/GCG)
-    - adaptive_executor: PyRIT TextAdaptive + Best-of-N
+    - escalation_runtime: Multi-turn escalation (Crescendo/TAP/SkeletonKey)
+    - adaptive_executor: Best-of-N retry logic
+    - web_orchestrator: Web security attacks orchestrator
+
+Web Security Attacks:
+    - auth_attacks: Authentication attacks (JWT/OAuth/Session)
+    - web_attacks: Web application attacks (smuggling/cache poisoning/etc.)
+    - audit_evasion: Audit evasion attacks (log injection)
+    - http_attack_engine: Unified HTTP attack engine
 
 MCPSec + PyRIT Integration (v2.7.2):
     - mcpsec_bridge: Bridge MCPSec CLI to pyrit-mini attack pipeline
@@ -22,12 +29,16 @@ MCPSec + PyRIT Integration (v2.7.2):
 
 from typing import Any
 
-from strike.escalation import check_and_escalate
 from strike.executor import execute_attacks
 
 __all__ = [
     "execute_attacks",
-    "check_and_escalate",
+    # Web Security Attacks
+    "AuthAttacks",
+    "WebAttacks",
+    "AuditEvasionAttacks",
+    "HTTPAttackEngine",
+    "WebAttackOrchestrator",
     # MCPSec Integration
     "MCPSecBridge",
     "MCPSecScanResult",
@@ -47,9 +58,27 @@ __all__ = [
     "load_mcp_seeds_for_target",
 ]
 
-# Lazy imports for MCPSec modules (imported on demand to avoid hard dependency)
+# Lazy imports for Web security modules
 def __getattr__(name: str) -> Any:
-    """Lazy import for MCPSec integration modules."""
+    """Lazy import for Web security and MCPSec integration modules."""
+    # Web Security Attacks
+    if name == "AuthAttacks":
+        from strike.auth_attacks import AuthAttacks
+        return AuthAttacks
+    if name == "WebAttacks":
+        from strike.web_attacks import WebAttacks
+        return WebAttacks
+    if name == "AuditEvasionAttacks":
+        from strike.audit_evasion import AuditEvasionAttacks
+        return AuditEvasionAttacks
+    if name == "HTTPAttackEngine":
+        from strike.http_attack_engine import HTTPAttackEngine
+        return HTTPAttackEngine
+    if name == "WebAttackOrchestrator":
+        from strike.web_orchestrator import WebAttackOrchestrator
+        return WebAttackOrchestrator
+
+    # MCPSec modules
     if name in (
         "MCPSecBridge",
         "MCPSecScanResult",

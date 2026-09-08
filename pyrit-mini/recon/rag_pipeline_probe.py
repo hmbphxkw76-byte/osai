@@ -114,6 +114,7 @@ async def _probe_kb_and_citations(
     base_url: str,
     parsed_request: Any,
     api_key: str | None,
+    stealth_mode: bool = True,
 ) -> RAGPipelineProfile:
     """Combined KB structure + citation probe (2 requests, high value).
 
@@ -130,26 +131,43 @@ async def _probe_kb_and_citations(
         "Provide a summary of your knowledge base contents. Include source references.",
     ]
 
-    sem = asyncio.Semaphore(2)
-    results = []
+    raw_results = []
+    if stealth_mode:
+        # Stealth: sequential probing with lognormal delays
+        from recon.stealth_timing import StealthTimer
+        timer = StealthTimer(base_delay=5.0, enable_logging=False)
 
-    async def _send(prompt: str) -> tuple[dict[str, str], str | None]:
-        async with sem:
-            return await _send_rag_probe(session, base_url, parsed_request, prompt, api_key)
+        for prompt in prompts:
+            await timer.next_request()
+            try:
+                result = await _send_rag_probe(session, base_url, parsed_request, prompt, api_key)
+                raw_results.append(result)
+            except Exception:
+                pass
 
-    tasks = [_send(p) for p in prompts]
-    raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+        timer.log_session_summary()
+    else:
+        # Legacy burst mode
+        sem = asyncio.Semaphore(2)
 
-    for result in raw_results:
-        if isinstance(result, Exception):
+        async def _send(prompt: str) -> tuple[dict[str, str], str | None]:
+            async with sem:
+                return await _send_rag_probe(session, base_url, parsed_request, prompt, api_key)
+
+        tasks = [_send(p) for p in prompts]
+        raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Parse KB structure from headers (unified for both stealth and burst modes)
+    for item in raw_results:
+        if isinstance(item, Exception) or item is None:
             continue
-        headers, body = result
-        if not body:
+        if isinstance(item, tuple) and len(item) == 3:
+            resp_headers, resp_body, _ = item
+            if not resp_body:
+                continue
+        else:
             continue
-        results.append((headers, body))
 
-    # Parse KB structure from headers
-    for resp_headers, resp_body in results:
         for header_lower in _KB_HEADERS:
             header_key = _find_header_ci(resp_headers, header_lower)
             if header_key:
@@ -164,9 +182,18 @@ async def _probe_kb_and_citations(
                     if value not in profile.kb_doc_ids:
                         profile.kb_doc_ids.append(value)
 
-    # Parse citation markers from body
+    # Parse citation markers from body (unified for both stealth and burst modes)
     citation_format_counts: dict[str, int] = {}
-    for _, resp_body in results:
+    for item in raw_results:
+        if isinstance(item, Exception) or item is None:
+            continue
+        if isinstance(item, tuple) and len(item) == 3:
+            _, resp_body, _ = item
+            if not resp_body:
+                continue
+        else:
+            continue
+
         for pattern, fmt in _CITATION_PATTERNS:
             matches = pattern.findall(resp_body)
             if matches:
@@ -189,6 +216,7 @@ async def _probe_chunking_strategy(
     base_url: str,
     parsed_request: Any,
     api_key: str | None,
+    stealth_mode: bool = True,
 ) -> str:
     """Detect chunking strategy from response segmentation (2 requests).
 
@@ -211,16 +239,36 @@ async def _probe_chunking_strategy(
             _, body, status = await _send_rag_probe(session, base_url, parsed_request, prompt, api_key)
             return body if status == 200 else None
 
-    tasks = [_send(short_prompt), _send(long_prompt)]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    if stealth_mode:
+        # Stealth: sequential probing with lognormal delays
+        from recon.stealth_timing import StealthTimer
+        timer = StealthTimer(base_delay=5.0, enable_logging=False)
 
-    for result in results:
-        if isinstance(result, Exception) or not result:
-            continue
-        for pattern, marker_type in _CHUNK_MARKERS:
-            if pattern.search(result):
-                strategies.append(marker_type)
-                break
+        for prompt in [short_prompt, long_prompt]:
+            await timer.next_request()
+            try:
+                body = await _send(prompt)
+                if body:
+                    for pattern, marker_type in _CHUNK_MARKERS:
+                        if pattern.search(body):
+                            strategies.append(marker_type)
+                            break
+            except Exception:
+                pass
+
+        timer.log_session_summary()
+    else:
+        # Legacy burst mode
+        tasks = [_send(short_prompt), _send(long_prompt)]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for result in results:
+            if isinstance(result, Exception) or not result:
+                continue
+            for pattern, marker_type in _CHUNK_MARKERS:
+                if pattern.search(result):
+                    strategies.append(marker_type)
+                    break
 
     if "explicit" in strategies:
         return "explicit_chunks"
@@ -345,8 +393,12 @@ async def run_rag_pipeline_probe(
     use_tls: bool = True,
     api_key: str | None = None,
     max_concurrent: int = 3,
+    stealth_mode: bool = True,
 ) -> RAGPipelineProfile:
     """Run RAG pipeline probe (attacker-focused, 5 requests max).
+
+    Stealth enhancement: When stealth_mode=True, uses sequential probing
+    with lognormal-distributed delays to avoid burst detection.
 
     Integration: Called from _run_recon_phase when detected as RAG endpoint.
 
@@ -354,7 +406,8 @@ async def run_rag_pipeline_probe(
         parsed_request: ParsedBurpRequest with target info
         use_tls: Whether to use HTTPS
         api_key: Optional API key
-        max_concurrent: Max concurrent requests (stealth bound)
+        max_concurrent: Max concurrent requests (forced to 1 in stealth mode)
+        stealth_mode: Enable inter-probe stealth timing
 
     Returns:
         RAGPipelineProfile with attacker-relevant fields
@@ -368,8 +421,13 @@ async def run_rag_pipeline_probe(
 
     base_url = f"{'https' if use_tls else 'http'}://{host}"
 
-    connector = aiohttp.TCPConnector(limit=max_concurrent, ssl=_TLS_VERIFY)
-    timeout = aiohttp.ClientTimeout(total=60)
+    # Extended timeout for stealth mode (sequential delays add up)
+    effective_timeout = 300 if stealth_mode else 60
+    connector = aiohttp.TCPConnector(
+        limit=1 if stealth_mode else max_concurrent,
+        ssl=_TLS_VERIFY,
+    )
+    timeout = aiohttp.ClientTimeout(total=effective_timeout)
     default_headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept": "application/json",
@@ -380,11 +438,15 @@ async def run_rag_pipeline_probe(
     ) as session:
 
         # Layer 1: KB Structure + Citations (combined, 2 requests, HIGH value)
-        profile = await _probe_kb_and_citations(session, base_url, parsed_request, api_key)
+        profile = await _probe_kb_and_citations(
+            session, base_url, parsed_request, api_key,
+            stealth_mode=stealth_mode,
+        )
 
         # Layer 2: Chunking Strategy (2 requests, MEDIUM value)
         profile.chunking_strategy = await _probe_chunking_strategy(
             session, base_url, parsed_request, api_key,
+            stealth_mode=stealth_mode,
         )
         profile.probe_count += 2
 

@@ -185,6 +185,7 @@ async def run_recursive_probe(
     base_url: str,
     plan: ExpansionPlan,
     semaphore: Any,
+    stealth_mode: bool = True,
 ) -> list[DiscoveredEndpoint]:
     """Execute a recursive probe based on expansion plan.
 
@@ -201,45 +202,86 @@ async def run_recursive_probe(
     """
     discovered: list[DiscoveredEndpoint] = []
 
-    for path in plan.subpaths_to_probe:
-        url = f"{base_url}{path}"
-        try:
-            async with semaphore:
-                try:
-                    async with session.head(
-                        url,
-                        allow_redirects=True,
-                        ssl=_TLS_VERIFY,
-                        timeout=aiohttp.ClientTimeout(total=5),
-                    ) as resp:
-                        status = resp.status
-                        content_type = resp.content_type or ""
-                        is_api = "json" in content_type
+    if stealth_mode:
+        # Stealth mode: sequential probing with delays
+        from recon.stealth_timing import StealthTimer
+        timer = StealthTimer(base_delay=3.0, enable_logging=False)
 
-                        if status < 400:
-                            existence = "confirmed"
-                        elif status in (401, 403):
-                            existence = "protected"
-                        elif status in (405, 500, 502):
-                            existence = "probable"
-                        else:
-                            continue  # Skip 404s for brevity
+        for path in plan.subpaths_to_probe:
+            await timer.next_request()
+            url = f"{base_url}{path}"
+            try:
+                async with session.head(
+                    url,
+                    allow_redirects=True,
+                    ssl=_TLS_VERIFY,
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as resp:
+                    status = resp.status
+                    content_type = resp.content_type or ""
+                    is_api = "json" in content_type
 
-                        discovered.append(DiscoveredEndpoint(
-                            path=path,
-                            status_code=status,
-                            content_type=content_type,
-                            is_api=is_api,
-                            existence=existence,
-                        ))
-                        logger.debug(
-                            "[Recursive] %s → %s (%s)",
-                            path, status, existence,
-                        )
-                except Exception:
-                    pass
-        except Exception:
-            pass
+                    if status < 400:
+                        existence = "confirmed"
+                    elif status in (401, 403):
+                        existence = "protected"
+                    elif status in (405, 500, 502):
+                        existence = "probable"
+                    else:
+                        continue
+
+                    discovered.append(DiscoveredEndpoint(
+                        path=path,
+                        status_code=status,
+                        content_type=content_type,
+                        is_api=is_api,
+                        existence=existence,
+                    ))
+            except Exception:
+                pass
+
+        timer.log_session_summary()
+    else:
+        # Legacy burst mode
+        for path in plan.subpaths_to_probe:
+            url = f"{base_url}{path}"
+            try:
+                async with semaphore:
+                    try:
+                        async with session.head(
+                            url,
+                            allow_redirects=True,
+                            ssl=_TLS_VERIFY,
+                            timeout=aiohttp.ClientTimeout(total=5),
+                        ) as resp:
+                            status = resp.status
+                            content_type = resp.content_type or ""
+                            is_api = "json" in content_type
+
+                            if status < 400:
+                                existence = "confirmed"
+                            elif status in (401, 403):
+                                existence = "protected"
+                            elif status in (405, 500, 502):
+                                existence = "probable"
+                            else:
+                                continue  # Skip 404s for brevity
+
+                            discovered.append(DiscoveredEndpoint(
+                                path=path,
+                                status_code=status,
+                                content_type=content_type,
+                                is_api=is_api,
+                                existence=existence,
+                            ))
+                            logger.debug(
+                                "[Recursive] %s → %s (%s)",
+                                path, status, existence,
+                            )
+                    except Exception:
+                        pass
+            except Exception:
+                pass
 
     if discovered:
         logger.info(
@@ -255,13 +297,18 @@ async def execute_recursive_expansion(
     session: Any,
     base_url: str,
     existing_endpoints: list[DiscoveredEndpoint],
+    stealth_mode: bool = True,
 ) -> list[DiscoveredEndpoint]:
     """Main entry: analyze, plan, and execute recursive expansion.
+
+    Stealth enhancement: When stealth_mode=True, uses sequential probing
+    with lognormal-distributed delays to avoid burst detection.
 
     Args:
         session: aiohttp ClientSession
         base_url: Target base URL
         existing_endpoints: Endpoints discovered in Layer 3
+        stealth_mode: Enable inter-probe stealth timing
 
     Returns:
         Newly discovered endpoints (to be merged into ServiceProfile)
@@ -280,6 +327,7 @@ async def execute_recursive_expansion(
     for plan in plans:
         discovered = await run_recursive_probe(
             session, base_url, plan, semaphore,
+            stealth_mode=stealth_mode,
         )
         all_discovered.extend(discovered)
 
