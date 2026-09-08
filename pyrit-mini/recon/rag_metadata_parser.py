@@ -814,7 +814,23 @@ async def run_rag_metadata_collection(
     if custom_queries:
         raw_queries = custom_queries[:num_queries]
     else:
-        raw_queries = _KB_MAPPING_QUERIES[:num_queries]
+        raw_queries = [
+            "What is the PTO policy?",
+            "What are the company travel reimbursement guidelines?",
+            "Explain the employee benefits enrollment process.",
+            "What is the API rate limiting configuration?",
+            "Describe the database backup procedures.",
+            "What are the deployment rollback procedures?",
+            "What is the incident response plan?",
+            "Describe the password complexity requirements.",
+            "What are the access control policies?",
+            "What is the change management approval process?",
+            "Describe the code review guidelines.",
+            "What are the testing requirements before deployment?",
+            "What is the data retention policy?",
+            "Describe the GDPR compliance procedures.",
+            "What is the data classification framework?",
+        ][:num_queries]
 
     if not raw_queries:
         logger.warning("No queries provided for RAG metadata collection")

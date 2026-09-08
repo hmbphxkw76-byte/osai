@@ -728,14 +728,20 @@ async def run_health_probe(
     wordlist: list[str] | None = None,
     max_concurrent: int = 5,
     stealth_delay: float = 0.0,
+    stealth_mode: bool = True,
 ) -> ServiceProfile:
-    """Run 4-layer health probe on target AI service.
+    """Run 4-layer health probe on target AI service with stealth integration.
 
     Execution order:
         1. Layer 1: HTTP header analysis (passive)
-        2. Layer 2: Health endpoint probing (passive)
-        3. Layer 3: API wordlist enumeration (passive)
+        2. Layer 2: Health endpoint probing (stealth-enhanced)
+        3. Layer 3: API wordlist enumeration (stealth-enhanced)
         4. Layer 4: OpenAI validation (active, if enabled)
+
+    Stealth enhancements (stealth_mode=True):
+        - Sequential endpoint probing with lognormal-distributed delays
+        - Avoids burst patterns that trigger detection systems
+        - Maintains full functionality while blending with background traffic
 
     Constitution Guard Compliance:
         - R-IMPORT-1: Uses aiohttp (not httpx)
@@ -747,8 +753,9 @@ async def run_health_probe(
         api_key: Optional API key for Layer 4
         run_active_validation: Whether to run Layer 4 (active interaction)
         wordlist: Custom API wordlist (None = use built-in)
-        max_concurrent: Max concurrent requests for Layer 3
+        max_concurrent: Max concurrent requests (forced to 1 in stealth mode)
         stealth_delay: Pre-probe delay for stealth (seconds)
+        stealth_mode: Enable inter-probe stealth timing
 
     Returns:
         ServiceProfile with all discovered information
@@ -764,8 +771,13 @@ async def run_health_probe(
         await asyncio.sleep(stealth_delay)
 
     # Configure aiohttp session with generic headers
-    connector = aiohttp.TCPConnector(limit=max_concurrent, ssl=_TLS_VERIFY)
-    timeout = aiohttp.ClientTimeout(total=30)
+    # Extended timeout for stealth mode (sequential delays add up)
+    effective_timeout = 300 if stealth_mode else 30
+    connector = aiohttp.TCPConnector(
+        limit=1 if stealth_mode else max_concurrent,
+        ssl=_TLS_VERIFY,
+    )
+    timeout = aiohttp.ClientTimeout(total=effective_timeout)
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept": "application/json",
@@ -775,11 +787,16 @@ async def run_health_probe(
         # Layer 1: HTTP Header Analysis
         await _analyze_http_headers(session, base_url, profile)
 
-        # Layer 2: Health Endpoint Probing
-        await _probe_health_endpoints(session, base_url, profile)
+        # Layer 2: Health Endpoint Probing (stealth-enhanced)
+        await _probe_health_endpoints(
+            session, base_url, profile, stealth_mode=stealth_mode,
+        )
 
-        # Layer 3: API Wordlist Enumeration
-        await _enumerate_api_endpoints(session, base_url, profile, wordlist, max_concurrent)
+        # Layer 3: API Wordlist Enumeration (stealth-enhanced)
+        await _enumerate_api_endpoints(
+            session, base_url, profile, wordlist,
+            max_concurrent=max_concurrent, stealth_mode=stealth_mode,
+        )
 
         # === Gap #4: Recursive Endpoint Expansion (after Layer 3) ===
         # Analyze discovered endpoints for version prefixes and API roots,
