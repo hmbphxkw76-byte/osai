@@ -276,6 +276,65 @@ class ASRAdaptiveEngine:
         # v2.0: 先验时效性
         self._prior_decay_factor: float = 1.0
         self._prior_last_updated: float = time.time()
+
+    def initialize_from_priors(self, priors_path: str | Path) -> int:
+        """
+        从 YAML 先验文件加载初始 ASR 数据
+        
+        在流水线启动时调用，将静态 asr_priors.yaml 数据加载到
+        运行时自适应引擎中，为 UCB1 排序提供初始值。
+        
+        如果文件不存在或格式错误，优雅降级 (不抛出异常)。
+        
+        Args:
+            priors_path: asr_priors.yaml 文件路径
+            
+        Returns:
+            加载的 prior 数量 (0 表示文件不存在或加载失败)
+            
+        Academic basis:
+            - Auer et al. (arXiv:cs/0207052) - UCB1 初始值设定
+        """
+        try:
+            path = Path(priors_path)
+            if not path.exists():
+                logger.debug("Priors file not found: %s (graceful degradation)", priors_path)
+                return 0
+            
+            import yaml
+            with open(path, 'r', encoding='utf-8') as f:
+                priors_data = yaml.safe_load(f)
+            
+            if not priors_data or not isinstance(priors_data, dict):
+                logger.warning("Invalid priors file format: %s", priors_path)
+                return 0
+            
+            loaded = 0
+            for technique, model_data in priors_data.items():
+                if not isinstance(model_data, dict):
+                    continue
+                for model_family, asr_value in model_data.items():
+                    if not isinstance(asr_value, (int, float)):
+                        continue
+                    key = self._perf_key(model_family, technique)
+                    # 仅当没有现有数据时才加载先验
+                    if key not in self._performance:
+                        self._performance[key] = TechniquePerformance(
+                            technique=technique,
+                            model_family=model_family,
+                            attempts=1,  # 最小尝试次数避免 UCB=inf
+                            successes=round(asr_value),  # 先验作为初始成功次数
+                            ema_asr=asr_value,
+                            confidence=0.2,  # 注入先验的置信度较低
+                        )
+                        loaded += 1
+            
+            logger.info("Loaded %d priors from %s", loaded, priors_path)
+            return loaded
+            
+        except Exception as e:
+            logger.warning("Failed to load priors from %s: %s (graceful degradation)", priors_path, e)
+            return 0
         
     def inject_cold_start_priors(self, target_model: str) -> int:
         """

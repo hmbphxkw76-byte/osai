@@ -349,6 +349,10 @@ class EvidenceCollector:
 
         for technique_name, results in attack_results.items():
             technique_display_name = _get_technique_display_name(technique_name)
+            # Calculate per-technique ASR for confidence scoring
+            tech_total = len(results)
+            tech_success = sum(1 for r in results if _is_success(r))
+            technique_asr = (tech_success / tech_total * 100) if tech_total > 0 else 0.0
 
             for i, result in enumerate(results):
                 is_success = _is_success(result)

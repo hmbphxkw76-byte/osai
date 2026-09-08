@@ -260,17 +260,8 @@ def _get_suitable_for_converter_strategy(
 
     return strategy_counts or {"full": 1}
 
-def _get_candidate_converters(ctx: PipelineContext) -> list[Any]:
-    """ ASR converter
-
-    L5 v35: imports ctx.converter_map  +  + ,
-     N converter(s) converter (converter(s) SequentialAttack )
-
-    : 3-5  ( ASR ),
-    >5  +  (Wei et al. arXiv:2307.15043)
-
-     converter
-    """
+def _deduplicate_converters(ctx: PipelineContext) -> list[Any]:
+    """Deduplicate converters from ctx.converter_map by signature."""
     seen_signatures: set[str] = set()
     unique_converters: list[Any] = []
     for technique_name, converters in ctx.converter_map.items():
@@ -279,151 +270,90 @@ def _get_candidate_converters(ctx: PipelineContext) -> list[Any]:
             if sig not in seen_signatures:
                 seen_signatures.add(sig)
                 unique_converters.append(c)
+    return unique_converters
 
-    if not unique_converters:
-        return []
 
- # ASR
-    unique_converters = _prune_low_asr_converters(unique_converters, ctx=ctx)
+def _apply_priority_overrides(
+    priority_map: dict[str, int],
+    unique_converters: list[Any],
+    ctx: PipelineContext,
+) -> dict[str, int]:
+    """Apply OWASP/category/suitable_for priority overrides to base priority map.
 
- # (ASR )
- # L5 v36: SelectiveTextConverter, CodeChameleon, PolicyPuppetry
-    _PRIORITY_MAP: dict[str, int] = {
-        # LLM-Based (ASR 30-60%)
-        "DecompositionConverter": 0,                    # ASR 40-60%
-        "CodeChameleonConverter": 1,                    # ASR 35-45% (NEW)
-        "PersuasionConverter:authority_endorsement": 2,  # ASR 38.4%
-        "PersuasionConverter:expert_endorsement": 3,    # ASR ~35%
-        "PersuasionConverter:logical_appeal": 4,        # ASR 28.7%
-        "PolicyPuppetryConverter": 5,                  # ASR 30-40% (NEW)
-        # Selective (ASR 25-40%)
-        "SelectiveTextConverter:TokenSelectionStrategy": 6,  # (NEW)
-        "SelectiveTextConverter:WordProportionSelectionStrategy": 7,  # (NEW)
-        # Translation (ASR 25-35%)
-        "RandomTranslationConverter": 8,
-        "TranslationConverter": 9,
-        # Template (ASR 25-35%)
-        "TemplateSegmentConverter": 10,                  # NEW
-        # Keyword (ASR 20-30%, 0 token)
-        "SearchReplaceConverter": 11,                    # NEW
-        # Variation (ASR 20-30%)
-        "VariationConverter": 12,
-        # Smuggling (ASR 20-30%)
-        "AsciiSmugglerConverter": 13,                   # NEW
-        # Semantic (ASR 30-40%, )
-        "ROT13Converter": 14,
-        # Tone (ASR 22.1%)
-        "ToneConverter:academic": 15,
-        # File Converters (, ASR 15-25%)
-        "WordDocConverter:direct": 16,                  # NEW (payload -> .docx)
-        "WordDocConverter:placeholder": 17,             # NEW ()
-        "PDFConverter:direct": 18,                      # NEW (payload -> PDF)
-        "PDFConverter:injection": 19,                  # NEW (PDF)
-        # (ASR < 20%, fallback)
-        "RandomCapitalLettersConverter": 20,
-        "UnicodeSubstitutionConverter": 21,
-        "Base64Converter": 22,                           # ,
-    }
-
- # L5 v36: OWASP -> Converter
- # Academic basis:
- # arXiv:2402.19181 - Zeng et al.
- # arXiv:2307.15043 - Wei et al.
- # arXiv:2402.14266 - DrAttack
- # : ctx.seeds OWASP ,
- # asr_priors.yaml owasp_converter_map, Converter
+    Returns updated priority map with all overrides applied.
+    """
+    # Apply OWASP override
     owasp_priorities = _get_owasp_converter_priorities(ctx)
     if owasp_priorities:
-     # OWASP
-        _owasp_priority_map: dict[str, int] = {}
-        for idx, sig in enumerate(owasp_priorities):
-            _owasp_priority_map[sig] = idx
- # : OWASP , +
-        _max_owasp = len(owasp_priorities)
-        merged_priority: dict[str, int] = {}
-        for sig in set(list(_PRIORITY_MAP.keys()) + list(_owasp_priority_map.keys())):
-            if sig in _owasp_priority_map:
-                merged_priority[sig] = _owasp_priority_map[sig]
-            else:
-                merged_priority[sig] = _PRIORITY_MAP.get(sig, 99) + _max_owasp
-        _PRIORITY_MAP = merged_priority
-        logger.info(
-            "L5 v36: OWASP-adaptive converter priority (in _get_candidate_converters): "
-            "best=%s, from owasp_converter_map",
-            owasp_priorities[0] if owasp_priorities else "N/A",
-        )
+        priority_map = _merge_converter_priority(priority_map, owasp_priorities)
+        logger.info("OWASP-adaptive converter priority: best=%s", owasp_priorities[0])
 
- # == L5 v40: category converter (per-seed ) ==
- # Academic basis: Greshake et al. (arXiv:2302.12173) - ,
- # category , converter
- # category OWASP (: 130+ category vs 20 OWASP)
- # category converter , OWASP
+    # Apply category override
     category_priorities = _get_category_converter_priorities(ctx)
     if category_priorities:
-        _cat_priority_map: dict[str, int] = {}
-        for idx, sig in enumerate(category_priorities):
-            _cat_priority_map[sig] = idx
- # : category OWASP , +
-        _max_cat = len(category_priorities)
-        merged_priority_cat: dict[str, int] = {}
-        for sig in set(list(_PRIORITY_MAP.keys()) + list(_cat_priority_map.keys())):
-            if sig in _cat_priority_map:
-                merged_priority_cat[sig] = _cat_priority_map[sig]
-            else:
-                merged_priority_cat[sig] = _PRIORITY_MAP.get(sig, 99) + _max_cat
-        _PRIORITY_MAP = merged_priority_cat
-        logger.info(
-            "L5 v40: Category-adaptive converter priority: "
-            "best=%s, from category_converter_map (per-seed level)",
-            category_priorities[0] if category_priorities else "N/A",
-        )
+        priority_map = _merge_converter_priority(priority_map, category_priorities)
+        logger.info("Category-adaptive converter priority: best=%s", category_priorities[0])
 
- # == L5 v40: suitable_for ==
- # Academic basis: PyRIT (arXiv:2407.01232) - per-seed converter optimization
- # suitable_for converter :
- # - "encoding": converter (ROT13/AsciiSmuggler/CodeChameleon)
- # - "semantic": converter (Persuasion/Decomposition)
- # - "full": ()
+    # Apply suitable_for strategy
     sf_strategy_counts = _get_suitable_for_converter_strategy(ctx)
     dominant_sf_strategy = max(sf_strategy_counts, key=sf_strategy_counts.get) if sf_strategy_counts else "full"
     if dominant_sf_strategy == "encoding":
-     # : converter , converter
-     # : converter
         for c in unique_converters:
-            name = type(c).__name__
-            if name in _ENCODING_CONVERTER_NAMES:
-             # converter (-100 Ensure)
+            if type(c).__name__ in _ENCODING_CONVERTER_NAMES:
                 sig = _converter_signature(c)
-                _PRIORITY_MAP[sig] = min(_PRIORITY_MAP.get(sig, 99), 0)
-        logger.info("L5 v40: suitable_for strategy='encoding' - encoding converters prioritized")
+                priority_map[sig] = min(priority_map.get(sig, 99), 0)
+        logger.info("suitable_for strategy='encoding' - encoding converters prioritized")
     elif dominant_sf_strategy == "semantic":
-     # : converter ()
         for c in unique_converters:
-            name = type(c).__name__
-            if name in _SEMANTIC_CONVERTER_NAMES:
+            if type(c).__name__ in _SEMANTIC_CONVERTER_NAMES:
                 sig = _converter_signature(c)
-                _PRIORITY_MAP[sig] = min(_PRIORITY_MAP.get(sig, 99), 0)
-        logger.info("L5 v40: suitable_for strategy='semantic' - semantic converters prioritized")
+                priority_map[sig] = min(priority_map.get(sig, 99), 0)
+        logger.info("suitable_for strategy='semantic' - semantic converters prioritized")
     elif dominant_sf_strategy == "none":
-     # converter: (raw payload)
-        logger.info("L5 v40: suitable_for strategy='none' - no converters (raw payload)")
-        return []
- # "full":
+        logger.info("suitable_for strategy='none' - no converters (raw payload)")
+        return {}
 
+    return priority_map
+
+
+def _get_candidate_converters(ctx: PipelineContext) -> list[Any]:
+    """Select top-10 converter candidates for parallel attack paths.
+
+    L5 v35: Deduplicate + ASR-prune + priority-rank converters from ctx.converter_map.
+    Returns up to 10 converters (Wei et al. arXiv:2307.15043: >5 paths show diminishing returns).
+
+    Priority order:
+        1. OWASP override (from asr_priors.yaml)
+        2. Category override (per-seed level)
+        3. suitable_for strategy (encoding/semantic/full)
+        4. Base _CONVERTER_PRIORITY_MAP (empirical ASR)
+    """
+    unique_converters = _deduplicate_converters(ctx)
+    if not unique_converters:
+        return []
+
+    # ASR pruning
+    unique_converters = _prune_low_asr_converters(unique_converters, ctx=ctx)
+
+    # Build priority map with overrides
+    priority_map = dict(_CONVERTER_PRIORITY_MAP)
+    priority_map = _apply_priority_overrides(priority_map, unique_converters, ctx)
+
+    # If suitable_for strategy is "none", return empty
+    if not priority_map:
+        return []
+
+    # Sort by priority
     def _priority(c: Any) -> int:
         sig = _converter_signature(c)
-        return _PRIORITY_MAP.get(sig, _PRIORITY_MAP.get(type(c).__name__, 99))
+        return priority_map.get(sig, priority_map.get(type(c).__name__, 99))
 
     unique_converters.sort(key=_priority)
 
- # 10 ( ASR , v36 converter )
- # v35: 7 ; v36: 10 ( SelectiveTextConverter + CodeChameleon + PolicyPuppetry )
+    # Top-10 candidates
     top_candidates = unique_converters[:10]
 
-    logger.info(
-        "L5 v35: Selected %d candidate converters for SequentialAttack:",
-        len(top_candidates),
-    )
+    logger.info("Selected %d candidate converters for SequentialAttack", len(top_candidates))
     for i, c in enumerate(top_candidates):
         logger.info("  Path %d: %s (priority=%d)", i + 1, type(c).__name__, _priority(c))
 
