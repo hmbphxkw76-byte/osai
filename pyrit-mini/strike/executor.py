@@ -369,6 +369,16 @@ async def _manual_multi_path_loop(
     for path_idx, conv in enumerate(candidate_converters):
         if not remaining_seeds:
             break
+        # Stealth: Apply human-paced delay before starting next converter path
+        # Breaks SIEM rate anomaly detection via Pareto-distributed pacing
+        if _stealth_exec is not None:
+            try:
+                _delay = await _stealth_exec.pre_request_delay()
+                if _delay > 1.0:
+                    logger.debug("[Stealth] Pre-path delay: %.1fs (converter=%s)", _delay, type(conv).__name__)
+            except Exception:
+                pass
+
         conv_name = type(conv).__name__
         seeds_before = len(remaining_seeds)
         _path_start_time = time.monotonic()
