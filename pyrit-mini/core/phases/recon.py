@@ -63,6 +63,49 @@ async def _run_recon_phase(
             except Exception as e:
                 logger.debug("[Recon] RAG probe skipped: %s", e)
 
+            # RAG Metadata Auto-Parser: format-agnostic structured field extraction
+            # Runs only when RAG pipeline probe confirms RAG presence
+            if rag_profile.has_rag and getattr(ctx.args, "rag_metadata", True):
+                try:
+                    from recon.rag_metadata_parser import run_rag_metadata_collection
+                    num_queries = getattr(ctx.args, "rag_metadata_queries", 15)
+                    kb_map = await run_rag_metadata_collection(
+                        ctx.parsed_request,
+                        num_queries=num_queries,
+                        max_concurrency=2,
+                    )
+                    if kb_map.document_count > 0:
+                        ctx.service_profile["rag_kb_map"] = kb_map.to_dict()
+                        logger.info(
+                            "[Recon] RAG KB mapped: documents=%d, formula=%s, chunk_size=%s",
+                            kb_map.document_count,
+                            kb_map.inferred_retrieval_formula,
+                            kb_map.inferred_chunk_size,
+                        )
+                except Exception as e:
+                    logger.debug("[Recon] RAG metadata collection skipped: %s", e)
+
+            # RAG Typo Fuzzer: query rewriting / fuzzy matching detection
+            if rag_profile.has_rag and getattr(ctx.args, "rag_typo_fuzz", True):
+                try:
+                    from recon.rag_typo_fuzzer import run_typo_fuzzing
+                    typo_report = await run_typo_fuzzing(
+                        ctx.parsed_request,
+                        max_concurrency=2,
+                        variants_per_query=3,
+                    )
+                    if typo_report.has_rag:
+                        ctx.service_profile["rag_typo_fuzz"] = typo_report.to_dict()
+                        logger.info(
+                            "[Recon] Typo fuzz: tests=%d, rewriting=%s, bm25_poisoning=%s, failure_rate=%.2f",
+                            typo_report.total_tests,
+                            typo_report.query_rewriting_detected,
+                            typo_report.vulnerable_to_bm25_poisoning,
+                            typo_report.failure_rate,
+                        )
+                except Exception as e:
+                    logger.debug("[Recon] RAG typo fuzzing skipped: %s", e)
+
         # MCPSec v2.7.2: MCP Security Scanning (replaces self-developed mcp_enumerator)
         # Architecture alignment: MCPSecBridge.enumerate_surface() -> ctx.mcpsec_surface
         #                         MCPSecBridge.scan_target() -> ctx.mcpsec_scan_results
@@ -103,6 +146,7 @@ async def _run_mcpsec_reconnaissance(
         }
     """
     import time
+
     from tools.mcpsec_factory import get_shared_bridge
 
     bridge = get_shared_bridge()

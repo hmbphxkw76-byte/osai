@@ -483,31 +483,49 @@ async def _probe_health_endpoints(
     base_url: str,
     profile: ServiceProfile,
     max_concurrent: int = 3,
+    stealth_mode: bool = True,
 ) -> None:
     """Probe multiple health endpoints (generic paths from wordlist).
+
+    Stealth enhancement: When stealth_mode=True, uses sequential probing
+    with lognormal-distributed delays to avoid burst detection.
 
     Args:
         session: aiohttp client session
         base_url: Base URL of target
         profile: ServiceProfile to populate
-        max_concurrent: Max concurrent requests
+        max_concurrent: Max concurrent requests (forced to 1 in stealth mode)
+        stealth_mode: Enable inter-probe delays
 
     Returns:
         None (modifies profile in-place)
     """
-    semaphore = asyncio.Semaphore(max_concurrent)
+    # Stealth: sequential probing with delays (avoids burst detection)
+    if stealth_mode:
+        from recon.stealth_timing import StealthTimer
+        timer = StealthTimer(base_delay=3.0, enable_logging=False)
 
-    # Probe generic health endpoints
-    tasks = [
-        _probe_single_health_endpoint(session, base_url, path, semaphore)
-        for path in _HEALTH_ENDPOINT_PATHS
-    ]
+        for path in _HEALTH_ENDPOINT_PATHS:
+            await timer.next_request()
+            result = await _probe_single_health_endpoint(
+                session, base_url, path, asyncio.Semaphore(1),
+            )
+            if result is not None:
+                profile.health_endpoints.append(result)
 
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+        timer.log_session_summary()
+    else:
+        # Legacy burst mode (for CTF / low-security targets)
+        semaphore = asyncio.Semaphore(max_concurrent)
+        tasks = [
+            _probe_single_health_endpoint(session, base_url, path, semaphore)
+            for path in _HEALTH_ENDPOINT_PATHS
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    for result in results:
-        if isinstance(result, HealthEndpointInfo):
-            profile.health_endpoints.append(result)
+        for result in results:
+            if isinstance(result, HealthEndpointInfo):
+                profile.health_endpoints.append(result)
 
     logger.debug("Health endpoints discovered: %d", len(profile.health_endpoints))
 
@@ -521,12 +539,16 @@ async def _enumerate_api_endpoints(
     profile: ServiceProfile,
     wordlist: list[str] | None = None,
     max_concurrent: int = 5,
+    stealth_mode: bool = True,
 ) -> None:
     """Enumerate API endpoints via wordlist probing.
 
     Uses HEAD requests to minimize interaction footprint.
     Attack-focused: Captures ALL status codes including 401/403/405
     as they reveal endpoint existence and attack surface.
+
+    Stealth enhancement: When stealth_mode=True, uses sequential probing
+    with lognormal-distributed delays to avoid burst detection.
 
     Red team thinking:
         - 401 Unauthorized = endpoint exists, auth bypass viable
@@ -539,66 +561,82 @@ async def _enumerate_api_endpoints(
         base_url: Base URL of target
         profile: ServiceProfile to populate
         wordlist: Custom wordlist (None = use built-in)
-        max_concurrent: Max concurrent requests
+        max_concurrent: Max concurrent requests (forced to 1 in stealth mode)
+        stealth_mode: Enable inter-probe delays
 
     Returns:
         None (modifies profile in-place)
     """
-    semaphore = asyncio.Semaphore(max_concurrent)
     endpoints_to_probe = wordlist or _COMBINED_API_WORDLIST
 
     async def _probe_one(path: str) -> DiscoveredEndpoint | None:
         url = f"{base_url}{path}"
-        async with semaphore:
-            try:
-                async with session.head(url, allow_redirects=True, ssl=_TLS_VERIFY, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                    status = resp.status
-                    content_type = resp.content_type or ""
-                    is_api = "json" in content_type
+        try:
+            async with session.head(url, allow_redirects=True, ssl=_TLS_VERIFY, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                status = resp.status
+                content_type = resp.content_type or ""
+                is_api = "json" in content_type
 
-                    # Red team: classify existence confidence
-                    # 401/403 = endpoint EXISTS but protected (high attack value)
-                    # 405/500 = endpoint EXISTS, method blocked or error leaked
-                    # 404 = need body analysis to distinguish real 404 vs custom 404
-                    if status < 400:
-                        existence = "confirmed"
-                    elif status in (401, 403):
-                        existence = "protected"
-                    elif status in (405, 500, 502, 503):
-                        existence = "probable"
-                    else:
-                        existence = "nonexistent"
+                # Red team: classify existence confidence
+                # 401/403 = endpoint EXISTS but protected (high attack value)
+                # 405/500 = endpoint EXISTS, method blocked or error leaked
+                # 404 = need body analysis to distinguish real 404 vs custom 404
+                if status < 400:
+                    existence = "confirmed"
+                elif status in (401, 403):
+                    existence = "protected"
+                elif status in (405, 500, 502, 503):
+                    existence = "probable"
+                else:
+                    existence = "nonexistent"
 
-                    # Extract auth type from 401 WWW-Authenticate header
-                    auth_hint = ""
-                    if status == 401:
-                        www_auth = resp.headers.get("www-authenticate", "").lower()
-                        if "bearer" in www_auth:
-                            auth_hint = "Bearer"
-                        elif "basic" in www_auth:
-                            auth_hint = "Basic"
-                        elif "api-key" in www_auth:
-                            auth_hint = "API-Key"
+                # Extract auth type from 401 WWW-Authenticate header
+                auth_hint = ""
+                if status == 401:
+                    www_auth = resp.headers.get("www-authenticate", "").lower()
+                    if "bearer" in www_auth:
+                        auth_hint = "Bearer"
+                    elif "basic" in www_auth:
+                        auth_hint = "Basic"
+                    elif "api-key" in www_auth:
+                        auth_hint = "API-Key"
 
-                    return DiscoveredEndpoint(
-                        path=path,
-                        status_code=status,
-                        content_type=content_type,
-                        is_api=is_api,
-                        existence=existence,
-                        auth_hint=auth_hint,
-                    )
-            except Exception:
-                pass
-            return None
+                return DiscoveredEndpoint(
+                    path=path,
+                    status_code=status,
+                    content_type=content_type,
+                    is_api=is_api,
+                    existence=existence,
+                    auth_hint=auth_hint,
+                )
+        except Exception:
+            pass
+        return None
 
-    # Batch probe for efficiency
-    tasks = [_probe_one(path) for path in endpoints_to_probe]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    if stealth_mode:
+        # Stealth: sequential probing with lognormal delays
+        from recon.stealth_timing import StealthTimer
+        timer = StealthTimer(base_delay=2.0, enable_logging=False)
 
-    for result in results:
-        if isinstance(result, DiscoveredEndpoint):
-            profile.discovered_endpoints.append(result)
+        for path in endpoints_to_probe:
+            await timer.next_request()
+            result = await _probe_one(path)
+            if result is not None:
+                profile.discovered_endpoints.append(result)
+
+        timer.log_session_summary()
+    else:
+        # Legacy burst mode (for CTF / low-security targets)
+        semaphore = asyncio.Semaphore(max_concurrent)
+        async def _probe_with_sem(path: str) -> DiscoveredEndpoint | None:
+            async with semaphore:
+                return await _probe_one(path)
+        tasks = [_probe_with_sem(path) for path in endpoints_to_probe]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for result in results:
+            if isinstance(result, DiscoveredEndpoint):
+                profile.discovered_endpoints.append(result)
 
     profile.probe_count += len(endpoints_to_probe)
     logger.debug("API endpoints discovered: %d", len(profile.discovered_endpoints))

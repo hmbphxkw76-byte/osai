@@ -27,6 +27,18 @@ from adapters.rate_limited import RateLimitedTarget
 from core.context import PipelineContext
 from core.runtime.capability_drift import get_drift_monitor
 
+# Target router helpers (extracted to _target_router_helpers.py)
+from recon._target_router_helpers import (
+    _check_target_availability,
+    _configure_remaining_targets,
+    _create_litellm_target,
+    _create_native_openai_target,
+    _create_playwright_target,
+    _init_adaptive_probe,
+    _ProbeCounter,
+    _run_background_probes,
+)
+
 # L5 v54+: Adaptive probe, Guardrail, Model seed mapping (v1.5: simplified)
 from recon.burp_parser import (
     build_http_target,
@@ -296,14 +308,4 @@ async def create_target(ctx: PipelineContext) -> None:
     )
 
 
-# Target router helpers (extracted to _target_router_helpers.py)
-from recon._target_router_helpers import (
-    _check_target_availability,
-    _configure_remaining_targets,
-    _create_litellm_target,
-    _create_native_openai_target,
-    _create_playwright_target,
-    _init_adaptive_probe,
-    _run_background_probes,
-)
 

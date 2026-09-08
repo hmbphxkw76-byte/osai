@@ -18,9 +18,50 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from adapters.rate_limited import RateLimitedTarget
+from recon.adaptive_probe_config import compute_probe_budget
+from recon.capability_detector import probe_active_capabilities
+from recon.guardrail_detector import detect_guardrail
+from recon.model_seed_mapper import get_seeds_for_model
+from recon.stealth_config import get_stealth_manager
+
+if TYPE_CHECKING:
+    from core.context import PipelineContext
 
 logger = logging.getLogger(__name__)
+
+#: Default max probe count (used when adaptive probe budget not configured)
+_MAX_PROBE_COUNT: int = 10
+
+#: TLS verification setting for httpx probes (False for self-signed certs in lab environments)
+_TLS_VERIFY: bool = False
+
+
+def _log_probe_failure(
+    ctx: Any,
+    probe_phase: str,
+    error: Exception,
+    is_fatal: bool = False,
+) -> None:
+    """Local orchestration_log helper (mirrors target_router._log_probe_failure)."""
+    if ctx is None or not hasattr(ctx, "orchestration_log"):
+        return
+    ctx.orchestration_log.append({
+        "phase": "recon",
+        "decision": f"probe_{probe_phase}_failed",
+        "input": {"target": getattr(ctx, "model_name", "unknown")},
+        "output": {
+            "error_type": type(error).__name__,
+            "error_message": str(error)[:500],
+            "is_fatal": is_fatal,
+        },
+        "reasoning": (
+            f"Probe '{probe_phase}' failed with {type(error).__name__}: {str(error)[:200]}. "
+            f"{'Fatal: aborting.' if is_fatal else 'Non-fatal: continuing with degraded capability.'}"
+        ),
+    })
 
 
 async def _configure_remaining_targets(ctx: PipelineContext) -> None:

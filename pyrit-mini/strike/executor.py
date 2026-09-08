@@ -245,11 +245,30 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
 
     timeout = ctx.args.timeout or 3600
 
- # MCPSec v2.7.2: Inject vulnerability-targeted seeds from scan results
- # Architecture alignment: ctx.mcpsec_scan_results.vulnerabilities -> priority exploit seeds
+    # MCPSec v2.7.2: Inject vulnerability-targeted seeds from scan results
+    # Architecture alignment: ctx.mcpsec_scan_results.vulnerabilities -> priority exploit seeds
     _mcpsec_vulns = ctx.mcpsec_scan_results.get("vulnerabilities", []) if ctx.mcpsec_scan_results else []
     if _mcpsec_vulns:
         _inject_vulnerability_targeted_seeds(ctx, _mcpsec_vulns)
+
+    # == RAG Metadata Consumer: Execution optimization from KB analysis ==
+    # Architecture alignment: ctx.service_profile["rag_kb_map"] -> concurrency/timeout/schedule
+    # Production value: avoid rate limits, optimize for cache behavior
+    _rag_kb_map = ctx.service_profile.get("rag_kb_map") if hasattr(ctx, "service_profile") else None
+    if _rag_kb_map and _rag_kb_map.get("document_count", 0) > 0:
+        from strike.rag_targeted_consumer import optimize_strike_execution
+        _rag_opts = optimize_strike_execution(ctx, _rag_kb_map)
+        if _rag_opts:
+            logger.info(
+                "[Executor] RAG-optimized execution: concurrency=%s, timeout=%s, est_duration=%.0fs",
+                _rag_opts.get("concurrency", "default"),
+                _rag_opts.get("recommended_timeout", "default"),
+                _rag_opts.get("estimated_duration_seconds", 0),
+            )
+            # Apply concurrency optimization if provided
+            if "concurrency" in _rag_opts:
+                max_concurrency = _rag_opts["concurrency"]
+                executor = AttackExecutor(max_concurrency=max_concurrency)
 
  # ( ctx.seeds)
     original_seeds = list(ctx.seeds)

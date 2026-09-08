@@ -44,6 +44,7 @@ def _inject_mcpsec_tool_seeds(
         return 0
 
     from pyrit.models import SeedDataset, SeedPrompt
+
     from strike.dynamic_mcp_seeds import _generate_tool_specific_seeds
 
     # Generate tool-specific seeds from MCPSec-discovered tools
@@ -226,6 +227,19 @@ async def _run_arm_phase(
     if _mcpsec_tools:
         _inject_mcpsec_tool_seeds(ctx, _mcpsec_tools, max_seeds=20)
 
+    # == RAG Metadata Consumer: Document-aware seed injection (Path C) ==
+    # Architecture alignment: ctx.service_profile["rag_kb_map"] -> targeted seeds
+    # Attack value: exploit known document titles, chunk IDs, retrieval formula
+    _rag_kb_map = ctx.service_profile.get("rag_kb_map") if hasattr(ctx, "service_profile") else None
+    if _rag_kb_map and _rag_kb_map.get("document_count", 0) > 0:
+        from strike.rag_targeted_consumer import inject_rag_targeted_seeds
+        rag_seeds_count = inject_rag_targeted_seeds(ctx, _rag_kb_map, max_seeds=15)
+        if rag_seeds_count > 0:
+            logger.info(
+                "[ARM] RAG metadata-driven seed injection: %d document-targeted seeds",
+                rag_seeds_count,
+            )
+
     #
     from arm.technique_picker import pick_techniques
     ctx.techniques = pick_techniques(
@@ -282,8 +296,7 @@ async def _run_arm_phase(
                                     0 if t in _stealth_priority else 1, t)
                             )
 
-                            _new_count = len(
-                                ctx.techniques)
+                            _new_count = len(ctx.techniques)
                             if _original_count != _new_count:
                                 logger.info(
                                     "[Adaptive] Technique selection adjusted by guardrail/stealth: "
@@ -302,11 +315,45 @@ async def _run_arm_phase(
                                 },
                                 "output": {"techniques": ctx.techniques},
                                 "reasoning": (
-                                    f" + guardrail/stealth  "
-                                    f"(capabilities={
-                                        target_capabilities or 'none'}, guardrail={_has_guardrail})"
+                                    f" + guardrail/stealth "
+                                    f"(capabilities={target_capabilities or 'none'}, guardrail={_has_guardrail})"
                                 ),
                             })
+
+    # == RAG Metadata Consumer: Technique optimization based on KB analysis ==
+    # Academic basis: Zou et al. (arXiv:2406.04245) PoisonedRAG technique mapping
+    if _rag_kb_map and _rag_kb_map.get("document_count", 0) > 0:
+        from strike.rag_targeted_consumer import recommend_techniques_for_rag
+        _original_techniques = list(ctx.techniques)
+        ctx.techniques = recommend_techniques_for_rag(
+            _rag_kb_map,
+            existing_techniques=ctx.techniques,
+        )
+        _added = [t for t in ctx.techniques if t not in _original_techniques]
+        if _added:
+            logger.info(
+                "[ARM] RAG-optimized techniques added: %s (chunk_size=%s, formula=%s)",
+                _added,
+                _rag_kb_map.get("inferred_chunk_size"),
+                _rag_kb_map.get("inferred_retrieval_formula"),
+            )
+
+    # == RAG Typo Fuzzer Consumer: BM25 poisoning seed injection ==
+    # Architecture alignment: ctx.service_profile["rag_typo_fuzz"] → typo-aware seeds
+    # Attack value: exploit query_rewriting=false / BM25 keyword matching weakness
+    _rag_typo_fuzz = ctx.service_profile.get("rag_typo_fuzz") if hasattr(ctx, "service_profile") else None
+    if _rag_typo_fuzz and _rag_typo_fuzz.get("total_tests", 0) > 0:
+        from strike.rag_targeted_consumer import inject_typo_aware_seeds
+        typo_seeds_count = inject_typo_aware_seeds(ctx, _rag_typo_fuzz, max_seeds=10)
+        if typo_seeds_count > 0:
+            logger.info(
+                "[ARM] Typo-aware seed injection: %d BM25-poisoning seeds "
+                "(rewriting=%s, bm25_vuln=%s, failure_rate=%.2f)",
+                typo_seeds_count,
+                _rag_typo_fuzz.get("query_rewriting_detected"),
+                _rag_typo_fuzz.get("vulnerable_to_bm25_poisoning"),
+                _rag_typo_fuzz.get("failure_rate", 0),
+            )
 
     #
     if args.converters == "none":

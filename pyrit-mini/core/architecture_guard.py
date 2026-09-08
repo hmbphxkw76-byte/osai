@@ -24,6 +24,7 @@ _SIZE_BYPASS_WHITELIST = {
     "arm/converter_selector.py",
     "core/architecture_guard_extended.py",
     "core/orchestrator.py",
+    "recon/rag_metadata_parser.py",
     "utils/display.py",
     "report/report_markdown.py",
 }

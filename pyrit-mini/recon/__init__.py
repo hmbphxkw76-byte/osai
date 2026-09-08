@@ -17,6 +17,8 @@ Core modules:
     - stealth_config: Stealth Level  ()
     - health_probe:  (4-layer active reconnaissance)
     - rag_pipeline_probe: P1 RAG (KB structure + citations + chunking)
+    - rag_metadata_parser: format-agnostic structured field extraction (sources/chunk_id/scores/timing)
+    - rag_typo_fuzzer: query rewriting and fuzzy matching capability detection
 
 Removed modules (v1.5 Red Team Alignment):
     - health_probe: KEPT (active black-box reconnaissance - directly feeds attack)
@@ -51,7 +53,21 @@ from recon.model_seed_mapper import (
     get_mapper,
     get_seeds_for_model,
 )
+from recon.rag_metadata_parser import (
+    KnowledgeBaseMap,
+    RAGResponseMetadata,
+    RetrievalTiming,
+    RetrievedChunk,
+    parse_rag_response,
+    run_rag_metadata_collection,
+)
 from recon.rag_pipeline_probe import RAGPipelineProfile, run_rag_pipeline_probe
+from recon.rag_typo_fuzzer import (
+    TypoFuzzingReport,
+    TypoVariantResult,
+    generate_typo_variants,
+    run_typo_fuzzing,
+)
 from recon.stealth_config import StealthLevelManager, StealthPolicy, get_stealth_manager
 from recon.target_router import create_target
 
@@ -91,4 +107,16 @@ __all__ = [
     # RAG pipeline probe (P1 enhancement 2026-09-08, attacker-slimmed)
     "RAGPipelineProfile",
     "run_rag_pipeline_probe",
+    # RAG metadata auto-parser (production-grade, format-agnostic)
+    "KnowledgeBaseMap",
+    "RAGResponseMetadata",
+    "RetrievalTiming",
+    "RetrievedChunk",
+    "parse_rag_response",
+    "run_rag_metadata_collection",
+    # RAG typo fuzzer (query rewriting / fuzzy matching detection)
+    "TypoFuzzingReport",
+    "TypoVariantResult",
+    "generate_typo_variants",
+    "run_typo_fuzzing",
 ]
