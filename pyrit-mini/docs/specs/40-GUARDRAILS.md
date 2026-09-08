@@ -3,7 +3,7 @@
 > **文档层级**：L4 / 五层规约金字塔第五层
 > **效力**：红线 = 绝对禁止，视同宪法级（裁决序见 00-CONSTITUTION 第二章）。质量门禁 = 完成任务的必要不充分条件。
 > **执行机制**：三层防线（静态 guard / 运行时 dry-run / git 钩子），继承 SKILL.md D2 条款并收编。
-> **版本**：v1.4（2026-09-08 REV-04：新增 R-DATA-1 数据流完整性护栏，关联 45-DATA-FLOW-INTEGRITY.md）
+> **版本**：v1.6（2026-09-09 REV-06：新增 R-DRIFT-1~R-DRIFT-5 规范漂移检测护栏；guard 检查器登记簿扩充至 29 项）
 
 ---
 
@@ -164,8 +164,13 @@ pyrit-drift --full --report
 | **check_glue_config_flow** | **R-GLUE-3** | **WARNING** | **v1.4 新增 (Glue 层护栏)** |
 | **check_glue_silent_degradation** | **R-GLUE-4** | **WARNING** | **v1.4 新增 (Glue 层护栏)** |
 | **check_glue_academic_citation** | **R-GLUE-5** | **INFO** | **v1.4 新增 (Glue 层护栏)** |
+| **check_pyrit_api_resolution** | **R-DRIFT-1** | **BLOCKING** | **v1.6 新增 (PyRIT API 可解析性)** |
+| **check_spec_code_sync** | **R-DRIFT-2** | **WARNING** | **v1.6 新增 (规范-代码文件同步)** |
+| **check_version_lock** | **R-DRIFT-3** | **BLOCKING** | **v1.6 新增 (版本锁定验证)** |
+| **check_context_contract_usage** | **R-DRIFT-4** | **INFO** | **v1.6 新增 (PipelineContext 契约消费)** |
+| **check_native_patterns** | **R-DRIFT-5** | **WARNING** | **v1.6 新增 (原生优先模式违规)** |
 
-- 本表对照 `tools/guard.py` + `tools/guard_extended.py` 实际实现同步（29 项 = 24 基座 + 5 漂移检测）。
+- 本表对照 `tools/guard.py` + `tools/guard_extended.py` + `tools/drift_detector.py` 实际实现同步（29 项 = 24 基座 + 5 漂移检测）。
 - **R-DRIFT 专项 (v1.6)**: 5 项漂移检测检查器由 `tools/drift_detector.py` 实现，独立于 `tools/guard.py`，专责「规范-代码」双向漂移（PyRIT API 解析 / 文件同步 / 版本锁定 / 契约消费 / 原生模式）。
 - **specs-guard 联动**: guard 启动时读取 `00-CONSTITUTION.md` 版本号并输出至报告脚注（裁决序基准）；版本不匹配时以 guard 实现为准、规约文档视为待同步。
 - **R9 误报白名单 (v1.2)**: `display.py`、`display_stages.py` 中通过 `_resolve('param', default)` 包裹的动态配置读取，视为已修复配置数据流断点（不报 R9）。
@@ -333,5 +338,6 @@ py -m tools.guard > outputs/guard_baseline.json   # 记录当前违规基线
 | v1.1 | 2026-09-05 | REV-01：① 新增 1D 检查器登记簿（16 项引用汇总，级别标注，缺口登记 BL-003）；② 基线落盘路径改项目内 outputs/（Windows 兼容）；③ 第三章 L1 行交叉引用 1D | 用户会话批准 |
 | v1.2 | 2026-09-05 | REV-02：① 第二章登记 ruff pipeline/ 盲区缺口（D-16）及临时申报纪律；② R-H1/R-H3 判定特征补充源码实证（stub 注释自认降级、escalation 9 字节孪生）；③ R-S1 补考试场景授权边界说明；④ 第六章登记 50-ROADMAP 的无门禁地位；⑤ guard 实测规模 82KB 入表 | 用户会话批准 |
 | v1.3 | 2026-09-06 | REV-03 AI-300 考试合规优化：① 新增第七章 OffSec AI-300 考试合规与证据完整性（考试合规红线 7A、证据完整性约束 7B、证据自动验证检查单 7C、考试日定期自检规程 7D）；② 红线/门禁/防线本体无变更 | 用户会话批准 |
-| v1.4 | 2026-09-08 | REV-04 Glue 层专项护栏：① 新增第一章 1D Glue 层专项护栏（R-GLUE-1~R-GLUE-5：插件化隔离、PyRIT 原生委托、配置数据流、静默降级、学术留痕）；② 新增 Glue 层攻击向量白名单（JWT 混淆、向量 DB 投毒、HTTP 走私、审计日志注入、微调后门注入）；③ 1E 检查器登记簿新增 5 项 Glue 层检查器（总计 24 项） | 用户会话批准 |
+| v1.4 | 2026-09-08 | REV-04 Glue 层专项护栏：① 新增第一章 1D Glue 层专项护栏（R-GLUE-1~R-GLUE-5：插件化隔离、PyRIT 原生委托、配置数据流、静默降级、学术留痕）；② 新增 Glue 层攻击向量白名单（JWT 混淆、向量 DB 投毒、HTTP 走私、审计日志注入、微调后门注入）；③ 1E 检查器登记簿新增 5 项 Glue 层检查器（总计 24 项） | 用户会话批准 | 
 | v1.5 | 2026-09-08 | REV-05 过度工程化清理（精简白名单）：① 白名单移除向量DB投毒和微调后门注入（黑盒HTTP不可测试）；② 适用范围移除已删除模块（vector_glue、finetuning_glue）；③ 护栏数量不变（R-GLUE-1~R-GLUE-5 仍适用保留的3个模块） | 用户会话批准 |
+| v1.6 | 2026-09-09 | REV-06 规范漂移检测系统：① 新增 1E-DRIFT 规范漂移检测护栏（R-DRIFT-1~R-DRIFT-5：PyRIT API 解析验证 BLOCKING / 规范表格-代码同步 WARNING / 版本变更锁定 BLOCKING / 契约消费验证 INFO / 原生模式违规 WARNING）；② 1F 检查器登记簿新增 5 项 Drift Detector 检查器（总计 29 项）；③ 调用方式：`pyrit-drift` / `py -m tools.drift_detector --full` | 用户会话批准 |
