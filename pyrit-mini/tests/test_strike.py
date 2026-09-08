@@ -13,7 +13,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -29,14 +29,14 @@ except ImportError:
     _HAS_STRIKE = False
 
 try:
-    from assess.asr_stats import stats
     from assess.adaptive_dual_judge import _bayesian_ei_adjustment, _t0_confidence_score
+    from assess.asr_stats import stats
     _HAS_ASSESS = True
 except ImportError:
     _HAS_ASSESS = False
 
 try:
-    from core.architecture_guard import _L5_BASELINE, _HARDCODED_PARAM_NAMES
+    from core.architecture_guard import _HARDCODED_PARAM_NAMES, _L5_BASELINE
     _HAS_CORE = True
 except ImportError:
     _HAS_CORE = False
@@ -419,6 +419,7 @@ class TestV56ScoringImprovements:
     def test_disagreement_strategy_parameter(self):
         """v56: AdaptiveDualJudgeScorer accepts disagreement_strategy parameter."""
         import inspect
+
         from assess.adaptive_dual_judge import AdaptiveDualJudgeScorer
 
         sig = inspect.signature(AdaptiveDualJudgeScorer.__init__)
@@ -475,6 +476,7 @@ class TestV56ScoringImprovements:
         v57: OR aggregation moved to _generate_technical_markdown.
         """
         import inspect
+
         from report.report_markdown import _generate_technical_markdown
 
         source = inspect.getsource(_generate_technical_markdown)
@@ -486,6 +488,7 @@ class TestV56ScoringImprovements:
         v57: ScorerMetrics moved to _generate_technical_markdown.
         """
         import inspect
+
         from report.report_markdown import _generate_technical_markdown
 
         source = inspect.getsource(_generate_technical_markdown)
@@ -494,6 +497,7 @@ class TestV56ScoringImprovements:
     def test_main_py_has_or_aggregation_log(self):
         """v56: main.py includes OR aggregation tracking log."""
         import inspect
+
         import main
 
         source = inspect.getsource(main)
@@ -502,6 +506,7 @@ class TestV56ScoringImprovements:
     def test_main_py_has_scorer_metrics_log(self):
         """v56: main.py includes T0 ScorerMetrics log."""
         import inspect
+
         import main
 
         source = inspect.getsource(main)

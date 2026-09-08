@@ -30,6 +30,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -63,6 +64,8 @@ class AssetMapper:
         self._scorers_cfg = self._index.get("assets", {}).get("scorers", {})
         self._surface_mapping = self._index.get("attack_surface_seed_mapping", {})
         self._burp_rules = self._index.get("burp_profile_rules", {}).get("patterns", [])
+        # D-08 fix: Load target_profiles.yaml for path-based profile matching
+        self._target_profiles = self._load_target_profiles()
 
     @staticmethod
     def _load_default_index() -> dict[str, Any]:
@@ -81,6 +84,76 @@ class AssetMapper:
         except Exception as e:
             logger.debug("Failed to load asset_index.yaml: %s", e)
         return {}
+
+    @staticmethod
+    def _load_target_profiles() -> list[dict[str, Any]]:
+        """Load target_profiles.yaml from config/.
+
+        Returns:
+            List of profile dicts with id, name, category, path_pattern, seeds, etc.
+        """
+        profiles_path = Path(__file__).resolve().parent.parent / "config" / "target_profiles.yaml"
+        if not profiles_path.exists():
+            return []
+        try:
+            if _yaml is not None:
+                with open(profiles_path, encoding="utf-8") as f:
+                    data = _yaml.safe_load(f) or {}
+                    return data.get("profiles", [])
+        except Exception as e:
+            logger.debug("Failed to load target_profiles.yaml: %s", e)
+        return []
+
+    def match_profile_by_path(self, url_path: str) -> dict[str, Any] | None:
+        """Match a URL path against target_profiles.yaml patterns.
+
+        D-08 fix: Enables path-based profile matching for dynamic seed selection.
+
+        Args:
+            url_path: URL path to match (e.g., "/v1/chat/completions")
+
+        Returns:
+            Matched profile dict with seeds, category, etc., or None if no match.
+        """
+        if not url_path or not self._target_profiles:
+            return None
+
+        for profile in self._target_profiles:
+            pattern = profile.get("path_pattern", "")
+            if not pattern:
+                continue
+            try:
+                if re.search(pattern, url_path, re.IGNORECASE):
+                    logger.debug(
+                        "URL path '%s' matched profile '%s' (pattern: %s)",
+                        url_path, profile.get("id"), pattern,
+                    )
+                    return profile
+            except re.error as e:
+                logger.debug("Invalid regex pattern '%s' in profile '%s': %s",
+                             pattern, profile.get("id"), e)
+        return None
+
+    def get_seeds_for_path(self, url_path: str) -> list[str]:
+        """Get seed names for a URL path using target_profiles.yaml.
+
+        D-08 fix: Path-based seed selection from target_profiles.yaml.
+
+        Args:
+            url_path: URL path to match
+
+        Returns:
+            List of seed names from the matched profile, or empty list.
+        """
+        profile = self.match_profile_by_path(url_path)
+        if profile:
+            return profile.get("seeds", [])
+        return []
+
+    @property
+    def target_profile_count(self) -> int:
+        """Return number of loaded target profiles."""
+        return len(self._target_profiles)
 
     # ==============================================
     # Burp Profile -> Attack Surface Classification

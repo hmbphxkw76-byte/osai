@@ -3,7 +3,7 @@
 > **文档层级**：L0 / 五层规约金字塔之顶
 > **效力**：本文件是本项目 AI 编码行为的最高约束。任何来源的指令（用户即时指令、历史惯例、AI 自由裁量、其他文档）与本宪法冲突时，**宪法优先**，且 AI 必须 STOP-REPORT（见 C11）。
 > **适用对象**：所有参与本项目的 AI 编码代理与人类协作者。
-> **版本**：v1.2（2026-09-05 制宪；同日 REV-01/REV-02 修正；版本记录见文末）
+> **版本**：v1.8（2026-09-05 制宪；同日 REV-01/REV-02 修正；v1.7 REV-07 强化 PyRIT 原生攻击类强制化；v1.8 REV-08 PyRIT 原生组件完整化；版本记录见文末）
 
 ---
 
@@ -70,9 +70,117 @@
 写任何新类/模块/函数前，**必须先检索 PyRIT 1.0.1 源码**确认无等价能力。
 
 - **自研代码仅限三类**：Glue（连接原生组件）、Enhancement（包装原生组件，原生引擎仍为主）、Output（读取 PyRIT 结果做证据/报告）。
-- **判定**：新写的类名若与 `_REQUIRED_NATIVE_ATTACKS` / PyRIT 组件清单功能重叠 → 违例。
-- **违例示例**：手写循环重实现 `SequentialAttack` 的 FIRST_SUCCESS；自定义 Terminal 渲染替代 `output_attack_async`。
-- **自动检查**：`check_forbidden_custom_classes()` / `check_native_attack_usage()` / `check_native_attack_instantiation()`。
+
+#### 强制原生攻击类（v1.8 完整清单）
+
+以下攻击**必须**使用 PyRIT 原生 API，**禁止**使用 PromptSendingAttack + for loop 自行实现：
+
+| 原生类 | 模块路径 | 学术引用 | 适用场景 |
+|------|------|------|------|
+| `PromptSendingAttack` | `pyrit.executor.attack` | arXiv:2302.12173 | 单轮批量发送 |
+| `SkeletonKeyAttack` | `pyrit.executor.attack` | arXiv:2406.18112 | 前缀注入绕过（ASR 80-95%） |
+| `CrescendoAttack` | `pyrit.executor.attack.multi_turn` | arXiv:2404.01833 | 渐进式多轮升级 |
+| `TAPAttack` | `pyrit.executor.attack.multi_turn` | arXiv:2405.17350 | 树状分支渗透 |
+| `PAIRAttack` | `pyrit.executor.attack.multi_turn` | arXiv:2310.08419 | 攻击者-Judge 配对迭代 |
+| `XPIAAttack` | `pyrit.executor.attack.multi_turn` | — | 间接注入 |
+| `SequentialAttack` | `pyrit.executor.attack.compound` | arXiv:2407.01232 | 多步骤顺序执行（FIRST_SUCCESS） |
+| `ManyShotJailbreakAttack` | `pyrit.executor.attack` | arXiv:2402.05124 | 多-shot 越狱 |
+| `MultiPromptSendingAttack` | `pyrit.executor.attack` | — | 多-prompt 发送 |
+| `ChunkedRequestAttack` | `pyrit.executor.attack` | — | 分块请求攻击 |
+| `RedTeamingAttack` | `pyrit.executor.attack` | — | 红队攻击 |
+| `BargeInAttack` | `pyrit.executor.attack` | — | 插入攻击 |
+
+#### 强制原生 Converter 类（v1.8 完整清单）
+
+以下编码/解码/混淆/变换**必须**使用 PyRIT 原生 API，**禁止**自研实现：
+
+| 类别 | 原生类 | 适用场景 |
+|------|------|------|
+| **编码类** | `Base64Converter`, `ROT13Converter`, `BinaryConverter`, `Base2048Converter`, `UrlConverter`, `BinAsciiConverter` | Base64/ROT13/二进制/Base2048/URL/BinASCII 编码 |
+| **Unicode 类** | `UnicodeSubstitutionConverter`, `UnicodeConfusableConverter`, `UnicodeReplacementConverter`, `ZeroWidthConverter`, `BidiConverter`, `VariationSelectorSmugglerConverter` | Unicode 替换/混淆/零宽/双向文本 |
+| **文字游戏类** | `AsciiArtConverter`, `BrailleConverter`, `MorseConverter`, `LeetspeakConverter`, `EmojiConverter`, `ZalgoConverter`, `NatoConverter`, `EcojiConverter`, `IPAConverter`, `AcrosticConverter` | ASCII 艺术/盲文/摩尔斯/Leet/Emoji/Zalgo |
+| **密码类** | `CaesarConverter`, `VigenereConverter`, `AtbashConverter`, `LetterBijectionConverter`, `DigitBijectionConverter`, `TokenBijectionConverter` | 凯撒/维吉尼亚/Atbash/双射替换 |
+| **混淆类** | `CodeChameleonConverter`, `DecompositionConverter`, `MathObfuscationConverter`, `MathPromptConverter`, `PuzzledConverter`, `SATAMaskingConverter`, `CodeAttackConverter`, `AnsiAttackConverter`, `AsciiSmugglerConverter`, `SneakyBitsSmugglerConverter` | 代码变色龙/分解/数学混淆/谜题 |
+| **文本变换类** | `TranslationConverter`, `RandomTranslationConverter`, `ScientificTranslationConverter`, `ColloquialWordswapConverter`, `TaskFramingConverter`, `TenseConverter`, `ToneConverter`, `TextJailbreakConverter`, `PolicyPuppetryConverter`, `PersuasionConverter`, `ToxicSentenceGeneratorConverter`, `MaliciousQuestionGeneratorConverter`, `AskToDecodeConverter`, `DenylistConverter`, `SearchReplaceConverter`, `SelectiveTextConverter`, `TransparencyAttackConverter`, `VariationConverter`, `TemplateSegmentConverter` | 翻译/口语/时态/语气/越狱/说服 |
+| **字符级类** | `DiacriticConverter`, `CharacterSpaceConverter`, `FirstLetterConverter`, `FlipConverter`, `CharSwapConverter`, `CharNoiseConverter`, `InsertPunctuationConverter`, `RandomCapitalLettersConverter`, `StringJoinConverter`, `SuffixAppendConverter`, `SuperscriptConverter`, `RepeatTokenConverter`, `TatweelConverter`, `NegationTrapConverter`, `NoiseConverter` | 变音/空格/首字母/翻转/交换/噪声/插入/大写 |
+| **文档类** | `WordDocConverter`, `PDFConverter`, `JsonStringConverter`, `QRCodeConverter` | Word/PDF/JSON/QR 码 |
+| **图像类** | `AddImageTextConverter`, `AddImageVideoConverter`, `AddTextImageConverter`, `ImageColorSaturationConverter`, `ImageCompressionConverter`, `ImageOverlayConverter`, `ImagePromptStyleConverter`, `ImageResizingConverter`, `ImageRotationConverter` | 图像叠加/压缩/旋转/样式 |
+| **音频类** | `AudioEchoConverter`, `AudioFrequencyConverter`, `AudioSpeedConverter`, `AudioVolumeConverter`, `AudioWhiteNoiseConverter`, `AzureSpeechAudioToTextConverter`, `AzureSpeechTextToAudioConverter` | 音频回声/频率/速度/音量/白噪声 |
+| **LLM 类** | `LLMGenericTextConverter` | LLM 通用文本变换 |
+
+#### 强制原生 Scorer 类（v1.8 完整清单）
+
+以下评分逻辑**必须**使用 PyRIT 原生 API，**禁止**自研实现：
+
+| 类别 | 原生类 | 适用场景 |
+|------|------|------|
+| **0-token 评分** | `SelfAskTrueFalseScorer`, `SelfAskRefusalScorer`, `SelfAskLikertScorer`, `SelfAskCategoryScorer`, `SelfAskQuestionAnswerScorer`, `SelfAskGeneralFloatScaleScorer`, `SelfAskGeneralTrueFalseScorer`, `SelfAskScaleScorer` | 自问自答布尔/拒绝/Likert/分类/问答/浮点 |
+| **基础评分** | `TrueFalseScorer`, `FloatScaleScorer`, `FloatScaleThresholdScorer`, `RegexScorer`, `SubStringScorer`, `QuestionAnswerScorer` | 布尔/浮点/阈值/正则/子串/问答 |
+| **内容安全** | `ContentClassifier`, `AzureContentFilterScorer`, `LlamaGuardScorer`, `ShieldGemmaScorer`, `PromptShieldScorer`, `GandalfScorer` | 内容分类/Azure 过滤/LlamaGuard/ShieldGemma |
+| **注入检测** | `SQLInjectionOutputScorer`, `XSSOutputScorer`, `SSRFOutputScorer`, `LDAPInjectionOutputScorer`, `OpenRedirectOutputScorer`, `PathTraversalOutputScorer`, `SSTIOutputScorer`, `ShellCommandOutputScorer`, `XXEOutputScorer`, `MarkdownInjectionScorer`, `StaticPromptInjectionScorer` | SQL/XSS/SSRF/LDAP/重定向/路径/SSTI/Shell/XXE/Markdown |
+| **复合评分** | `TrueFalseCompositeScorer`, `TrueFalseInverterScorer`, `FloatScaleScorerAllCategories`, `FloatScaleScorerByCategory`, `MessageScorer`, `MessageFloatScaleScorer`, `MessageTrueFalseScorer`, `BatchScorer`, `ConversationScorer`, `DecodingScorer` | 复合/反转/全分类/按分类/消息/批量/对话 |
+| **关键词评分** | `AnthraxKeywordScorer`, `FentanylKeywordScorer`, `MethKeywordScorer`, `NerveAgentKeywordScorer`, `CredentialLeakScorer`, `PackageHallucinationScorer`, `PlagiarismScorer`, `SystemPromptExtractionScorer`, `InsecureCodeScorer`, `RobloxPiiScorer` | 炭疽/芬太尼/冰毒/神经毒剂/凭证/幻觉/抄袭/系统提示 |
+
+#### 强制原生 Target 类（v1.8 完整清单）
+
+以下目标连接**必须**使用 PyRIT 原生 API，**禁止**自研实现：
+
+| 类别 | 原生类 | 适用场景 |
+|------|------|------|
+| **OpenAI** | `OpenAIChatTarget`, `OpenAICompletionTarget`, `OpenAIResponseTarget`, `OpenAITTSTarget`, `OpenAITarget`, `OpenAIVideoTarget`, `OpenAIImageTarget` | OpenAI 聊天/完成/响应/TTS/视频/图像 |
+| **Azure** | `AzureMLChatTarget`, `AzureBlobStorageTarget` | Azure ML 聊天/Blob 存储 |
+| **HTTP** | `HTTPTarget`, `HTTPXAPITarget`, `WebSocketTarget`, `WebsocketTarget` | HTTP/WebSocket 目标 |
+| **HuggingFace** | `HuggingFaceChatTarget`, `LiteLLMChatTarget` | HuggingFace/LiteLLM 聊天 |
+| **基础** | `PromptTarget`, `TextTarget`, `RealtimeTarget`, `RoundRobinTarget` | 提示/文本/实时/轮询 |
+| **特殊** | `PromptShieldTarget`, `GandalfTarget`, `PlaywrightTarget`, `PlaywrightCopilotTarget`, `WebSocketCopilotTarget` | PromptShield/Gandalf/Playwright |
+
+#### 强制原生 Memory 类（v1.8 完整清单）
+
+以下记忆存储**必须**使用 PyRIT 原生 API，**禁止**自研实现：
+
+| 类别 | 原生类 | 适用场景 |
+|------|------|------|
+| **存储引擎** | `CentralMemory`, `SQLiteMemory`, `AzureSQLMemory` | 中央/SQLite/Azure SQL 记忆 |
+| **数据接口** | `MemoryInterface`, `MemoryEmbedding` | 记忆接口/嵌入 |
+| **数据条目** | `PromptMemoryEntry`, `AttackResultEntry`, `EmbeddingDataEntry`, `SeedEntry` | 提示/攻击结果/嵌入/种子 |
+
+#### 强制原生 Output 类（v1.8 完整清单）
+
+以下输出渲染**必须**使用 PyRIT 原生 API，**禁止**自研实现：
+
+| 类别 | 原生类/函数 | 适用场景 |
+|------|------|------|
+| **异步输出** | `output_attack_async`, `output_conversation_async`, `output_scenario_async`, `output_score_async`, `output_scorer_async` | 攻击/对话/场景/分数/评分器输出 |
+| **接收器** | `PrinterBase`, `Sink`, `StdoutSink`, `FileSink`, `IPythonMarkdownSink` | 打印机/接收器/标准输出/文件/IPython |
+
+#### 判定标准
+
+- 新写的类名若与上述清单功能重叠 → 违例
+- 使用 PromptSendingAttack + 手动 for loop 替代原生多轮攻击 → 违例
+- 自研编码/解码/混淆逻辑替代原生 Converter → 违例
+- 自研评分逻辑替代原生 Scorer → 违例
+- 自研 Target 连接逻辑替代原生 PromptTarget → 违例
+- 自研记忆存储替代原生 Memory → 违例
+- 自研输出渲染替代原生 Output → 违例
+
+#### 违例示例
+
+- 手写循环重实现 `SequentialAttack` 的 FIRST_SUCCESS
+- 自定义 Terminal 渲染替代 `output_attack_async`
+- 使用 `_generate_crescendo_prompts()` + for loop 替代 `CrescendoAttack`
+- 自研 `base64_encode()` 替代 `Base64Converter`
+- 自研 `check_refusal()` 替代 `SelfAskRefusalScorer`
+- 自研 `HTTPRequestTarget` 替代 `HTTPTarget`
+
+#### 自动检查
+
+- `check_forbidden_custom_classes()` — 检测禁止的自定义类
+- `check_native_attack_usage()` — 检测原生攻击类使用
+- `check_native_attack_instantiation()` — 检测原生攻击类实例化
+- `check_native_attack_class_usage()` (R-NATIVE-1) — 检测手动循环替代原生多轮攻击
+- `check_native_converter_usage()` (R-NATIVE-2) — 检测自研编码/解码/混淆
+- `check_native_scorer_usage()` (R-NATIVE-3) — 检测自研评分逻辑
+- `check_native_target_usage()` (R-NATIVE-4) — 检测自研 Target
 
 ### C2 — ASR 至上（ASR Supremacy）
 
@@ -216,6 +324,12 @@ python main.py --max-seeds 1 --stage strike
 | Glue 模块含攻击执行逻辑（非配置构造） | C13 |
 | 企业 SDK 硬依赖（无 try/except ImportError） | C13 |
 | 未在白名单登记的新企业攻击向量 | C13 |
+| 使用 for loop + PromptSendingAttack 替代 CrescendoAttack/TAPAttack | C1 (R-NATIVE-1) |
+| 自研编码/解码函数（如 base64_encode/rot13）替代原生 Converter | C1 (R-NATIVE-2) |
+| 自研评分逻辑（如 check_refusal/is_success）替代原生 Scorer | C1 (R-NATIVE-3) |
+| 自研 HTTP 请求 Target 替代 HTTPTarget/HTTPXAPITarget | C1 (R-NATIVE-4) |
+| 自研记忆存储（如 InMemoryStore）替代 SQLiteMemory/CentralMemory | C1 (R-NATIVE-5) |
+| 自研输出渲染（如 custom_print_attack）替代 output_attack_async | C1 (R-NATIVE-6) |
 
 ---
 
@@ -275,23 +389,82 @@ data/burp/   recon      arm+strike  executor   report
 | **AI Agent** (function_calling) | SkeletonKeyAttack + tool_hijack 种子 | 75-90% | TAP/PAIR 升级 | ASI02_function_call, ASI03_workflow |
 | **Multi-Agent / A2A** | CrescendoAttack + cross-agent 种子 | 70-85% | PAIR 深度渗透 | ma_cross_agent_injection, ma_identity_spoofing |
 | **RAG Pipeline** | PromptSendingAttack + 间接注入 | 80-95% | 检索污染链 | LLM01_indirect_injection, rag_full_attack_surface |
-| **MCP Server** | 旁路 JSON-RPC 直发（ADR-003） | 85-98% | 工具链利用 | mcp_*, ASI02_mcp_* |
+| **MCP Server** | MCPSec v2.7.2 (scan+fuzz+audit) + PyRIT PromptSendingAttack 动态种子 | 85-98% | 工具链利用 + 恶意服务端侧信道验证 | MCPSec 动态生成 800+ fuzz 用例 |
 | **Embedding Model** | 领域外工具接入回填 | 40-60%（考域难度高） | embedding_inversion.py | extraction seeds |
 
-### 7C. PyRIT 原生攻击速查（PyRIT Native Attack Quick-Reference）
+### 7C. PyRIT 原生组件速查（PyRIT Native Component Quick-Reference）
 
 > **用途**：考试开卷环境下快速确认 PyRIT 1.0.1 原生类的正确使用方式。引用来源：PyRIT 官方文档 + arXiv:2407.01232。
+> **更新**：v1.8 扩充为完整组件清单（Attack + Converter + Scorer + Target + Memory + Output）。
 
-| 原生类 | 模块路径 | 适用场景 | 关键参数 |
-|------|------|------|------|
-| `PromptSendingAttack` | `pyrit.executor.attack` | 单轮批量发送 | `prompt_target`, `attack_scoring_config` |
-| `SkeletonKeyAttack` | `pyrit.executor.attack` | 前缀注入绕过（ASR 80-95%） | `objective`, `prepended_conversation` |
-| `CrescendoAttack` | `pyrit.executor.attack.multi_turn` | 渐进式多轮升级 | `objective`, `max_backtracks` |
-| `TAPAttack` (Tree of Attack) | `pyrit.executor.attack.multi_turn` | 树状分支渗透 | `objective`, `width`, `depth` |
-| `PAIRAttack` | `pyrit.executor.attack.multi_turn` | 攻击者-judge 配对迭代 | `objective`, `attack_strategy` |
-| `SequentialAttack` | `pyrit.executor.attack` | 多步骤顺序执行（FIRST_SUCCESS） | `attack_props` |
-| `PromptConverter` | `pyrit.converter` | 负载变换（编码/翻译/混淆） | `converter_target`, `prompt` |
-| `Scorer` | `pyrit.scorer` | 结果评估（0-token 拒绝检测 或 LLM Judge） | `objective_target` |
+#### 7C.1 原生攻击类（11 类）
+
+| 原生类 | 模块路径 | 学术引用 | 适用场景 | 关键参数 |
+|------|------|------|------|------|
+| `PromptSendingAttack` | `pyrit.executor.attack` | arXiv:2302.12173 | 单轮批量发送 | `prompt_target`, `attack_scoring_config` |
+| `SkeletonKeyAttack` | `pyrit.executor.attack` | arXiv:2406.18112 | 前缀注入绕过（ASR 80-95%） | `objective`, `prepended_conversation` |
+| `CrescendoAttack` | `pyrit.executor.attack.multi_turn` | arXiv:2404.01833 | 渐进式多轮升级 | `objective`, `max_backtracks` |
+| `TAPAttack` | `pyrit.executor.attack.multi_turn` | arXiv:2405.17350 | 树状分支渗透 | `objective`, `width`, `depth` |
+| `PAIRAttack` | `pyrit.executor.attack.multi_turn` | arXiv:2310.08419 | 攻击者-Judge 配对迭代 | `objective`, `attack_strategy` |
+| `XPIAAttack` | `pyrit.executor.attack.multi_turn` | — | 间接注入 | `objective` |
+| `SequentialAttack` | `pyrit.executor.attack.compound` | arXiv:2407.01232 | 多步骤顺序执行（FIRST_SUCCESS） | `attack_props` |
+| `ManyShotJailbreakAttack` | `pyrit.executor.attack` | arXiv:2402.05124 | 多-shot 越狱 | `prompt_target`, `attack_scoring_config` |
+| `MultiPromptSendingAttack` | `pyrit.executor.attack` | — | 多-prompt 发送 | `prompt_target`, `prompts` |
+| `ChunkedRequestAttack` | `pyrit.executor.attack` | — | 分块请求攻击 | `prompt_target`, `chunks` |
+| `RedTeamingAttack` | `pyrit.executor.attack` | — | 红队攻击 | `prompt_target`, `attack_strategy` |
+| `BargeInAttack` | `pyrit.executor.attack` | — | 插入攻击 | `prompt_target` |
+
+#### 7C.2 原生 Converter 类（80+ 类，按类别分组）
+
+| 类别 | 原生类 | 适用场景 |
+|------|------|------|
+| **编码类** | `Base64Converter`, `ROT13Converter`, `BinaryConverter`, `Base2048Converter`, `UrlConverter`, `BinAsciiConverter` | Base64/ROT13/二进制/Base2048/URL/BinASCII 编码 |
+| **Unicode 类** | `UnicodeSubstitutionConverter`, `UnicodeConfusableConverter`, `UnicodeReplacementConverter`, `ZeroWidthConverter`, `BidiConverter`, `VariationSelectorSmugglerConverter` | Unicode 替换/混淆/零宽/双向文本 |
+| **文字游戏类** | `AsciiArtConverter`, `BrailleConverter`, `MorseConverter`, `LeetspeakConverter`, `EmojiConverter`, `ZalgoConverter`, `NatoConverter`, `EcojiConverter`, `IPAConverter`, `AcrosticConverter` | ASCII 艺术/盲文/摩尔斯/Leet/Emoji/Zalgo |
+| **密码类** | `CaesarConverter`, `VigenereConverter`, `AtbashConverter`, `LetterBijectionConverter`, `DigitBijectionConverter`, `TokenBijectionConverter` | 凯撒/维吉尼亚/Atbash/双射替换 |
+| **混淆类** | `CodeChameleonConverter`, `DecompositionConverter`, `MathObfuscationConverter`, `MathPromptConverter`, `PuzzledConverter`, `SATAMaskingConverter`, `CodeAttackConverter`, `AnsiAttackConverter`, `AsciiSmugglerConverter`, `SneakyBitsSmugglerConverter` | 代码变色龙/分解/数学混淆/谜题 |
+| **文本变换类** | `TranslationConverter`, `RandomTranslationConverter`, `ScientificTranslationConverter`, `ColloquialWordswapConverter`, `TaskFramingConverter`, `TenseConverter`, `ToneConverter`, `TextJailbreakConverter`, `PolicyPuppetryConverter`, `PersuasionConverter`, `ToxicSentenceGeneratorConverter`, `MaliciousQuestionGeneratorConverter` | 翻译/口语/时态/语气/越狱/说服 |
+| **字符级类** | `DiacriticConverter`, `CharacterSpaceConverter`, `FirstLetterConverter`, `FlipConverter`, `CharSwapConverter`, `CharNoiseConverter`, `InsertPunctuationConverter`, `RandomCapitalLettersConverter`, `StringJoinConverter`, `SuffixAppendConverter`, `SuperscriptConverter`, `RepeatTokenConverter`, `TatweelConverter`, `NegationTrapConverter`, `NoiseConverter` | 变音/空格/首字母/翻转/交换/噪声 |
+| **文档类** | `WordDocConverter`, `PDFConverter`, `JsonStringConverter`, `QRCodeConverter` | Word/PDF/JSON/QR 码 |
+| **图像类** | `AddImageTextConverter`, `AddImageVideoConverter`, `AddTextImageConverter`, `ImageColorSaturationConverter`, `ImageCompressionConverter`, `ImageOverlayConverter`, `ImagePromptStyleConverter`, `ImageResizingConverter`, `ImageRotationConverter` | 图像叠加/压缩/旋转/样式 |
+| **音频类** | `AudioEchoConverter`, `AudioFrequencyConverter`, `AudioSpeedConverter`, `AudioVolumeConverter`, `AudioWhiteNoiseConverter` | 音频回声/频率/速度/音量/白噪声 |
+
+#### 7C.3 原生 Scorer 类（50+ 类，按类别分组）
+
+| 类别 | 原生类 | 适用场景 |
+|------|------|------|
+| **0-token 评分** | `SelfAskTrueFalseScorer`, `SelfAskRefusalScorer`, `SelfAskLikertScorer`, `SelfAskCategoryScorer`, `SelfAskQuestionAnswerScorer`, `SelfAskGeneralFloatScaleScorer`, `SelfAskGeneralTrueFalseScorer`, `SelfAskScaleScorer` | 自问自答布尔/拒绝/Likert/分类/问答/浮点 |
+| **基础评分** | `TrueFalseScorer`, `FloatScaleScorer`, `FloatScaleThresholdScorer`, `RegexScorer`, `SubStringScorer`, `QuestionAnswerScorer` | 布尔/浮点/阈值/正则/子串/问答 |
+| **内容安全** | `ContentClassifier`, `AzureContentFilterScorer`, `LlamaGuardScorer`, `ShieldGemmaScorer`, `PromptShieldScorer`, `GandalfScorer` | 内容分类/Azure 过滤/LlamaGuard/ShieldGemma |
+| **注入检测** | `SQLInjectionOutputScorer`, `XSSOutputScorer`, `SSRFOutputScorer`, `LDAPInjectionOutputScorer`, `OpenRedirectOutputScorer`, `PathTraversalOutputScorer`, `SSTIOutputScorer`, `ShellCommandOutputScorer`, `XXEOutputScorer`, `MarkdownInjectionScorer`, `StaticPromptInjectionScorer` | SQL/XSS/SSRF/LDAP/重定向/路径/SSTI/Shell/XXE/Markdown |
+| **复合评分** | `TrueFalseCompositeScorer`, `TrueFalseInverterScorer`, `FloatScaleScorerAllCategories`, `FloatScaleScorerByCategory`, `MessageScorer`, `MessageFloatScaleScorer`, `MessageTrueFalseScorer`, `BatchScorer`, `ConversationScorer`, `DecodingScorer` | 复合/反转/全分类/按分类/消息/批量/对话 |
+| **关键词评分** | `AnthraxKeywordScorer`, `FentanylKeywordScorer`, `MethKeywordScorer`, `NerveAgentKeywordScorer`, `CredentialLeakScorer`, `PackageHallucinationScorer`, `PlagiarismScorer`, `SystemPromptExtractionScorer`, `InsecureCodeScorer`, `RobloxPiiScorer` | 炭疽/芬太尼/冰毒/神经毒剂/凭证/幻觉/抄袭 |
+
+#### 7C.4 原生 Target 类（25+ 类，按类别分组）
+
+| 类别 | 原生类 | 适用场景 |
+|------|------|------|
+| **OpenAI** | `OpenAIChatTarget`, `OpenAICompletionTarget`, `OpenAIResponseTarget`, `OpenAITTSTarget`, `OpenAITarget`, `OpenAIVideoTarget`, `OpenAIImageTarget` | OpenAI 聊天/完成/响应/TTS/视频/图像 |
+| **Azure** | `AzureMLChatTarget`, `AzureBlobStorageTarget` | Azure ML 聊天/Blob 存储 |
+| **HTTP** | `HTTPTarget`, `HTTPXAPITarget`, `WebSocketTarget`, `WebsocketTarget` | HTTP/WebSocket 目标 |
+| **HuggingFace** | `HuggingFaceChatTarget`, `LiteLLMChatTarget` | HuggingFace/LiteLLM 聊天 |
+| **基础** | `PromptTarget`, `TextTarget`, `RealtimeTarget`, `RoundRobinTarget` | 提示/文本/实时/轮询 |
+| **特殊** | `PromptShieldTarget`, `GandalfTarget`, `PlaywrightTarget`, `PlaywrightCopilotTarget`, `WebSocketCopilotTarget` | PromptShield/Gandalf/Playwright |
+
+#### 7C.5 原生 Memory 类（9 类）
+
+| 类别 | 原生类 | 适用场景 |
+|------|------|------|
+| **存储引擎** | `CentralMemory`, `SQLiteMemory`, `AzureSQLMemory` | 中央/SQLite/Azure SQL 记忆 |
+| **数据接口** | `MemoryInterface`, `MemoryEmbedding` | 记忆接口/嵌入 |
+| **数据条目** | `PromptMemoryEntry`, `AttackResultEntry`, `EmbeddingDataEntry`, `SeedEntry` | 提示/攻击结果/嵌入/种子 |
+
+#### 7C.6 原生 Output 类（10 类）
+
+| 类别 | 原生类/函数 | 适用场景 |
+|------|------|------|
+| **异步输出** | `output_attack_async`, `output_conversation_async`, `output_scenario_async`, `output_score_async`, `output_scorer_async` | 攻击/对话/场景/分数/评分器输出 |
+| **接收器** | `PrinterBase`, `Sink`, `StdoutSink`, `FileSink`, `IPythonMarkdownSink` | 打印机/接收器/标准输出/文件/IPython |
 
 ### 7D. 考试合规速查（Exam Compliance Checklist）
 
@@ -318,3 +491,6 @@ data/burp/   recon      arm+strike  executor   report
 | v1.3 | 2026-09-06 | REV-03 AI-300 考试专项优化：① 新增第七章 OffSec AI-300/OSAI 考试专项附录（考试日决策树 7A、目标类型→PyRIT 攻击映射表 7B、PyRIT 原生攻击速查 7C、考试合规速查 7D）；② 条款正文 C1-C12 无变更（均为考试操作指引） | 用户会话批准 |
 | v1.4 | 2026-09-08 | REV-04 企业攻击扩展：① 新增 C13 企业攻击扩展条款（Glue 层三原则：插件化隔离、PyRIT 原生委托、攻击向量白名单）；② 违宪症状速查表新增 3 项 C13 症状（Glue 攻击执行逻辑、企业 SDK 硬依赖、未登记攻击向量）；③ 配套 40-GUARDRAILS R-GLUE-1~R-GLUE-5 护栏 + 50-ROADMAP 阶段 1B | 用户会话批准 |
 | v1.5 | 2026-09-08 | REV-05 过度工程化清理（黑盒可测性约束）：① C13 新增原则 4「黑盒可测性约束」：Glue 模块仅包含 HTTP 端点可测试的攻击向量，移除无法通过黑盒 HTTP 测试的 vector_db_glue.py（需向量DB SDK直访）和 fine_tuning_glue.py（需训练环境API）；② 精简 audit_evasion_glue.py 为仅日志注入（移除 SIEM 告警疲劳/审计路径逃逸）；③ 同步化 enterprise_auth_glue.py（移除 async/await）；④ 更新 40-GUARDRAILS 白名单移除向量DB投毒和微调后门注入 | 用户会话批准 |
+| v1.6 | 2026-09-08 | REV-06 MCPSec v2.7.2 集成：① 删除自研 recon/mcp_enumerator.py + _mcp_enumerator_helpers.py（全部替换为MCPSec桥接代码）；② strike/ 新增 5 个MCPSec桥接模块（mcpsec_bridge/mcp_agent_target/malicious_mcp_server/dynamic_mcp_seeds/mcpsec_orchestrator）；③ PipelineContext 新增 mcpsec_surface/mcpsec_scan_results/mcpsec_version 字段；④ core/phases/recon.py + strike.py 集成 MCPSec 动态种子生成；⑤ 架构守卫新增 R-MCPSec-1~5 规则；⑥ 7B 映射表更新 MCP Server 攻击策略为 MCPSec+PyRIT 组合模式 | 用户会话批准 |
+| v1.7 | 2026-09-08 | REV-07 PyRIT 原生攻击类强制化：① C1 条款新增「强制原生攻击类」列表（CrescendoAttack/TAPAttack/PAIRAttack/XPIAAttack/SkeletonKeyAttack/PromptSendingAttack/SequentialAttack）；② 新增 R-NATIVE-1 规则检测手动 for loop 替代原生多轮攻击；③ escalation_runtime.py 迁移至 PyRIT 原生 CrescendoAttack/TAPAttack API；④ 架构守卫新增 check_native_attack_class_usage() 检查器 | 用户会话批准 |
+| v1.8 | 2026-09-08 | REV-08 PyRIT 原生组件完整化：① C1 条款扩充为完整组件清单（Attack 11 类 + Converter 80+ 类 + Scorer 50+ 类 + Target 25+ 类 + Memory 9 类 + Output 10 类）；② 新增 R-NATIVE-2~4 规则（Converter/Scorer/Target 原生优先）；③ 7C 速查表扩充为完整组件速查（7C.1~7C.6）；④ 违宪症状速查表新增 6 项 R-NATIVE 症状；⑤ 明确自研代码仅限 Glue/Enhancement/Output 三类 | 用户会话批准 |

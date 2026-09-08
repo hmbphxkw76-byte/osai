@@ -272,27 +272,36 @@ async def _run_background_probes(
         logger.warning("Background: active probe failed: %s", e)
         _log_probe_failure(ctx, "active_capability", e, is_fatal=False)
 
- # == P1-2: MCP ( - MCP ) ==
+    # == P1-2: MCP Enumeration (MCPSec v2.7.2) ==
     capabilities_str = parsed.target_fingerprint.extra.get("capabilities", "")
     if "mcp" in capabilities_str or "mcp_protocol" in capabilities_str:
-        logger.info("MCP capability detected, launching MCP enumeration...")
+        logger.info("MCP capability detected, launching MCPSec enumeration...")
         try:
-            from recon.mcp_enumerator import enumerate_mcp_endpoint
-            mcp_results = await enumerate_mcp_endpoint(parsed)
-            if mcp_results.get("has_mcp"):
-             # P1-05:
-                parsed.target_fingerprint.mcp_tools = mcp_results.get("tools", [])
-                parsed.target_fingerprint.mcp_resources = mcp_results.get("resources", [])
-                parsed.target_fingerprint.mcp_prompts = mcp_results.get("prompts", [])
-                logger.info(
-                    "Background: MCP enumeration: %d tools, %d resources",
-                    len(mcp_results.get("tools", [])),
-                    len(mcp_results.get("resources", [])),
-                )
+            # Use MCPSec bridge for dynamic MCP reconnaissance
+            target_url = getattr(ctx.args, "target_url", None) if hasattr(ctx, "args") else None
+            if target_url:
+                from tools.mcpsec_factory import get_shared_bridge
+                bridge = get_shared_bridge()
+                if bridge.is_available:
+                    mcp_info = await bridge.enumerate_surface(target_url)
+                    tools = mcp_info.get("tools", [])
+                    parsed.target_fingerprint.mcp_tools = tools
+                    parsed.target_fingerprint.mcp_resources = mcp_info.get("resources", [])
+                    parsed.target_fingerprint.mcp_prompts = mcp_info.get("prompts", [])
+                    # Store MCPSec bridge reference for phase reuse
+                    ctx.service_profile["mcpsec_enumerated"] = True
+                    ctx.service_profile["mcpsec_tools_count"] = len(tools)
+                    logger.info(
+                        "Background: MCPSec enumeration: %d tools discovered",
+                        len(tools),
+                    )
+                else:
+                    logger.info("MCPSec not available, skipping MCP enumeration")
+            else:
+                logger.debug("No target_url set, skipping MCPSec MCP enumeration")
         except Exception as e:
-         # P2-07: orchestration_log ()
-            logger.warning("Background: MCP enumeration failed: %s", e)
-            _log_probe_failure(ctx, "mcp_enum", e, is_fatal=False)
+            logger.warning("Background: MCPSec MCP enumeration failed: %s", e)
+            _log_probe_failure(ctx, "mcpsec_enum", e, is_fatal=False)
 
  # == P1-3: ( - ) ==
     if counter.can_probe(3, _MAX_PROBE_COUNT):

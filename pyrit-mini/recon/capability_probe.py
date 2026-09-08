@@ -221,6 +221,74 @@ async def deep_probe_capabilities(
     except Exception:
         pass
 
+    # Layer 6: A2A Protocol Deep Discovery (Google A2A spec)
+    # arXiv:2407.16924 - Eidam et al., A2A trust chain attacks
+    a2a_result = None
+    try:
+        from recon.a2a_discoverer import run_a2a_discovery
+
+        host = getattr(parsed_request, "host", "")
+        use_tls = getattr(parsed_request, "use_tls", False)
+        scheme = "https" if use_tls else "http"
+        base_url = f"{scheme}://{host}"
+
+        if host:
+            a2a_result = await run_a2a_discovery(base_url, timeout=10.0)
+            if a2a_result and a2a_result.a2a_detected:
+                results["has_a2a_protocol"] = True
+                results["a2a_discovery"] = {
+                    "endpoints_count": len(a2a_result.endpoints),
+                    "jsonrpc_methods": a2a_result.jsonrpc_methods,
+                    "topology_nodes": len(a2a_result.topology_nodes),
+                    "is_multi_agent": a2a_result.is_multi_agent,
+                    "trust_relationships": len(a2a_result.trust_relationships),
+                }
+                if a2a_result.agent_card:
+                    results["a2a_agent_card"] = a2a_result.agent_card.to_dict()
+                logger.info(
+                    "A2A discovery: %d endpoints, %d methods, multi_agent=%s",
+                    len(a2a_result.endpoints),
+                    len(a2a_result.jsonrpc_methods),
+                    a2a_result.is_multi_agent,
+                )
+    except Exception:
+        pass
+
+    # Layer 7: Trust Chain Probe (OWASP ASI09)
+    # arXiv:2407.16924 - Eidam et al., A2A trust chain attacks
+    # Tests trust boundaries and privilege escalation paths
+    try:
+        from recon.trust_chain_probe import run_trust_chain_probe
+
+        host = getattr(parsed_request, "host", "")
+        use_tls = getattr(parsed_request, "use_tls", False)
+        scheme = "https" if use_tls else "http"
+        base_url = f"{scheme}://{host}"
+
+        if host and a2a_result and a2a_result.is_multi_agent:
+            trust_result = await run_trust_chain_probe(
+                base_url,
+                parsed_request,
+                a2a_topology=a2a_result.topology_nodes,
+                timeout=15.0,
+            )
+            if trust_result and trust_result.trust_boundaries:
+                results["trust_chain"] = {
+                    "boundaries_count": len(trust_result.trust_boundaries),
+                    "vulnerabilities_found": trust_result.vulnerabilities_found,
+                    "multi_agent_detected": trust_result.multi_agent_detected,
+                    "max_privilege_level": trust_result.max_privilege_level.name,
+                }
+                if trust_result.has_vulnerabilities:
+                    results["has_trust_vulnerabilities"] = True
+                    logger.warning(
+                        "Trust chain probe: %d boundaries, %d vulnerabilities",
+                        len(trust_result.trust_boundaries),
+                        trust_result.vulnerabilities_found,
+                    )
+    except Exception:
+        pass
+
     return results
 
 # ====================================================================

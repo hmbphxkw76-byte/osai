@@ -40,6 +40,13 @@ async def _run_strike_phase(
     _stealth_name = ctx.stealth_policy.get(
         "name", "balanced") if ctx.stealth_policy else "balanced"
 
+    # MCPSec v2.7.2: Check for MCP surface data
+    _has_mcpsec = bool(ctx.mcpsec_surface.get("tools")) if ctx.mcpsec_surface else False
+    if _has_mcpsec:
+        _mcp_tools_count = len(ctx.mcpsec_surface.get("tools", []))
+        _mcp_vulns_count = len(ctx.mcpsec_scan_results.get("vulnerabilities", [])) if ctx.mcpsec_scan_results else 0
+        logger.info("[Strike] MCPSec surface data: %d tools, %d vulnerabilities available", _mcp_tools_count, _mcp_vulns_count)
+
     if _has_guardrail:
         logger.info(
             "[Strike] Guardrail detected: type=%s, severity=%s - stealth=%s",
@@ -90,6 +97,19 @@ async def _run_strike_phase(
             print_phase(
                 "STRIKE", f": {e}")
 
+    # == MCPSec IntegRAG/MCP Attacks (Dynamic Seeds) ==
+    # Uses MCPSec bridge for dynamic seed generation when target is MCP-enabled
+    if _has_mcpsec:
+        try:
+            print_phase("STRIKE", "MCPSec MCP/RAG Attack (Dynamic Seeds)...")
+            from strike.mcp_rag_attack import run_mcp_rag_attacks
+            mcp_results = await run_mcp_rag_attacks(ctx, [])
+            if mcp_results:
+                ctx.attack_results.update(mcp_results)
+                logger.info("[Strike] MCPSec MCP/RAG attacks completed: %d results", sum(len(v) for v in mcp_results.values()))
+        except Exception as e:
+            logger.warning("[Strike] MCPSec MCP/RAG attacks failed: %s", e)
+
     # == AI300 Gap : OffSec AI-300 ==
     # arXiv:2402.07967 (Shafran) / arXiv:2106.09685 (Hu LoRA) /
     # arXiv:2307.14924 (Shu Backdoor) / arXiv:2301.11916 (Hubinger Sleeper) /
@@ -107,6 +127,8 @@ async def _run_strike_phase(
             "dry_run": _is_dry_run,
             "has_guardrail": _has_guardrail,
             "guardrail_severity": _guardrail_severity,
+            "mcpsec_tools": _mcp_tools_count if _has_mcpsec else 0,
+            "mcpsec_vulnerabilities": _mcp_vulns_count if _has_mcpsec else 0,
         },
         "output": {
             "total_attacks": _attack_count_before_escalation,

@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 from utils.attack_utils import _is_success  # P2 fix: SSOT
 from utils.display_primitives import (
+    _C_BLUE,
     _C_BOLD,
     _C_CYAN,
     _C_DIM,

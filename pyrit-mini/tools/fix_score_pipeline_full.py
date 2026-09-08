@@ -4,8 +4,8 @@
 The precompute_outcomes_async function and related helpers were severely damaged
 during refactoring. This script replaces them with clean, working implementations.
 """
-import sys
 import io
+import sys
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
@@ -26,9 +26,9 @@ CORRECTED_PRECOMPUTE = '''    from assess.asr_stats import _reset_dual_judge_sta
     _skipped_already_scored = 0
     _t0_refusal_filtered = 0
     _t0_success_filtered = 0
-    
+
     from pyrit.models import AttackOutcome
-    
+
     for results in attack_results.values():
         for result in results:
             outcome = getattr(result, "outcome", None)
@@ -38,13 +38,13 @@ CORRECTED_PRECOMPUTE = '''    from assess.asr_stats import _reset_dual_judge_sta
                 except (AttributeError, TypeError):
                     continue
                 continue
-            
+
             # Skip already scored
             existing = getattr(result, "_precomputed_outcome", None)
             if existing is not None:
                 _skipped_already_scored += 1
                 continue
-            
+
             # T0 heuristic pre-filter (0 token cost)
             response_text = _extract_response_text_from_result(result)
             from assess.judge_manager import _t0_non_substantive_check_text, _t0_refusal_check_text
@@ -56,7 +56,7 @@ CORRECTED_PRECOMPUTE = '''    from assess.asr_stats import _reset_dual_judge_sta
                     _t0_refusal_filtered += 1
                 if score_all:
                     continue
-            
+
             if _t0_non_substantive_check_text(response_text):
                 try:
                     object.__setattr__(result, "_precomputed_outcome", "failure")
@@ -64,7 +64,7 @@ CORRECTED_PRECOMPUTE = '''    from assess.asr_stats import _reset_dual_judge_sta
                     _t0_refusal_filtered += 1
                 if score_all:
                     continue
-            
+
             from assess.judge_manager import _t0_long_response_check
 
             objective = getattr(result, "objective", "")
@@ -94,7 +94,7 @@ CORRECTED_PRECOMPUTE = '''    from assess.asr_stats import _reset_dual_judge_sta
                     _t0_refusal_filtered += 1
                 if score_all:
                     continue
-            
+
             results_to_score.append(result)
 
     if _skipped_already_scored > 0:
@@ -306,41 +306,41 @@ def _extract_response_text_from_result(result: Any) -> str:
 def main():
     with open(FILE_PATH, 'r', encoding='utf-8') as f:
         content = f.read()
-    
+
     # Find the start of precompute_outcomes_async function
     start_marker = "async def precompute_outcomes_async("
     start_idx = content.find(start_marker)
     if start_idx == -1:
         print("Could not find precompute_outcomes_async function")
         return
-    
+
     # Find the start of the function body (after the docstring)
     # Look for the closing triple quote
     docstring_end = content.find('"""', start_idx + len(start_marker))
     if docstring_end == -1:
         print("Could not find docstring end")
         return
-    
+
     # Find the end of the docstring (next """)
     docstring_end = content.find('"""', docstring_end + 3)
     if docstring_end == -1:
         print("Could not find docstring closing")
         return
-    
+
     # Now find where the next function starts (def _extract_response_text_from_result)
     next_func = content.find("\ndef _extract_response_text_from_result(", docstring_end)
     if next_func == -1:
         print("Could not find next function marker")
         return
-    
+
     print(f"Found corrupted section: chars {start_idx} to {next_func}")
-    
+
     # Build new content
     new_content = content[:start_idx] + CORRECTED_PRECOMPUTE + "\n\n" + content[next_func + 1:]
-    
+
     with open(FILE_PATH, 'w', encoding='utf-8') as f:
         f.write(new_content)
-    
+
     print("File updated successfully")
 
 

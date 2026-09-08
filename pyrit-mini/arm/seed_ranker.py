@@ -38,17 +38,17 @@ logger = logging.getLogger(__name__)
 # When deep probing detects specific capabilities, auto-augment targeted seed files
 # v2 (2026-09-01): Adapted for directory restructuring, supports subdirectory recursive loading
 CAPABILITY_SEED_MAP: dict[str, list[str]] = {
-    # MCP attacks - full surface coverage in subdirectory
-    "mcp": [
-        "_attack_surface/T1_ASI02_mcp_full_surface/mcp_tool_enum",
-        "_attack_surface/T1_ASI02_mcp_full_surface/mcp_server_injection",
-        "_attack_surface/T1_ASI02_mcp_full_surface/mcp_tool_hijack",
-    ],
-    "mcp_protocol": [
-        "_attack_surface/T1_ASI02_mcp_full_surface/mcp_tool_enum",
-        "_attack_surface/T1_ASI02_mcp_full_surface/mcp_server_injection",
-    ],
-    # RAG attacks
+# MCP attacks - full surface coverage in subdirectory
+"mcp": [
+"_attack_surface/T1_ASI02_mcp_full_surface/mcp_tool_enum",
+"_attack_surface/T1_ASI02_mcp_full_surface/mcp_server_injection",
+"_attack_surface/T1_ASI02_mcp_full_surface/mcp_tool_hijack",
+],
+"mcp_protocol": [
+"_attack_surface/T1_ASI02_mcp_full_surface/mcp_tool_enum",
+"_attack_surface/T1_ASI02_mcp_full_surface/mcp_server_injection",
+],
+# RAG attacks
     "rag": ["_attack_surface/T1_LLM08_rag_full_surface/rag_full_attack_surface"],
     # Function calling
     "function_calling": ["_core/T1_ASI02_function_call_exploit"],

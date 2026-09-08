@@ -68,8 +68,8 @@ class TestTargetRouter:
     @pytest.mark.asyncio
     async def test_create_target_missing_burp_request(self, tmp_path):
         """create_target should raise FileNotFoundError for missing burp request."""
-        from recon.target_router import create_target
         from core.context import PipelineContext
+        from recon.target_router import create_target
 
         args = MagicMock()
         args.burp = "nonexistent.txt"

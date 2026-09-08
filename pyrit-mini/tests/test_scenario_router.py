@@ -18,7 +18,6 @@ import pytest
 
 from core.scenario_router import ScenarioRouter, apply_scenario_overrides, get_router, reset_router
 
-
 # ==============================================================================
 #
 # ==============================================================================
@@ -143,7 +142,6 @@ class TestApplyScenarioOverrides:
 
     def test_technique_filter_override(self, router):
         """v60: Should set adaptive_technique_filter."""
-        from core.scenario_router import apply_scenario_overrides
 
         @dataclass
         class MockArgs:
@@ -163,7 +161,6 @@ class TestApplyScenarioOverrides:
 
     def test_no_override_when_cli_set(self, router):
         """v60: Should not override CLI-set filter."""
-        from core.scenario_router import apply_scenario_overrides
 
         @dataclass
         class MockArgs:
@@ -183,7 +180,6 @@ class TestApplyScenarioOverrides:
 
     def test_model_scenario_no_filter(self, router):
         """v60: model_scenario should not set filter ()."""
-        from core.scenario_router import apply_scenario_overrides
 
         @dataclass
         class MockArgs:

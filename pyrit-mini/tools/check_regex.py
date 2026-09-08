@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Check which regex patterns in judge_manager.py are broken."""
+import io
 import re
 import sys
-import io
 
 # Force UTF-8 output
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
@@ -45,12 +45,12 @@ for i, line in enumerate(lines, 1):
         continue
     if not (stripped.startswith('r"') or stripped.startswith("r'")):
         continue
-    
+
     pattern_count += 1
     # Remove trailing comma
     if stripped.endswith(','):
         stripped = stripped[:-1]
-    
+
     try:
         pattern = eval(stripped)
         re.compile(pattern)
@@ -59,7 +59,7 @@ for i, line in enumerate(lines, 1):
         error_lines.append((i, pattern_count, str(e), ))
         print(f"Line {i} (pattern #{pattern_count}): ERROR - {e}")
 
-print(f"\n=== Summary ===")
+print("\n=== Summary ===")
 print(f"Total patterns: {pattern_count}")
 print(f"Broken patterns: {error_count}")
 print(f"\nBroken pattern line numbers: {[x[0] for x in error_lines]}")

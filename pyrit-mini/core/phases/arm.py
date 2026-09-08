@@ -15,6 +15,93 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+def _inject_mcpsec_tool_seeds(
+    ctx: Any,
+    mcpsec_tools: list[dict[str, Any]],
+    *,
+    max_seeds: int = 20,
+) -> int:
+    """Inject MCPSec-discovered tool-aware seeds into ctx.seeds.
+
+    Architecture alignment:
+        Path B: ctx.mcpsec_surface.tools -> _generate_tool_specific_seeds -> prepend to ctx.seeds
+
+    Production-grade features:
+    - Deduplication: skips seeds already present in ctx.seeds
+    - Orchestration log: audit trail for MCP seed injection
+    - Rich metadata: MCPSec tool context preserved
+
+    Args:
+        ctx: Pipeline context (must have .seeds and .orchestration_log)
+        mcpsec_tools: Tool definitions from MCPSec enumeration
+        max_seeds: Maximum seeds to generate
+
+    Returns:
+        Number of seeds injected
+    """
+    if not mcpsec_tools:
+        return 0
+
+    from pyrit.models import SeedDataset, SeedPrompt
+    from strike.dynamic_mcp_seeds import _generate_tool_specific_seeds
+
+    # Generate tool-specific seeds from MCPSec-discovered tools
+    mcpsec_seed_dicts = _generate_tool_specific_seeds(mcpsec_tools, max_count=max_seeds)
+
+    if not mcpsec_seed_dicts:
+        return 0
+
+    # Build SeedPrompt list with deduplication
+    mcpsec_seed_prompts = []
+    existing_values = set()
+    for group in ctx.seeds:
+        for seed in getattr(group, "seeds", []) if hasattr(group, "seeds") else []:
+            val = getattr(seed, "value", None)
+            if val:
+                existing_values.add(val)
+
+    for sd in mcpsec_seed_dicts:
+        value = sd.get("value", "")
+        if value and value not in existing_values:
+            sp = SeedPrompt(
+                value=value,
+                data_type="text",
+                metadata={"source": "mcpsec_dynamic_tool", **sd.get("metadata", {})},
+            )
+            mcpsec_seed_prompts.append(sp)
+            existing_values.add(value)
+
+    injected = 0
+    if mcpsec_seed_prompts:
+        mcpsec_dataset = SeedDataset(seeds=mcpsec_seed_prompts)
+        # Prepend MCPSec seeds (higher priority for MCP-targeted attacks)
+        ctx.seeds = list(mcpsec_dataset.prompts) + list(ctx.seeds)
+        injected = len(mcpsec_seed_prompts)
+
+        # Orchestration log audit
+        if hasattr(ctx, "orchestration_log"):
+            ctx.orchestration_log.append({
+                "phase": "arm",
+                "decision": "mcpsec_tool_seed_injection",
+                "input": {"mcpsec_tools_count": len(mcpsec_tools)},
+                "output": {
+                    "seeds_injected": injected,
+                    "total_seeds": len(ctx.seeds),
+                    "tool_names": [t.get("name", "") for t in mcpsec_tools[:5]],
+                },
+                "reasoning": f"MCPSec dynamic tool-aware seeds ({injected}) prepended",
+            })
+
+        logger.info(
+            "[ARM] MCPSec dynamic seeds injected: %d tool-aware seeds (total: %d)",
+            injected,
+            len(ctx.seeds),
+        )
+
+    return injected
+
+
 def _get_adaptive_max_seeds(
         ctx: "PipelineContext", default_max: int = 25) -> int:
     """ ctx.adaptive_probe_ctx["probe_budget"] max_seeds
@@ -131,6 +218,13 @@ async def _run_arm_phase(
         target_capabilities=target_capabilities,
         target_model_family=target_model_family,
     )
+
+    # == MCPSec v2.7.2: Tool-aware seed selection (Path B in architecture) ==
+    # Architecture alignment: ctx.mcpsec_surface.tools -> _generate_tool_specific_seeds -> prepend
+    # Priority: MCPSec dynamic seeds > static MCP seeds > other seeds
+    _mcpsec_tools = ctx.mcpsec_surface.get("tools", []) if ctx.mcpsec_surface else []
+    if _mcpsec_tools:
+        _inject_mcpsec_tool_seeds(ctx, _mcpsec_tools, max_seeds=20)
 
     #
     from arm.technique_picker import pick_techniques

@@ -63,6 +63,13 @@ async def _run_recon_phase(
             except Exception as e:
                 logger.debug("[Recon] RAG probe skipped: %s", e)
 
+        # MCPSec v2.7.2: MCP Security Scanning (replaces self-developed mcp_enumerator)
+        # Architecture alignment: MCPSecBridge.enumerate_surface() -> ctx.mcpsec_surface
+        #                         MCPSecBridge.scan_target() -> ctx.mcpsec_scan_results
+        target_url = getattr(ctx.args, "target_url", None) if hasattr(ctx, "args") else None
+        if target_url:
+            await _run_mcpsec_reconnaissance(ctx, target_url)
+
         # --stage recon (minimal output, red team focus)
         if _is_recon_only:
             if ctx.parsed_request:
@@ -76,6 +83,108 @@ async def _run_recon_phase(
                         encoding="utf-8",
                     )
                 print_status("RECON", "DONE", "", ok=True)
+
+async def _run_mcpsec_reconnaissance(
+        ctx: "PipelineContext", target_url: str) -> None:
+    """Execute MCPSec reconnaissance phase with production-grade observability.
+
+    Architecture alignment:
+        - enumerate_surface() -> ctx.mcpsec_surface (tools, resources, prompts)
+        - scan_target() -> ctx.mcpsec_scan_results (vulnerabilities)
+
+    Data contract:
+        ctx.mcpsec_surface = {
+            "tools": [{"name", "description", "inputSchema"}],
+            "resources": [{"uri", "name", "description"}],
+            "prompts": [{"name", "description"}]
+        }
+        ctx.mcpsec_scan_results = {
+            "vulnerabilities": [{"severity", "scanner", "description", "target"}]
+        }
+    """
+    import time
+    from tools.mcpsec_factory import get_shared_bridge
+
+    bridge = get_shared_bridge()
+    if not bridge or not bridge.is_available:
+        logger.info("[Recon] MCPSec not installed reconnaissance skipped")
+        return
+
+    mcpsec_start = time.monotonic()
+    enum_result: dict[str, Any] = {}
+    scan_result: dict[str, Any] = {"vulnerabilities": []}
+
+    try:
+        # Phase 1: Enumerate attack surface
+        try:
+            mcp_info = await bridge.enumerate_surface(target_url)
+            # Architecture compliance: ensure dict format for ctx.mcpsec_surface
+            if isinstance(mcp_info, dict):
+                enum_result = mcp_info
+            else:
+                # Convert from object format to dict (defensive)
+                enum_result = {
+                    "tools": getattr(mcp_info, "tools", []),
+                    "resources": getattr(mcp_info, "resources", []),
+                    "prompts": getattr(mcp_info, "prompts", []),
+                    "raw": str(mcp_info),
+                }
+            ctx.mcpsec_surface = enum_result
+            ctx.mcpsec_version = bridge.version or "unknown"
+
+            logger.info(
+                "[Recon] MCPSec enumerate complete: %d tools, %d resources, %d prompts",
+                len(enum_result.get("tools", [])),
+                len(enum_result.get("resources", [])),
+                len(enum_result.get("prompts", [])),
+            )
+        except Exception as e:
+            logger.warning("[Recon] MCPSec enumerate failed: %s", e)
+
+        # Phase 2: Vulnerability scan
+        try:
+            raw_scan_results = await bridge.scan_target(target_url)
+            # Architecture compliance: normalize to dict format
+            vulns = []
+            for r in raw_scan_results:
+                vulns.append({
+                    "scanner": r.scanner,
+                    "vulnerability": r.vulnerability,
+                    "severity": r.severity,
+                    "description": r.evidence,
+                    "target": r.tool_name,
+                    "payload": r.payload,
+                })
+            scan_result["vulnerabilities"] = vulns
+            ctx.mcpsec_scan_results = scan_result
+
+            logger.info(
+                "[Recon] MCPSec scan complete: %d vulnerabilities (C:%d H:%d M:%d L:%d)",
+                len(vulns),
+                sum(1 for v in vulns if v["severity"] == "critical"),
+                sum(1 for v in vulns if v["severity"] == "high"),
+                sum(1 for v in vulns if v["severity"] == "medium"),
+                sum(1 for v in vulns if v["severity"] in ("low", "info")),
+            )
+        except Exception as e:
+            logger.debug("[Recon] MCPSec scan non-fatal: %s", e)
+
+    finally:
+        # Production observability: orchestration_log audit trail
+        elapsed = time.monotonic() - mcpsec_start
+        if hasattr(ctx, "orchestration_log"):
+            ctx.orchestration_log.append({
+                "phase": "recon",
+                "decision": "mcpsec_reconnaissance",
+                "input": {"target_url": target_url, "mcpsec_version": ctx.mcpsec_version},
+                "output": {
+                    "tools_found": len(enum_result.get("tools", [])),
+                    "vulnerabilities_found": len(scan_result.get("vulnerabilities", [])),
+                    "elapsed_seconds": round(elapsed, 2),
+                },
+                "reasoning": f"MCPSec v{ctx.mcpsec_version} reconnaissance completed",
+            })
+
 
 async def _run_synergy_phase(
         ctx: "PipelineContext") -> None:

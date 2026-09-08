@@ -22,7 +22,6 @@ _DEFAULT_HIGH_CONFIDENCE_THRESHOLD = 0.85
 
 if TYPE_CHECKING:
     from pyrit.prompt_target import PromptTarget
-    from pyrit.score import TrueFalseAggregatorFunc
 
 
 class AdaptiveDualJudgeScorer(TrueFalseScorer):

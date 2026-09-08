@@ -100,7 +100,7 @@ async def run(argv: list[str] | None = None) -> None:
     # - 4 (Model-specific priors): load_asr_priors(model_family) + update_asr_priors(model_family, asr)
     # Data flow: load_seeds(model_family=...) -> save_asr_history() -> update_asr_priors()
     # The above calls are already in core/orchestrator.py fully implemented (run_attack_pipeline)
-    from utils.display import print_banner, print_phase, print_status
+    from utils.display_primitives import print_banner, print_phase, print_status
 
     # == Basic logging configuration ==
     configure_root_logging()
@@ -160,9 +160,15 @@ async def run(argv: list[str] | None = None) -> None:
         ctx.model_family = _model_family
 
     try:
+        # == Execute attack pipeline orchestration ==
+        # Core business logic delegated to core/orchestrator.py -> run_attack_pipeline()
+        # orchestrator.py imports all 6 phase functions from core/phases/
+        from core.orchestrator import run_attack_pipeline
+
+        await run_attack_pipeline(ctx)
 
         # R1: Pipeline closure verification - Ensure ASR written + priors updated
-        # These calls are in orchestrator already executed, Final audit confirmation here
+        # Post-execution audit: verify all data flows completed correctly
         _verify_pipeline_closure(ctx)
     except KeyboardInterrupt:
         try:

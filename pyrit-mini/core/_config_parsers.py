@@ -15,6 +15,10 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
+# Path constants
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_DEFAULTS_YAML = _PROJECT_ROOT / "config" / "defaults.yaml"
+
 
 def _load_defaults() -> dict[str, Any]:
     """imports config/defaults.yaml Load (SSOT)."""

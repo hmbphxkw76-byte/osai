@@ -92,6 +92,110 @@ _REQUIRED_CITATIONS: list[tuple[str, str, str]] = [
     ("SkeletonKey", "arXiv:2402.14266", "SKELETONKEY 2024"),
 ]
 
+# R-NATIVE: PyRIT  ( v1.8 )
+#       PyRIT
+
+#  ( 11 类)
+_NATIVE_ATTACK_CLASSES: dict[str, str] = {
+    "CrescendoAttack": "pyrit.executor.attack.multi_turn.crescendo_attack.CrescendoAttack",
+    "TAPAttack": "pyrit.executor.attack.multi_turn.tap_attack.TAPAttack",
+    "PAIRAttack": "pyrit.executor.attack.multi_turn.pair_attack.PAIRAttack",
+    "XPIAAttack": "pyrit.executor.attack.multi_turn.xpia_attack.XPIAAttack",
+    "SkeletonKeyAttack": "pyrit.executor.attack.single_turn.skeleton_key.SkeletonKeyAttack",
+    "PromptSendingAttack": "pyrit.executor.attack.single_turn.prompt_sending.PromptSendingAttack",
+    "SequentialAttack": "pyrit.executor.attack.compound.sequential_attack.SequentialAttack",
+    "ManyShotJailbreakAttack": "pyrit.executor.attack.many_shot_jailbreak.ManyShotJailbreakAttack",
+    "MultiPromptSendingAttack": "pyrit.executor.attack.multi_prompt_sending.MultiPromptSendingAttack",
+    "ChunkedRequestAttack": "pyrit.executor.attack.chunked_request.ChunkedRequestAttack",
+    "RedTeamingAttack": "pyrit.executor.attack.red_teaming.RedTeamingAttack",
+    "BargeInAttack": "pyrit.executor.attack.barge_in.BargeInAttack",
+}
+
+#  ( 80+ 类，   R-NATIVE-2)
+_NATIVE_CONVERTER_KEYWORDS: dict[str, str] = {
+    #
+    "base64_encode": "Base64Converter",
+    "base64_decode": "Base64Converter",
+    "rot13": "ROT13Converter",
+    "binary_encode": "BinaryConverter",
+    "url_encode": "UrlConverter",
+    "url_decode": "UrlConverter",
+    # Unicode
+    "unicode_substitution": "UnicodeSubstitutionConverter",
+    "unicode_confusable": "UnicodeConfusableConverter",
+    "zero_width": "ZeroWidthConverter",
+    "bidi": "BidiConverter",
+    #
+    "caesar": "CaesarConverter",
+    "vigenere": "VigenereConverter",
+    "atbash": "AtbashConverter",
+    #
+    "translation": "TranslationConverter",
+    "translate": "TranslationConverter",
+    #
+    "diacritic": "DiacriticConverter",
+    "char_swap": "CharSwapConverter",
+    "char_noise": "CharNoiseConverter",
+    "random_capital": "RandomCapitalLettersConverter",
+    #
+    "suffix_append": "SuffixAppendConverter",
+    "string_join": "StringJoinConverter",
+    "insert_punctuation": "InsertPunctuationConverter",
+}
+
+#  ( 50+ 类，   R-NATIVE-3)
+_NATIVE_SCORER_KEYWORDS: dict[str, str] = {
+    # 0-token
+    "check_refusal": "SelfAskRefusalScorer",
+    "is_refusal": "SelfAskRefusalScorer",
+    "check_success": "SelfAskTrueFalseScorer",
+    "is_success": "SelfAskTrueFalseScorer",
+    #
+    "regex_match": "RegexScorer",
+    "substring_match": "SubStringScorer",
+    "contains_pattern": "RegexScorer",
+    #
+    "classify_content": "ContentClassifier",
+    "content_classification": "ContentClassifier",
+    #
+    "sql_injection_check": "SQLInjectionOutputScorer",
+    "xss_check": "XSSOutputScorer",
+    "ssrf_check": "SSRFOutputScorer",
+    "command_injection_check": "ShellCommandOutputScorer",
+    #
+    "keyword_match": "AnthraxKeywordScorer",
+    "credential_leak": "CredentialLeakScorer",
+    "plagiarism_check": "PlagiarismScorer",
+}
+
+#  ( 25+ 类，   R-NATIVE-4)
+_NATIVE_TARGET_KEYWORDS: dict[str, str] = {
+    # HTTP
+    "http_request_target": "HTTPTarget",
+    "http_target": "HTTPTarget",
+    "api_target": "HTTPXAPITarget",
+    "websocket_target": "WebSocketTarget",
+    # OpenAI
+    "openai_chat": "OpenAIChatTarget",
+    "openai_completion": "OpenAICompletionTarget",
+    "openai_response": "OpenAIResponseTarget",
+    #
+    "prompt_target": "PromptTarget",
+    "text_target": "TextTarget",
+    #
+    "round_robin": "RoundRobinTarget",
+    "realtime_target": "RealtimeTarget",
+}
+
+#  (  for loop + PromptSendingAttack)
+#     CrescendoAttack/TAPAttack
+_NATIVE_ATTACK_KEYWORDS: dict[str, str] = {
+    "crescendo": "CrescendoAttack",
+    "tap": "TAPAttack",
+    "pair": "PAIRAttack",
+    "xpia": "XPIAAttack",
+}
+
 # R-REDTEAM:
 _FORBIDDEN_PATTERNS_REDTEAM: list[tuple[str, str, str]] = [
     # (, , )
@@ -174,7 +278,7 @@ def register_extended_checks(guard_cls) -> None:
             for func_name, desc in phase_calls:
                 #  :  ( )  ( )
                 #  executor.py run_single_endpoint ( )
-                is_imported = f"from " in orch_content and func_name in orch_content and "import" in orch_content
+                is_imported = "from " in orch_content and func_name in orch_content and "import" in orch_content
                 is_direct_def = f"def {func_name}" in orch_content
                 is_direct_call = f"await {func_name}" in orch_content
                 if not is_imported and not is_direct_def and not is_direct_call:
@@ -841,3 +945,451 @@ def register_extended_checks(guard_cls) -> None:
     # R-PIPE-6 / R-IMPORT-4: Runtime integration checks (2026-09-08 patch)
     guard_cls.check_recon_submodule_invocation = check_recon_submodule_invocation
     guard_cls.check_init_export_usage = check_init_export_usage
+    # R-PIPE-7 / R-MCPSec: MCPSec v2.7.2 bridge integration checks (2026-09-08)
+    guard_cls.check_mcpsec_bridge_integration = check_mcpsec_bridge_integration
+    # R-NATIVE-1~4: PyRIT 原生组件优先使用检查器 (v1.8)
+    guard_cls.check_native_attack_class_usage = check_native_attack_class_usage
+    guard_cls.check_native_converter_usage = check_native_converter_usage
+    guard_cls.check_native_scorer_usage = check_native_scorer_usage
+    guard_cls.check_native_target_usage = check_native_target_usage
+
+# ===============================================================================
+# R-MCPSec: MCPSec v2.7.2 Bridge Integration
+# ===============================================================================
+
+_MCPSEC_REQUIRED_MODULES = {
+    "mcpsec_bridge": "MCPSec CLI bridge",
+    "mcp_agent_target": "MCP Agent PyRIT target",
+    "malicious_mcp_server": "Malicious MCP server for side-effect verification",
+    "dynamic_mcp_seeds": "Dynamic seed generation via MCPSec",
+    "mcpsec_orchestrator": "Full MCPSec + PyRIT orchestrator",
+}
+
+_MCPSEC_REQUIRED_FIELDS = [
+    "mcpsec_surface",
+    "mcpsec_scan_results",
+    "mcpsec_version",
+]
+
+def check_mcpsec_bridge_integration(self) -> None:
+    """R-PIPE-7 / R-MCPSec: MCPSec v2.7.2 bridge integration checks.
+
+    Ensures:
+    1. MCPSec bridge modules exist in strike/
+    2. PipelineContext has MCPSec-related fields
+    3. Strike phase uses MCPSec dynamic seeds
+    4. Recon phase uses MCPSec enumeration
+    5. Self-developed mcp_enumerator is removed
+    """
+    Severity, Violation = _get_violation_classes()
+
+    strike_dir = self.root / "strike"
+
+    # Check MCPSec bridge modules exist
+    for module_name, description in _MCPSEC_REQUIRED_MODULES.items():
+        module_file = strike_dir / f"{module_name}.py"
+        if not module_file.exists():
+            self.violations.append(Violation(
+                rule="R-MCPSec-1",
+                severity=Severity.WARNING,
+                file=f"strike/{module_name}.py",
+                line=0,
+                description=f"Missing MCPSec module: {description}",
+                fix_hint=f"Create strike/{module_name}.py for MCPSec v2.7.2 integration",
+            ))
+
+    # Check PipelineContext has MCPSec fields
+    context_file = self.root / "core" / "context.py"
+    if context_file.exists():
+        context_content = context_file.read_text(encoding="utf-8", errors="replace")
+        for field_name in _MCPSEC_REQUIRED_FIELDS:
+            if field_name not in context_content:
+                self.violations.append(Violation(
+                    rule="R-MCPSec-2",
+                    severity=Severity.WARNING,
+                    file="core/context.py",
+                    line=0,
+                    description=f"PipelineContext missing MCPSec field: {field_name}",
+                    fix_hint=f"Add {field_name}: ... to PipelineContext dataclass",
+                ))
+
+    # Check self-developed mcp_enumerator is removed
+    old_mcp_enumerator = self.root / "recon" / "mcp_enumerator.py"
+    if old_mcp_enumerator.exists():
+        self.violations.append(Violation(
+            rule="R-MCPSec-3",
+            severity=Severity.BLOCKING,
+            file="recon/mcp_enumerator.py",
+            line=0,
+            description="Self-developed mcp_enumerator.py still exists (should be replaced by MCPSec)",
+            fix_hint="Delete recon/mcp_enumerator.py and use MCPSec bridge instead",
+        ))
+
+    old_helpers = self.root / "recon" / "_mcp_enumerator_helpers.py"
+    if old_helpers.exists():
+        self.violations.append(Violation(
+            rule="R-MCPSec-3",
+            severity=Severity.BLOCKING,
+            file="recon/_mcp_enumerator_helpers.py",
+            line=0,
+            description="Self-developed _mcp_enumerator_helpers.py still exists",
+            fix_hint="Delete recon/_mcp_enumerator_helpers.py and use MCPSec bridge instead",
+        ))
+
+    # Check strike/mcp_rag_attack.py uses MCPSec
+    mcp_rag_file = strike_dir / "mcp_rag_attack.py"
+    if mcp_rag_file.exists():
+        mcp_rag_content = mcp_rag_file.read_text(encoding="utf-8", errors="replace")
+        if "mcpsec_bridge" in mcp_rag_content.lower() or "MCPSec" in mcp_rag_content:
+            pass  # Good: uses MCPSec
+        elif "static" in mcp_rag_content.lower() and "_load_specialty_seeds" in mcp_rag_content:
+            self.violations.append(Violation(
+                rule="R-MCPSec-4",
+                severity=Severity.INFO,
+                file="strike/mcp_rag_attack.py",
+                line=0,
+                description="mcp_rag_attack.py uses static seeds without MCPSec integration",
+                fix_hint="Add MCPSec bridge integration for dynamic seed generation",
+            ))
+
+    # Check dynamic_mcp_seeds exists
+    dynamic_seeds_file = strike_dir / "dynamic_mcp_seeds.py"
+    if not dynamic_seeds_file.exists():
+        self.violations.append(Violation(
+            rule="R-MCPSec-5",
+            severity=Severity.INFO,
+            file="strike/dynamic_mcp_seeds.py",
+            line=0,
+            description="Missing dynamic_mcp_seeds.py for MCPSec-powered seed generation",
+            fix_hint="Create strike/dynamic_mcp_seeds.py with MCPSec integration",
+        ))
+
+# ===============================================================================
+# R-NATIVE-1~4: PyRIT 原生组件优先使用检查器 (v1.8)
+# ===============================================================================
+
+def check_native_attack_class_usage(self) -> None:
+    """R-NATIVE-1: 检测是否自行实现了本应使用 PyRIT 原生 API 的攻击。
+
+    宪法 C1 (PyRIT Native First) 强制要求：
+    - CrescendoAttack/TAPAttack/PAIRAttack/XPIAAttack 必须使用 PyRIT 原生类
+    - 不得使用 PromptSendingAttack + for loop 替代原生多轮攻击
+
+    检测逻辑：
+    1. 扫描 escalation_runtime.py 等文件中的攻击关键词
+    2. 检查是否同时存在"手动循环"模式（for turn_num in range）
+    3. 若存在手动循环但未导入 PyRIT 原生类 → BLOCKING
+    """
+    Severity, Violation = _get_violation_classes()
+
+    # 需要检查的文件
+    check_files = [
+        self.root / "strike" / "escalation_runtime.py",
+        self.root / "strike" / "multi_turn_attacks.py",
+        self.root / "strike" / "native_attacks.py",
+    ]
+
+    for file_path in check_files:
+        if not file_path.exists():
+            continue
+
+        try:
+            content = file_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        rel_path = str(file_path.relative_to(self.root))
+
+        # 检测每个关键词
+        for keyword, native_class in _NATIVE_ATTACK_KEYWORDS.items():
+            # 检测文件中是否包含该关键词（函数名/注释/字符串）
+            keyword_pattern = rf'\b{keyword}\b'
+            if not re.search(keyword_pattern, content, re.IGNORECASE):
+                continue
+
+            # 检查是否已导入 PyRIT 原生类
+            native_import_patterns = [
+                f"from pyrit.executor.attack import {native_class}",
+                f"from pyrit.executor.attack.multi_turn import {native_class}",
+                f"from pyrit.executor.attack.multi_turn.crescendo_attack import {native_class}",
+                f"from pyrit.executor.attack.multi_turn.tap_attack import {native_class}",
+                f"from pyrit.executor.attack.multi_turn.pair_attack import {native_class}",
+            ]
+            has_native_import = any(p in content for p in native_import_patterns)
+
+            # 检测手动循环模式（for turn_num/range + PromptSendingAttack）
+            # 这是自行实现多轮攻击的典型特征
+            manual_loop_patterns = [
+                r'for\s+turn_num.*PromptSendingAttack',
+                r'for\s+turn.*?in\s+range.*\n.*PromptSendingAttack',
+                rf'_generate_{keyword}_prompts',
+            ]
+            has_manual_loop = any(re.search(p, content, re.IGNORECASE | re.DOTALL) for p in manual_loop_patterns)
+
+            # 如果使用了关键词但没有导入原生类，或者存在手动循环
+            if has_manual_loop and not has_native_import:
+                # 找到违规行号
+                violation_line = 0
+                for i, line in enumerate(content.split("\n"), 1):
+                    if f"_generate_{keyword}_prompts" in line or f"execute_{keyword}_attack" in line:
+                        violation_line = i
+                        break
+
+                self.violations.append(Violation(
+                    rule="R-NATIVE-1",
+                    severity=Severity.BLOCKING,
+                    file=rel_path,
+                    line=violation_line,
+                    description=(
+                        f"检测到自行实现 {keyword} 攻击（手动 for loop + PromptSendingAttack）"
+                        f"应使用 PyRIT 原生 {native_class}"
+                    ),
+                    fix_hint=(
+                        f"导入 {native_class} 并替换手动循环："
+                        f"from pyrit.executor.attack.multi_turn import {native_class}; "
+                        f"attack = {native_class}(objective_target=ctx.objective_target, ...)"
+                    ),
+                ))
+
+
+def check_native_converter_usage(self) -> None:
+    """R-NATIVE-2: 检测是否自行实现了本应使用 PyRIT 原生 Converter 的编码/解码/混淆。
+
+    宪法 C1 (PyRIT Native First) 强制要求：
+    - Base64/ROT13/Unicode/Translation/Caesar 等 80+ 种编码必须使用 PyRIT 原生 Converter
+    - 不得自研 base64_encode/rot13/translate 等函数替代原生 Converter
+
+    检测逻辑：
+    1. 扫描 arm/ 和 strike/ 目录中的编码/解码/混淆函数
+    2. 检查是否同时存在自研实现（def xxx_encode/decode/translate）
+    3. 若存在自研实现但未导入 PyRIT 原生 Converter → WARNING
+    """
+    Severity, Violation = _get_violation_classes()
+
+    # 需要检查的目录
+    check_dirs = [
+        self.root / "arm",
+        self.root / "strike",
+    ]
+
+    # 自研编码/解码/混淆的典型函数签名
+    custom_impl_patterns = [
+        r'def\s+base64_(?:encode|decode)\s*\(',
+        r'def\s+rot13\s*\(',
+        r'def\s+binary_(?:encode|decode)\s*\(',
+        r'def\s+url_(?:encode|decode)\s*\(',
+        r'def\s+unicode_(?:substitute|confuse|replace)\s*\(',
+        r'def\s+caesar_(?:encode|decode|shift)\s*\(',
+        r'def\s+vigenere_(?:encode|decode)\s*\(',
+        r'def\s+atbash\s*\(',
+        r'def\s+translate\s*\(',
+        r'def\s+diacritic_(?:add|remove)\s*\(',
+        r'def\s+char_swap\s*\(',
+        r'def\s+char_noise\s*\(',
+        r'def\s+random_capital\s*\(',
+        r'def\s+suffix_append\s*\(',
+        r'def\s+string_join\s*\(',
+        r'def\s+insert_punctuation\s*\(',
+        r'def\s+zero_width_(?:insert|remove)\s*\(',
+        r'def\s+bidi_(?:insert|reverse)\s*\(',
+    ]
+
+    for check_dir in check_dirs:
+        if not check_dir.exists():
+            continue
+
+        for py_file in check_dir.glob("*.py"):
+            if py_file.name == "__init__.py":
+                continue
+
+            try:
+                content = py_file.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+
+            rel_path = str(py_file.relative_to(self.root))
+
+            # 检测自研实现
+            for pattern in custom_impl_patterns:
+                match = re.search(pattern, content, re.IGNORECASE)
+                if match:
+                    # 找到匹配的行号
+                    line_num = content[:match.start()].count("\n") + 1
+
+                    # 检查是否已导入 PyRIT 原生 Converter
+                    has_native_converter = "from pyrit.converter import" in content or "import pyrit.converter" in content
+
+                    if not has_native_converter:
+                        self.violations.append(Violation(
+                            rule="R-NATIVE-2",
+                            severity=Severity.WARNING,
+                            file=rel_path,
+                            line=line_num,
+                            description=(
+                                f"检测到自研编码/解码/混淆函数：{match.group().strip()}"
+                                f"应使用 PyRIT 原生 Converter"
+                            ),
+                            fix_hint=(
+                                "导入 PyRIT 原生 Converter 并替换自研实现："
+                                "from pyrit.converter import Base64Converter, ROT13Converter, ..."
+                            ),
+                        ))
+
+
+def check_native_scorer_usage(self) -> None:
+    """R-NATIVE-3: 检测是否自行实现了本应使用 PyRIT 原生 Scorer 的评分逻辑。
+
+    宪法 C1 (PyRIT Native First) 强制要求：
+    - 拒绝检测/成功检测/正则匹配/内容分类等 50+ 种评分必须使用 PyRIT 原生 Scorer
+    - 不得自研 check_refusal/is_success/regex_match 等函数替代原生 Scorer
+
+    检测逻辑：
+    1. 扫描 assess/ 和 strike/ 目录中的评分函数
+    2. 检查是否同时存在自研实现（def check_refusal/is_success/regex_match）
+    3. 若存在自研实现但未导入 PyRIT 原生 Scorer → WARNING
+    """
+    Severity, Violation = _get_violation_classes()
+
+    # 需要检查的目录
+    check_dirs = [
+        self.root / "assess",
+        self.root / "strike",
+    ]
+
+    # 自研评分逻辑的典型函数签名
+    custom_impl_patterns = [
+        r'def\s+check_refusal\s*\(',
+        r'def\s+is_refusal\s*\(',
+        r'def\s+check_success\s*\(',
+        r'def\s+is_success\s*\(',
+        r'def\s+regex_match\s*\(',
+        r'def\s+substring_match\s*\(',
+        r'def\s+contains_pattern\s*\(',
+        r'def\s+classify_content\s*\(',
+        r'def\s+content_classification\s*\(',
+        r'def\s+sql_injection_check\s*\(',
+        r'def\s+xss_check\s*\(',
+        r'def\s+ssrf_check\s*\(',
+        r'def\s+command_injection_check\s*\(',
+        r'def\s+keyword_match\s*\(',
+        r'def\s+credential_leak\s*\(',
+        r'def\s+plagiarism_check\s*\(',
+    ]
+
+    for check_dir in check_dirs:
+        if not check_dir.exists():
+            continue
+
+        for py_file in check_dir.glob("*.py"):
+            if py_file.name == "__init__.py":
+                continue
+
+            try:
+                content = py_file.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+
+            rel_path = str(py_file.relative_to(self.root))
+
+            # 检测自研实现
+            for pattern in custom_impl_patterns:
+                match = re.search(pattern, content, re.IGNORECASE)
+                if match:
+                    # 找到匹配的行号
+                    line_num = content[:match.start()].count("\n") + 1
+
+                    # 检查是否已导入 PyRIT 原生 Scorer
+                    has_native_scorer = "from pyrit.score import" in content or "import pyrit.score" in content
+
+                    if not has_native_scorer:
+                        self.violations.append(Violation(
+                            rule="R-NATIVE-3",
+                            severity=Severity.WARNING,
+                            file=rel_path,
+                            line=line_num,
+                            description=(
+                                f"检测到自研评分函数：{match.group().strip()}"
+                                f"应使用 PyRIT 原生 Scorer"
+                            ),
+                            fix_hint=(
+                                "导入 PyRIT 原生 Scorer 并替换自研实现："
+                                "from pyrit.score import SelfAskRefusalScorer, SelfAskTrueFalseScorer, ..."
+                            ),
+                        ))
+
+
+def check_native_target_usage(self) -> None:
+    """R-NATIVE-4: 检测是否自行实现了本应使用 PyRIT 原生 Target 的连接逻辑。
+
+    宪法 C1 (PyRIT Native First) 强制要求：
+    - HTTP/WebSocket/OpenAI/HuggingFace 等 25+ 种目标连接必须使用 PyRIT 原生 Target
+    - 不得自研 HTTPRequestTarget/OpenAIChat 等类替代原生 Target
+
+    检测逻辑：
+    1. 扫描 recon/ 和 strike/ 目录中的 Target 类定义
+    2. 检查是否同时存在自研实现（class HTTPRequestTarget/OpenAIChat）
+    3. 若存在自研实现但未导入 PyRIT 原生 Target → WARNING
+    """
+    Severity, Violation = _get_violation_classes()
+
+    # 需要检查的目录
+    check_dirs = [
+        self.root / "recon",
+        self.root / "strike",
+    ]
+
+    # 自研 Target 的典型类名
+    custom_target_patterns = [
+        r'class\s+HTTPRequestTarget\s*\(',
+        r'class\s+HTTPTarget\s*\(',
+        r'class\s+APITarget\s*\(',
+        r'class\s+WebSocketTarget\s*\(',
+        r'class\s+OpenAIChat\s*\(',
+        r'class\s+OpenAICompletion\s*\(',
+        r'class\s+OpenAIResponse\s*\(',
+        r'class\s+PromptTarget\s*\(',
+        r'class\s+TextTarget\s*\(',
+        r'class\s+RoundRobinTarget\s*\(',
+        r'class\s+RealtimeTarget\s*\(',
+    ]
+
+    for check_dir in check_dirs:
+        if not check_dir.exists():
+            continue
+
+        for py_file in check_dir.glob("*.py"):
+            if py_file.name == "__init__.py":
+                continue
+
+            try:
+                content = py_file.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+
+            rel_path = str(py_file.relative_to(self.root))
+
+            # 检测自研实现
+            for pattern in custom_target_patterns:
+                match = re.search(pattern, content, re.IGNORECASE)
+                if match:
+                    # 找到匹配的行号
+                    line_num = content[:match.start()].count("\n") + 1
+
+                    # 检查是否已导入 PyRIT 原生 Target
+                    has_native_target = "from pyrit.prompt_target import" in content or "import pyrit.prompt_target" in content
+
+                    if not has_native_target:
+                        self.violations.append(Violation(
+                            rule="R-NATIVE-4",
+                            severity=Severity.WARNING,
+                            file=rel_path,
+                            line=line_num,
+                            description=(
+                                f"检测到自研 Target 类：{match.group().strip()}"
+                                f"应使用 PyRIT 原生 PromptTarget"
+                            ),
+                            fix_hint=(
+                                "导入 PyRIT 原生 Target 并替换自研实现："
+                                "from pyrit.prompt_target import HTTPTarget, HTTPXAPITarget, OpenAIChatTarget, ..."
+                            ),
+                        ))

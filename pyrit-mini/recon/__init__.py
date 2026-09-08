@@ -7,7 +7,7 @@ Core modules:
     - target_router:  HTTPTarget + RateLimitedTarget,  adversarial/scoring target
     - capability_detector:  (agent/mcp/rag/embedding)
     - confidence_scorer:  (SSOT)
-    - mcp_enumerator: MCP
+    - mcpsec_bridge: MCP (MCPSec v2.7.2 bridge)
     - system_prompt_extractor:
     - endpoint_sorter:  endpoint + attack surface classification
     - adaptive_probe_config:  ()

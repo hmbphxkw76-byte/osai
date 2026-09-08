@@ -90,9 +90,13 @@ _CAPABILITY_SIGNAL_PATTERNS: dict[str, list[re.Pattern[str]]] = {
     ],
     "a2a_protocol": [
         re.compile(r'(?:agent.?to.?agent|a2a|agent_card|agent.?skill)', re.IGNORECASE),
+        re.compile(r'"(?:taskId|messageId|agentId)"\s*[:=]', re.IGNORECASE),
+        re.compile(r'"jsonrpc"\s*:\s*"2.0"', re.IGNORECASE),
     ],
     "multi_agent": [
         re.compile(r'"(?:agents|delegated|coordinator|sub.?agent|team)"\s*[:=]', re.IGNORECASE),
+        re.compile(r'(?:trust.?chain|peer.?agent|agent.?delegation)', re.IGNORECASE),
+        re.compile(r'"trustedPeers"\s*:', re.IGNORECASE),
     ],
     "agent": [
         re.compile(r'(?:tool|function|agent|assistant)', re.IGNORECASE),

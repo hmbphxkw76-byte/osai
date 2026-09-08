@@ -63,6 +63,13 @@ class PipelineContext:
     # -> arm phase (model_name, is_openai_compatible)
     # -> strike phase (backend_vendor, discovered_endpoints)
     service_profile: dict[str, Any] = field(default_factory=dict)
+ # MCPSec v2.7.2: MCP Security Bridge (replaces self-developed mcp_enumerator)
+    # Data flow: recon/_target_router_helpers -> mcpsec_bridge.enumerate_surface -> ctx.mcpsec_surface
+    # -> arm phase (tool-aware seed generation)
+    # -> strike phase (MCPSec-powered dynamic seeds)
+    mcpsec_surface: dict[str, Any] = field(default_factory=dict)
+    mcpsec_scan_results: dict[str, Any] = field(default_factory=dict)
+    mcpsec_version: str = ""
  # endpoint : endpoint
  # Academic basis: Greshake et al. (arXiv:2302.12173) -
  # Chao et al. (arXiv:2310.08419) - ASR = 1 - Prod(1 - ASRi)
@@ -102,11 +109,6 @@ class PipelineContext:
     scenario_result_id: str | None = None
     scenario_result: "ScenarioResult | None" = None
 
- # P2-MCP: MCP ( mcp_rag_attack.py )
- # target_router MCP (mcp_tools/mcp_resources) ,
- # _execute_specialized_seeds mcp_attack
-    _mcp_dynamic_seeds: list[dict[str, Any]] = field(default_factory=list)
-
  # Production-grade: Playwright ()
     _playwright_instance: Any = None
     _browser: Any = None
@@ -143,6 +145,18 @@ class PipelineContext:
  # Academic basis: Michael Nygard, "Release It!" 2nd Ed. (2018) - Circuit Breaker
     _circuit_breaker_states: dict[str, dict[str, Any]] = field(default_factory=dict)
     _whitebox_confirmed: bool = False
+
+ # == L5 v62: A2A Agent Card Discovery (Google A2A Protocol) ==
+ # Data flow: recon/capability_probe -> a2a_agent_card.fetch_agent_card -> ctx.a2a_agent_card
+ # -> arm phase (skill-aware seed generation)
+ # -> strike phase (multi-agent topology mapping)
+ # Reference: https://a2a-protocol.org/latest/specification/
+    a2a_agent_card: Any = None  # Optional[AgentCard]
+ # L5 v62: A2A Deep Discovery Results (endpoints, methods, topology)
+ # Data flow: recon/a2a_discoverer.run_a2a_discovery -> ctx.a2a_discovery_result
+ # -> endpoint_sorter (A2A-aware prioritization)
+ # -> capability_probe (A2A capability flags)
+    a2a_discovery_result: Any = None  # Optional[DiscoveryResult]
 
 def get_effective_concurrency(
     ctx: PipelineContext,
