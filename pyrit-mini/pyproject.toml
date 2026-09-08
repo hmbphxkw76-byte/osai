@@ -16,8 +16,18 @@ dependencies = [
 browser = ["playwright>=1.40"]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.4"]
 
+[project.scripts]
+# CLI entry_points (v2.0+: tools/ 目录)
+pyrit-mini = "main:main"
+pyrit-guard = "tools.guard:main"
+pyrit-hooks = "tools.hooks:main"
+pyrit-scenarios = "tools.scenarios:main"
+pyrit-poc = "tools.poc:main"
+pyrit-dataflow = "tools.data_flow_validator:main"
+pyrit-hooks-local = "tools.install_hooks_local:main"
+
 [tool.setuptools.packages.find]
-include = ["core*", "recon*", "arm*", "strike*", "assess*", "report*", "targets*", "utils*"]
+include = ["core*", "recon*", "arm*", "strike*", "assess*", "report*", "targets*", "utils*", "tools*"]
 
 [tool.ruff]
 line-length = 120

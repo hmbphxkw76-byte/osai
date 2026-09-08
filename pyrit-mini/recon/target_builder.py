@@ -435,6 +435,23 @@ def build_http_target(
     if chat_id_state:
         chat_id_state.set_template(raw_request)
 
+    # === Session-Aware Attack Framework Integration ===
+    # Create SessionStateManager and wrap callback for session state tracking
+    try:
+        from strike.session import SessionConfig, SessionStateManager
+        session_config = SessionConfig.default_config()
+        session_manager = SessionStateManager(session_config)
+        session_manager.activate()
+        # Wrap callback with session-aware wrapper
+        wrapped_callback = session_manager.create_callback_wrapper(callback)
+        # Update target's callback to the session-aware version
+        target.callback_function = wrapped_callback  # type: ignore[attr-defined]
+        # Attach session_manager to target for external access
+        target._session_state_manager = session_manager  # type: ignore[attr-defined]
+        logger.debug("SessionStateManager integrated into HTTPTarget callback chain")
+    except ImportError:
+        logger.debug("strike.session module not available, skipping session integration")
+
     logger.debug(
         "PyRIT native HTTPTarget built: %s %s (TLS=%s, HTTP2=%s, SSE=%s, "
         "callback=%s, multi_turn=%s)",

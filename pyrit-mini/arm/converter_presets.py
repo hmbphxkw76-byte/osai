@@ -30,19 +30,13 @@ logger = logging.getLogger(__name__)
 # File-type converters only effective on targets that accept file uploads
 _FILE_CONVERTER_NAMES = {"PDFConverter", "WordDocConverter"}
 
-# == L5 v41: l5_optimal build cache ==
-# arXiv:2407.01232 - SequentialAttack FIRST_SUCCESS uses the same converter
-# candidate list for every technique. Building 17 converters (decomposition,
-# persuasion, variation, translation, code_chameleon, ...) involves LLM calls
-# and heavy object instantiation. Without caching, build_converter_map calls
-# l5_optimal once PER technique, resulting in Nx17 redundant builds.
-# Cache key: (id(converter_target), target_type) - when the same target is
-# reused across techniques, we return the cached list instead of rebuilding.
-_L5_OPTIMAL_CACHE: dict[tuple[int, str], list[Any]] = {}
-
-# v57: ()
-_L5_PRINTED_FULL_CANDIDATES: bool = False
-_L5_PRINTED_FULL_REORDER: bool = False
+# == l5_optimal build cache ==
+# Caches converter candidate lists to avoid redundant LLM calls during build.
+# Cache is cleared at the start of each build_converter_map call to prevent
+# unbounded growth and stale entries across pipeline runs.
+# Note: We use target_type as cache key (not id(converter_target)) to avoid
+# memory leaks from object id reuse after garbage collection.
+_L5_OPTIMAL_CACHE: dict[str, list[Any]] = {}
 
 # Techniques that are pure baseline (no converter needed - raw payload)
 _BASELINE_TECHNIQUES = frozenset({"prompt_sending"})
@@ -94,11 +88,18 @@ def l5_optimal(
     *,
     target_type: str = "unknown",
 ) -> list[Any]:
-    """L5 v39 target-aware converter candidate list."""
-    # Check cache first
-    cache_key = (id(converter_target), target_type)
-    if cache_key in _L5_OPTIMAL_CACHE:
-        return _L5_OPTIMAL_CACHE[cache_key]
+    """L5 v39 target-aware converter candidate list.
+
+    Builds converter candidates filtered by target type:
+        - mcp_agent: Exclude file converters (PDF/Word) that require file upload
+        - http_api/llm_chat: Exclude file converters
+        - unknown/browser: Include all converters
+
+    Results are cached per target_type to avoid redundant LLM calls.
+    """
+    # Check cache first (keyed by target_type only - safe from id() reuse issues)
+    if target_type in _L5_OPTIMAL_CACHE:
+        return _L5_OPTIMAL_CACHE[target_type]
 
     # Import converter classes from converter_chains
     from arm.converter_chains import (
@@ -140,7 +141,7 @@ def l5_optimal(
         candidates = [c for c in candidates if not _is_file_converter(c)]
 
     # Cache and return
-    _L5_OPTIMAL_CACHE[cache_key] = candidates
+    _L5_OPTIMAL_CACHE[target_type] = candidates
     return candidates
 
 def l5_optimal_for_model(

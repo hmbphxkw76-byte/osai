@@ -40,7 +40,7 @@ async def _run_assess_phase(
     _assess_reset_stats = not getattr(
         ctx.args, "escalation", True)
     try:
-        await precompute_outcomes_async(ctx.attack_results, score_all=False, reset_stats=_assess_reset_stats)
+        await precompute_outcomes_async(ctx.attack_results, score_all=False, reset_stats=_assess_reset_stats, ctx=ctx)
     except Exception as e:
         logger.error(
             ": %s - ", e)

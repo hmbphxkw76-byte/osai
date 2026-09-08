@@ -48,13 +48,19 @@ class PipelineContext:
 
  # L5 v54+: Adaptive Probe Context (6-Strategy Integration)
  # Data flow: create_target -> _init_adaptive_probe -> ctx.adaptive_probe_ctx
- # -> arm phase (seed_preferences, stealth_policy, probe_budget)
- # -> strike phase (drift_monitor, guardrail_report)
+# -> arm phase (seed_preferences, stealth_policy, probe_budget)
+# -> strike phase (guardrail_report)
     adaptive_probe_ctx: dict[str, Any] = field(default_factory=dict)
     seed_preferences: dict[str, Any] = field(default_factory=dict)
     guardrail_report: dict[str, Any] = field(default_factory=dict)
     stealth_policy: dict[str, Any] = field(default_factory=dict)
-    drift_monitor: Any = None  # CapabilityDriftMonitor
+
+ # Session-Aware Attack Framework: Session State Management
+ # Data flow: target_builder -> SessionStateManager -> ctx.session_state
+ # -> strike phase (session-aware attacks)
+ # -> escalation phase (session-bound multi-turn)
+    session_state: Any = None  # SessionStateManager instance
+
 
  # Recon phase
     parsed_request: "ParsedBurpRequest | None" = None
@@ -97,22 +103,14 @@ class PipelineContext:
  # Strike phase
     attack_results: dict[str, list[Any]] = field(default_factory=dict)
 
- # Assess phase
+    # Assess phase
     asr_per_technique: dict[str, float] = field(default_factory=dict)
     overall_asr: float = 0.0
     wilson_ci: tuple[float, float] = (0.0, 0.0)
     dual_judge_stats: dict[str, Any] = field(default_factory=dict)
- # L5 v63: ASR Adaptive Engine (Dynamic Prior Evolution)
- # Data flow: main.py -> ASRAdaptiveEngine + ASRPriorUpdater -> ctx.asr_engine/ctx.asr_updater
- # -> arm phase (cold-start prior injection, epsilon-greedy exploration)
- # -> strike phase (dynamic technique selection based on UCB1)
- # -> assess phase (EMA real-time ASR update, temporal decay)
- # Academic basis:
- #   - Auer et al. (2002) - UCB1 algorithm
- #   - Sutton & Barto (2018) - Epsilon-Greedy exploration
- #   - Crothers et al. (arXiv:2306.05685) - Adaptive attack timing
-    asr_engine: Any = None  # ASRAdaptiveEngine instance
-    asr_updater: Any = None  # ASRPriorUpdater instance
+    # P0-A: DualJudgeState \u5c01\u88c5 (\u907f\u514d\u5168\u5c40\u72b6\u6001\u6c61\u67d3)
+    # Data flow: _reset_endpoint_state -> ctx.dual_judge_state.reset()\n    # -> score_pipeline._score_single -> ctx.dual_judge_state.record_judge_result\n    # -> get_dual_judge_stats(ctx.dual_judge_state) -> ctx.dual_judge_stats
+    dual_judge_state: Any = None  # \u5ef2\u65f6\u4f1a\u5728 _reset_endpoint_state \u521d\u59cb\u5316
  # L5 v9: scorer ,
     scorer: Any = None
 
@@ -157,17 +155,13 @@ class PipelineContext:
     _circuit_breaker_states: dict[str, dict[str, Any]] = field(default_factory=dict)
     _whitebox_confirmed: bool = False
 
- # == L5 v62: A2A Agent Card Discovery (Google A2A Protocol) ==
- # Data flow: recon/capability_probe -> a2a_agent_card.fetch_agent_card -> ctx.a2a_agent_card
- # -> arm phase (skill-aware seed generation)
- # -> strike phase (multi-agent topology mapping)
- # Reference: https://a2a-protocol.org/latest/specification/
-    a2a_agent_card: Any = None  # Optional[AgentCard]
- # L5 v62: A2A Deep Discovery Results (endpoints, methods, topology)
- # Data flow: recon/a2a_discoverer.run_a2a_discovery -> ctx.a2a_discovery_result
- # -> endpoint_sorter (A2A-aware prioritization)
- # -> capability_probe (A2A capability flags)
-    a2a_discovery_result: Any = None  # Optional[DiscoveryResult]
+ # Stealth Executor: SIEM Evasion Timing Shaping
+ # Data flow: CLI --stealth → ctx.stealth_config → strike/executor (rate shaping)
+ # → stealth_exec.StealthExecutor (Pareto delays)
+ # Academic basis: Crothers et al. (arXiv:2306.05685) - Adaptive attack timing
+ # Zhang et al. (arXiv:2204.01326) - Behavioral biometrics evasion
+    stealth_config: Any = None  # StealthConfig instance (None = disabled)
+
 
 def get_effective_concurrency(
     ctx: PipelineContext,

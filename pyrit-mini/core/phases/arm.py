@@ -200,24 +200,21 @@ async def _run_arm_phase(
     target_type = _get_arm_target_type(ctx)
 
     #
+    # Academic basis:
+    # - Chao et al. (arXiv:2402.01135) - ASR-based seed ranking
+    # - Auer et al. (arXiv:cs/0207052) - UCB1 for exploration/exploitation
+    # Data flow: ctx.args.seeds -> load_seeds (with capability adaptation) -> ctx.seeds
     max_seeds = _get_adaptive_max_seeds(ctx, default_max=25)
-    from arm.dataset_config import load_seeds
-    await load_seeds(
-        ctx,
+
+    seed_file = getattr(ctx.args, "seeds", "elite_jailbreaks")
+    from arm.seed_ranker import load_seeds
+    ctx.seeds = load_seeds(
+        seed_file=seed_file,
         max_seeds=max_seeds,
+        target_language=target_language,
+        enable_dos=getattr(ctx.args, "enable_dos", False),
         capabilities=target_capabilities,
         model_family=target_model_family,
-        language=target_language,
-        target_type=target_type,
-    )
-
-    #
-    from arm.seed_ranker import rank_seeds_for_target
-    rank_seeds_for_target(
-        ctx,
-        target_language=target_language,
-        target_capabilities=target_capabilities,
-        target_model_family=target_model_family,
     )
 
     # == MCPSec v2.7.2: Tool-aware seed selection (Path B in architecture) ==
@@ -240,12 +237,17 @@ async def _run_arm_phase(
                 rag_seeds_count,
             )
 
-    #
-    from arm.technique_picker import pick_techniques
-    ctx.techniques = pick_techniques(
-        ctx,
-        target_capabilities=target_capabilities,
+    # == Technique selection (SSOT: arm.technique_picker) ==
+    # Academic basis:
+    # - PyRIT (arXiv:2407.01232) - Native attack techniques
+    # - Greshake et al. (arXiv:2302.12173) - Capability-aware technique augmentation
+    # Data flow: ctx.args.techniques + detected capabilities -> select_techniques + augment -> ctx.techniques
+    from arm.technique_picker import augment_techniques_by_capability, select_techniques
+    techniques = select_techniques(
+        mode=getattr(ctx.args, "techniques", "auto"),
+        has_adversarial=getattr(ctx.args, "adversarial", True),
     )
+    ctx.techniques = augment_techniques_by_capability(techniques, target_capabilities)
 
     #
     has_adversarial = getattr(

@@ -1,0 +1,81 @@
+# strike/session/defaults.yaml - 默认会话感知攻击配置
+#
+# 此配置文件定义了通用的会话状态管理规则。
+# 覆盖最常见的 stateful agent 场景，无需修改即可适配大多数目标。
+#
+# 配置结构:
+#   extraction_rules: 从响应提取会话状态的规则
+#   injection_rules: 向请求注入会话状态的规则
+#   validation: 会话一致性验证配置
+#   rotation: 会话轮换策略
+#
+# 自定义配置:
+#   创建新 YAML 文件覆盖此默认值，或通过代码动态修改。
+
+# === 状态提取规则 ===
+# 定义如何从 HTTP 响应中提取会话 token
+extraction_rules:
+  # 主规则: 从 JSON body 提取 session_id
+  - name: session_id
+    primary:
+      method: json_path
+      path: "$.session_id"
+    fallbacks:
+      # 备用1: 正则匹配 "session_id": "xxx"
+      - method: regex
+        pattern: '"session_id"\s*:\s*"([^"]+)"'
+      # 备用2: 正则匹配 "sessionId": "xxx" (camelCase)
+      - method: regex
+        pattern: '"sessionId"\s*:\s*"([^"]+)"'
+      # 备用3: 从 Header 提取
+      - method: header
+        name: "X-Session-Id"
+      # 备用4: 从 Header 提取 (Set-Cookie)
+      - method: header
+        name: "Set-Cookie"
+
+  # 可选: CSRF token 提取
+  - name: csrf_token
+    primary:
+      method: json_path
+      path: "$.csrfToken"
+    fallbacks:
+      - method: regex
+        pattern: '"csrf[_-]?[tT]oken"\s*:\s*"([^"]+)"'
+      - method: header
+        name: "X-CSRF-Token"
+
+# === 状态注入规则 ===
+# 定义如何向 HTTP 请求注入会话 token
+injection_rules:
+  # 注入到 JSON body
+  - name: session_id
+    target: body
+    field: session_id
+    template: "{value}"
+
+  # 同时注入到 Header (某些 API 需要)
+  - name: session_id
+    target: header
+    field: "X-Session-Id"
+    template: "{value}"
+
+  # CSRF token 注入
+  - name: csrf_token
+    target: body
+    field: _csrf
+    template: "{value}"
+
+# === 一致性验证配置 ===
+validation:
+  enabled: true
+  strategy: track_changes  # track_changes: 允许刷新但检测异常重置
+  alert_on_reset: true
+  max_age_turns: 100
+
+# === 轮换策略 ===
+rotation:
+  type: sticky  # sticky: 单 session 粘性
+  max_turns: 50
+  pool_size: 3
+  reuse_threshold_turns: 10

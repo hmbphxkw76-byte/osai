@@ -36,20 +36,25 @@ logger = logging.getLogger(__name__)
 
 # Capability -> seed file mapping
 # When deep probing detects specific capabilities, auto-augment targeted seed files
-# v2 (2026-09-01): Adapted for directory restructuring, supports subdirectory recursive loading
+# v3 (2026-09-08): Added new P0/P1 seed files for full OWASP LLM+ASI coverage
 CAPABILITY_SEED_MAP: dict[str, list[str]] = {
-# MCP attacks - full surface coverage in subdirectory
-"mcp": [
-"_attack_surface/T1_ASI02_mcp_full_surface/mcp_tool_enum",
-"_attack_surface/T1_ASI02_mcp_full_surface/mcp_server_injection",
-"_attack_surface/T1_ASI02_mcp_full_surface/mcp_tool_hijack",
-],
-"mcp_protocol": [
-"_attack_surface/T1_ASI02_mcp_full_surface/mcp_tool_enum",
-"_attack_surface/T1_ASI02_mcp_full_surface/mcp_server_injection",
-],
-# RAG attacks
-    "rag": ["_attack_surface/T1_LLM08_rag_full_surface/rag_full_attack_surface"],
+    # MCP attacks - full surface coverage in subdirectory
+    "mcp": [
+        "_attack_surface/T1_ASI02_mcp_full_surface/mcp_tool_enum",
+        "_attack_surface/T1_ASI02_mcp_full_surface/mcp_server_injection",
+        "_attack_surface/T1_ASI02_mcp_full_surface/mcp_tool_hijack",
+        "_attack_surface/T1_agent_protocol_fuzzing",  # NEW: MCP protocol fuzzing
+    ],
+    "mcp_protocol": [
+        "_attack_surface/T1_ASI02_mcp_full_surface/mcp_tool_enum",
+        "_attack_surface/T1_ASI02_mcp_full_surface/mcp_server_injection",
+        "_attack_surface/T1_agent_protocol_fuzzing",  # NEW: Protocol-level attacks
+    ],
+    # RAG attacks
+    "rag": [
+        "_attack_surface/T1_LLM08_rag_full_surface/rag_full_attack_surface",
+        "_attack_surface/T1_LLM08_rag_advanced_seeds",  # NEW: Advanced RAG seeds
+    ],
     # Function calling
     "function_calling": ["_core/T1_ASI02_function_call_exploit"],
     # Tool hijack
@@ -58,6 +63,7 @@ CAPABILITY_SEED_MAP: dict[str, list[str]] = {
     "multi_agent": [
         "_attack_surface/T1_ASI06-09_multi_agent/ma_cross_agent_injection",
         "_attack_surface/T1_ASI06-09_multi_agent/ma_identity_spoofing",
+        "_attack_surface/T1_agent_protocol_fuzzing",  # NEW: Cross-agent protocol
     ],
     # Workflow
     "workflow": ["_core/T1_ASI03_workflow_escalation"],
@@ -71,13 +77,53 @@ CAPABILITY_SEED_MAP: dict[str, list[str]] = {
     "a2a_protocol": [
         "_attack_surface/T1_ASI06-09_multi_agent/ma_cross_agent_injection",
         "_core/T1_ASI02_tool_hijack",
+        "_attack_surface/T1_agent_protocol_fuzzing",  # NEW: Protocol fuzzing
     ],
     "a2a": [
         "_attack_surface/T1_ASI06-09_multi_agent/ma_cross_agent_injection",
         "_core/T1_ASI02_tool_hijack",
+        "_attack_surface/T1_agent_protocol_fuzzing",  # NEW: Protocol fuzzing
     ],
     # Embedding RAG
-    "embedding_rag": ["_attack_surface/T1_LLM08_rag_full_surface/rag_full_attack_surface"],
+    "embedding_rag": [
+        "_attack_surface/T1_LLM08_rag_full_surface/rag_full_attack_surface",
+        "_attack_surface/T1_LLM08_rag_advanced_seeds",  # NEW
+    ],
+    # NEW v3: Model extraction / theft (LLM10)
+    "model_api": [
+        "_attack_surface/T1_LLM10_model_theft",
+    ],
+    "model_extraction": [
+        "_attack_surface/T1_LLM10_model_theft",
+    ],
+    # NEW v3: Multimodal attack carriers
+    "multimodal": [
+        "_experimental/T1_multimodal_injection",
+    ],
+    "vision_model": [
+        "_experimental/T1_multimodal_injection",
+    ],
+    "file_upload": [
+        "_experimental/T1_multimodal_injection",
+    ],
+    # NEW v3: Supply chain attacks
+    "supply_chain": [
+        "_experimental/T1_LLM05_supply_chain_poisoning",
+    ],
+    "dependency": [
+        "_experimental/T1_LLM05_supply_chain_poisoning",
+    ],
+    # NEW v3: Misinformation / deepfake
+    "content_generation": [
+        "_experimental/T1_LLM09_misinformation_chains",
+    ],
+    # NEW v3: GCG/adversarial optimization
+    "adversarial": [
+        "_experimental/T2_gcg_adversarial_templates",
+    ],
+    "gradient_free": [
+        "_experimental/T2_gcg_adversarial_templates",
+    ],
 }
 
 def load_seeds(
@@ -314,26 +360,55 @@ def load_seeds(
     return seed_groups
 
 def _filter_dos_seeds(seeds: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Filter LLM10 (DoS / Unbounded Consumption) seeds.
+    """Filter high token-cost seeds (DoS / Unbounded Consumption / T3).
 
-    LLM10 attacks (Model DoS / Unbounded Consumption) force target to generate
-    extremely large responses (e.g., "generate 100 stories of 5000 characters"),
-    consuming significant tokens.
+    Filters seeds that consume excessive tokens to control API costs:
+    1. LLM10 (Model DoS / Unbounded Consumption) - forces large responses
+    2. Tier 3 (T3) experimental seeds - low ASR, high token cost
+    3. High token-cost categories (recursive_expansion, training_data_extraction, etc.)
+
     Disabled by default to control API costs;
     users can explicitly enable via --enable-dos.
 
-    Identification condition: metadata.owasp_id == "LLM10" (case-insensitive)
+    Identification conditions:
+        - metadata.owasp_id == "LLM10" (case-insensitive)
+        - metadata.tier >= 3 (experimental)
+        - metadata.category in HIGH_TOKEN_COST_CATEGORIES
 
     Args:
         seeds: Original seed list.
 
     Returns:
-        Filtered seed list (without LLM10 seeds).
+        Filtered seed list (without high-cost seeds).
     """
-    return [
-        seed for seed in seeds
-        if str(seed.get("metadata", {}).get("owasp_id", "")).upper() != "LLM10"
-    ]
+    # High token cost categories (defined in core/seed_router.py)
+    _HIGH_TOKEN_CATEGORIES = {
+        "dos_resource_exhaustion",
+        "model_dos",
+        "token_smuggling_dos",
+        "recursive_expansion",
+        "training_data_extraction",
+        "knowledge_base_enum",
+        "wildteaming_exploratory",
+    }
+
+    def _is_high_cost(seed: dict[str, Any]) -> bool:
+        """Check if a seed is high token cost."""
+        meta = seed.get("metadata", {})
+        # Check OWASP ID
+        if str(meta.get("owasp_id", "")).upper() == "LLM10":
+            return True
+        # Check tier
+        tier = meta.get("tier")
+        if tier is not None and tier >= 3:
+            return True
+        # Check category
+        category = meta.get("category", "")
+        if category in _HIGH_TOKEN_CATEGORIES:
+            return True
+        return False
+
+    return [seed for seed in seeds if not _is_high_cost(seed)]
 
 def _prune_zero_asr_seeds(
     seed_groups: list[AttackSeedGroup],

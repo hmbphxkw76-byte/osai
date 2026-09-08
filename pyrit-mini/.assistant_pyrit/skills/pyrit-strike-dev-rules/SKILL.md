@@ -32,8 +32,8 @@ description: AI assistant development rules for pyrit-red team pipeline. Use whe
 - **Reference**: `docs/specs/00-CONSTITUTION.md` 7B映射表
 
 ### R3: ruff + pytest + guard
-- **MANDATORY gates**: `ruff check` + `pytest` + `architecture_guard.py`
-- **Pre-commit**: Install with `python core/setup_hooks.py`
+- **MANDATORY gates**: `ruff check` + `pytest` + `py -m tools.guard`
+- **Pre-commit**: Install with `py -m tools.hooks`
 
 ### R4: L5 Standard Alignment
 - **MUST**: All parameters read from `config/defaults.yaml`
@@ -67,7 +67,7 @@ description: AI assistant development rules for pyrit-red team pipeline. Use whe
 
 | Rule | Description |
 |------|-------------|
-| D1 | Pre-coding: Run `python core/architecture_guard.py` |
+| D1 | Pre-coding: Run `py -m tools.guard` |
 | D2 | During coding: Apply all 10 rules continuously |
 | D3 | Post-coding: Fill `specs/templates/task-spec.md` |
 | D4 | On commit: Git hooks auto-run guard |
@@ -76,7 +76,7 @@ description: AI assistant development rules for pyrit-red team pipeline. Use whe
 
 ## Architecture Guard Rules
 
-Run: `python -m core.architecture_guard`
+Run: `py -m tools.guard`
 
 | Category | Rules |
 |----------|-------|
@@ -101,7 +101,7 @@ pyrit-mini/
 ├── strike/               # Attack execution
 ├── assess/               # Scoring + ASR
 ├── report/               # Report generation
-├── tools/                # Shared utilities
+├── tools/                # CLI tools (guard/hooks/scenarios/poc)
 ├── utils/                # Display + cleanup
 ├── tests/                # Test suite
 ├── docs/specs/           # 规约金字塔（唯一权威源）
@@ -120,7 +120,7 @@ ruff check core/ recon/ arm/ strike/ assess/ report/ tools/ utils/ main.py
 py -m py_compile <changed_files>
 
 # 3. Architecture guard
-py -m core.architecture_guard
+py -m tools.guard
 
 # 4. Dry-run pipeline
 py main.py --dry-run --max-seeds 1

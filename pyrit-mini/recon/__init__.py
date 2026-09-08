@@ -26,8 +26,8 @@ Removed modules (v1.5 Red Team Alignment):
     - health_probe: KEPT (active black-box reconnaissance - directly feeds attack)
     - port_expander: →  (60+ ports, DEPRECATED)
     - behavioral_verifier: →  (no ASR contribution)
-    - capability_monitor: → core/runtime/capability_drift.py (runtime monitoring)
     - attack_surface_classifier: → recon/endpoint_sorter.py (merged)
+    - capability_monitor: →  (removed - orphan runtime monitoring)
     - auth_state_manager.py → recon/auth_detector.py (removed execution logic)
 
 Constitution compliance:

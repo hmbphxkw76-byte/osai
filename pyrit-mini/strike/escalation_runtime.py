@@ -33,6 +33,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+# Session-Aware Attack Framework: SessionStateManager
+from strike.session import SessionStateManager  # noqa: F401
+
 logger = logging.getLogger(__name__)
 
 
@@ -293,6 +296,15 @@ async def run_escalation_chain(
         Escalation report dict with all results
     """
     primary_asr = getattr(ctx, "overall_asr", 0.0) or 0.0
+
+    # === Session-Aware Attack: Session state for multi-turn escalation ===
+    # Architecture alignment: ctx.session_state -> session-bound multi-turn attacks
+    session_state = getattr(ctx, "session_state", None)
+    if session_state and hasattr(session_state, "is_active") and session_state.is_active:
+        logger.info(
+            "[Escalation] Session-aware escalation active: session_state=%s",
+            session_state.current_state if hasattr(session_state, "current_state") else "active"
+        )
 
     if primary_asr >= 0.80:
         return {"status": "no_escalation_needed", "primary_asr": primary_asr}

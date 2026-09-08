@@ -80,16 +80,21 @@ async def run_single_endpoint(
     ctx: "PipelineContext",
     output_dir: Path,
 ) -> None:
-    """converter(s) endpoint 6.
+    """Run complete 6-phase attack pipeline for one endpoint.
 
-    run() ,  endpoint
+    This is the main production entry point for single-endpoint attack execution.
     Academic basis: PyRIT (arXiv:2407.01232) - SequentialAttack +
 
     Args:
-        ctx:
-        output_dir: Output directory
+        ctx: Pipeline context with all required fields initialized
+        output_dir: Output directory for this endpoint
     """
     from core.cleanup import cleanup_resources
+    from core.phases.arm import _run_arm_phase
+    from core.phases.assess import _run_assess_phase
+    from core.phases.recon import _run_recon_phase
+    from core.phases.report import _run_report_phase
+    from core.phases.strike import _run_strike_phase
 
     args = ctx.args
 
@@ -103,21 +108,6 @@ async def run_single_endpoint(
         from core.cleanup import cleanup_resources
         await cleanup_resources(ctx, exclude_shared=True)
         return
-
-    # ===========================================================================
-    # (2).5 +
-    # ===========================================================================
-    await _run_synergy_phase(ctx)
-
-    # ===========================================================================
-    # (2).7 Scenario
-    # ===========================================================================
-    await _run_scenario_routing(ctx, router=None)
-
-    # ===========================================================================
-    # (2).6 L4
-    # ===========================================================================
-    await _run_auto_l4_optimization(ctx)
 
     # ===========================================================================
     # (3) ARM: + + Converter
@@ -161,22 +151,6 @@ def _get_result_outcome(result: Any) -> str:
         return "success"
     return "failure"
 
-# imports ( - )
-def _placeholder_imports() -> None:
-    """ placeholders — """
-    from core.phases.arm import _run_arm_phase  # noqa: F401
-    from core.phases.assess import _run_assess_phase  # noqa: F401
-    from core.phases.recon import (  # noqa: F401
-        _run_auto_l4_optimization,
-        _run_recon_phase,
-        _run_scenario_routing,
-        _run_synergy_phase,
-    )
-    from core.phases.report import _run_report_phase  # noqa: F401
-    from core.phases.strike import (  # noqa: F401
-        _run_escalate_phase,
-        _run_strike_phase,
-    )
 
 #  run_attack_pipeline ( endpoints )
 async def run_attack_pipeline(
@@ -198,7 +172,14 @@ async def run_attack_pipeline(
     from core.logging_config import switch_log_file
     from core.phases._helpers import (
         _detect_non_burp_mode,
+        _print_endpoint_header,
+        _print_endpoint_sort_results,
+        _print_joint_asr_summary,
+        _re_set_memory_labels,
+        _register_dynamic_initializers,
+        _reset_endpoint_state,
         _resolve_burp_list,
+        _setup_memory_labels,
     )
     from utils.display import (
         print_status,
@@ -213,10 +194,10 @@ async def run_attack_pipeline(
         await cleanup_resources(ctx)
         return
 
-    # Dry-run check
-    _is_dry_run = getattr(ctx.args, "dry_run", False)
-    if _is_dry_run:
-        logger.info("[DRY-RUN] Orchestrator Layer dry-run - Skipall")
+    # Dry-run check (v2.0+: 使用 utils/dry_run.py)
+    from utils.dry_run import get_dry_run_log_message, is_dry_run
+    if is_dry_run(ctx.args):
+        logger.info(get_dry_run_log_message("orchestrator"))
         print_status("ORCHESTRATOR", "DRY-RUN", "Skip", ok=True)
         return
 

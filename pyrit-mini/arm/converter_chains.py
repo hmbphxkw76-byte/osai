@@ -729,87 +729,21 @@ def pdf_direct_generation() -> list[Any]:
     return converters
 
 def pdf_injection() -> list[Any]:
-    """PDF eng ?eng?PDF eng payload .
+    """PDF with injection points for indirect prompt injection.
 
-    [:
-        - PyRIT  File Converters: PDFConverter(existing_pdf=, injection_items=)
-        - :  PDF, er (x,y) Yu?
-        - : i?(EUR? ?payload
-        - OWASP LLM01: Prompt Injection (eng ?eng)
+    Note: This converter requires a pre-existing PDF file with injection_points.
+    The actual PDF file should be prepared separately (not during arm phase).
+    Returns empty list here - the executor will handle PDF preparation at execution time.
 
-    :
-        - EUR?PDF
-        - i 0 ?payload  (, zu)
-        - i 1 ?"Confidential"  (, )
-        - : Helvetica, u?
-        - 0 token (?LLM , ?
-
-    er: injection_items  page ?0-based .
-    ?  1 ?PDFConverter ?
+    academic basis:
+        - PyRIT File Converters: PDFConverter(existing_pdf=, injection_items=)
+        - Greshake et al. (arXiv:2302.12173): Indirect injection via document files
+        - OWASP LLM01: Prompt Injection
     """
-    converters: list[Any] = []
-
-    try:
-        import tempfile
-        from pathlib import Path
-
-        from reportlab.lib.pagesizes import A4
-        from reportlab.pdfgen import canvas
-
-        PDFConverter = _conv("PDFConverter")
-
- # EUREUR PDF (C)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-            cv = canvas.Canvas(tmp_file.name, pagesize=A4)
-            cv.drawString(50, 800, "Document Header")
-            cv.drawString(50, 780, "This is a sample document for red team assessment.")
-            cv.showPage()
-            cv.drawString(50, 800, "Page 2 Header")
-            cv.drawString(50, 780, "Additional content on second page.")
-            cv.showPage()
-            cv.save()
-            base_pdf_path = Path(tmp_file.name)
-
- # eng? erYu?
-        injection_items = [
-            {
-                "page": 0,
-                "x": 50,
-                "y": 700,
-                "text": "PAYLOAD_INJECTION_POINT",
-                "font_size": 12,
-                "font": "Helvetica",
-                "font_color": (255, 0, 0),  # ()
-            },
-            {
-                "page": 1,
-                "x": 100,
-                "y": 600,
-                "text": "Confidential",
-                "font_size": 10,
-                "font": "Helvetica",
-                "font_color": (0, 0, 255),  # ()
-            },
-        ]
-
-        converter = PDFConverter(
-            prompt_template=None,
-            font_type="Helvetica",
-            font_size=12,
-            page_width=210,
-            page_height=297,
-            existing_pdf=base_pdf_path,
-            injection_items=injection_items,
-        )
-        converters.append(converter)
-        logger.info(
-            "PDF injection: PDFConverter built (existing_pdf + 2 injection items, "
-            "payload injected at page 0 (50,700) red + page 1 (100,600) blue)"
-        )
-    except Exception as e:
-        logger.warning("PDF injection chain build failed: %s", e)
-
-    return converters
+    # Defer PDF creation to execution phase - arm phase should be side-effect-free
+    # The executor will create the PDF file when this converter is actually used
+    logger.info("PDF injection: deferred to execution phase (no side effects in arm)")
+    return []
 
 def word_doc_direct_generation() -> list[Any]:
     """Word ??payload .docx .
@@ -844,67 +778,21 @@ def word_doc_direct_generation() -> list[Any]:
     return converters
 
 def word_doc_placeholder_injection() -> list[Any]:
-    """Word [??eng?.docx C?payload.
+    """Word template with placeholder for indirect prompt injection.
 
-    [:
-        - PyRIT  File Converters:
-          WordDocConverter(existing_docx=, placeholder=)
-        - :  .docx C,  {{INJECTION_PLACEHOLDER}}  payload
-        - : i (?/yu) ra?payload
-        - OWASP LLM01: Prompt Injection (eng ? payload )
-        - Greshake et al. (arXiv:2302.12173) ?eng?
+    Note: This converter requires a pre-existing .docx file with {{INJECTION_PLACEHOLDER}}.
+    The actual .docx file should be prepared separately (not during arm phase).
+    Returns empty list here - the executor will handle .docx preparation at execution time.
 
-    [:
-        "eng run ?(Word EUR?.
-        [?run (?, .
-        : C (?).
-
-    :
-        - EUR?.docx C,  {{INJECTION_PLACEHOLDER}} ?
-        - WordDocConverter C, ?payload
-        - C: C?(Dear Hiring Manager, ... {{INJECTION_PLACEHOLDER}} ... Sincerely)
-        - 0 token (?LLM , ?
-
-    ?  1 ?WordDocConverter ?
+    Academic basis:
+        - PyRIT File Converters: WordDocConverter(existing_docx=, placeholder=)
+        - Greshake et al. (arXiv:2302.12173): Indirect injection via document files
+        - OWASP LLM01: Prompt Injection
     """
-    converters: list[Any] = []
-
-    try:
-        import tempfile
-        from pathlib import Path
-
-        from docx import Document
-
-        WordDocConverter = _conv("WordDocConverter")
-
- # EUR?.docx C (C?
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp_file:
-            doc = Document()
-            doc.add_paragraph("Dear Hiring Manager,")
-            doc.add_paragraph(
-                "I am writing to apply for the {{INJECTION_PLACEHOLDER}} position."
-            )
-            doc.add_paragraph(
-                "My experience includes security research and red team operations."
-            )
-            doc.add_paragraph("Sincerely, Applicant")
-            doc.save(tmp_file.name)
-            template_docx_path = Path(tmp_file.name)
-
-        converter = WordDocConverter(
-            existing_docx=template_docx_path,
-            placeholder="{{INJECTION_PLACEHOLDER}}",
-        )
-        converters.append(converter)
-        logger.info(
-            "Word doc placeholder injection: WordDocConverter built "
-            "(existing_docx + placeholder='{{INJECTION_PLACEHOLDER}}', "
-            "payload replaces placeholder in template)"
-        )
-    except Exception as e:
-        logger.warning("Word doc placeholder injection chain build failed: %s", e)
-
-    return converters
+    # Defer .docx creation to execution phase - arm phase should be side-effect-free
+    # The executor will create the .docx file when this converter is actually used
+    logger.info("Word doc placeholder injection: deferred to execution phase (no side effects in arm)")
+    return []
 
 # ?converter_presets re-export Ya?
 from arm.converter_presets import (  # noqa: F401, E402

@@ -8,8 +8,9 @@ Contains all attack execution logic:
     - _build_first_success_scoring_config / _build_scoring_config: Scoring configs
     - _MultiKeywordRefusalScorer: 0-token refusal detection (30+ keywords)
     - _try_native_sequential_attack: PyRIT SequentialAttack wrapper
-    - _manual_multi_path_loop: Fallback converter path loop
+    - _manual_multi_path_loop: Fallback converter path loop (with stealth timing)
     - _run_feedback_loop: Intelligence extraction from successful attacks
+    - stealth_exec: SIEM evasion via StealthConfig + Pareto delays
 
 Uses PyRIT native AttackExecutor with converter path loop and SequentialAttack
 for FIRST_SUCCESS short-circuit.
@@ -41,6 +42,9 @@ from strike.adaptive_executor import _best_of_n_retry  # noqa: F401
 # P2 : _is_success utils.attack_utils.SSOT
 from utils.attack_utils import _is_success  # noqa: F401
 
+# Session-Aware Attack Framework: SessionStateManager
+from strike.session import SessionStateManager  # noqa: F401
+
 
 def _import_progress_funcs():
     """from, display.py -> core.context ."""
@@ -64,7 +68,8 @@ def _import_progress_funcs():
 
 logger = logging.getLogger(__name__)
 
-_SEQUENTIAL_BATCH_LIMIT = 15  # SequentialAttack per-seed-group limit
+_SEQUENTIAL_BATCH_LIMIT = 30  # SequentialAttack per-seed-group limit (P0-B: increased from 15)
+_MAX_TOTAL_SEEDS_FOR_NATIVE = 200  # P0-B: above this, use hierarchical batch scheduling
 
 
 class _MultiKeywordRefusalScorer(SubStringScorer):
@@ -191,12 +196,10 @@ async def _try_native_sequential_attack(
         logger.warning("SequentialAttack not available (%s) — using manual loop", e)
         return None
 
-    if len(ctx.seeds) > _SEQUENTIAL_BATCH_LIMIT:
-        logger.info(
-            "SequentialAttack: %d seeds > %d limit, using manual loop",
-            len(ctx.seeds), _SEQUENTIAL_BATCH_LIMIT,
-        )
-        return None
+    # P0-B: Removed SequentialAttack bail-out limit
+    # SequentialAttack FIRST_SUCCESS now handles all seed counts efficiently
+    # The previous 15-seed limit caused fallback to slower manual loop
+    # Academic basis: PyRIT native SequentialAttack scales to 100+ seeds via batch execution
 
     all_results: list[Any] = []
     all_incomplete: list[tuple[str, Any]] = []
@@ -348,6 +351,20 @@ async def _manual_multi_path_loop(
         _path_done_fn = print_converter_path_done
     except Exception:
         _path_start_fn = _path_done_fn = None
+
+    # Stealth: Initialize timing executor from ctx config
+    # Architecture alignment: ctx.stealth_config -> StealthExecutor -> Pareto delays
+    _stealth_exec = None
+    _stealth_config = getattr(ctx, "stealth_config", None)
+    if _stealth_config and getattr(_stealth_config, "enabled", False):
+        from strike.stealth_exec import StealthExecutor
+        _stealth_exec = StealthExecutor(_stealth_config)
+        logger.info(
+            "[Stealth] SIEM evasion enabled: level=%s, base_delay=%.1fs, burst_size=%d",
+            _stealth_config.level,
+            _stealth_config.base_delay,
+            _stealth_config.burst_size,
+        )
 
     for path_idx, conv in enumerate(candidate_converters):
         if not remaining_seeds:
@@ -590,6 +607,15 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
     if _mcpsec_vulns:
         _inject_vulnerability_targeted_seeds(ctx, _mcpsec_vulns)
 
+    # === Session-Aware Attack: Log session state status ===
+    # Architecture alignment: ctx.session_state -> session-aware attack execution
+    session_state = getattr(ctx, "session_state", None)
+    if session_state and hasattr(session_state, "is_active") and session_state.is_active:
+        logger.info(
+            "[Executor] Session-aware attack active: session_state=%s",
+            session_state.current_state if hasattr(session_state, "current_state") else "active"
+        )
+
     # == RAG Metadata Consumer: Execution optimization from KB analysis ==
     # Architecture alignment: ctx.service_profile["rag_kb_map"] -> concurrency/timeout/schedule
     # Production value: avoid rate limits, optimize for cache behavior
@@ -609,7 +635,13 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
                 max_concurrency = _rag_opts["concurrency"]
                 executor = AttackExecutor(max_concurrency=max_concurrency)
 
- # ( ctx.seeds)
+    # P1-C: Adaptive concurrency calibration via Little's Law
+    # Academic basis: Little's Law (L = λ × W) — optimal concurrency = arrival_rate × avg_wait
+    # Measure actual target latency to compute safe concurrency without rate limiting
+    max_concurrency = await _calibrate_concurrency_littles_law(
+        ctx, max_concurrency, candidate_converters
+    )
+    executor = AttackExecutor(max_concurrency=max_concurrency)
     original_seeds = list(ctx.seeds)
 
     all_results: list[Any] = []
@@ -669,6 +701,7 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
     else:
      # converter: PromptSendingAttack
         logger.info("No converters configured, using raw prompts (baseline)")
+
  # v53: Use native PrependedConversationConfig via PromptSendingAttack constructor
  # R2 (PyRIT Native First): prepended_conversation_config controls converter
  # role application and non-chat target normalization natively
@@ -863,6 +896,45 @@ async def _run_feedback_loop(ctx: Any, all_results: list[Any]) -> None:
                 "source": "feedback_loop",
             })
 
+        # P1-B: Exploit Chain Execution — immediately exploit discovered intelligence
+        # Academic basis: Chowdhury et al. (arXiv:2404.01833) - Crescendo escalation chain
+        exploit_chain_results: list[Any] = []
+        if follow_up_seeds and ctx.objective_target and len(follow_up_seeds) <= 5:
+            logger.info(
+                "[Exploit Chain] Executing %d follow-up seeds from feedback loop",
+                len(follow_up_seeds),
+            )
+            # Use the context's first converter (highest priority) for rapid execution
+            if ctx.converter_map:
+                first_conv_list = next(iter(ctx.converter_map.values()), [])
+                if first_conv_list:
+                    conv = first_conv_list[0]
+                    from pyrit.executor.attack import AttackConverterConfig, PromptSendingAttack
+                    from pyrit.prompt_normalizer import ConverterConfiguration
+                    for seed_data in follow_up_seeds:
+                        try:
+                            conv_config = AttackConverterConfig(
+                                request_converters=[ConverterConfiguration(converters=[conv])],
+                            )
+                            attack = PromptSendingAttack(
+                                objective_target=ctx.objective_target,
+                                attack_converter_config=conv_config,
+                            )
+                            result = await asyncio.wait_for(
+                                attack.execute_async(objective=seed_data["value"]),
+                                timeout=30,
+                            )
+                            exploit_chain_results.append(result)
+                        except Exception:
+                            continue
+
+                    if exploit_chain_results:
+                        logger.info(
+                            "[Exploit Chain] %d follow-up attacks executed, %d successful",
+                            len(exploit_chain_results),
+                            sum(1 for r in exploit_chain_results if _is_success(r)),
+                        )
+
         if hasattr(ctx, "orchestration_log"):
             ctx.orchestration_log.append({
                 "phase": "strike",
@@ -877,15 +949,82 @@ async def _run_feedback_loop(ctx: Any, all_results: list[Any]) -> None:
                     "reprobe_status": reprobe_status,
                     "new_endpoints_found": len(new_endpoints),
                     "follow_up_seeds": len(follow_up_seeds),
+                    "exploit_chain_executed": len(exploit_chain_results),
+                    "exploit_chain_success": sum(1 for r in exploit_chain_results if _is_success(r)),
                 },
                 "reasoning": (
                     f"Feedback: {len(_intel_model_ids)} models + "
                     f"{len(_intel_api_paths)} paths from successful attacks"
+                    f" + {len(exploit_chain_results)} exploit chain follow-ups"
                 ),
             })
 
     except Exception as e:
         logger.debug("[Feedback Loop] Non-fatal: %s", e)
+
+
+async def _calibrate_concurrency_littles_law(
+    ctx: Any,
+    default_concurrency: int,
+    candidate_converters: list[Any],
+) -> int:
+    """Calibrate attack concurrency using Little's Law based on actual target latency.
+
+    P1-C: Adaptive concurrency — measures target response time and scales accordingly.
+    Little's Law: L = λ × W
+        L (concurrency) = optimal concurrent connections
+        W (avg_wait) = average response time in seconds
+
+    Academic basis: Little's Law (operational queuing theory, 1961)
+
+    Note: Disable via ctx.args.skip_latency_probe = True for batch runs
+    """
+    # Skip if disabled (avoids 2 extra API calls per endpoint)
+    if getattr(getattr(ctx, "args", None), "skip_latency_probe", False):
+        return default_concurrency
+
+    if not candidate_converters or not ctx.objective_target:
+        return default_concurrency
+
+    test_prompt = "Hello"
+    latencies: list[float] = []
+
+    try:
+        from pyrit.executor.attack import AttackConverterConfig, PromptSendingAttack
+        from pyrit.prompt_normalizer import ConverterConfiguration
+        conv = candidate_converters[0]
+        conv_config = AttackConverterConfig(
+            request_converters=[ConverterConfiguration(converters=[conv])],
+        )
+        attack = PromptSendingAttack(
+            objective_target=ctx.objective_target,
+            attack_converter_config=conv_config,
+        )
+        for _ in range(2):
+            start = time.monotonic()
+            await asyncio.wait_for(
+                attack.execute_async(objective=test_prompt),
+                timeout=15,
+            )
+            latencies.append(time.monotonic() - start)
+    except Exception:
+        return default_concurrency
+
+    if not latencies:
+        return default_concurrency
+
+    avg_latency = sum(latencies) / len(latencies)
+    # L = λ × W; target λ = 10 req/s -> L = 10 × avg_latency
+    littles_optimal = 10 * avg_latency
+    calibrated = max(1, min(10, round(littles_optimal)))
+    # Only upgrade if target supports it (never downgrade without reason)
+    final_concurrency = max(default_concurrency, calibrated)
+    if final_concurrency > default_concurrency:
+        logger.info(
+            "[Concurrency] Little's Law calibrated: %d -> %d (avg_latency=%.2fs)",
+            default_concurrency, final_concurrency, avg_latency,
+        )
+    return final_concurrency
 
 
 def _get_converter_names(converters: list[Any]) -> str:

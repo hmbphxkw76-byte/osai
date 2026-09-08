@@ -71,14 +71,12 @@ async def _run_strike_phase(
     except Exception:
         pass
 
-    _is_dry_run = getattr(
-        args, "dry_run", False)
+    # v2.0+: dry-run 逻辑使用 utils/dry_run.py
+    from utils.dry_run import get_dry_run_log_message, is_dry_run
 
-    if _is_dry_run:
-        logger.info(
-            "[DRY-RUN] Skip attack execution (strike ) -  token ")
-        print_phase(
-            "STRIKE", "[DRY-RUN] Skip attack execution - Data flow")
+    if is_dry_run(args):
+        logger.info(get_dry_run_log_message("strike"))
+        print_phase("STRIKE", "[DRY-RUN] Skip attack execution - Data flow")
         ctx.attack_results = {}
     else:
         #
@@ -128,7 +126,7 @@ async def _run_strike_phase(
             "techniques": getattr(ctx, "techniques", []),
             "converter_count": len(getattr(ctx, "converter_map", {})),
             "seed_count": len(getattr(ctx, "seeds", [])),
-            "dry_run": _is_dry_run,
+            "dry_run": is_dry_run(args),
             "has_guardrail": _has_guardrail,
             "guardrail_severity": _guardrail_severity,
             "mcpsec_tools": _mcp_tools_count if _has_mcpsec else 0,
@@ -167,7 +165,7 @@ async def _run_strike_phase(
     from assess.score_pipeline import precompute_outcomes_async
     try:
         await precompute_outcomes_async(
-            ctx.attack_results, score_all=True, reset_stats=True)
+            ctx.attack_results, score_all=True, reset_stats=True, ctx=ctx)
     except Exception as e:
         logger.debug(": %s", e)
 
@@ -201,9 +199,9 @@ async def _run_web_attacks_phase(ctx: "PipelineContext") -> None:
     """
     from utils.display import print_phase
 
-    # Skip if dry run
-    _is_dry_run = getattr(ctx.args, "dry_run", False)
-    if _is_dry_run:
+    # Skip if dry run (v2.0+: 使用 utils/dry_run.py)
+    from utils.dry_run import is_dry_run as _check_dry_run
+    if _check_dry_run(ctx.args):
         return
 
     # Check if web attacks are enabled (via service_profile)

@@ -9,7 +9,7 @@ from report.evidence import EvidenceCollection, VulnerabilityEvidence
 
 # P0-2: report_utils 薄代理层移除，直接导入底层函数
 from report.generator import _OWASP_ALL_CATEGORIES
-from report.report_sections import _build_escalation_dashboard_data, _build_heatmap_data, _finding_to_dict
+from report.report_sections import _build_heatmap_data, _finding_to_dict
 
 
 def _get_owasp_category(owasp_id: str) -> str:
@@ -30,10 +30,7 @@ def _generate_html(evidence: EvidenceCollection, *, success_only: bool = False) 
     """
 
     evidence_list = evidence.successful_evidence if success_only else evidence.evidence
-    llm_tested = sum(1 for v in evidence.owasp_llm_compliance.values() if v.get("tested", 0) > 0)
-    asi_tested = sum(1 for v in evidence.owasp_asi_compliance.values() if v.get("tested", 0) > 0)
     heatmap_owasp_ids, heatmap_rows = _build_heatmap_data(evidence, evidence_list)
-    escalation_dashboard = _build_escalation_dashboard_data(evidence)
 
     html_parts = []
     html_parts.append(f"""<!DOCTYPE html>

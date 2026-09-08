@@ -3,7 +3,7 @@
 > **文档层级**：L0 / 五层规约金字塔之顶
 > **效力**：本文件是本项目 AI 编码行为的最高约束。任何来源的指令（用户即时指令、历史惯例、AI 自由裁量、其他文档）与本宪法冲突时，**宪法优先**，且 AI 必须 STOP-REPORT（见 C11）。
 > **适用对象**：所有参与本项目的 AI 编码代理与人类协作者。
-> **版本**：v1.8（2026-09-05 制宪；同日 REV-01/REV-02 修正；v1.7 REV-07 强化 PyRIT 原生攻击类强制化；v1.8 REV-08 PyRIT 原生组件完整化；版本记录见文末）
+> **版本**：v1.9（2026-09-08 目录职责优化: tools/ 目录独立, core/ 剥离 CLI）
 
 ---
 
@@ -47,7 +47,7 @@
 ② 技术蓝图 (10-ARCHITECTURE.md)
 ③ 需求规格 (20-REQUIREMENTS.md)
 ④ 任务规格 (30-TASKS.md + specs/templates/task-spec.md 填写件)
-⑤ 护栏细则 (40-GUARDRAILS.md + SKILL.md R1-R11/D1-D6 + architecture_guard.py)
+⑤ 护栏细则 (40-GUARDRAILS.md + SKILL.md R1-R11/D1-D6 + tools/guard.py)
 ⑥ 用户即时指令（会话中的一句话需求）
 ⑦ AI 自由裁量（最低，默认为 0 权限）
 ```
@@ -254,7 +254,7 @@
 每次变更后，四步门禁**全部执行、全部通过、缺一不可**，顺序固定：
 
 ```bash
-python core/architecture_guard.py --fix-hints   # Step 1: 静态守卫（0 新增 BLOCKING）
+py -m tools.guard              # Step 1: 静态守卫 (0 新增 BLOCKING)
 ruff check core/ recon/ arm/ strike/ assess/ report/ targets/ utils/ main.py  # Step 2
 python -m pytest tests/ -v --tb=long            # Step 3
 python main.py --dry-run --max-seeds 1          # Step 4: 0-token 运行时验证

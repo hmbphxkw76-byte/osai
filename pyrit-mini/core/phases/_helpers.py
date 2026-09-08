@@ -92,7 +92,14 @@ def _reset_endpoint_state(ctx: "PipelineContext") -> None:
     ctx._mcp_dynamic_seeds = []
     ctx.scenario_result = None
 
-    # assess
+    # P0-A: DualJudgeState endpoint
+    try:
+        from assess.asr_stats import DualJudgeState
+        ctx.dual_judge_state = DualJudgeState()
+    except Exception:
+        pass
+
+    # P0-A:   DualJudgeState
     try:
         from assess.asr_stats import _reset_dual_judge_stats
         _reset_dual_judge_stats()

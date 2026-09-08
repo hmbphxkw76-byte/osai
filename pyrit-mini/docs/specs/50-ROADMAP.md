@@ -20,7 +20,7 @@
 |------|------|------|
 | utils/display.py | 119KB | D-14：全库最大巨石，支撑层失控 |
 | main.py | 87KB | D-02：编排层含业务逻辑（蓝图 2.1 直接违例） |
-| core/architecture_guard.py | 82KB | 门禁本体，规模可接受 |
+| tools/guard.py | 82KB | 门禁本体，规模可接受 (原 core/architecture_guard.py) |
 | recon/burp_parser.py | 75KB | 功能核心，偏高 |
 | assess/judge_manager.py | 74KB | D-01/D-15：双轨之一 |
 | recon/target_router.py | 65KB | 功能核心 |
@@ -120,7 +120,7 @@ D-01~D-09（制宪登记）+ D-10~D-16（REV-02 新增）共 16 项，消除方�
 | T1B-5 | 审计逃逸 | REQ-131 | `strike/audit_evasion.py`：CRLF 注入、日志格式绕过（CVE-2023-50164） |
 | T1B-6 | ~~微调后门~~ | ~~REQ-132~~ | ~~已移除（黑盒HTTP不可测试）~~ |
 | T1B-7 | 统一编排器 | REQ-133 | `strike/web_orchestrator.py`：整合Web攻击模块 + orchestration_log 集成 |
-| T1B-8 | 护栏检查器锚定 | R-WEB-1~5 | 在 `architecture_guard.py` 实现Web攻击层检查器 |
+| T1B-8 | 护栏检查器锚定 | R-WEB-1~5 | 在 `tools/guard.py` 实现Web攻击层检查器 |
 
 **退出条件**：① Web攻击模块全部通过 `try/except ImportError` 插件化隔离测试（R-WEB-1）；② 全部攻击向量有 arXiv/CVE 注释（R-WEB-5 INFO 清零）；③ `strike/web_orchestrator.py` 单命令可跑 dry-run；④ 40-GUARDRAILS 1D 护栏全量合规。
 

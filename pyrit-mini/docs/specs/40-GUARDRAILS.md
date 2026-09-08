@@ -3,7 +3,7 @@
 > **文档层级**：L4 / 五层规约金字塔第五层
 > **效力**：红线 = 绝对禁止，视同宪法级（裁决序见 00-CONSTITUTION 第二章）。质量门禁 = 完成任务的必要不充分条件。
 > **执行机制**：三层防线（静态 guard / 运行时 dry-run / git 钩子），继承 SKILL.md D2 条款并收编。
-> **版本**：v1.2（2026-09-05 初版；同日 REV-01/REV-02 修正；版本记录见文末）
+> **版本**：v1.4（2026-09-08 REV-04：新增 R-DATA-1 数据流完整性护栏，关联 45-DATA-FLOW-INTEGRITY.md）
 
 ---
 
@@ -21,6 +21,34 @@
 | R-L6 | 报告生成未调用 pyrit.output 原生模块 | `check_pyrit_native_output()` |
 | R-L7 | 根目录出现非法文件；tests/ 缺失 | `check_root_directory()` / `check_test_coverage()` |
 | R-L8 | `--dry-run` 参数或实现缺失 | `check_dry_run_available()` |
+
+### 1A-DATA. 数据流完整性红线（v1.4 新增）
+
+> 完整规约见 [45-DATA-FLOW-INTEGRITY.md](45-DATA-FLOW-INTEGRITY.md)
+
+| # | 红线 | guard 检查器 | 级别 |
+|---|------|-------------|------|
+| R-DATA-1 | ARM→Strike→Assess 数据流完整性（快照验证 25 项测试） | `check_data_flow_integrity()` | INFO/WARNING |
+
+**R-DATA-1 判定**:
+- ✅ PASS: 25/25 数据流测试通过 → INFO (不阻断)
+- ❌ FAIL: 任何字段契约违规或传递断点 → WARNING (提示修复)
+- 🔴 BLOCKING: 严重数据断点 → 阻断 commit (通过 pre-push 全量验证)
+
+### 1A-TOOLS. 目录职责红线（v1.3 新增）
+
+| # | 红线 | guard 检查器 |
+|---|------|-------------|
+| R-TOOLS-1 | `core/` 或 `utils/` 下文件带 `if __name__ == "__main__"` 块（CLI 工具必须放在 `tools/`） | `check_cli_location()` |
+
+判定标准：`
+- ✅ 允许：`main.py`（根目录）、`tools/*.py` 带 `__main__`
+- ❌ 禁止：`core/*.py`、`utils/*.py`、`recon/*.py`、`arm/*.py`、`strike/*.py`、`assess/*.py`、`report/*.py` 带 `__main__`
+
+修复：
+1. 将 CLI 入口文件迁移到 `tools/` 目录
+2. 将 `__main__` 块提取到 `tools/` 下的独立文件
+3. 更新导入路径（`from core.xxx` → `from tools.xxx`）
 
 ### 1B. 人工评审红线（diff 评审必查）
 
@@ -68,7 +96,7 @@
 
 ### 1E. Guard 检查器登记簿（v1.4 更新为 24 项）
 
-规约各处引用的检查器汇总（**权威清单以 `core/architecture_guard.py` 实际实现为准**）：
+规约各处引用的检查器汇总（**权威清单以 `tools/guard.py` 实际实现为准**）：
 
 | 检查器 | 条款/红线 | 级别 | 备注 |
 |--------|----------|------|------|
@@ -97,10 +125,10 @@
 | **check_glue_silent_degradation** | **R-GLUE-4** | **WARNING** | **v1.4 新增 (Glue 层护栏)** |
 | **check_glue_academic_citation** | **R-GLUE-5** | **INFO** | **v1.4 新增 (Glue 层护栏)** |
 
-- 本表对照 `core/architecture_guard.py` 实际实现同步（24 项，新增 5 项 Glue 层护栏检查器）。
+- 本表对照 `tools/guard.py` + `tools/guard_extended.py` 实际实现同步（24 项，新增 5 项 Glue 层护栏检查器）。
 - **specs-guard 联动**: guard 启动时读取 `00-CONSTITUTION.md` 版本号并输出至报告脚注（裁决序基准）；版本不匹配时以 guard 实现为准、规约文档视为待同步。
 - **R9 误报白名单 (v1.2)**: `display.py`、`display_stages.py` 中通过 `_resolve('param', default)` 包裹的动态配置读取，视为已修复配置数据流断点（不报 R9）。
-- **Glue 层护栏 v1.4**: 5 项检查器由 `enterprise_orchestrator.py` 与 `core/architecture_guard.py` 协同实现，覆盖插件化隔离、PyRIT 原生委托、配置数据流、静默降级、学术留痕五大维度。
+- **Glue 层护栏 v1.4**: 5 项检查器由 `enterprise_orchestrator.py` 与 `tools/guard.py` 协同实现，覆盖插件化隔离、PyRIT 原生委托、配置数据流、静默降级、学术留痕五大维度。
 
 **红线冲突裁决**：R-S*（安全合规）> R-L*（机器红线）> R-H*（人工红线）。安全红线与 ASR 冲突时（例如"过滤掉这个目标会更安全"），安全红线赢——但正确答案几乎总是 STOP-REPORT 让人裁决。
 
@@ -110,7 +138,7 @@
 
 | 步 | 命令 | 通过标准 | 拦截什么 |
 |----|------|---------|---------|
-| 1 | `python core/architecture_guard.py --fix-hints` | **0 新增 BLOCKING**（相对变更前基线） | 架构模式违规（红线 1A） |
+| 1 | `py -m tools.guard` | **0 新增 BLOCKING**（相对变更前基线） | 架构模式违规（红线 1A） |
 | 2 | `ruff check core/ recon/ arm/ strike/ assess/ report/ targets/ utils/ main.py` | 0 违规 | 风格/导入/未用变量 |
 | 3 | `python -m pytest tests/ -v --tb=long` | 0 失败 | 功能回归 |
 | 4 | `python main.py --dry-run --max-seeds 1` | 无 ImportError/AttributeError/KeyError/TypeError，到达 REPORT 阶段 | **运行时数据流断点**（静态检查抓不到的交接失败） |
@@ -133,7 +161,7 @@ python main.py --max-seeds 1 --stage strike   # 最小真实验证：attack_resu
 
 | 层 | 机制 | 运行时机 | 失效后果 |
 |----|------|---------|---------|
-| L1 静态 | `architecture_guard.py`（18 项检查，登记簿见 1D） | pre-commit/pre-push 钩子（`python core/setup_hooks.py` 安装）+ 手动 | BLOCKING 违规进库 |
+| L1 静态 | `tools/guard.py`（18 项检查，登记簿见 1D） | pre-commit/pre-push 钩子（`py -m tools.hooks` 安装）+ 手动 | BLOCKING 违规进库 |
 | L2 运行时 | `--dry-run` / Tier 2 | 每次变更后（C10） | 数据流断点漏检 |
 | L3 Git 门禁 | hooks 阻断提交 | 每次 commit/push | 无强制力 |
 
@@ -145,7 +173,7 @@ python main.py --max-seeds 1 --stage strike   # 最小真实验证：attack_resu
 **基线**（任务 in-progress 开始时）：
 
 ```bash
-python core/architecture_guard.py --json > outputs/guard_baseline.json   # 记录当前违规基线
+py -m tools.guard > outputs/guard_baseline.json   # 记录当前违规基线
 # 项目内路径，Windows/Unix 通用（/tmp 在 Windows 不可写）；outputs/ 不存在时先创建
 ```
 
@@ -180,8 +208,8 @@ python core/architecture_guard.py --json > outputs/guard_baseline.json   # 记�
 
 | 既有资产 | 在本层的地位 |
 |---------|-------------|
-| `core/architecture_guard.py`（18 检查，82KB） | 1A 机器红线的唯一执行器；修改它=修改规则，走宪法 C12 |
-| `core/setup_hooks.py` | L3 Git 门禁安装器 |
+| `tools/guard.py`（18 检查，82KB） | 1A 机器红线的唯一执行器；修改它=修改规则，走宪法 C12 |
+| `tools/hooks.py` | L3 Git 门禁安装器 |
 | SKILL.md R1-R11 / D1-D6 | 细则全集，继续有效；本文件是其结构化入口，冲突处以裁决序 |
 | SKILL.md 失败模式表 | 评审培训材料，保留 |
 | `implementation_checklist.md` | 已于 2026-09-06 删除；其职能由 `specs/templates/task-spec.md` 接管（D-09 债务消除） |

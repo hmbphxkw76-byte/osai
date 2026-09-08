@@ -26,6 +26,59 @@ _ASR_PRIORS_PATH = Path(__file__).resolve().parent.parent / "config" / "asr_prio
 # L5 v41: ASR priors cache - avoids 42+ redundant YAML reads per pipeline run
 _ASR_PRIORS_CACHE: dict[str, dict] = {}
 
+# P1-A: Model family mapping for hierarchical Bayesian cold start
+# Academic basis: Yosinski et al. (arXiv:1411.1792) - transfer learning
+# When no exact prior, use family-weighted average from related models
+_MODEL_FAMILY_PREFIXES = [
+    # OpenAI (GPT series)
+    ("gpt", ["gpt-4o-mini", "gpt-4o", "gpt-4.1", "gpt-4", "gpt-5"]),
+    ("o", ["o1", "o3", "o4-mini"]),  # OpenAI o-series
+    # Anthropic
+    ("claude", ["claude-3", "claude-3.5", "claude-3.5-haiku", "claude-3.5-sonnet",
+                "claude-4-sonnet", "claude-4.5-sonnet", "claude-4-opus"]),
+    # Google
+    ("gemini", ["gemini-1.5-pro", "gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro"]),
+    ("gemma", ["gemma-2", "gemma-3"]),
+    # DeepSeek
+    ("deepseek", ["deepseek-r1", "deepseek-v3", "deepseek-v3.1"]),
+    # Meta Llama
+    ("llama", ["llama-2-70b", "llama-3-70b", "llama-3.1-405b", "llama-4", "llama-4-maverick"]),
+    # Alibaba Qwen
+    ("qwen", ["qwen-32b", "qwen-max", "qwen2-72b", "qwen3-235b", "qwen3-32b", "qwen3-72b"]),
+    # Mistral
+    ("mistral", ["mistral-large", "mistral-large-2"]),
+    # Baidu
+    ("ernie", ["ernie-4.5"]),
+    # Alibaba other
+    ("qwen", ["qwen-32b", "qwen-max"]),
+    # ByteDance
+    ("doubao", ["doubao-pro"]),
+    # Zhipu
+    ("glm", ["glm-4-32b", "glm-4-plus", "glm-5"]),
+    # Moonshot
+    ("kimi", ["kimi-k2"]),
+    # 01 AI
+    ("yi", ["yi-large"]),
+    # MiniMax
+    ("minimax", ["minimax-text-01"]),
+    # InternLM
+    ("internlm", ["internlm3"]),
+    # Cohere
+    ("command", ["command-a", "command-r-plus"]),
+]
+
+def _get_model_family(model_name: str) -> str | None:
+    """Extract model family from model name for hierarchical prior.
+
+    P1-A: Hierarchical Bayesian cold-start
+    Returns the family prefix if known, None otherwise.
+    """
+    model_lower = model_name.lower()
+    for family, members in _MODEL_FAMILY_PREFIXES:
+        if model_lower.startswith(family) or model_lower == family:
+            return family
+    return None
+
 def _make_seed_key(objective: str) -> str:
     """Generate a collision-resistant seed ASR key using SHA256.
 
@@ -133,31 +186,27 @@ def _apply_category_diversity(
     seed_groups: list[AttackSeedGroup],
     max_seeds: int,
 ) -> list[AttackSeedGroup]:
-    """L5 v32: t??X OWASP 1 XXEUR?
+    """Ensure OWASP category diversity in selected seeds.
 
-    [: Determinantal Point Processes (DPP) for diverse subset selection
-      (Kulesza & Taskar, arXiv:1207.6083)
+    Selects seeds to maximize OWASP coverage:
+    1. First pass: pick one seed per unique owasp_id
+    2. Second pass: fill remaining slots with highest-ASR seeds
 
-    :
-      1. ?seed_groups ?  owasp_id
-      2.  owasp_id XEURXX?(X)
-      3. +X?UCB X
-      4.  owasp_id ke?  "UNCATEGORIZED"
-
-     max_seeds=10,  LLM01-09 + ASI01-10  1 XX?
-    (: yoX)
+    Academic basis:
+        - Kulesza & Taskar (arXiv:1207.6083): DPP for diverse subset selection
+        - Ensures attack coverage across OWASP LLM01-10 + ASI01-10 categories
 
     Args:
-        seed_groups: ?UCB uEUR?
-        max_seeds: EURxX?
+        seed_groups: UCB-ranked seed groups.
+        max_seeds: Maximum number of seeds to return.
 
     Returns:
-        tX ( <= max_seeds)?
+        Diverse seed selection (length <= max_seeds).
     """
     if len(seed_groups) <= max_seeds:
         return seed_groups
 
- # Pass 1: owasp_id XEURXX?(X)
+    # Pass 1: One seed per unique owasp_id
     seen_categories: set[str] = set()
     selected: list[AttackSeedGroup] = []
     remaining: list[AttackSeedGroup] = []
@@ -170,29 +219,23 @@ def _apply_category_diversity(
                 meta = getattr(obj, "metadata", {}) or {}
                 owasp_id = str(meta.get("owasp_id", "UNCATEGORIZED")).upper()
 
-        if owasp_id not in seen_categories:
+        if owasp_id not in seen_categories and len(selected) < max_seeds:
             seen_categories.add(owasp_id)
             selected.append(group)
         else:
             remaining.append(group)
 
-        if len(selected) >= max_seeds:
-            break
-
- # Pass 2: +X?UCB X
+    # Pass 2: Fill remaining slots
     if len(selected) < max_seeds:
-        slots = max_seeds - len(selected)
-        selected.extend(remaining[:slots])
+        selected.extend(remaining[:max_seeds - len(selected)])
 
- # yu: ?OWASP
-    covered = sorted(seen_categories)
     logger.info(
-        "Category Diversity Guarantee: %d seeds selected, OWASP coverage: %s",
+        "Category Diversity: %d seeds, OWASP coverage: %s",
         len(selected),
-        ", ".join(covered),
+        ", ".join(sorted(seen_categories)),
     )
 
-    return selected
+    return selected[:max_seeds]
 
 def _get_asr_history_path() -> Path:
     """erEUR?ASR X (X?monkey-patch seed_ranker._ASR_HISTORY_PATH)?
@@ -358,6 +401,8 @@ def get_technique_asr_prior(
     Yu:
         1. technique_asr[technique_name][model_name] (')
         2. technique_asr[technique_name]["default"] (X?
+        3. P1-A: Family-weighted average (hierarchical Bayesian cold-start)
+        4. P1-A: Global average across all known models (meta-learned default)
 
     Args:
         technique_name: EURX?(?"crescendo", "tap")?
@@ -376,18 +421,17 @@ def get_technique_asr_prior(
     if not tech_data:
         return 0.0
 
- # v58: , (: yaml key model_name )
+    # v58: , (: yaml key model_name )
     model_lower = model_name.lower()
 
- # Pass 1:
+    # Pass 1: Exact match (case-insensitive)
     for key, val in tech_data.items():
         if key == "default":
             continue
         if key.lower() == model_lower:
             return float(val)
 
- # Pass 2: (yaml key model_name , "claude-3" in "claude-3.5-sonnet")
- # key (), "claude-3" "claude-3.5-sonnet"
+    # Pass 2: Prefix match (yaml key model_name , "claude-3" in "claude-3.5-sonnet")
     best_key = ""
     best_val = None
     for key, val in tech_data.items():
@@ -399,6 +443,45 @@ def get_technique_asr_prior(
             best_val = val
     if best_val is not None:
         return float(best_val)
+
+    # P1-A: Pass 3 - Family-weighted hierarchical prior (cold start)
+    # When no match found, compute weighted average from same family
+    if model_name:
+        family = _get_model_family(model_name)
+        if family:
+            family_values = []
+            for key, val in tech_data.items():
+                if key == "default":
+                    continue
+                key_lower = key.lower()
+                key_family = _get_model_family(key_lower)
+                if key_family == family:
+                    family_values.append(float(val))
+            if family_values:
+                # Use family average with slight pessimistic bias (conservative prior)
+                family_avg = sum(family_values) / len(family_values)
+                # 80% family average + 20% global default (shrinkage prior)
+                global_default = float(tech_data.get("default", family_avg))
+                blended = 0.8 * family_avg + 0.2 * global_default
+                logger.debug(
+                    "P1-A: Family-weighted prior for %s/%s: %.1f (family=%s, n=%d)",
+                    technique_name, model_name, blended, family, len(family_values),
+                )
+                return round(blended, 1)
+
+    # P1-A: Pass 4 - Global meta-learned default (all models average)
+    # Ultimate fallback: average of all models for this technique
+    all_values = [float(v) for k, v in tech_data.items() if k != "default" and isinstance(v, (int, float))]
+    if all_values:
+        meta_avg = sum(all_values) / len(all_values)
+        # Apply stronger pessimistic bias for completely unknown models
+        # (90% meta average - penalty for total uncertainty)
+        uncertain_prior = max(5.0, meta_avg * 0.9)
+        logger.debug(
+            "P1-A: Meta-learned default for %s/%s: %.1f (n=%d)",
+            technique_name, model_name, uncertain_prior, len(all_values),
+        )
+        return round(uncertain_prior, 1)
 
     return float(tech_data.get("default", 0.0))
 
@@ -510,34 +593,28 @@ def rank_seeds_for_multi_turn(
     technique_name: str = "",
     technique_seed_asr: dict[str, float] | None = None,
 ) -> list[AttackSeedGroup]:
-    """MTOS X ?XEUR?
+    """Rank seeds for multi-turn attacks (Crescendo/TAP/PAIR).
 
-    [: Chao et al. (arXiv:2310.08419) ?PAIR X?
-    X? -?ASR  ( ASR 0-15% )?
+    Uses simplified scoring based on:
+        - Historical ASR (primary signal)
+        - Severity weighting (critical > high > medium > low)
+        - Technique-specific cross-ASR bonus (if available)
 
-     (MTOS Score):
-        - ASR ?(35%): ??ASR EUR
-        -  (25%): EUR
-        - ra?(20%): critical
-        - ?(20%):  OWASP
-
-    L5 v36: EURXX?ASR
-        ?technique_name ?technique_seed_asr ? X OWASP
-        YoXYuX ASR,  bonus  ( 15%, [
-        +)yu ASR Xeng? EUR?
-        [: arXiv:2402.12109 / arXiv:2312.02191 / arXiv:2310.08419 ?
-        EURXX OWASP ?ASR EUR?
+    Academic basis:
+        - Chao et al. (arXiv:2310.08419): PAIR seed optimization
+        - Russinovich et al. (arXiv:2402.12109): Crescendo seed suitability
+        - Mehrotra et al. (arXiv:2312.02191): TAP seed selection
 
     Args:
-        seed_groups: uEUR?
-        asr_history:  ASR ?
-        model_name: X"O?
-        priors: ?
-        technique_name: EURX?(?"crescendo" / "tap" / "pair")?
-        technique_seed_asr: EURXX?ASR  {owasp_id: asr_pct}?
+        seed_groups: UCB-ranked seed groups.
+        asr_history: Technique-level ASR history.
+        model_name: Target model name (for prior lookup).
+        priors: ASR priors (loaded from YAML if None).
+        technique_name: Current technique (for technique_seed_asr lookup).
+        technique_seed_asr: Per-technique OWASP-level ASR {owasp_id: asr_pct}.
 
     Returns:
-        ?MTOS X (?MTOS eng)?
+        MTOS-ranked seed groups.
     """
     if not seed_groups:
         return seed_groups
@@ -545,27 +622,10 @@ def rank_seeds_for_multi_turn(
     if priors is None:
         priors = load_asr_priors(model_name)
 
-    mtos_weights = priors.get("mtos_weights", {})
-    w_asr = mtos_weights.get("asr_suitability", 0.35)
-    w_diff = mtos_weights.get("difficulty", 0.25)
-    w_sev = mtos_weights.get("severity", 0.20)
-    w_div = mtos_weights.get("category_diversity", 0.20)
+    # Severity weight mapping (higher = more valuable target)
+    severity_weights = {"critical": 1.5, "high": 1.2, "medium": 1.0, "low": 0.8, "easy": 0.6}
 
- # L5 v36: yu ASR
- # technique_seed_asr ? [+ 15% ?ASR bonus
-    w_cross = 0.0
-    if technique_seed_asr:
-        w_cross = 0.15  # 15% ?ASR
- # ?
-        scale = (1.0 - w_cross) / 1.0
-        w_asr *= scale
-        w_diff *= scale
-        w_sev *= scale
-        w_div *= scale
-
-    asr_suitability_map = priors.get("mtos_asr_suitability", {})
-
- # ?ASR
+    # Load seed-level ASR history
     seed_asr: dict[str, float] = {}
     if _ASR_HISTORY_PATH.exists():
         try:
@@ -574,90 +634,42 @@ def rank_seeds_for_multi_turn(
         except (json.JSONDecodeError, KeyError):
             pass
 
-    difficulty_order = {"easy": 4, "low": 3, "medium": 2, "hard": 1, "extreme": 0}
-    severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "easy": 4}
-
- # X?
-    category_counts: dict[str, int] = {}
-    for group in seed_groups:
-        if group.seeds:
-            obj = next((s for s in group.seeds if hasattr(s, "value")), None)
-            if obj:
-                meta = getattr(obj, "metadata", {}) or {}
-                cat = str(meta.get("category", "general"))
-                category_counts[cat] = category_counts.get(cat, 0) + 1
-
     scored: list[tuple[float, int, AttackSeedGroup]] = []
 
     for i, group in enumerate(seed_groups):
-        objective_text = ""
-        severity = "medium"
-        difficulty = "medium"
-        category = "general"
-        owasp_id = ""
+        if not group.seeds:
+            scored.append((0.0, i, group))
+            continue
 
-        if group.seeds:
-            obj = next((s for s in group.seeds if hasattr(s, "value")), None)
-            if obj:
-                objective_text = _make_seed_key(obj.value)
-                meta = getattr(obj, "metadata", {}) or {}
-                severity = meta.get("severity", "medium")
-                difficulty = meta.get("difficulty", "medium")
-                category = str(meta.get("category", "general"))
-                owasp_id = str(meta.get("owasp_id", "")).upper()
+        obj = next((s for s in group.seeds if hasattr(s, "value")), None)
+        if not obj:
+            scored.append((0.0, i, group))
+            continue
 
- # ASR
-        asr = seed_asr.get(objective_text, 0.0)
-        if asr == 0.0:
-            asr = asr_history.get(objective_text, 0.0)
+        seed_key = _make_seed_key(obj.value)
+        meta = getattr(obj, "metadata", {}) or {}
+        severity = meta.get("severity", "medium")
+        owasp_id = str(meta.get("owasp_id", "")).upper()
 
- # ASR ? ?ASR ?EUR?
-        asr_bucket = int(asr // 5) * 5  # ?5 EUR
-        suitability = float(asr_suitability_map.get(str(asr_bucket), 50.0))
-        if asr == 0.0:
-            suitability = 100.0  # ASR=0 ?EUR
+        # Base score from historical ASR
+        asr = seed_asr.get(seed_key, asr_history.get(seed_key, 0.0))
+        base_score = asr * severity_weights.get(severity, 1.0)
 
- # :
-        diff_score = (5 - difficulty_order.get(difficulty, 2)) * 20.0
-
- # rau?
-        sev_score = (5 - severity_order.get(severity, 2)) * 20.0
-
- # ? EURX?
-        cat_count = category_counts.get(category, 1)
-        div_score = max(0, 100.0 - (cat_count - 1) * 30.0)
-
- # L5 v36: yu ASR bonus
- # YoX technique_seed_asr XX OWASP X?ASR
-        cross_score = 50.0  # XXEUR?
+        # Technique-specific cross-ASR bonus
+        cross_bonus = 0.0
         if technique_seed_asr and owasp_id:
-            cross_asr_val = technique_seed_asr.get(owasp_id)
-            if cross_asr_val is None:
-                cross_asr_val = technique_seed_asr.get("default", 50.0)
- # ?ASR (0-100) ?0-100 ?(?ASR ?)
-            cross_score = float(cross_asr_val)
+            cross_asr_val = technique_seed_asr.get(owasp_id, technique_seed_asr.get("default"))
+            if cross_asr_val is not None:
+                cross_bonus = float(cross_asr_val) * 0.15  # 15% weight
 
- # MTOS
-        mtos_score = (
-            w_asr * suitability
-            + w_diff * diff_score
-            + w_sev * sev_score
-            + w_div * div_score
-        )
-        if w_cross > 0:
-            mtos_score += w_cross * cross_score
+        total_score = base_score + cross_bonus
+        scored.append((total_score, i, group))
 
-        scored.append((mtos_score, i, group))
         logger.debug(
-            "MTOS seed '%s...': ASR=%.1f%%, suit=%.1f, diff=%.1f, sev=%.1f, div=%.1f"
-            "%s cross=%.1f ?%.1f",
-            objective_text[:40], asr, suitability, diff_score, sev_score, div_score,
-            f", tech={technique_name}" if technique_name else "",
-            cross_score if w_cross > 0 else 0.0,
-            mtos_score,
+            "MTOS seed '%s...': ASR=%.1f%%, severity=%s, cross=%.1f, score=%.1f",
+            seed_key[:40], asr, severity, cross_bonus, total_score,
         )
 
- # MTOS
+    # Sort by total score descending
     scored.sort(key=lambda x: (-x[0], x[1]))
-
     return [g for _, _, g in scored]

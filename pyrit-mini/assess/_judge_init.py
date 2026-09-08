@@ -24,11 +24,10 @@ from assess._judge_registry import (
     _resolve_arbiter_endpoint,
     _resolve_scoring_endpoint,
 )
-from assess._judge_t0_scoring import (
-    _t0_confidence_score,
-    _t0_non_substantive_check_text,
-    _t0_refusal_check_text,
-)
+
+# NOTE: T0 scoring functions (_t0_confidence_score, _t0_non_substantive_check_text,
+#        _t0_refusal_check_text) are imported lazily inside functions to avoid
+#        circular import: judge_manager -> _judge_init -> judge_manager
 
 logger = logging.getLogger(__name__)
 
@@ -274,6 +273,12 @@ async def _run_arbiter_judge(result: Any) -> bool:
 
 def _heuristic_second_judge_success(result: Any) -> bool:
     """L5 v23/v25/v48: Judge - (fallback)"""
+    # Lazy import to avoid circular dependency
+    from assess.judge_manager import (
+        _t0_confidence_score,
+        _t0_non_substantive_check_text,
+        _t0_refusal_check_text,
+    )
     response = _extract_response_text(result)
     if not response or not isinstance(response, str):
         return False

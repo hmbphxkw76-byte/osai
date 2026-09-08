@@ -3,7 +3,7 @@
 > **文档层级**：L1 / 五层规约金字塔第二层
 > **效力**：定义系统的目标架构、模块边界、数据契约与架构不变量。任何代码变更必须能在本蓝图上"落点"——落不了点的变更需要先走 change-proposal 修改蓝图。
 > **读者**：实施任务前的 AI（必读相关章节）、评审 diff 的人工/AI。
-> **版本**：v1.10（2026-09-08 REV-10：adapters/ → recon/target_wrapper.py 迁移，消除死代码 content_filter.py；REV-09：targets/ → adapters/；初版 2026-09-05）
+> **版本**：v1.12（2026-09-08 REV-12：新增数据流完整性规约引用，关联 45-DATA-FLOW-INTEGRITY.md）
 
 ---
 
@@ -48,9 +48,10 @@ config/profiles/asset_index.yaml  ← 统一资产索引 (v63 固定参数集)
 
 | 层 | 模块 | 职责一句话 |
 |----|------|-----------|
-| 编排层 | `main.py` | 六阶段顺序编排 + 多 endpoint 循环；**不得包含业务逻辑**（现状违例：87KB 巨石，D-02） |
-| 核心层 | `core/` | 配置解析（唯一默认值定义地）、PipelineContext、架构守卫、场景路由 |
+| 编排层 | `main.py` (根目录) | 六阶段顺序编排 + 多 endpoint 循环；**不得包含业务逻辑** |
+| 核心层 | `core/` | 配置解析（唯一默认值定义地）、PipelineContext、场景路由；**禁止带 `__main__`** |
 | 阶段层 | `recon/ arm/ strike/ assess/ report/` | 各攻击阶段的实现；彼此只通过 PipelineContext 交接 |
+| 工具层 | `tools/` | CLI 开发/运维工具（宪法守卫、hooks 安装、场景列表、PoC 生成）；**所有带 `__main__` 的脚本必须放在此处** |
 | Glue层 | `glue/` | 企业AI红队Glue代码：连接专用工具（认证SDK、向量DB SDK、HTTP工具）与PyRIT框架 |
 | 支撑层 | `utils/ pipeline/` | 终端展示、缓存清理、日志、资源清理（现状违例：display.py 119KB，D-14） |
 | 数据层 | `data/` + `config/` | 种子、评分器 rubric、ASR 先验、defaults（**全部为声明式资产**，D-13 已消除：代码迁至 core/ 或 recon/；burp/ → config/targets/burp/；asset_index.yaml → config/） |

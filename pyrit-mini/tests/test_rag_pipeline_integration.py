@@ -9,7 +9,7 @@ Verifies complete data flow:
 from __future__ import annotations
 
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from recon.rag_metadata_parser import (
     KnowledgeBaseMap,
@@ -125,7 +125,6 @@ class TestRAGPipelineDataFlow(unittest.TestCase):
         ctx = self._create_mock_ctx()
         kb_map = self._create_sample_kb_map()
 
-        original_count = len(ctx.techniques)
         optimized = recommend_techniques_for_rag(kb_map, existing_techniques=ctx.techniques)
 
         # Should add techniques based on KB analysis

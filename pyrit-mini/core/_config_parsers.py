@@ -250,8 +250,7 @@ def _apply_config_file(args: argparse.Namespace, config: dict[str, Any]) -> None
         elif isinstance(targets_cfg, str):
             args.burp = [targets_cfg]
 
- # == Campaign Schema v2.0: attack_surface args ==
- # core/asset_mapper.py asset_index.yaml
+    # == Campaign Schema v2.0: attack_surface args ==
     attack_surface_cfg = config.get("attack_surface")
     if attack_surface_cfg is not None:
         args.attack_surface = str(attack_surface_cfg)

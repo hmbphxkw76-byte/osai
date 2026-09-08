@@ -298,7 +298,7 @@ recon 侧的 MCP 枚举功能完整（枚举 tool schema → 生成定向种子�
 - "合并家族"（judge_manager 1654 + score_pipeline 654 + asr_manager 728 + response_parser 318）≈ **3354 行整体死代码**
 - 仅死文件互引，无生产消费者
 - 活的是"拆分家族"（asr_tracker 门面→asr_compute/asr_stats/asr_history/precompute）
-- `architecture_guard.py:993` 的排除清单只承认拆分家族
+- `tools/guard.py` 的 `_SIZE_BYPASS_WHITELIST` 排除清单只承认拆分家族
 
 **整改验收标准**：
 - [ ] 删除合并家族 3354 行死代码

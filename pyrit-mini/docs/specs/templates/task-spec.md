@@ -45,7 +45,7 @@
 
 ## 7. 验证计划（C10 四步门禁，顺序固定）
 
-- Step 1 `python core/architecture_guard.py --fix-hints`：0 新增 BLOCKING（基线：outputs/guard_baseline.json）
+- Step 1 `py -m tools.guard`：0 新增 BLOCKING（基线：outputs/guard_baseline.json）
 - Step 2 `ruff check core/ recon/ arm/ strike/ assess/ report/ targets/ utils/ main.py`：0 违规
 - Step 3 `python -m pytest tests/ -v --tb=long`：0 失败
 - Step 4 `python main.py --dry-run --max-seeds 1`：无 ImportError/AttributeError/KeyError/TypeError，到达 REPORT

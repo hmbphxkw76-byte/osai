@@ -24,7 +24,6 @@ import time as _time
 from typing import Any
 
 from core.context import PipelineContext
-from core.runtime.capability_drift import get_drift_monitor
 
 # Target router helpers (extracted to _target_router_helpers.py)
 from recon._target_router_helpers import (
@@ -252,13 +251,12 @@ async def create_target(ctx: PipelineContext) -> None:
  # L5 v54+: Guardrail/Stealth/Behavioral/Capability/Seed/Drift
  # Data flow: create_target -> _init_adaptive_probe -> ctx.adaptive_probe_ctx
  # -> arm phase (seed_preferences, stealth_policy, probe_budget)
- # -> strike phase (drift_monitor, guardrail_report)
+ # -> strike phase (guardrail_report)
     try:
         _probe_ctx = await _init_adaptive_probe(ctx, parsed, _probe_counter)
         ctx.adaptive_probe_ctx = _probe_ctx
         ctx.guardrail_report = _probe_ctx.get("guardrail_report", {})
         ctx.stealth_policy = _probe_ctx.get("stealth_policy", {})
-        ctx.drift_monitor = get_drift_monitor()  #
         logger.info(
             "[Adaptive] Pipeline integration OK: guardrail=%s, stealth=%s, "
             "adaptive_budget=%s",

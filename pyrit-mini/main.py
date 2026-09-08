@@ -125,19 +125,6 @@ async def run(argv: list[str] | None = None) -> None:
     ctx.scenario_result_id = getattr(args, "resume", None)
     ctx.memory_labels = getattr(args, "memory_labels_parsed", {}) or {}
 
-    # == L5 v63: Initialize ASR Adaptive Engine (Dynamic Prior Evolution) ==
-    # Data flow: main.py -> ASRAdaptiveEngine + ASRPriorUpdater -> ctx.asr_engine/ctx.asr_updater
-    # Provides: UCB1 technique selection, cold-start prior injection, epsilon-greedy exploration
-    # Academic basis:
-    #   - Auer et al. (2002) - UCB1 algorithm
-    #   - Sutton & Barto (2018) - Epsilon-Greedy exploration
-    #   - Crothers et al. (arXiv:2306.05685) - Adaptive attack timing
-    from core.asr_adaptive_engine import ASRAdaptiveEngine
-    from core.asr_prior_updater import ASRPriorUpdater
-
-    ctx.asr_engine = ASRAdaptiveEngine()
-    ctx.asr_updater = ASRPriorUpdater()
-
     # == Install signal handlers ==
     install_signal_handlers(ctx)
 
@@ -153,12 +140,17 @@ async def run(argv: list[str] | None = None) -> None:
     # R10: dry-run zero-token pipeline integrity verification
     # main.py level: Early return, Skip run_attack_pipeline()
     # orchestrator.py level: Defensive second line, Even if main.py logic fails, can still skip attack
-    _is_dry_run = getattr(args, "dry_run", False)
-    if _is_dry_run:
-        # [DRY-RUN] Skip: check_and_escalate
-        _logger.info("[DRY-RUN] Zero token verification mode - Skip real API calls")
-        _logger.info("[DRY-RUN] [DRY-RUN] Skip attack execution (execute_attacks)")
-        _logger.info("[DRY-RUN] [DRY-RUN] Skip escalation chain (check_and_escalate)")
+    # v2.0+: dry-run 逻辑收敛到 utils/dry_run.py
+    from utils.dry_run import get_dry_run_log_message, is_dry_run, validate_pipeline_connectivity
+
+    if is_dry_run(args):
+        _logger.info(get_dry_run_log_message("main"))
+        _logger.info(get_dry_run_log_message("strike"))
+        _logger.info(get_dry_run_log_message("escalate"))
+        # 验证流水线连通性 (非攻击阶段)
+        connectivity_errors = validate_pipeline_connectivity(ctx)
+        if connectivity_errors:
+            _logger.warning("[DRY-RUN] Connectivity issues: %s", connectivity_errors)
         print_status("DRY-RUN", "DONE", " token  - Skip/", ok=True)
         return
 
@@ -245,25 +237,6 @@ def _verify_pipeline_closure(ctx: Any) -> None:
                 _logger.info(
                     "R1 verification passed: update_asr_priors executed, priors updated",
                 )
-
-    # == Verification 4: ASR Adaptive Engine integration confirmation ==
-    # L5 v63: Verify asr_engine (ASRAdaptiveEngine) is properly initialized
-    _asr_engine = getattr(ctx, "asr_engine", None)
-    _asr_updater = getattr(ctx, "asr_updater", None)
-    if _asr_engine and _asr_updater:
-        _logger.info(
-            "L5 v63 verification passed: ASR Adaptive Engine initialized "
-            "(engine=%s, updater=%s)",
-            type(_asr_engine).__name__,
-            type(_asr_updater).__name__,
-        )
-    else:
-        _logger.warning(
-            "L5 v63 verification warning: ASR Adaptive Engine not fully initialized "
-            "(engine=%s, updater=%s)",
-            type(_asr_engine).__name__ if _asr_engine else "None",
-            type(_asr_updater).__name__ if _asr_updater else "None",
-        )
 
 
 # ===============================================================================

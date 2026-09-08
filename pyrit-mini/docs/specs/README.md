@@ -10,7 +10,8 @@
 | L1 | [10-ARCHITECTURE.md](10-ARCHITECTURE.md) | 技术蓝图：分层与依赖矩阵 / 阶段词汇映射 / ctx 契约 / 不变量 I1-I10 / ADR / 债务簿 D-01~D-16 / **PyRIT 原生攻击引擎架构（9.1-9.4）** | v1.6 |
 | L2 | [20-REQUIREMENTS.md](20-REQUIREMENTS.md) | 需求登记：REQ-001~008（P0）/ REQ-101~108（P1）/ REQ-109~113（考域）/ REQ-114~119（P0-NEW）/ **REQ-120~126（P0-EXAM 考试关键）** / NFR-1~8 / NEG 负需求 / 状态登记表 | v1.4 |
 | L3 | [30-TASKS.md](30-TASKS.md) | 任务协议：生命周期 / 粒度硬上限 / 八步协议 / STOP-REPORT / 三栏汇报格式 / **OffSec AI-300 考试变体协议（9A-9D）** | v1.3 |
-| L4 | [40-GUARDRAILS.md](40-GUARDRAILS.md) | 红线 R-L / R-H / R-S / 四步门禁 / 三层防线 / 检查器登记簿 / **OffSec AI-300 考试合规与证据完整性（7A-7D）** | v1.3 |
+| L4 | [40-GUARDRAILS.md](40-GUARDRAILS.md) | 红线 R-L / R-H / R-S / **R-DATA-1 数据流完整性** / 四步门禁 / 三层防线 / 检查器登记簿 / **OffSec AI-300 考试合规与证据完整性（7A-7D）** | v1.4 |
+| L3 | [45-DATA-FLOW-INTEGRITY.md](45-DATA-FLOW-INTEGRITY.md) | 数据流完整性规约：ARM→Strike→Assess 字段契约 / R-DATA-1~10 强制规则 / 工具链集成 / Git Hooks 自动验证 | v1.0 |
 | 配套 | [50-ROADMAP.md](50-ROADMAP.md) | 使命执行路线图：源码审计基线 / AI-300 考纲映射 / 红队最佳实践 / 阶段任务序列 / vibe coding 会话模型 / 考试日 Runbook / **考试就绪评分卡与快速交战 Playbook（8A-8D）** | v1.1 |
 | 配套 | [templates/task-spec.md](templates/task-spec.md) | 任务规格模板 + **考试快速任务变体**（宪法 C6、30-TASKS 第四/九章） | v1.1 |
 | 配套 | [templates/change-proposal.md](templates/change-proposal.md) | 变更提案模板（宪法 C12、20-REQUIREMENTS 第五章） | v1.0 |

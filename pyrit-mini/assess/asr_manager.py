@@ -156,22 +156,24 @@ def collect_dual_judge_stats(ctx: Any) -> dict[str, Any]:
     , imports
 
     Args:
-        ctx: PipelineContext ( scorer )
+    ctx: PipelineContext ( scorer )
 
     Returns:
-         Judge
+    Judge
     """
-    stats = get_dual_judge_stats()
+    # P0-A:  DualJudgeState (ctx )
+    state = getattr(ctx, "dual_judge_state", None) if ctx else None
+    stats = get_dual_judge_stats(state=state)
 
     if stats.get("total_scored", 0) > 0:
         logger.info(
-            "L5 v30: Dual Judge stats (from post-hoc global counter): "
+            "L5 v30: Dual Judge stats (from post-hoc state): "
             "total=%d, agreed=%d, disagreed=%d",
             stats.get("total_scored", 0),
             stats.get("agreements", 0),
             stats.get("disagreements", 0),
         )
-        return stats
+    return stats
 
  # Fallback: ctx.scorer
     scorer = getattr(ctx, "scorer", None)

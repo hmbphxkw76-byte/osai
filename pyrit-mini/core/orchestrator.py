@@ -23,12 +23,7 @@ from core.phases.executor import (  # noqa: E402
     run_single_endpoint,
     run_single_endpoint_to_result,
 )
-from core.phases.recon import (  # noqa: E402
-    _run_auto_l4_optimization,
-    _run_recon_phase,
-    _run_scenario_routing,
-    _run_synergy_phase,
-)
+from core.phases.recon import _run_recon_phase  # noqa: E402
 from core.phases.report import _run_report_phase  # noqa: E402
 from core.phases.strike import (  # noqa: E402
     _run_escalate_phase,
@@ -42,9 +37,6 @@ __all__ = [
     "run_attack_pipeline",
     #  recon
     "_run_recon_phase",
-    "_run_synergy_phase",
-    "_run_scenario_routing",
-    "_run_auto_l4_optimization",
     #  arm
     "_run_arm_phase",
     #  strike + escalate

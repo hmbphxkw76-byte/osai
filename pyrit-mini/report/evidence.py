@@ -123,7 +123,6 @@ class VulnerabilityEvidence:
     arxiv_reference: str = ""
     timestamp: str = ""
     target_model: str = ""
-    attack_chain: list[dict[str, str]] = field(default_factory=list)
     converter_log: list[dict[str, str]] = field(default_factory=list)
     score_details: list[dict[str, str]] = field(default_factory=list)
  # P0-2: MITRE ATLAS
@@ -204,12 +203,9 @@ class EvidenceCollection:
     cohens_kappa: float = 0.0
  # P0-4: Findings
     findings: list[OWASPFinding] = field(default_factory=list)
- # Web (web_vuln )
-    web_vuln_stats: dict[str, Any] = field(default_factory=dict)
- # (web_vuln )
-    discovered_endpoints: list[dict[str, Any]] = field(default_factory=list)
- # #6 : - ->->
- # "Orchestration Decision Log" ,
+ # L5 v8: Judge
+    dual_judge_stats: dict[str, Any] = field(default_factory=dict)
+ # "Orchestration Decision Log" (P2-07: audit trail of all pipeline decisions)
     orchestration_log: list[dict[str, Any]] = field(default_factory=list)
  # == : (pyrit_scan --memory-labels) ==
  # PipelineContext.memory_labels ,

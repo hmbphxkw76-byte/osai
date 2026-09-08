@@ -19,7 +19,6 @@ from strike.rag_targeted_consumer import (
     estimate_attack_duration,
     generate_document_targeted_seeds,
     inject_rag_targeted_seeds,
-    optimize_strike_execution,
     recommend_techniques_for_rag,
 )
 

@@ -37,12 +37,7 @@ from core.phases.executor import (
     run_single_endpoint,
     run_single_endpoint_to_result,
 )
-from core.phases.recon import (
-    _run_auto_l4_optimization,
-    _run_recon_phase,
-    _run_scenario_routing,
-    _run_synergy_phase,
-)
+from core.phases.recon import _run_recon_phase
 from core.phases.report import _run_report_phase
 from core.phases.strike import _run_escalate_phase, _run_strike_phase
 
@@ -53,9 +48,6 @@ __all__ = [
     "run_attack_pipeline",
     # Recon
     "_run_recon_phase",
-    "_run_synergy_phase",
-    "_run_scenario_routing",
-    "_run_auto_l4_optimization",
     # ARM
     "_run_arm_phase",
     # Strike + Escalate

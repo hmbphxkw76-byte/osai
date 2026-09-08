@@ -2,6 +2,7 @@
 # arXiv:2407.01232 — PyRIT, framework foundation
 # arXiv:2302.12173 — Greshake et al., PromptSendingAttack
 # MCPSec Bridge - mcpsec v2.7.2 (manthanganghasadiya/mcpsec)
+# Stealth Exec - SIEM evasion timing (arXiv:2306.05685 / arXiv:2204.01326)
 """strike - Attack execution module.
 
 6-phase attack pipeline with PyRIT native AttackExecutor:
@@ -21,7 +22,6 @@ Web Security Attacks:
 
 MCPSec + PyRIT Integration (v2.7.2):
     - mcpsec_bridge: Bridge MCPSec CLI to pyrit-mini attack pipeline
-    - mcp_agent_target: PyRIT PromptChatTarget for MCP-enabled LLM agents
     - malicious_mcp_server: Rogue MCP server for client-side testing
     - mcpsec_orchestrator: Full MCPSec + PyRIT attack pipeline orchestrator
     - dynamic_mcp_seeds: Runtime attack seed generation via MCPSec
@@ -30,9 +30,14 @@ MCPSec + PyRIT Integration (v2.7.2):
 from typing import Any
 
 from strike.executor import execute_attacks
+from strike.stealth_exec import StealthConfig, StealthExecutor, _pareto_delay
 
 __all__ = [
     "execute_attacks",
+    # Stealth Executor (SIEM evasion)
+    "StealthConfig",
+    "StealthExecutor",
+    "_pareto_delay",
     # Web Security Attacks
     "AuthAttacks",
     "WebAttacks",
@@ -43,10 +48,6 @@ __all__ = [
     "MCPSecBridge",
     "MCPSecScanResult",
     "create_mcpsec_bridge",
-    "MCPAgentTarget",
-    "MCPAgentTargetConfig",
-    "MCPSideEffect",
-    "create_mcp_agent_target",
     "MaliciousMCPServer",
     "MaliciousMCPConfig",
     "create_and_start_rogue_server",
@@ -86,14 +87,6 @@ def __getattr__(name: str) -> Any:
     ):
         from strike import mcpsec_bridge
         return getattr(mcpsec_bridge, name)
-    if name in (
-        "MCPAgentTarget",
-        "MCPAgentTargetConfig",
-        "MCPSideEffect",
-        "create_mcp_agent_target",
-    ):
-        from strike import mcp_agent_target
-        return getattr(mcp_agent_target, name)
     if name in (
         "MaliciousMCPServer",
         "MaliciousMCPConfig",

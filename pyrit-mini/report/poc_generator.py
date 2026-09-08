@@ -446,10 +446,6 @@ async def run_poc() -> bool:
     print(f"  - Converter: {converter_chain_display}")
 
     return str(outcome).lower() == "success"
-
-if __name__ == "__main__":
-    success = asyncio.run(run_poc())
-    sys.exit(0 if success else 1)
 """
 
 _MULTI_TURN_TEMPLATE = """\
@@ -642,10 +638,6 @@ async def run_poc() -> bool:
     print(f"  - Converter: {converter_chain_display}")
 
     return str(outcome).lower() == "success"
-
-if __name__ == "__main__":
-    success = asyncio.run(run_poc())
-    sys.exit(0 if success else 1)
 """
 
 

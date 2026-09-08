@@ -54,18 +54,8 @@ from pyrit.score.true_false.true_false_composite_scorer import TrueFalseComposit
 from pyrit.score.true_false.true_false_score_aggregator import TrueFalseAggregatorFunc, TrueFalseScoreAggregator
 from pyrit.score.true_false.true_false_scorer import TrueFalseScorer
 
-# judge_manager (SSOT - Single Source of Truth)
-from assess.judge_manager import (  # noqa: F401
-    _BASELINE_CONFIDENCE,
-    _DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
-    _HIGH_CONFIDENCE_PATTERNS,
-    _LOW_CONFIDENCE_PATTERNS,
-    _ONLINE_THRESHOLD_UPDATE_INTERVAL,
-    _bayesian_ei_adjustment,
-    _compute_adaptive_threshold,
-    _t0_refusal_check,
-    create_adaptive_dual_judge_scorer,
-)
+# NOTE: Constants and functions from judge_manager are imported lazily
+# to avoid circular import: judge_manager -> adaptive_dual_judge -> judge_manager
 
 if TYPE_CHECKING:
     from pyrit.prompt_target import PromptTarget
@@ -104,7 +94,7 @@ class AdaptiveDualJudgeScorer(TrueFalseScorer):
         first_judge: TrueFalseScorer,
         second_judge: TrueFalseScorer | None = None,
         third_judge: TrueFalseScorer | None = None,
-        high_confidence_threshold: float = _DEFAULT_HIGH_CONFIDENCE_THRESHOLD,
+        high_confidence_threshold: float = 0.85,  # _DEFAULT_HIGH_CONFIDENCE_THRESHOLD
         aggregator: TrueFalseAggregatorFunc | None = None,
         disagreement_strategy: str = "or",
     ) -> None:
@@ -177,6 +167,12 @@ class AdaptiveDualJudgeScorer(TrueFalseScorer):
         Returns:
             List of Score objects
         """
+        # Lazy imports to avoid circular dependency
+        from assess.judge_manager import (
+            _ONLINE_THRESHOLD_UPDATE_INTERVAL,
+            _compute_adaptive_threshold,
+            _t0_refusal_check,
+        )
         self._total_scored += 1
 
         # L5 v13: T0 fast path - detect obvious refusals
@@ -453,6 +449,12 @@ class AdaptiveDualJudgeScorer(TrueFalseScorer):
         Returns:
             Float confidence in [0.0, 1.0]
         """
+        # Lazy imports to avoid circular dependency
+        from assess.judge_manager import (
+            _BASELINE_CONFIDENCE,
+            _HIGH_CONFIDENCE_PATTERNS,
+            _LOW_CONFIDENCE_PATTERNS,
+        )
         confidence = _BASELINE_CONFIDENCE
         rationale = (score.score_rationale or "").lower()
         if not rationale:

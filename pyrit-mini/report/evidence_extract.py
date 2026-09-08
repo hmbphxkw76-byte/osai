@@ -9,6 +9,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+# P0-D: _is_success SSOT import from utils.attack_utils
+from utils.attack_utils import _is_success
+
 logger = logging.getLogger(__name__)
 
 # == arXiv ==
@@ -98,26 +101,6 @@ _DISPLAY_NAMES: dict[str, str] = {
 def _get_technique_display_name(technique_name: str) -> str:
     """"""
     return _DISPLAY_NAMES.get(technique_name, technique_name.replace("_", " ").title())
-
-# == ==
-
-def _is_success(result: Any) -> bool:
-    """
-
-    imports outcome , fallback  last_score
-    """
-    from pyrit.models import AttackOutcome
-
-    outcome = getattr(result, "outcome", None)
-    if outcome is not None:
-        return outcome == AttackOutcome.SUCCESS
-
-    last_score = getattr(result, "last_score", None)
-    if last_score is not None:
-        score_value = last_score.get_value() if hasattr(last_score, "get_value") else None
-        return bool(score_value)
-
-    return False
 
 # == ==
 

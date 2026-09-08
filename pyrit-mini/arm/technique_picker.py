@@ -143,68 +143,57 @@ def is_multi_turn_technique(technique_name: str) -> bool:
         return False
     return technique_name in MULTI_TURN_TECHNIQUES
 
-# EUREUR #2 : ?EUREUR
-
-# ?EUR?
-# [? EUR?
+# Capability-specific technique augmentation
+# Maps capability tags to recommended techniques for targeted attack scenarios
 _CAPABILITY_TECHNIQUE_MAP: dict[str, list[str]] = {
-    "mcp": ["context_compliance"],
-    "mcp_protocol": ["context_compliance"],  # - mcp
+    # MCP/Agent attacks benefit from context compliance (tool manipulation)
+    "mcp": ["context_compliance", "skeleton_key"],
+    "mcp_protocol": ["context_compliance"],
+    "multi_agent": ["context_compliance", "skeleton_key"],
+    "a2a_protocol": ["context_compliance"],
+    "a2a": ["context_compliance"],
+    # RAG systems are vulnerable to context compliance (retrieval manipulation)
     "rag": ["context_compliance"],
+    "embedding_rag": ["context_compliance"],
+    # Function calling / tool hijack use context compliance for injection
     "function_calling": ["context_compliance"],
     "tool_hijack": ["context_compliance"],
-    "multi_agent": ["context_compliance"],
-    "workflow": ["context_compliance"],
-    "session_auth": ["context_compliance"],
-    "memory": ["context_compliance"],
-    "multi_tenant": ["context_compliance"],  # -
-    # - recon_report.py _CAPABILITY_STRATEGY
-    "a2a_protocol": ["context_compliance"],
-    "embedding_rag": ["context_compliance"],
-    #
-    "a2a": ["context_compliance"],
-    # P1-2: OpenAPI ->
-    "openapi": ["context_compliance"],
-    "openapi_auth": ["context_compliance"],
 }
 
 def augment_techniques_by_capability(
     techniques: list[str],
     capabilities: str | None,
 ) -> list[str]:
-    """EUR?( #2 ).
+    """Augment technique list based on detected capabilities.
 
-    [: Greshake et al. (arXiv:2302.12173) ?
-    raEUR MCP/RAG/Agent ?
-    context_compliance ?Agent EUR?
+    When deep probing detects specific capabilities (MCP, RAG, etc.),
+    this function adds targeted techniques that exploit those capabilities.
+
+    Academic basis:
+        - Greshake et al. (arXiv:2302.12173): Indirect injection via RAG/MCP
+        - Zeng et al. (arXiv:2402.19181): Context compliance for agent systems
 
     Args:
-        techniques: EURuEUR?
-        capabilities:  (, ?"mcp,rag,function_calling")?
-            None +uEUR?
+        techniques: Base technique list.
+        capabilities: Comma-separated capability tags (e.g., "mcp,rag").
+            None returns techniques unchanged.
 
     Returns:
-        EUR?()?
+        Augmented technique list (deduplicated).
     """
     if not capabilities:
         return techniques
 
     cap_list = [c.strip().lower() for c in capabilities.split(",") if c.strip()]
     augmented = list(techniques)
-    added: list[str] = []
 
     for cap in cap_list:
-        mapped_techs = _CAPABILITY_TECHNIQUE_MAP.get(cap, [])
-        for tech in mapped_techs:
+        for tech in _CAPABILITY_TECHNIQUE_MAP.get(cap, []):
             if tech not in augmented:
                 augmented.append(tech)
-                added.append(tech)
 
-    if added:
-        logger.info(
-            "Capability-adaptive technique augmentation: %s (from capabilities=%s)",
-            added,
-            cap_list,
-        )
+    if len(augmented) > len(techniques):
+        added = [t for t in augmented if t not in techniques]
+        logger.info("Capability-adaptive technique augmentation: %s", added)
 
     return augmented

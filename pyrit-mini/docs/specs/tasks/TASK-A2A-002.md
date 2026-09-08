@@ -56,7 +56,7 @@
 
 ## 7. 验证计划
 
-- Step 1 `python core/architecture_guard.py`：0新增BLOCKING
+- Step 1 `py -m tools.guard`：0新增BLOCKING
 - Step 2 `ruff check recon/a2a_discoverer.py`：0违规
 - Step 3 `python -m pytest tests/ -v`：0失败
 - Step 4 `python main.py --dry-run --max-seeds 1`：无ImportError

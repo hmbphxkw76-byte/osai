@@ -291,8 +291,9 @@ def _generate_findings_markdown(evidence: EvidenceCollection, *, success_only: b
         lines.append("| Attribute | Value |")
         lines.append("|-----------|-------|")
         for key in ("app_type", "target_type", "auth_type", "capabilities", "model_family", "language"):
+            val = fp.get(key, "")
             if val:
-                lines.append("")
+                lines.append(f"| {key} | {val} |")
 
     # == Evidence Cards (C: per-evidence detail) ==
     lines.append("## Evidence Cards")
@@ -569,6 +570,7 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
     if hasattr(evidence, "dual_judge_stats") and evidence.dual_judge_stats:
         lines.append("## Adaptive Dual Judge Statistics")
         lines.append("")
+        stats = evidence.dual_judge_stats  # P0-5: 修复 stats 未定义
         lines.append("| Metric | Value |")
         lines.append("|--------|-------|")
         lines.append(f"| Total Scored | {stats.get('total_scored', 0)} |")
@@ -673,11 +675,11 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
         }
 
         for phase in phase_order:
+            entries = orch_by_phase.get(phase, [])  # P0-5: 修复 entries 未定义
             if not entries:
-                lines.append(f"### {phase_labels.get(phase, phase.upper())}")
+                continue  # 跳过无数据的阶段
+            lines.append(f"### {phase_labels.get(phase, phase.upper())}")
             lines.append("")
-
- #
             lines.append("| # | Decision | Key Parameters | Reasoning |")
             lines.append("|---|----------|----------------|-----------|")
 
@@ -685,6 +687,7 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
                 reasoning = entry.get("reasoning", "")[:80]
                 if len(entry.get("reasoning", "")) > 80:
                     reasoning += "..."
+                decision = entry.get("decision", "unknown")  # P0-5: 修复 decision 未定义
                 # Format input/output params
                 _input = entry.get("input", {}) or {}
                 _output = entry.get("output", {}) or {}
@@ -698,10 +701,8 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
                         if k in _output:
                             params.append(f"{k}={_output[k]}")
 
-                params_str = ", ".join(params[:3])  # 3 converter(s)
-                if not params_str:
-
-                    lines.append(f"| {idx} | {decision} | {params_str} | {reasoning} |")
+                params_str = ", ".join(params[:3])
+                lines.append(f"| {idx} | {decision} | {params_str} | {reasoning} |")
 
             lines.append("")
 

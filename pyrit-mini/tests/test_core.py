@@ -4,7 +4,7 @@
 Covers:
     - core.config: parse_args, get_output_dir, ensure_output_dir
     - core.context: PipelineContext dataclass
-    - core.setup_hooks: find_git_root
+    - tools.hooks: find_git_root (迁移自 core/setup_hooks.py v2.0+)
 """
 
 from __future__ import annotations
@@ -132,7 +132,7 @@ class TestSetupHooks:
 
     def test_find_git_root(self):
         """find_git_root should find the git root of this project."""
-        from core.setup_hooks import find_git_root
+        from tools.hooks import find_git_root
 
         result = find_git_root()
         # Should find a git root (this is a git repo)

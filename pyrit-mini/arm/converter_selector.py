@@ -4,6 +4,7 @@ Provides:
     - _get_candidate_converters: Deduplicate + ASR-rank converter list
     - _build_converter_config: Build AttackConverterConfig for SequentialAttack
     - _prune_low_asr_converters: Prune converters with historical ASR < threshold
+    - get_seed_routed_converters: Get converters using SeedRouter for per-seed optimization
 
 Academic basis:
     - Wei et al. (arXiv:2307.15043): >2 layer serial stacking drops ASR 12% -> 4%
@@ -534,249 +535,82 @@ def _get_owasp_converter_priorities(ctx: PipelineContext) -> list[str]:
     return []
 
 def _build_converter_config(ctx: PipelineContext) -> Any:
-    """ AttackConverterConfig.
+    """Build AttackConverterConfig for SequentialAttack.
 
-    L5 v34 :  ASR converter(s) .
+    L5 v34: Selects ONE best converter per path (avoids serial stacking bug from v33).
+    v33 used 9 converters in single ConverterConfiguration -> ASR=0%.
 
-    :
-        v33  9 converter(s) ConverterConfiguration  PromptSendingAttack,
-         PyRIT  PromptNormalizer.convert_values_async all
-        ConverterConfiguration
-         payload  9 Layer converter  -> ASR=0%
-
-    :
-         1  ConverterConfiguration ( 1 converter(s) converter),
-         payload converter(s)
-         SequentialAttack ,  scorer
-        ,
-
-     ( ASR ):
-        1. PersuasionConverter(authority_endorsement) - ASR 38.4%
-        2. PersuasionConverter(expert_endorsement)  - ASR ~35%
-        3. PersuasionConverter(logical_appeal)      - ASR 28.7%
-        4. ROT13Converter (semantic)               - ASR 30-40%
-        5. VariationConverter                       - ASR 20-30%
-        6. ToneConverter(academic)                  - ASR 22.1%
-        7. Base64Converter + ROT13Converter (2Layer)   - ASR 12%
+    Architecture:
+        - Each converter = 1 independent ConverterConfiguration (parallel paths)
+        - SequentialAttack tries FIRST_SUCCESS across all paths
+        - Exception: chained SelectiveTextConverter pair (WordProportion+Token) = selective 2-layer
+          where only 30% text goes through 2 layers, ASR 30-40% (arXiv:2307.15043)
 
     Academic basis:
-        - Wei et al. (arXiv:2307.15043):  >2 Layer ASR imports 12%  4%.
-        - Zeng et al. (arXiv:2402.19181): authority ASR 38.4% .
-        - PyRIT (arXiv:2407.01232): SequentialAttack FIRST_SUCCESS,
-           PromptSendingAttack .
+        - Wei et al. (arXiv:2307.15043): >2 layer serial stacking drops ASR 12% -> 4%
+        - Zeng et al. (arXiv:2402.19181): authority_endorsement ASR 38.4%
+        - PyRIT (arXiv:2407.01232): SequentialAttack FIRST_SUCCESS
 
-     None  converter ().
+    Returns:
+        AttackConverterConfig or None if no converters configured.
     """
     from pyrit.executor.attack import AttackConverterConfig
     from pyrit.prompt_normalizer import ConverterConfiguration
 
-    seen_signatures: set[str] = set()
-    unique_converters: list[Any] = []
-    for technique_name, converters in ctx.converter_map.items():
-        for c in converters:
-            sig = _converter_signature(c)
-            if sig not in seen_signatures:
-                seen_signatures.add(sig)
-                unique_converters.append(c)
-
+    unique_converters = _deduplicate_converters(ctx)
     if not unique_converters:
-        logger.info("No converters configured, using raw prompts (baseline with SK prefix)")
+        logger.info("No converters configured, using raw prompts (baseline)")
         return None
 
- # ASR
+    # ASR pruning
     unique_converters = _prune_low_asr_converters(unique_converters, ctx=ctx)
 
- # L5 v34: converter
- # (ASR , )
- # L5 v36: SelectiveTextConverter, CodeChameleon, PolicyPuppetry
- # Academic basis: arXiv:2402.14266 - DrAttack ASR 40-60%
- # arXiv:2404.30015 - CodeChameleon ASR 35-45%
-    _PRIORITY_MAP: dict[str, int] = {
-        # LLM-Based (ASR 30-60%)
-        "DecompositionConverter": 0,                    # ASR 40-60%
-        "CodeChameleonConverter": 1,                    # ASR 35-45% (NEW)
-        "PersuasionConverter:authority_endorsement": 2,  # ASR 38.4%
-        "PersuasionConverter:expert_endorsement": 3,    # ASR ~35%
-        "PersuasionConverter:logical_appeal": 4,        # ASR 28.7%
-        "PolicyPuppetryConverter": 5,                  # ASR 30-40% (NEW)
-        # Selective (ASR 25-40%)
-        "SelectiveTextConverter:TokenSelectionStrategy": 6,  # (NEW)
-        "SelectiveTextConverter:WordProportionSelectionStrategy": 7,  # (NEW)
-        # Translation (ASR 25-35%)
-        "RandomTranslationConverter": 8,
-        "TranslationConverter": 9,
-        # Template (ASR 25-35%)
-        "TemplateSegmentConverter": 10,                  # NEW
-        # Keyword (ASR 20-30%, 0 token)
-        "SearchReplaceConverter": 11,                    # NEW
-        # Variation (ASR 20-30%)
-        "VariationConverter": 12,
-        # Smuggling (ASR 20-30%)
-        "AsciiSmugglerConverter": 13,                   # NEW
-        # Semantic (ASR 30-40%, )
-        "ROT13Converter": 14,
-        # Tone (ASR 22.1%)
-        "ToneConverter:academic": 15,
-        # File Converters (, ASR 15-25%)
-        "WordDocConverter:direct": 16,                  # NEW (payload -> .docx)
-        "WordDocConverter:placeholder": 17,             # NEW ()
-        "PDFConverter:direct": 18,                      # NEW (payload -> PDF)
-        "PDFConverter:injection": 19,                  # NEW (PDF)
-        # (ASR < 20%, fallback)
-        "RandomCapitalLettersConverter": 20,
-        "UnicodeSubstitutionConverter": 21,
-        "Base64Converter": 22,                           # ,
-    }
+    # Build priority map with overrides
+    priority_map = dict(_CONVERTER_PRIORITY_MAP)
+    priority_map = _apply_priority_overrides(priority_map, unique_converters, ctx)
 
- # L5 v36: OWASP -> Converter
- # Academic basis:
- # arXiv:2402.19181 - Zeng et al.
- # arXiv:2307.15043 - Wei et al.
- # arXiv:2402.14266 - DrAttack
- # : ctx.seeds OWASP ,
- # asr_priors.yaml owasp_converter_map, Converter
-    owasp_priorities = _get_owasp_converter_priorities(ctx)
-    if owasp_priorities:
-     # OWASP
-     # owasp_priorities converter
-     #
-        _owasp_priority_map: dict[str, int] = {}
-        for idx, sig in enumerate(owasp_priorities):
-            _owasp_priority_map[sig] = idx + 1  # 1, 2, 3...
- # : OWASP , +
-        _max_owasp = len(owasp_priorities) + 1
-        merged_priority: dict[str, int] = {}
-        for sig in set(list(_PRIORITY_MAP.keys()) + list(_owasp_priority_map.keys())):
-            if sig in _owasp_priority_map:
-                merged_priority[sig] = _owasp_priority_map[sig]
-            else:
-             # OWASP
-                merged_priority[sig] = _PRIORITY_MAP.get(sig, 99) + _max_owasp
-        _PRIORITY_MAP = merged_priority
-        logger.info(
-            "L5 v36: OWASP-adaptive converter priority: %s "
-            "(best=%s, from owasp_converter_map)",
-            ", ".join(f"{k}={v}" for k, v in sorted(_owasp_priority_map.items(), key=lambda x: x[1])),
-            owasp_priorities[0] if owasp_priorities else "N/A",
-        )
-
- # == L5 v40: category converter (per-seed ) ==
- # Academic basis: Greshake et al. (arXiv:2302.12173) - category
- # category OWASP ()
-    category_priorities = _get_category_converter_priorities(ctx)
-    if category_priorities:
-        _cat_priority_map: dict[str, int] = {}
-        for idx, sig in enumerate(category_priorities):
-            _cat_priority_map[sig] = idx + 1
-        _max_cat = len(category_priorities) + 1
-        merged_priority_cat: dict[str, int] = {}
-        for sig in set(list(_PRIORITY_MAP.keys()) + list(_cat_priority_map.keys())):
-            if sig in _cat_priority_map:
-                merged_priority_cat[sig] = _cat_priority_map[sig]
-            else:
-                merged_priority_cat[sig] = _PRIORITY_MAP.get(sig, 99) + _max_cat
-        _PRIORITY_MAP = merged_priority_cat
-        logger.info(
-            "L5 v40: Category-adaptive converter priority: %s "
-            "(best=%s, from category_converter_map, per-seed level)",
-            ", ".join(f"{k}={v}" for k, v in sorted(_cat_priority_map.items(), key=lambda x: x[1])),
-            category_priorities[0] if category_priorities else "N/A",
-        )
-
- # == L5 v40: suitable_for ==
-    sf_strategy_counts = _get_suitable_for_converter_strategy(ctx)
-    dominant_sf_strategy = max(sf_strategy_counts, key=sf_strategy_counts.get) if sf_strategy_counts else "full"
-    if dominant_sf_strategy == "encoding":
-        for c in unique_converters:
-            name = type(c).__name__
-            if name in _ENCODING_CONVERTER_NAMES:
-                sig = _converter_signature(c)
-                _PRIORITY_MAP[sig] = min(_PRIORITY_MAP.get(sig, 99), 0)
-        logger.info("L5 v40: suitable_for strategy='encoding' - encoding converters prioritized")
-    elif dominant_sf_strategy == "semantic":
-        for c in unique_converters:
-            name = type(c).__name__
-            if name in _SEMANTIC_CONVERTER_NAMES:
-                sig = _converter_signature(c)
-                _PRIORITY_MAP[sig] = min(_PRIORITY_MAP.get(sig, 99), 0)
-        logger.info("L5 v40: suitable_for strategy='semantic' - semantic converters prioritized")
-    elif dominant_sf_strategy == "none":
-        logger.info("L5 v40: suitable_for strategy='none' - no converters (raw payload)")
+    # If suitable_for strategy is "none", return None
+    if not priority_map:
         return None
 
- # converter
+    # Sort by priority
     def _priority(c: Any) -> int:
         sig = _converter_signature(c)
-        return _PRIORITY_MAP.get(sig, _PRIORITY_MAP.get(type(c).__name__, 99))
+        return priority_map.get(sig, priority_map.get(type(c).__name__, 99))
 
- # ()
     unique_converters.sort(key=_priority)
 
- # 1 converter ()
- # L5 v36: converter SelectiveTextConverter + TokenSelectionStrategy,
- # SelectiveTextConverter, ConverterConfiguration ()
-    best_converter = unique_converters[0]
-    best_sig = _converter_signature(best_converter)
-    best_name = type(best_converter).__name__
+    if not unique_converters:
+        return None
 
-    logger.info(
-        "L5 v36: Selected best single converter: %s (sig=%s) - "
-        "avoids serial stacking bug, payload stays readable",
-        best_name, best_sig,
-    )
-
- # ConverterConfiguration (1 converter, )
- # Build ConverterConfiguration - independent paths, chained SelectiveText allowed
- # R6 Sec6.1: NEVER serial stacking - each converter = 1 independent path
- # arXiv:2307.15043 - serial stacking >2 layers drops ASR 12% to 4%
- # Exception: chained SelectiveTextConverter (WordProportion + Token) = 2-layer
- # selective chain, only 30% text through 2 layers, 70% stays original.
- # ASR 30-40% vs full-text 2-layer ASR 12%. Safe because preserve_tokens
- # keeps markers so LLM can read surrounding context. (arXiv:2307.15043)
-    converter_configurations = [
-        ConverterConfiguration(converters=[best_converter]),
-    ]
-
- # Add remaining converters as independent parallel paths (NOT serial chain)
-    i = 1
+    # Build ConverterConfiguration list (one converter per path)
+    # R6 Sec6.1: NEVER serial stacking - each converter = 1 independent path
+    # Exception: chained SelectiveTextConverter (WordProportion + Token)
+    converter_configurations: list[ConverterConfiguration] = []
+    i = 0
     while i < len(unique_converters):
         conv = unique_converters[i]
- # Detect chained SelectiveTextConverter pair: WordProportion + Token
- # selective chain - merge into single ConverterConfiguration
+
+        # Detect chained SelectiveTextConverter pair: WordProportion + Token
         if i + 1 < len(unique_converters):
             pair = _detect_chained_selective_pair(conv, unique_converters[i + 1])
             if pair is not None:
-             # Chained SelectiveText: selective chain - conditionally allowed by R6
-             # arXiv:2307.15043 - selective 2-layer ASR 30-40% (not full-text)
                 converter_configurations.append(
                     ConverterConfiguration(converters=list(pair))
                 )
-                logger.info(
-                    "  Path %d: Chained SelectiveText (2-layer, ASR 30-40%%) - "
-                    "WordProportion+Token selective chain",
-                    len(converter_configurations),
-                )
+                logger.info("Path %d: Chained SelectiveText (2-layer, ASR 30-40%%)", len(converter_configurations))
                 i += 2
                 continue
 
-        converter_configurations.append(
-            ConverterConfiguration(converters=[conv])
-        )
+        converter_configurations.append(ConverterConfiguration(converters=[conv]))
         i += 1
 
-    logger.info(
-        "Built %d converter configurations (independent paths + chained selective) - "
-        "L5 v37: selective chain restore + no full-text stacking",
-        len(converter_configurations),
-    )
-
+    logger.info("Built %d converter configurations (independent paths)", len(converter_configurations))
     for idx, config in enumerate(converter_configurations):
         conv_names = [type(c).__name__ for c in config.converters]
         logger.info("  Path %d: %s", idx + 1, " + ".join(conv_names))
 
-    return AttackConverterConfig(
-        request_converters=converter_configurations,
-    )
+    return AttackConverterConfig(request_converters=converter_configurations)
 
 def _prune_low_asr_converters(
     converters: list[Any],
