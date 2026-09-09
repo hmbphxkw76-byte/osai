@@ -12,6 +12,7 @@
     - 路径引用: tools/guard.py (原 core/architecture_guard.py)
 
 迁移自: core/setup_hooks.py (2026-09-08 目录职责优化)
+更新: 2026-09-09 增强 MSYS2/Git Bash 兼容性 (修复 GitHub Desktop 提交报错)
 """
 
 from __future__ import annotations
@@ -89,134 +90,146 @@ _PROJECT_NAME = _PROJECT_ROOT.name
 _PYTHON_EXE = _find_python_exe()
 
 # Hook 模板 - 使用 {python_exe} 占位符
+# 注意: {{ 和 }} 是 Python format 转义，输出为单个 { 和 }
 _PRE_COMMIT_HOOK = """#!/bin/sh
 # Combined pre-commit hook for {repo_name} + architecture_guard + data_flow_validator
 # Auto-installed by: py -m tools.install_hooks
+# Compatible: Windows Git Bash (MSYS2) / WSL / Linux / macOS
+# Strategy: fail-open on env issues, block only on guard violations
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PROJECT_DIR="$REPO_ROOT/{project_name}"
-INSTALL_PYTHON='{python_exe}'
 
 # --- 0. Locate Python ---
 PYTHON=""
-if [ -x "$INSTALL_PYTHON" ]; then
-    PYTHON="$INSTALL_PYTHON"
-elif command -v py >/dev/null 2>&1; then
-    py -3 --version >/dev/null 2>&1 && PYTHON="py -3"
-elif command -v python >/dev/null 2>&1; then
-    python --version >/dev/null 2>&1 && PYTHON=python
-fi
 
-if [ -z "$PYTHON" ]; then
-    echo 'WARNING: No python found, skipping all checks'
+_find_python() {{
+    for _cmd in py py.exe python python3; do
+        if command -v "$_cmd" >/dev/null 2>&1; then
+            if "$_cmd" -c "import sys" >/dev/null 2>&1; then
+                PYTHON="$_cmd"
+                return
+            fi
+        fi
+    done
+    _WIN_PY='{python_exe}'
+    [ -x "$_WIN_PY" ] && PYTHON="$_WIN_PY" && return
+    _MSYS_PY="$(echo "$_WIN_PY" | sed 's|^\\([A-Za-z]\\):|/\\L\\1|; s|\\\\|/|g')"
+    [ -x "$_MSYS_PY" ] && PYTHON="$_MSYS_PY" && return
+}}
+
+_find_python
+
+if [ -z "$PYTHON" ] || ! $PYTHON -c "import sys" >/dev/null 2>&1; then
+    echo '  [SKIP] pre-commit: Python not available (commit allowed)'
     exit 0
 fi
 
-cd "$PROJECT_DIR"
+cd "$PROJECT_DIR" || exit 0
 
-# --- 1. data_flow_validator (自动 pytest 测试) ---
-# 检查 ARM → Strike → Assess 数据流完整性
+# --- 1. data_flow_validator ---
 echo "  [1/2] Running data flow integrity tests..."
-if [ -f "$PROJECT_DIR/tools/data_flow_validator.py" ]; then
-    $PYTHON -m pytest tests/test_data_flow_integrity.py -q --tb=line -p no:cacheprovider --no-header 2>/dev/null
-    DF_EXIT=$?
-    if [ $DF_EXIT -ne 0 ]; then
-        echo "  [FAIL] data_flow_validator: 数据流测试失败 (exit=$DF_EXIT)"
-        echo "    运行查看详细: py -m pytest tests/test_data_flow_integrity.py -v"
-        # 不阻断 commit，仅警告 (因数据流测试可能依赖环境)
-    else
-        echo "  [PASS] data_flow_validator: 测试通过"
-    fi
+DF_OUTPUT=$($PYTHON -m pytest tests/test_data_flow_integrity.py -q --tb=line -p no:cacheprovider --no-header 2>&1)
+DF_EXIT=$?
+if [ $DF_EXIT -ne 0 ]; then
+    echo "  [WARN] data flow tests failed (non-blocking)"
+    echo "$DF_OUTPUT" | tail -3
 else
-    echo "  [SKIP] data_flow_validator: 模块不存在"
+    echo "  [PASS] data_flow_validator"
 fi
 
-# --- 2. architecture_guard (tools/guard.py) ---
+# --- 2. architecture_guard (BLOCKING) ---
 echo "  [2/2] Running architecture_guard..."
-if [ -f "$PROJECT_DIR/tools/guard.py" ]; then
-    $PYTHON -m tools.guard
-    EXIT_CODE=$?
-    if [ $EXIT_CODE -ne 0 ]; then
-        echo ""
-        echo "COMMIT BLOCKED - Architecture guard detected BLOCKING violations."
-        echo "Fix all BLOCKING violations, then re-run: py -m tools.guard"
-        exit 1
-    fi
-    echo "  [PASS] architecture_guard"
+GUARD_OUTPUT=$($PYTHON -m tools.guard 2>&1)
+GUARD_EXIT=$?
+if [ $GUARD_EXIT -ne 0 ]; then
+    echo ""
+    echo "$GUARD_OUTPUT" | tail -10
+    echo ""
+    echo "  COMMIT BLOCKED - Fix BLOCKING violations listed above"
+    echo "  Verify with: py -m tools.guard"
+    exit 1
 fi
+echo "  [PASS] architecture_guard"
 
 echo ""
-echo "All checks passed. Commit allowed."
+echo "  All checks passed. Commit allowed."
 exit 0
 """
 
 _PRE_PUSH_HOOK = """#!/bin/sh
 # Combined pre-push hook for {project_name}
-# Auto-installed by: py -m tools.install_hooks
-# 运行全量 data_flow_validator + architecture_guard + drift_detector
+# Runs: data_flow_validator + architecture_guard + drift_detector
+# Strategy: push blocked only on actual test/guard failures
 
 REPOROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PROJECT_DIR="$REPO_ROOT/{project_name}"
-INSTALL_PYTHON='{python_exe}'
 
+# --- 0. Locate Python ---
 PYTHON=""
-if [ -x "$INSTALL_PYTHON" ]; then
-    PYTHON="$INSTALL_PYTHON"
-elif command -v py >/dev/null 2>&1; then
-    py -3 --version >/dev/null 2>&1 && PYTHON="py -3"
-elif command -v python >/dev/null 2>&1; then
-    python --version >/dev/null 2>&1 && PYTHON=python
-fi
 
-if [ -z "$PYTHON" ]; then
-    echo 'WARNING: No python found, skipping checks'
+_find_python() {{
+    for _cmd in py py.exe python python3; do
+        if command -v "$_cmd" >/dev/null 2>&1; then
+            if "$_cmd" -c "import sys" >/dev/null 2>&1; then
+                PYTHON="$_cmd"
+                return
+            fi
+        fi
+    done
+    _WIN_PY='{python_exe}'
+    [ -x "$_WIN_PY" ] && PYTHON="$_WIN_PY" && return
+    _MSYS_PY="$(echo "$_WIN_PY" | sed 's|^\\([A-Za-z]\\):|/\\L\\1|; s|\\\\|/|g')"
+    [ -x "$_MSYS_PY" ] && PYTHON="$_MSYS_PY" && return
+}}
+
+_find_python
+
+if [ -z "$PYTHON" ] || ! $PYTHON -c "import sys" >/dev/null 2>&1; then
+    echo '  [SKIP] pre-push: Python not available (push allowed)'
     exit 0
 fi
 
-cd "$PROJECT_DIR"
+cd "$PROJECT_DIR" || exit 0
 
-# --- 1. data_flow_validator (全量测试) ---
-echo "  [1/3] Running data flow integrity tests (full)..."
+# --- 1. data_flow_validator ---
+echo "  [1/3] Running data flow integrity tests..."
 if [ -f "$PROJECT_DIR/tools/data_flow_validator.py" ]; then
-    $PYTHON -m pytest tests/test_data_flow_integrity.py -v --tb=short -p no:cacheprovider --no-header 2>&1 | tail -3
-    DF_EXIT=${{PIPESTATUS[0]}}
+    DF_OUTPUT=$($PYTHON -m pytest tests/test_data_flow_integrity.py -q --tb=line -p no:cacheprovider --no-header 2>&1)
+    DF_EXIT=$?
     if [ $DF_EXIT -ne 0 ]; then
-        echo "  [FAIL] data_flow_validator: 数据流测试失败"
-        echo "    PUSH BLOCKED - Fix data flow issues first"
+        echo "  [FAIL] data flow tests failed"
+        echo "$DF_OUTPUT" | tail -5
+        echo "  PUSH BLOCKED"
         exit 1
     fi
     echo "  [PASS] data_flow_validator"
-else
-    echo "  [SKIP] data_flow_validator"
 fi
 
 # --- 2. architecture_guard ---
 echo "  [2/3] Running architecture_guard..."
-$PYTHON -m tools.guard
-EXIT_CODE=$?
-
-if [ $EXIT_CODE -ne 0 ]; then
-    echo "PUSH BLOCKED - Architecture guard BLOCKING"
+GUARD_OUTPUT=$($PYTHON -m tools.guard 2>&1)
+GUARD_EXIT=$?
+if [ $GUARD_EXIT -ne 0 ]; then
+    echo "$GUARD_OUTPUT" | tail -10
+    echo "  PUSH BLOCKED - BLOCKING violations found"
     exit 1
 fi
+echo "  [PASS] architecture_guard"
 
-# --- 3. drift_detector (全量漂移检测) ---
-echo "  [3/3] Running drift_detector (full)..."
+# --- 3. drift_detector ---
+echo "  [3/3] Running drift_detector..."
 if [ -f "$PROJECT_DIR/tools/drift_detector.py" ]; then
-    $PYTHON -m tools.drift_detector --full
+    DRIFT_OUTPUT=$($PYTHON -m tools.drift_detector --full 2>&1)
     DRIFT_EXIT=$?
     if [ $DRIFT_EXIT -ne 0 ]; then
-        echo "  [FAIL] drift_detector: 检测到阻断级规范漂移"
-        echo "    PUSH BLOCKED - Fix drift violations first"
-        echo "    查看详细: py -m tools.drift_detector --full --report"
+        echo "  [FAIL] drift_detector: blocking drift detected"
         exit 1
     fi
     echo "  [PASS] drift_detector"
-else
-    echo "  [SKIP] drift_detector"
 fi
 
-echo "All checks passed. Push allowed."
+echo "  All checks passed. Push allowed."
 exit 0
 """
 
