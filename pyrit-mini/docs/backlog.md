@@ -17,13 +17,14 @@
 | BL-010 | 2026-09-05 | data/seeds/asr_history.json 运行时产物迁出 git（→ outputs/），.gitignore 补齐（NEG-7），随 D-16 任务 | REV-02 审计 D-16 |
 | BL-011 | 2026-09-05 | SKILL.md 本体收敛：实测 57KB/1400+ 行（宪法引用的 810 行为历史值），超出任何单会话可审计范围，须分章拆解迁移 | REV-02 审计 |
 | BL-012 | 2026-09-05 | ~~Best-of-N stub 缺口~~ → 已升格为 REQ-004 内标注的 P0 缺口 + 路线图 T0-1 任务（保留此行作转化记录） | REV-02 审计 → converted |
-| BL-013 | 2026-09-06 | P0-NEW-1：默认配置下 L2→L4 升级链整体失效（UnboundLocalError）—— `_safe_call` 仅定义在 else 分支，defaults.yaml 默认走 if 分支，L2/L3/L4 调用时抛 UnboundLocalError 被 main.py 静默吞错。违反 C2/I4/REQ-005 | 2026-09-06 代码审计 |
-| BL-014 | 2026-09-06 | P0-NEW-2：多智能体种子 5 条中 3 条永不加载 —— `CAPABILITY_SEED_MAP["multi_agent"]` 仅映射 2/5 种子文件。违反 REQ-002/REQ-109 | 2026-09-06 代码审计 |
-| BL-015 | 2026-09-06 | P0-NEW-3：MCP 动态种子链路断裂 —— `build_mcp_attack_seeds` 完整实现但零生产调用；`ctx._mcp_dynamic_seeds` 死字段；陈旧注释引用不存在的函数。违反 REQ-002 | 2026-09-06 代码审计 |
-| BL-016 | 2026-09-06 | P0-NEW-4：死代码未登记 —— targets/agent_adapter.py（~574行）+ data/scorer_selector.py（252行）+ get_default_classifier() 坏占位。随 D-01/D-13 处理 | 2026-09-06 代码审计 |
-| BL-017 | 2026-09-06 | D-10 修正：escalation 非 9 字节孪生，实为"门面+拆分"三件 + 编码损坏。修正方向：删 escalation_attacks.py + 清 re-export 债务 | 2026-09-06 代码审计 |
-| BL-018 | 2026-09-06 | D-11 修正：converter 非纯粹三轨，但 converter_selector.py 含 ~230 行死函数 + _PRIORITY_MAP 孪生 | 2026-09-06 代码审计 |
-| BL-019 | 2026-09-06 | D-12 修正：seed 排序非孪生，实为拆分+12 符号 re-export 门面 + 双向 import | 2026-09-06 代码审计 |
-| BL-020 | 2026-09-06 | D-01 量化：assess 合并家族实际 ~3354 行整体死代码（非仅双轨描述） | 2026-09-06 代码审计 |
-| BL-021 | 2026-09-06 | 编码损坏范围扩大：technique_registry.py 全文编码损坏，超出原 D-16② 登记范围 | 2026-09-06 代码审计 |
-| BL-022 | 2026-09-06 | 场景特异性未进入执行层：technique_registry.py 的 10 项技术全部是通用越狱类，agent/MCP/RAG 仅靠 tag 过滤，无专用 attack module | 2026-09-06 代码审计 |
+| BL-013 | 2026-09-06 | P0-NEW-1：默认配置下 L2→L4 升级链整体失效（UnboundLocalError）—— `_safe_call` 仅定义在 else 分支，defaults.yaml 默认走 if 分支，L2/L3/L4 调用时抛 UnboundLocalError 被 main.py 静默吞错。违反 C2/I4/REQ-005 | 2026-09-06 代码审计 | ✅ **completed** 2026-09-08 |
+| BL-014 | 2026-09-06 | P0-NEW-2：多智能体种子 5 条中 3 条永不加载 —— `CAPABILITY_SEED_MAP["multi_agent"]` 仅映射 2/5 种子文件。违反 REQ-002/REQ-109 | 2026-09-06 代码审计 | ✅ **completed** 2026-09-08 |
+| BL-015 | 2026-09-06 | P0-NEW-3：MCP 动态种子链路断裂 —— `build_mcp_attack_seeds` 完整实现但零生产调用；`ctx._mcp_dynamic_seeds` 死字段；陈旧注释引用不存在的函数。违反 REQ-002 | 2026-09-06 代码审计 | ✅ **completed** 2026-09-08 |
+| BL-016 | 2026-09-06 | P0-NEW-4：死代码未登记 —— targets/agent_adapter.py（~574行）+ data/scorer_selector.py（252行）+ get_default_classifier() 坏占位。随 D-01/D-13 处理 | 2026-09-06 代码审计 | ✅ **completed** 2026-09-08 |
+| BL-017 | 2026-09-06 | D-10 修正：escalation 非 9 字节孪生，实为"门面+拆分"三件 + 编码损坏。修正方向：删 escalation_attacks.py + 清 re-export 债务 | 2026-09-06 代码审计 | ✅ **completed** 2026-09-08 |
+| BL-018 | 2026-09-06 | D-11 修正：converter 非纯粹三轨，但 converter_selector.py 含 ~230 行死函数 + _PRIORITY_MAP 孪生 | 2026-09-06 代码审计 | ✅ **completed** 2026-09-08 |
+| BL-019 | 2026-09-06 | D-12 修正：seed 排序非孪生，实为拆分+12 符号 re-export 门面 + 双向 import | 2026-09-06 代码审计 | ✅ **completed** 2026-09-08 |
+| BL-020 | 2026-09-06 | D-01 量化：assess 合并家族实际 ~3354 行整体死代码（非仅双轨描述） | 2026-09-06 代码审计 | ✅ **completed** 2026-09-08 |
+| BL-021 | 2026-09-06 | 编码损坏范围扩大：technique_registry.py 全文编码损坏，超出原 D-16② 登记范围 | 2026-09-06 代码审计 | ✅ **completed** 2026-09-08 |
+| BL-022 | 2026-09-06 | 场景特异性未进入执行层：technique_registry.py 的 10 项技术全部是通用越狱类，agent/MCP/RAG 仅靠 tag 过滤，无专用 attack module | 2026-09-06 代码审计 | ✅ **completed** 2026-09-08 |
+| BL-023 | 2026-09-09 | pyproject.toml `[tool.setuptools.packages.find]` include 含死条目 `targets*`（目录已改名 adapters/ 后又被摘除，实测根目录无此目录）——随下次打包/依赖任务顺手清理 | 2026-09-09 规约优化 P2 门禁命令统一核查（C4 豁免通道，未动代码） |

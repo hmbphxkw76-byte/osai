@@ -791,6 +791,105 @@ def word_doc_placeholder_injection() -> list[Any]:
     logger.info("Word doc placeholder injection: deferred to execution phase (no side effects in arm)")
     return []
 
+# === NEW: Document Poisoning, Steganography, and Code Obfuscation Chain Builders ===
+# Added 2026-09-09 — Closes advanced attack carrier gap (arXiv:2302.12173 / arXiv:2306.13254)
+
+def document_poisoning() -> list[Any]:
+    """Document poisoning converter chain for indirect injection attacks.
+
+    Uses PyRIT native PDF/WordDoc converters. The actual poisoned file
+    generation is deferred to strike phase (document_poisoner.py) to keep
+    arm phase side-effect-free (architecture principle).
+
+    Academic basis:
+        - Greshake et al. (arXiv:2302.12173): Indirect injection via documents
+        - Shayegani et al. (arXiv:2306.13254): Multimodal document attacks
+
+    Note: Returns converter class references only. File I/O in strike phase.
+    """
+    converters: list[Any] = []
+
+    # PDF injection — payload in PDF metadata and hidden text
+    try:
+        converters.append(_conv("PDFConverter")())
+        logger.info("Document poisoning: PDFConverter added")
+    except Exception as e:
+        logger.warning("Document poisoning: PDFConverter failed: %s", e)
+
+    # Word doc injection — payload in document properties
+    try:
+        converters.append(_conv("WordDocConverter")())
+        logger.info("Document poisoning: WordDocConverter added")
+    except Exception as e:
+        logger.warning("Document poisoning: WordDocConverter failed: %s", e)
+
+    return converters
+
+
+def steganographic_encoding() -> list[Any]:
+    """Steganographic payload encoding converter chain.
+
+    Combines PyRIT native Unicode steganography converters to hide payloads
+    in apparently benign text. Works on text-level, no file I/O.
+
+    Academic basis:
+        - Shayegani et al. (arXiv:2306.13254): Unicode steganography
+        - @embracethered2024unicode: Unicode Tag smuggling
+
+    Converters:
+        1. AsciiSmugglerConverter — Unicode Tags (U+E0000-U+E007F)
+        2. UnicodeSubstitutionConverter — Character substitution
+    """
+    converters: list[Any] = []
+
+    # AsciiSmuggler: Unicode Tag smuggling (ASR 20-30%)
+    try:
+        converters.append(_conv("AsciiSmugglerConverter")(
+            action="encode",
+            unicode_tags=True,
+        ))
+        logger.info("Steganographic: AsciiSmugglerConverter added")
+    except Exception as e:
+        logger.warning("Steganographic: AsciiSmugglerConverter failed: %s", e)
+
+    # UnicodeSubstitution: Character substitution evasion
+    try:
+        converters.append(_conv("UnicodeSubstitutionConverter")())
+        logger.info("Steganographic: UnicodeSubstitutionConverter added")
+    except Exception as e:
+        logger.warning("Steganographic: UnicodeSubstitutionConverter failed: %s", e)
+
+    return converters
+
+
+def code_obfuscation(encrypt_type: str = "reverse") -> list[Any]:
+    """Code-based payload obfuscation converter chain.
+
+    Uses PyRIT native CodeChameleonConverter to encrypt payloads within
+    code context that only target LLM can decrypt.
+
+    Academic basis:
+        - Lv et al. (arXiv:2404.30015): CodeChameleon ASR 35-45%
+
+    Args:
+        encrypt_type: "reverse", "binary", "base64", "rot13"
+
+    Note: arm.phase obfuscation (unicode_code_obfuscator.py) is separate
+    from this encryption chain. This chain wraps PyRIT native implementation.
+    """
+    converters: list[Any] = []
+
+    try:
+        converters.append(_conv("CodeChameleonConverter")(
+            encrypt_type=encrypt_type,
+        ))
+        logger.info("Code obfuscation: CodeChameleonConverter added (encrypt=%s)", encrypt_type)
+    except Exception as e:
+        logger.warning("Code obfuscation: CodeChameleonConverter failed: %s", e)
+
+    return converters
+
+
 # ?converter_presets re-export Ya?
 from arm.converter_presets import (  # noqa: F401, E402
     build_converter_map,

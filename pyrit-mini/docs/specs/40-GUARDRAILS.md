@@ -3,7 +3,7 @@
 > **文档层级**：L4 / 五层规约金字塔第五层
 > **效力**：红线 = 绝对禁止，视同宪法级（裁决序见 00-CONSTITUTION 第二章）。质量门禁 = 完成任务的必要不充分条件。
 > **执行机制**：三层防线（静态 guard / 运行时 dry-run / git 钩子），继承 SKILL.md D2 条款并收编。
-> **版本**：v2.4（2026-09-09 规约优化三批实施：登记簿唯一化/引用修正/ASR 双口径/编号修复）
+> **版本**：v2.5（2026-09-09 规约优化三批实施：登记簿唯一化/引用修正/ASR 双口径/编号修复；四步门禁 Step 2 命令乱码修复并统一为 `ruff check .`）
 
 ---
 
@@ -106,9 +106,11 @@
 
 | 攻击向量 | 对应模块 | 关键技术 | 引用要求 |
 |---------|---------|---------|----------|
-| JWT 算法混淆 | `strike/auth_attacks.py` | alg=none、RS256→HS256 降级、kid注入 | arXiv:2207.01077 或 CVE-2018-0114 |
-| HTTP 请求走私 | `strike/web_attacks.py` | CL.TE/TE.CL 走私、路径参数覆盖 | ANSI ISAAC 2023 |
-| 审计日志注入 | `strike/audit_evasion.py` | CRLF 注入、ANSI 注入、时间戳伪造 | CVE-2023-50164 |
+| JWT 算法混淆 | `strike/auth_attacks.py` | alg=none、RS256→HS256 降级、kid注入 | CVE-2015-9235（RS256→HS256 混淆）或 CVE-2018-0114（jwk header 注入） |
+| HTTP 请求走私 | `strike/web_attacks.py` | CL.TE/TE.CL 走私、路径参数覆盖 | PortSwigger HTTP Desync（Kettle, 2019） |
+| 审计日志注入 | `strike/audit_evasion.py` | CRLF 注入、ANSI 注入、时间戳伪造 | CWE-117 / CWE-93（OWASP Log Injection） |
+
+> **v2.4 引用修正（C1）**：原表"arXiv:2207.01077"（无法验证为 JWT 相关论文）、"ANSI ISAAC 2023"（不存在）、"CVE-2023-50164"（实为 Apache Struts S2-066 文件上传路径穿越 RCE，与日志注入无关）三处错误归属已按上表修正。
 
 ### 1E-DRIFT. 规范漂移检测护栏（v1.6 新增）
 
@@ -233,7 +235,7 @@ pyrit-drift --full --report
 | 步 | 命令 | 通过标准 | 拦截什么 |
 |----|------|---------|---------|
 | 1 | `py -m tools.guard` | **0 新增 BLOCKING**（相对变更前基线） | 架构模式违规（红线 1A） |
-| 2 | `ruff check core/rnarsn/ art/is/rike/ assess/ rep rt/ targets/ utiss/ mainspyr targets/ utils/ main.py` | 0 违规 | 风格/导入/未用变量 |
+| 2 | `ruff check .`（范围由 [tool.ruff] exclude 限定） | 0 违规 | 风格/导入/未用变量 |
 | 3 | `python -m pytest tests/ -v --tb=long` | 0 失败 | 功能回归 |
 | 4 | `python main.py --dry-run --max-seeds 1` | 无 ImportError/AttributeError/KeyError/TypeError，到达 REPORT 阶段 | **运行时数据流断点**（静态检查抓不到的交接失败） |
 
@@ -323,8 +325,8 @@ py -m tools.guard > outputs/guard_baseline.json   # 记录当前违规基线
 ### 架构规则
 - [ ] `py -m tools.guard` → 0 BLOCKING
 - [ ] `py -m tools.drift_detector --full` → 0 BLOCKING
-- [ ] 新模块 < 850 行（R-SIZE）
-- [ ] 无跨层导入违规（R-DELIVERY-3）
+- [ ] 新模块 < 850 行（R-TOOLS-2）
+- [ ] 无跨层导入违规（蓝图 2.2 依赖矩阵）
 - [ ] 公共 API 在 `__init__.py` 导出
 ```
 
@@ -498,3 +500,5 @@ git push origin main
 | v2.1 | 2026-09-09 | REV-08 新增 R-DATA-2 ASR 中心性红线 + R-DATA-3 取证数据字段红线；数据流完整性测试 50 项全覆盖 | 用户会话批准 |
 | v2.2 | 2026-09-09 | REV-09 新增自主决策系统护栏：① 新增 1G-DECIDE 自主决策系统护栏（R-DECIDE-1~R-DECIDE-5：安全边界保护 BLOCKING / 决策审计追踪 WARNING / 决策稳定性 WARNING / 人类控制权 INFO / 决策数据完整性 WARNING）；② 1H 检查器登记簿新增 5 项决策检查器（总计 34 项）；③ 决策护栏与既有护栏关系映射 | 用户会话批准 |
 | v2.3 | 2026-09-09 | REV-10 P0+P1+P2 文档优化：① 1F 检查器登记簿精简（移除冗余 v1.2/v1.4 锚定标注，新增 R-WEB-1~3 重命名映射，按分类分组）；② 7C 证据验证检查单增强（新增验证时机说明 + 失败处理逻辑 + 代码落点映射：`_validate_attack_evidence()` → `ctx.partial_results`） | 用户会话批准 |
+| v2.4 | 2026-09-09 | REV-11 规约优化三批实施：① 登记簿唯一化——1F 为唯一检查器登记簿，删除重复的 1H；② 引用修正——Web 攻击向量白名单三处错误归属（arXiv:2207.01077 / ANSI ISAAC 2023 / CVE-2023-50164）按可验证来源改写；③ R-DATA-1 测试数与 `tests/test_data_flow_integrity.py` 实测 29 项对齐；④ 新增 R-TOOLS-2（单模块行数上限 850 行，R-SIZE 编号归位、R-DELIVERY-3 作废）；⑤ 新增 R-DECIDE-6 策略先验优先；⑥ Step 2 命令统一为 `ruff check .`；⑦ 删除过时 D-16 注记 | 用户会话批准 |
+| v2.5 | 2026-09-09 | REV-12 P2-C4 修复：第二章四步门禁 Step 2 命令行字符损坏（mojibake），修复并统一为 `ruff check .`（范围由 [tool.ruff] exclude 限定），对齐宪法 C10 与 task-spec 模板 | 用户会话批准 |

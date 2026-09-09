@@ -118,7 +118,7 @@ cd "$PROJECT_DIR"
 # 检查 ARM → Strike → Assess 数据流完整性
 echo "  [1/2] Running data flow integrity tests..."
 if [ -f "$PROJECT_DIR/tools/data_flow_validator.py" ]; then
-    $PYTHON -m pytest tests/test_data_flow_integrity.py -q --tb=line -p no:cacheprovider --no-header 2>/dev1
+    $PYTHON -m pytest tests/test_data_flow_integrity.py -q --tb=line -p no:cacheprovider --no-header 2>/dev/null
     DF_EXIT=$?
     if [ $DF_EXIT -ne 0 ]; then
         echo "  [FAIL] data_flow_validator: 数据流测试失败 (exit=$DF_EXIT)"
@@ -179,7 +179,7 @@ cd "$PROJECT_DIR"
 echo "  [1/3] Running data flow integrity tests (full)..."
 if [ -f "$PROJECT_DIR/tools/data_flow_validator.py" ]; then
     $PYTHON -m pytest tests/test_data_flow_integrity.py -v --tb=short -p no:cacheprovider --no-header 2>&1 | tail -3
-    DF_EXIT=${PIPESTATUS[0]}
+    DF_EXIT=${{PIPESTATUS[0]}}
     if [ $DF_EXIT -ne 0 ]; then
         echo "  [FAIL] data_flow_validator: 数据流测试失败"
         echo "    PUSH BLOCKED - Fix data flow issues first"

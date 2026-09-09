@@ -7,7 +7,7 @@
 
 **考试快速任务变体说明**（当类型 = 考试快速任务时填写）：
 - **模板 ID**：TPL-___（对应 30-TASKS 9B 模板清单）
-- **目标类型**：___（LLM/Agent/Multi-Agent/RAG/MCP/Embedding）
+- **目标类型**：___（LLM/Agent/Multi-Agent/RAG/MCP；Embedding 已裁决 N/A，见 30-TASKS 9A）
 - **预计耗时**：___min（按 50-ROADMAP 8C Playbook 时间盒）
 - **简化门禁**：跳过 Step 1（guard 静态检查），保留 Step 4（dry-run）+ Tier 2（真实攻击验证）
 
@@ -46,7 +46,7 @@
 ## 7. 验证计划（C10 四步门禁，顺序固定）
 
 - Step 1 `py -m tools.guard`：0 新增 BLOCKING（基线：outputs/guard_baseline.json）
-- Step 2 `ruff check core/ recon/ arm/ strike/ assess/ report/ targets/ utils/ main.py`：0 违规
+- Step 2 `ruff check .`（范围由 [tool.ruff] exclude 限定）：0 违规
 - Step 3 `python -m pytest tests/ -v --tb=long`：0 失败
 - Step 4 `python main.py --dry-run --max-seeds 1`：无 ImportError/AttributeError/KeyError/TypeError，到达 REPORT
 - Tier 2（涉及攻击执行/评分/数据变换逻辑时）：**是 / 否** + 判定理由

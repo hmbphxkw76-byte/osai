@@ -15,6 +15,8 @@ Core modules:
     - converter_presets: l5_optimal preset + build_converter_map
     - technique_picker: Attack technique selection (single/multi-turn/adaptive)
     - converter_selector: Converter candidate selection + OWASP priority + ASR pruning
+    - steganography_encoder: LSB/Unicode steganographic payload encoding
+    - unicode_code_obfuscator: Programming language identifier obfuscation
 
 Design principles:
     - Arm phase is side-effect-free: no file I/O, no network calls, no temp files
@@ -30,4 +32,18 @@ __all__ = [
     "load_seeds",
     "build_converter_map",
     "select_techniques",
+    # Steganography & Obfuscation utilities (arm/ side-effect-free)
+    "create_steganographic_payload",
+    "create_obfuscated_code",
 ]
+
+# Lazy imports for new modules (C1: Glue/Enhancement only)
+def __getattr__(name: str):
+    """Lazy import for steganography and obfuscation modules."""
+    if name == "create_steganographic_payload":
+        from arm.steganography_encoder import create_steganographic_payload
+        return create_steganographic_payload
+    if name == "create_obfuscated_code":
+        from arm.unicode_code_obfuscator import create_obfuscated_code
+        return create_obfuscated_code
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

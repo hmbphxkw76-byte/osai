@@ -35,6 +35,7 @@ _SIZE_BYPASS_WHITELIST = {
     "tools/guard_extended.py",  # 迁移后路径
     "core/orchestrator.py",
     "recon/rag_metadata_parser.py",
+    "recon/health_probe.py",  # 860行，4层侦察完整实现，含stealth集成
     "utils/display.py",
     "report/report_markdown.py",
 }

@@ -321,6 +321,18 @@ _AI_API_WORDLIST: list[str] = [
     "/seeds",
     "/templates",
     "/personas",
+    # Agent platform flat routes (modern AI agent frameworks)
+    "/chat",
+    "/upload",
+    "/reset",
+    "/summarize",
+    "/browse",
+    "/review",
+    "/session/new",
+    # Knowledge base routes
+    "/kb/topics",
+    "/kb/add",
+    "/kb/search",
 ]
 
 # Combined wordlist: auth paths + AI API paths

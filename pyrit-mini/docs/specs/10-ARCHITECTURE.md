@@ -3,7 +3,7 @@
 > **文档层级**：L1 / 五层规约金字塔第二层
 > **效力**：定义系统的目标架构、模块边界、数据契约与架构不变量。任何代码变更必须能在本蓝图上"落点"——落不了点的变更需要先走 change-proposal 修改蓝图。
 > **读者**：实施任务前的 AI（必读相关章节）、评审 diff 的人工/AI。
-> **版本**：v2.6（2026-09-09 规约优化：4.4 ctx 字段总表 SSOT 收敛；I4 动态升级链触发；I8 端点价值量化；11.4 决策触发条件增补）
+> **版本**：v2.7（2026-09-09 规约优化：4.4 ctx 字段总表 SSOT 收敛；I4 动态升级链触发；I8 端点价值量化；11.4 决策触发条件增补；9.1 阶段编号/类名修正对齐 PyRIT 1.0.1 实测）
 > **归档文件**：`45-DATA-FLOW-INTEGRITY.md` 已合并入本文件的第四章，原文档不再独立维护（其验证工具链 `tools/data_flow_validator.py` + `tools/data_flow_hooks.py` + `tests/test_data_flow_integrity.py` 仍正常运行）
 
 ---
@@ -269,14 +269,16 @@ Q1: PyRIT 1.0.1 有现成组件吗？
 
 | PyRIT 原生类 | 落点阶段 | 调用模式 | 考试优先级 |
 |------|------|------|------|
-| `PromptSendingAttack` | ④ STRIKE (Executor) | 批量多路径 FIRST_SUCCESS | ⭐⭐⭐⭐⭐ 首发必用 |
-| `SkeletonKeyAttack` | ④ STRIKE (Native) | 单目标前缀注入（ASR 80-95%） | ⭐⭐⭐⭐ 通用绕过 |
-| `CrescendoAttack` | ⑤ ESCALATE (L1) | 渐进式多轮（max_backtracks=10） | ⭐⭐⭐⭐ Agent/Multi-Agent |
-| `TAPAttack` | ⑤ ESCALATE (L2) | 树状分支渗透（width=5, depth=3） | ⭐⭐⭐ 复杂边界 |
-| `PAIRAttack` | ⑤ ESCALATE (L3) | 攻击者-Judge 配对迭代 | ⭐⭐⭐ 高价值目标 |
-| `PromptConverter` | ③ ARM (Converter Chain) | 编码/翻译/混淆变换 | ⭐⭐⭐⭐ 绕过防御 |
-| `SelfAskScorer` / `ContentClassifierScorer` | ⑥ ASSESS (T0) | 0-token 拒绝检测 | ⭐⭐⭐⭐⭐ 省 token |
-| `AzureAISc contentScorer` | ⑥ ASSESS (J1/J2) | LLM Judge 深度评估 | ⭐⭐⭐ 最终判定 |
+| `PromptSendingAttack` | ③ STRIKE (Executor) | 批量多路径 FIRST_SUCCESS | ⭐⭐⭐⭐⭐ 首发必用 |
+| `SkeletonKeyAttack` | ③ STRIKE (Native) | 单目标前缀注入（ASR 80-95%） | ⭐⭐⭐⭐ 通用绕过 |
+| `CrescendoAttack` | ④ ESCALATE (L1) | 渐进式多轮（max_backtracks=10） | ⭐⭐⭐⭐ Agent/Multi-Agent |
+| `TAPAttack` | ④ ESCALATE (L2) | 树状分支渗透（width=5, depth=3） | ⭐⭐⭐ 复杂边界 |
+| `PAIRAttack` | ④ ESCALATE (L3) | 攻击者-Judge 配对迭代 | ⭐⭐⭐ 高价值目标 |
+| `PromptConverter` | ② ARM (Converter Chain) | 编码/翻译/混淆变换 | ⭐⭐⭐⭐ 绕过防御 |
+| `SubStringScorer` / `TrueFalseInverterScorer` | ⑤ ASSESS (T0)；③ STRIKE FIRST_SUCCESS 复用 | 0-token 拒绝检测（strike/_executor_helpers.py 实测） | ⭐⭐⭐⭐⭐ 省 token |
+| `SelfAskTrueFalseScorer` / `SelfAskRefusalScorer` | ⑤ ASSESS (J1/J2) | LLM Judge 双评审级联（assess/_judge_init.py 实测） | ⭐⭐⭐ 最终判定 |
+
+> **v2.7 修正**：原表落点阶段编号与 1.1 阶段词汇映射错位（正确序：②ARM / ③STRIKE / ④ESCALATE / ⑤ASSESS）；原 `SelfAskScorer` / `ContentClassifierScorer` / `AzureAISc contentScorer` 均非 PyRIT 1.0.1 真实类名，已按本机 `pyrit.score` 实测导出与代码现实（`strike/_executor_helpers.py` / `assess/_judge_init.py`）修正。
 
 ### 9.2 考试攻击路径决策树（按目标能力指纹分支）
 
@@ -331,27 +333,6 @@ recon 完成 → capability 指纹分支:
 | `mcp_targeted.yaml` | MCP/Agent 技术优先 | Agent/MCP 目标 | 85-98% | 中等 |
 | `quick_scan.yaml` | 仅 recon + 基础打击 | 首次侦察 / 时间紧迫 | 中等 | 最低 |
 | `standard_redteam.yaml` | 均衡配置 | 标准红队评估 | 高 | 中等 |
-
----
-
-## 版本记录
-
-| 版本 | 日期 | 变更摘要 | 批准 |
-|------|------|---------|------|
-| v1.0 | 2026-09-05 | 初版：系统全景、分层与依赖矩阵、PyRIT 判定树、ctx 契约、Burp 数据流、不变量 I1-I10、ADR-001~006、债务簿 D-01~D-09 | — |
-| v1.1 | 2026-09-05 | REV-01：① §1.1 阶段词汇映射表（统一 recon/arm/strike/report/evidence 口径，防凭空造阶段或模块）；② I7 明确 asr_history（运行时唯一账本）与 asr_priors（人工先验唯一源）的 SSOT 关系；③ 依赖矩阵补 arm 读取 asr_history、"—"图例；④ 版本记录机制 | 用户会话批准 |
-| v1.2 | 2026-09-05 | REV-02 源码对齐（审计 @0b8e28c）：① 新登记债务 D-10~D-16（escalation 孪生、converter 三轨、seed 排序双轨、data/ 层代码污染、display 巨石、judge 文件群、工具链卫生）；② D-02/D-03 现状更新（main.py 87KB 巨石证实；Best-of-N stub 定性为 P0 缺口）；③ §1.1/§2.1 标注现状违例。架构本体（分层/契约/不变量/ADR）无变更 | 用户会话批准 |
-| v1.3 | 2026-09-06 | REV-03 代码审计修正（remediation/audit-remediation.md）：① D-01 量化修正（合并家族实际 ~3354 行死代码）；② D-10 修正（非 9 字节孪生，实为\"门面+拆分\"三件 + 编码损坏）；③ D-11 修正（非纯粹三轨，实为死函数 + _PRIORITY_MAP 孪生）；④ D-12 修正（非孪生，实为拆分+re-export+双向 import） | — |
-| v1.4 | 2026-09-06 | REV-04 D-13 消除：① data/asset_mapper.py → core/asset_mapper.py；② data/attack_surface_classifier.py → recon/attack_surface_classifier.py；③ data/scorer_selector.py 已删除；④ data/burp/ → config/targets/burp/；⑤ 全量更新 import 路径与文档引用；⑥ 4 测试文件路径同步更新 | 用户会话批准 |
-| v1.5 | 2026-09-06 | REV-05 recon 违宪整改（按 00-CONSTITUTION 优先级全部解决）：① P0-01 能力检测三轨合一 — `_probe_capabilities` 内部委托给 `confidence_scorer.score_capability()` SSOT，关键词与正则模式从 capability_detector.py 迁移至 confidence_scorer.py（含 capability_detector 中 MCP/Agent/RAG/Embedding 的结构化模式），原 capability_detector 中 ~200 行重复关键词/正则代码删除；② P0-02 探测风暴裁剪（保留 ≤2 个核心同步探针，其余移异步）— 已完成于会话前期；③ P0-03 自定义 Target 废弃（JSONSafeHTTPTarget → PyRIT 原生 HTTPTarget + ChatIdStateManager）— 已完成于会话前期 | 用户会话批准 |
-| v1.6 | 2026-09-06 | REV-06 AI-300 考试架构优化：① 新增第九章 PyRIT 原生攻击引擎架构（PyRIT→阶段落点映射 9.1、考试攻击路径决策树 9.2、ASR 优化策略 9.3、考试快速攻击模板速查 9.4）；② 架构本体（分层/契约/不变量/ADR）无变更 | 用户会话批准 |
-| v1.7 | 2026-09-06 | REV-07 目录结构重构：① Burp 目标文件从 config/campaigns/targets/ 扁平化迁移至 config/targets/；② asset_index.yaml 从 config/campaigns/ 迁移至 config/profiles/ (固定参数集)；③ 4 Campaign 重命名清晰化 (rapid_recon→quick_scan, full_spectrum_max_asr→deep_spectrum, mcp_agent_targeted→mcp_targeted, standard_redteam 保留) 并迁移至 config/profiles/；④ 删除 config/campaigns/ 目录 | 用户会话批准 |
-| v1.8 | 2026-09-06 | REV-08 消除命名冲突：① config/targets/ 重命名为 config/burp/ (区分代码 targets/ 适配层与 Burp 输入契约)；② 更新 core/config.py、core/scenario_router.py 路径引用 | 用户会话批准 |
-| v1.9 | 2026-09-06 | REV-09 适配层重命名：① targets/ → adapters/ (精准描述 PyRIT 原生组件包装职责)；② 更新 recon/target_router.py import 路径 | 用户会话批准 |
-| v2.0 | 2026-09-08 | REV-10 企业AI红队融合解决方案：① 新增Glue层架构（模块清单、架构原则、攻击类型映射、依赖拓扑）；② 更新分层表新增Glue层；③ 更新依赖方向矩阵新增glue行 | 用户会话批准 |
-| v2.1 | 2026-09-08 | REV-11 过度工程化清理（黑盒可测性约束）：① 删除 vector_db_glue.py（向量DB SDK需直访，黑盒HTTP不可测试）；② 删除 fine_tuning_glue.py（需训练环境API，黑盒HTTP不可测试）；③ 精简 audit_evasion_glue.py 为仅日志注入（移除 SIEM/审计路径）；④ 同步化 enterprise_auth_glue.py；⑤ 更新 Glue 层架构图（3模块精简） | 用户会话批准 |
-| v2.2 | 2026-09-08 | REV-12 全面过度工程化清理后债务簿瘦身：① 债务登记从 16 项（D-01~D-16）精简至 2 项（D-04/D-16）；② 已消除 14 项债务移至归档区（含 assess 双轨、display 巨石、escalation 三件、judge 文件群等）；③ 章节编号修复（原两个"九章"冲突→九章/十章）；④ Glue 层重命名为 Web 攻击层（目录扁平化对齐） | 用户会话批准 |
-| v2.3 | 2026-09-09 | REV-13 合并 45-DATA-FLOW-INTEGRITY.md：① 第四章新增 Phase 字段契约（4.2）和数据传递规则（4.3）；② 数据流完整性验证工具链（DataFlowValidator/data_flow_hooks）保留在 tools/ 目录；③ 45-DATA-FLOW-INTEGRITY.md 标记为归档参见本文件 | 用户会话批准 |
 
 ---
 
@@ -529,3 +510,4 @@ Phase N 执行完成
 | v2.4 | 2026-09-09 | REV-14 新增第十一章全链路自主决策引擎架构：① 决策引擎在架构分层中的位置（11.1）；② 决策点与 ctx 字段契约（11.2）；③ 决策依赖引擎核心组件（11.3）；④ 决策触发条件与反馈闭环（11.4）；⑤ 决策系统架构不变量 ID-1~ID-5（11.5）；⑥ 决策引擎数据流契约（11.6） | 用户会话批准 |
 | v2.5 | 2026-09-09 | REV-15 P0 全面优化实施：① I4 增强动态升级链触发策略（Strike 完成度感知 + 预算感知）；② I8 增补端点价值量化公式；③ 9.3 ASR 优化策略表增补状态列 + 端点价值排序策略；④ 11.4 决策触发条件增补预算阈值触发和 Strike 进度触发 | 用户会话批准 |
 | v2.6 | 2026-09-09 | 规约优化 P0-A4：第四章新增 4.4 ctx 字段总表（SSOT 登记簿）——收敛 4.1/4.2/11.2/11.6/R-DATA-3 分散声明的 25+ 字段为唯一登记簿，新字段只允许在此登记；11.6 改为引用不重复登记 | 用户会话批准 |
+| v2.7 | 2026-09-09 | 规约优化 P2-C2：① 9.1 落点阶段编号对齐 1.1 阶段词汇映射（②ARM/③STRIKE/④ESCALATE/⑤ASSESS）；② 9.1 类名对齐 PyRIT 1.0.1 实测（T0=`SubStringScorer`+`TrueFalseInverterScorer`、J1/J2=`SelfAskTrueFalseScorer`+`SelfAskRefusalScorer`，删除不存在的 AzureAIScScorer 引用）；③ 删除第九章末尾过时重复的版本记录表（SSOT C3，权威版本记录唯一保留于文末） | 用户会话批准 |

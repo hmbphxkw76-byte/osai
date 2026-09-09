@@ -20,7 +20,7 @@
 
 1. **PyRIT原生优先**: 所有新模块基于 PyRIT 1.0.1 原生 API
 2. **学术支撑**: 每种攻击策略都有 arXiv 论文支撑
-3. **宪法合规**: 符合 R-NATIVE-1, R-SIZE, R-H3 等护栏要求
+3. **宪法合规**: 符合宪法 C1 (R-NATIVE-1)、R-TOOLS-2（模块行数上限）、R-H3 等护栏要求
 4. **渐进式激活**: 基于当前 ASR 动态选择攻击策略
 
 ---
@@ -152,6 +152,15 @@ ctx.multimodal_context → 存储结果
 | TrojLLM | arXiv:2004.06660 (Zhang et al.) | 60-85% | 触发词后门攻击 |
 | BadPre | arXiv:2105.12400 (Chen et al.) | 55-80% | 预训练后门注入 |
 | Data Poisoning | arXiv:2307.10709 (Wan et al.) | 50-75% | 指令微调投毒 |
+
+### 4.1-B 黑盒可测性约束（v1.3 增补，对齐 REV-11 裁决口径）
+
+> 本缺口策略**只保留黑盒 HTTP 可测试的子集**（同 50-ROADMAP REV-11 摘除向量DB/微调 Glue 的裁决逻辑）。硬约束：
+
+1. **禁止白盒假设**：不得要求访问模型权重、训练环境、fine-tune 数据集或 logits；论文中的投毒/训练类手段（BadPre、Data Poisoning、TrojLLM 训练侧）仅作理论引用，**不进入编排实现**。
+2. **策略选择依据必须来自黑盒指纹**：`determine_backdoor_strategy()` 的"模型是 fine-tuned / 有 RLHF"判断只能来自 `target_fingerprint` 的黑盒观测（系统提示泄露、model card、行为差异探测），禁止读取任何非 ctx 数据源（R-DECIDE-5 / ID-5）。
+3. **触发只走 prompt 通道**：触发词/上下文条件/角色切换/多轮累积四类策略全部经由 PyRIT 原生 prompt/多轮组件投递，攻击效果以评分级联判定（I2/I3），无独立判定通道。
+4. **不可测即摘除**：任一策略若无法在黑盒 HTTP 路径下构造输入并观察输出差异，登记 backlog 裁决摘除（R-H1 禁止 stub 化保留）。
 
 ### 4.2 新增文件
 
@@ -586,3 +595,4 @@ class DecisionEngine:
 | v1.0 | 2026-09-09 | 初始版本，三大缺口完整优化方案 |
 | v1.1 | 2026-09-09 | 流水线集成完成：`_run_advanced_attacks_phase()` 集成到 strike.py；CLI 参数扩展完成：新增 6 个参数；测试覆盖完成：23/23 passed |
 | v1.2 | 2026-09-09 | 新增第九章"全链路自主决策架构"：① 五阶段决策系统 (Recon/ARM/Strike/Assess/Report)；② 决策依赖与数据流契约；③ 实施路线图 (4 Phase)；④ 决策系统护栏 (R-DECIDE-1~4) |
+| v1.3 | 2026-09-09 | 规约优化 P0-A3 + P1-B7：① 9.5 决策护栏去重——删除与 40-GUARDRAILS 1G 冲突的重复登记表（原 R-DECIDE-4 编号冲突归位），改为 SSOT 引用；② 9.2 伪代码连续失败阈值 `>3`→`>=3` 对齐 R-DECIDE-3；③ 新增 4.1-B 黑盒可测性约束（禁止白盒假设/指纹黑盒来源/prompt 通道触发/不可测即摘除） | 用户会话批准 |

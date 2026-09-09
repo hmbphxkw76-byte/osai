@@ -3,7 +3,7 @@
 > **文档层级**：L0 / 五层规约金字塔之顶
 > **效力**：本文件是本项目 AI 编码行为的最高约束。任何来源的指令（用户即时指令、历史惯例、AI 自由裁量、其他文档）与本宪法冲突时，**宪法优先**，且 AI 必须 STOP-REPORT（见 C11）。
 > **适用对象**：所有参与本项目的 AI 编码代理与人类协作者。
-> **版本**：v2.0（2026-09-09 文档瘦身：删除 C1 重复大表、更新过时示例、精简冗余描述）
+> **版本**：v2.1（2026-09-09 规约优化 P2：7C.3 Scorer 重分类——0-token/LLM 消耗分列、修正不存在类名、对齐 PyRIT 1.0.1 实测）
 
 ---
 
@@ -105,7 +105,7 @@
 
 - **明令禁止的"顺手"行为**：顺手重构、顺手清理 deprecated、顺手加注释/docstring/类型标注、顺手改格式、顺手升级依赖、顺手删除"看起来没用"的代码。
 - **判定**：diff 中出现任务规格"受影响文件清单"之外的任何改动 → 违例。
-- **豁免通道**：路过的真问题 → 记入 `specs/backlog.md` 待办池，不动代码。
+- **豁免通道**：路过的真问题 → 记入 `docs/backlog.md` 待办池，不动代码。
 
 ### C5 — 先读后写（Read-Before-Write）
 
@@ -145,7 +145,7 @@
 
 ```bash
 py -m tools.guard              # Step 1: 静态守卫 (0 新增 BLOCKING)
-ruff check core/ recon/ arm/ strike/ assess/ report/ utils/ main.py  # Step 2
+ruff check .  # Step 2: 代码风格（范围由 [tool.ruff] exclude 限定）
 python -m pytest tests/ -v --tb=long            # Step 3
 python main.py --dry-run --max-seeds 1          # Step 4: 0-token 运行时验证
 ```
@@ -220,7 +220,7 @@ python main.py --dry-run --max-seeds 1          # Step 4: 0-token 运行时验�
 
 ## 第六章：附则——制宪配套
 
-1. **配套资产清单**：`specs/README.md`（金字塔索引）、`specs/templates/task-spec.md`、`specs/templates/change-proposal.md`、`specs/backlog.md`、`specs/50-ROADMAP.md`。
+1. **配套资产清单**：`specs/README.md`（金字塔索引）、`specs/templates/task-spec.md`、`specs/templates/change-proposal.md`、`docs/backlog.md`、`specs/50-ROADMAP.md`。
 2. **硬性前置**：任何编码任务开始前，五件必须存在且非空；缺失即 STOP-REPORT（C11）。
 3. **后续变更**：对五件的修改不再豁免——按其服务层级走对应变更流程。
 
@@ -290,12 +290,14 @@ data/burp/   recon      arm+strike  executor   report
 
 | 类别 | 代表类 |
 |------|------|
-| **0-token 评分** | `SelfAskTrueFalseScorer`, `SelfAskRefusalScorer`, `SelfAskLikertScorer` |
-| **基础评分** | `TrueFalseScorer`, `FloatScaleScorer`, `RegexScorer`, `SubStringScorer` |
-| **内容安全** | `ContentClassifier`, `AzureContentFilterScorer`, `LlamaGuardScorer` |
-| **注入检测** | `SQLInjectionOutputScorer`, `XSSOutputScorer`, `SSRFOutputScorer` |
-| **复合评分** | `TrueFalseCompositeScorer`, `BatchScorer`, `ConversationScorer` |
-| **关键词评分** | `CredentialLeakScorer`, `SystemPromptExtractionScorer`, `InsecureCodeScorer` |
+| **0-token 评分（攻击路径唯一可用，C2）** | `SubStringScorer`, `RegexScorer`, `MarkdownInjectionScorer` |
+| **攻击输出检测（0-token）** | `SQLInjectionOutputScorer`, `XSSOutputScorer`, `SSRFOutputScorer`, `ShellCommandOutputScorer` |
+| **专项关键词（0-token）** | `CredentialLeakScorer`, `AnthraxKeywordScorer`, `MethKeywordScorer`, `NerveAgentKeywordScorer` |
+| **SelfAsk LLM 评分（仅限 post-hoc ASSESS）** | `SelfAskTrueFalseScorer`, `SelfAskRefusalScorer`, `SelfAskLikertScorer`, `SelfAskScaleScorer` |
+| **内容安全（LLM/服务消耗）** | `AzureContentFilterScorer`, `LlamaGuardScorer`, `ContentClassifier` |
+| **复合/聚合/包装** | `TrueFalseCompositeScorer`, `TrueFalseInverterScorer`, `TrueFalseScoreAggregator`, `BatchScorer` |
+
+> **口径注记（v2.1）**：本表基于本机 PyRIT 1.0.1 `pyrit.score` 实测导出。前三类（0-token）是攻击执行路径唯一可用评分器（C2）；SelfAsk/内容安全类消耗 LLM token，仅限 post-hoc ⑤ ASSESS 级联（J1/J2 双评审实测用 `SelfAskTrueFalseScorer` + `SelfAskRefusalScorer`）。原表将 SelfAsk 类误归"0-token 评分"、且 `SystemPromptExtractionScorer` 在 1.0.1 中不存在，均已修正。
 
 #### 7C.4 原生 Target 类（25+ 类）
 
@@ -350,3 +352,4 @@ data/burp/   recon      arm+strike  executor   report
 | v1.7 | 2026-09-08 | REV-07 PyRIT 原生攻击类强制化 | 用户会话批准 |
 | v1.8 | 2026-09-08 | REV-08 PyRIT 原生组件完整化 | 用户会话批准 |
 | v2.0 | 2026-09-09 | REV-09 文档瘦身：① 删除 C1 重复大表（7C 为唯一源）；② 删除过时示例（cair/encoded_injection 已摘除）；③ 精简冗余描述；④ 版本记录压缩 | 用户会话批准 |
+| v2.1 | 2026-09-09 | REV-10 规约优化 P2：① 7C.3 原生 Scorer 重分类——0-token（攻击路径可用，C2）与 SelfAsk/内容安全 LLM 消耗（仅 post-hoc ASSESS）分列，删除 1.0.1 中不存在的 SystemPromptExtractionScorer，对齐本机 pyrit.score 实测导出；② C10 Step 2 门禁命令统一为 `ruff check .`（对齐 40 v2.4，范围由 [tool.ruff] exclude 限定）；③ backlog 引用路径修正为实际存在的 `docs/backlog.md` | 用户会话批准 |

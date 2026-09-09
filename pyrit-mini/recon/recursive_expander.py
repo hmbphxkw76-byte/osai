@@ -78,6 +78,11 @@ _API_RESOURCE_SUBPATHS = [
     "/assistants",
     "/files",
     "/datasets",
+    "/logs/latest",
+    "/logs/last-tool-call",
+    "/kb/topics",
+    "/kb/add",
+    "/kb/search",
 ]
 
 # AI-specific subpaths for AI-targeted recursive expansion
@@ -161,6 +166,23 @@ def analyze_for_expansion(
                     subpaths.append(candidate)
             reasoning_parts.append(
                 f"API root '{path}' → {len(subpaths)} generic subpaths"
+            )
+
+        # Flat prefix detection (e.g., /kb/ → /kb/topics, /kb/add, /kb/search)
+        if path.rstrip("/") in ("/kb", "/logs", "/session"):
+            flat_subpaths = [
+                f"{path.rstrip('/')}/topics",
+                f"{path.rstrip('/')}/add",
+                f"{path.rstrip('/')}/search",
+                f"{path.rstrip('/')}/latest",
+                f"{path.rstrip('/')}/new",
+                f"{path.rstrip('/')}/last-tool-call",
+            ]
+            for candidate in flat_subpaths:
+                if candidate != path and candidate not in subpaths:
+                    subpaths.append(candidate)
+            reasoning_parts.append(
+                f"flat prefix '{path}' → {len(flat_subpaths)} subpaths"
             )
 
         if subpaths:

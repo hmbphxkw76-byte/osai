@@ -103,12 +103,13 @@
 
 | 层 | 文件 | 职责 | 版本 |
 |----|------|------|------|
-| L0 | [00-CONSTITUTION.md](00-CONSTITUTION.md) | AI 行为宪法：使命 / 裁决序 / C1-C13 / 违宪症状 / 制宪配套 / 考试专项附录 | v1.9 |
-| L1 | [10-ARCHITECTURE.md](10-ARCHITECTURE.md) | 技术蓝图：分层依赖 / ctx 契约（4.4 SSOT 总表） / 不变量 / ADR / 债务簿 / PyRIT攻击引擎 / Web攻击层 + 数据流完整性 / 全链路自主决策引擎 (第十一章) | v2.6 |
-| L2 | [20-REQUIREMENTS.md](20-REQUIREMENTS.md) | 需求登记：P0 (已实现 ✅) / P1 (已实现 ✅) / 活跃需求 / NFR（含精确度约束） / NEG / 自主决策需求 | v2.2 |
-| L3 | [30-TASKS.md](30-TASKS.md) | 任务协议：生命周期 / 粒度上限 / 八步协议 / STOP-REPORT / 考试速查 | v2.0 |
-| L4 | [40-GUARDRAILS.md](40-GUARDRAILS.md) | 红线 R-L / R-H / R-S / R-WEB / R-DRIFT / R-DATA / R-DECIDE / R-TOOLS / 四步门禁 / 三层防线 / 登记簿 (34项) / 交付验证清单 / 考试合规 | v2.4 |
-| 配套 | [50-ROADMAP.md](50-ROADMAP.md) | 路线图：AI-300 考纲映射 / 红队实践 / 任务序列 / 会话模型 / Runbook / 考试日故障降级矩阵 | v1.8 |
+| L0 | [00-CONSTITUTION.md](00-CONSTITUTION.md) | AI 行为宪法：使命 / 裁决序 / C1-C13 / 违宪症状 / 制宪配套 / 考试专项附录 | v2.1 |
+| L1 | [10-ARCHITECTURE.md](10-ARCHITECTURE.md) | 技术蓝图：分层依赖 / ctx 契约（4.4 SSOT 总表） / 不变量 / ADR / 债务簿 / PyRIT攻击引擎 / Web攻击层 + 数据流完整性 / 全链路自主决策引擎 (第十一章) | v2.7 |
+| L2 | [20-REQUIREMENTS.md](20-REQUIREMENTS.md) | 需求登记：P0 (已实现 ✅) / P1 (已实现 ✅) / 活跃需求 / NFR（含 NFR-13 ASR 双口径与 target_asr 锚点） / NEG / 自主决策需求 | v2.3 |
+| L3 | [30-TASKS.md](30-TASKS.md) | 任务协议：生命周期 / 粒度上限 / 八步协议 / STOP-REPORT / 考试速查 | v2.1 |
+| L4 | [40-GUARDRAILS.md](40-GUARDRAILS.md) | 红线 R-L / R-H / R-S / R-WEB / R-DRIFT / R-DATA / R-DECIDE / R-TOOLS / 四步门禁 / 三层防线 / 登记簿 (34项，1F 唯一) / 交付验证清单 / 考试合规 | v2.5 |
+| 配套 | [50-ROADMAP.md](50-ROADMAP.md) | 路线图：AI-300 考纲映射 / 红队实践 / 基准校准 (阶段 0.5) / 任务序列 / 会话模型 / Runbook / 考试日故障降级矩阵 | v1.9 |
+| 配套 | [55-ATTACK-GAP-CLOSURE.md](55-ATTACK-GAP-CLOSURE.md) | 攻击缺口闭环：缺口分析 / 黑盒可测性约束 (4.1-B) / 全链路自主决策架构 | v1.3 |
 | 配套 | [templates/task-spec.md](templates/task-spec.md) | 任务规格模板 + 考试变体 | v1.1 |
 | 配套 | [templates/change-proposal.md](templates/change-proposal.md) | 变更提案模板 | v1.0 |
 

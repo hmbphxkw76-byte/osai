@@ -87,6 +87,11 @@ __all__ = [
     # Backdoor Attack (arXiv:2301.11916)
     "run_backdoor_attack",
     "BackdoorAttackContext",
+    # Document Poisoning (arXiv:2302.12173)
+    "create_poisoned_document",
+    "generate_pdf_with_payload",
+    "generate_docx_with_payload",
+    "generate_markdown_with_watermark",
 ]
 
 # Lazy imports for Web security modules
@@ -150,5 +155,11 @@ def __getattr__(name: str) -> Any:
     if name in ("run_backdoor_attack", "BackdoorAttackContext"):
         from strike import backdoor_attack
         return getattr(backdoor_attack, name)
+
+    # Document Poisoning modules
+    if name in ("create_poisoned_document", "generate_pdf_with_payload",
+                "generate_docx_with_payload", "generate_markdown_with_watermark"):
+        from strike import document_poisoner
+        return getattr(document_poisoner, name)
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

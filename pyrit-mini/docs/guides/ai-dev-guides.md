@@ -3,7 +3,7 @@
 > **文档定位**：AI 辅助编程的通用规范框架，适用于任何使用 AI 进行软件开发的项目。
 > **核心理念**：通过五层规约金字塔，将 AI 从"随机发散的代码生成器"转变为"可预测的规范执行者"。
 > **适用范围**：个人项目、团队协作、企业级系统、开源基础设施。
-> **版本**：v2.1（2026-09-09）
+> **版本**：v2.4（2026-09-09）
 
 ---
 
@@ -107,9 +107,9 @@
 2. [五层规约金字塔](#第二部分五层规约金字塔)
 3. [开发工作流（含三元组+护栏）](#第三部分开发工作流)
 4. [自动化工具链](#第四部分自动化工具链)
-   - 4.5 实时检查与自动化（watch_guard / quick_check / hooks）
+   - 4.5 实时检查与自动化（监听器 / 快速检查 / hooks）
    - 4.6 信号优雅退出
-   - 4.7 插件化 Initializer 注册
+   - 4.7 插件化组件注册
    - 4.8 日志与可观测性
 5. [Spec 智能生成](#第五部分spec-智能生成)
 6. [项目适配指南](#第六部分项目适配指南)
@@ -131,7 +131,7 @@ Vibe Coding（氛围编码）是指使用 AI 辅助编程时，通过自然语�
 | 1 | **规则无裁决序** | AI 不知道听谁的，随机选 | 同一功能多种实现，互相冲突 | L0 宪法 — 裁决序 |
 | 2 | **做什么无规格** | AI 自由发挥，改 20 个文件 | 核心功能反而被破坏 | L2 需求 — 规格先行 |
 | 3 | **任务粒度失控** | 修 Bug 变重写架构 | 30 行修复变 3000 行重构 | L3 任务 — 粒度上限 |
-| 4 | **双轨未被禁止** | 同名功能多个实现 | ASR 计算有 3 个版本 | L1 蓝图 — SSOT |
+| 4 | **双轨未被禁止** | 同名功能多个实现 | 同一计算逻辑出现 3 个版本 | L1 蓝图 — SSOT |
 | 5 | **汇报不透明** | "已验证"但跑不通 | stub 静默进主干 | L4 护栏 — 四步门禁 |
 
 ### 1.3 规范的价值主张
@@ -204,7 +204,7 @@ Vibe Coding（氛围编码）是指使用 AI 辅助编程时，通过自然语�
 ② 技术蓝图（Architecture）
 ③ 需求规格（Requirements）
 ④ 任务规格（Task Spec）
-⑤ 护栏细则（Guardrails）
+⑤ 护栏细则（Guardrails）——其中安全红线视同宪法级，优先于 ③④
 ⑥ 用户即时指令
 ⑦ AI 自由裁量（默认权限为零）
 ```
@@ -344,7 +344,7 @@ Vibe Coding（氛围编码）是指使用 AI 辅助编程时，通过自然语�
 #### 2.3.3 数据契约模板
 
 ```markdown
-## PipelineContext 字段契约
+## [上下文对象，如 AppContext] 字段契约
 
 | 字段 | 唯一写者 | 读者 | 类型 | 约束 |
 |------|---------|------|------|------|
@@ -505,6 +505,8 @@ Vibe Coding（氛围编码）是指使用 AI 辅助编程时，通过自然语�
 | 5 | `[DRIFT_CMD]` | `py -m tools.drift_detector --full` | 0 BLOCKING | 修复规范漂移 |
 | 6 | `[DATAFLOW_CMD]` | `pytest tests/test_data_flow_integrity.py` | 0 失败 | 修复数据契约违例 |
 
+**说明**：步骤 1-4 即 2.6.4 的四步门禁；步骤 5-6（漂移检测、数据流完整性）为交付前的增量检查，两者不冲突。
+
 **不同技术栈的命令示例**：
 
 | 技术栈 | `[LINT_CMD]` | `[TEST_CMD]` | `[DRYRUN_CMD]` |
@@ -586,7 +588,7 @@ Step 8: 汇报验收 ── 开发必验（开发交付）
 ## 2. 蓝图落点
 - 触及模块：
 - 依赖方向：
-- ctx 字段：
+- 上下文字段（数据契约）：
 - 触及不变量：
 
 ## 3. 验收标准
@@ -605,10 +607,10 @@ Step 8: 汇报验收 ── 开发必验（开发交付）
 - [ ] 步骤 2
 
 ## 6. 验证计划
-- Step 1: `py -m tools.guard` — 0 新增 BLOCKING
-- Step 2: `ruff check .` — 0 违规
-- Step 3: `pytest tests/` — 0 失败
-- Step 4: `python main.py --dry-run` — 无异常
+- Step 1: `[GUARD_CMD]` — 0 新增 BLOCKING
+- Step 2: `[LINT_CMD]` — 0 违规
+- Step 3: `[TEST_CMD]` — 0 失败
+- Step 4: `[DRYRUN_CMD]` — 无异常
 
 ## 7. 汇报
 - ✅ 已完成并验证：
@@ -804,7 +806,7 @@ Step 8: 汇报验收 ── 开发必验（开发交付）
 │          └─ 确认当前任务 = 路线图序列中的下一个                   │
 │                                                                 │
 │  Step 3: 读蓝图相关章节                                          │
-│          └─ 声明：模块落点 / 依赖方向 / ctx 字段                │
+│          └─ 声明：模块落点 / 依赖方向 / 上下文字段               │
 │                                                                 │
 │  Step 4: 核对 REQ 验收标准                                       │
 │          └─ 将验收标准抄入 task-spec                             │
@@ -861,7 +863,7 @@ Step 8: 汇报验收 ── 开发必验（开发交付）
 
 1. 需要修改 task-spec 之外的文件（含"只是顺手"）
 2. 发现规格与代码现实不符（要改的东西不存在/已被改掉/结构不同）
-3. 发现需要新增依赖/新文件/new ctx 字段/new 配置参数而规格未授权
+3. 发现需要新增依赖/新文件/new 上下文字段/new 配置参数而规格未授权
 4. 预计超出粒度上限（文件>3 / diff>300 / 模块>2）
 5. 发现实现路径会触碰红线
 6. 对"这个变更让核心指标升还是降"无法给出有据答案
@@ -927,7 +929,7 @@ draft（草案） → spec'd（规格完成） → approved（人工批准）
 
 ```bash
 # 记录当前违规基线
-py -m tools.guard > outputs/guard_baseline.json
+[GUARD_CMD] > outputs/guard_baseline.json
 ```
 
 **通过标准是"不新增"**：存量违规（历史 WARNING）允许存在，但 BLOCKING 存量必须登记为 DEBT/backlog，禁止视而不见。
@@ -1007,7 +1009,9 @@ AI 判断开始
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 4.2 Git Hooks（可直接使用）
+### 4.2 Git Hooks（模板，替换占位符后可直接使用）
+
+> **替换指引**：将 `[GUARD_CMD]`、`[LINT_CMD]`、`[TEST_CMD]`、`[DRIFT_CMD]` 替换为你项目的实际命令（见 2.5.3）。
 
 ```bash
 #!/bin/sh
@@ -1018,15 +1022,15 @@ echo "Running pre-commit checks..."
 
 # 1. 静态检查
 echo "  [1/2] Architecture guard..."
-if ! py -m tools.guard > /dev/null 2>&1; then
-    echo "  [BLOCK] Architecture guard failed. Run 'py -m tools.guard' for details."
+if ! [GUARD_CMD] > /dev/null 2>&1; then
+    echo "  [BLOCK] Architecture guard failed. Run '[GUARD_CMD]' for details."
     exit 1
 fi
 
 # 2. 代码风格
-echo "  [2/2] Ruff check..."
-if ! ruff check . > /dev/null 2>&1; then
-    echo "  [BLOCK] Ruff check failed. Run 'ruff check .' for details."
+echo "  [2/2] Lint check..."
+if ! [LINT_CMD] > /dev/null 2>&1; then
+    echo "  [BLOCK] Lint check failed. Run '[LINT_CMD]' for details."
     exit 1
 fi
 
@@ -1042,16 +1046,16 @@ exit 0
 echo "Running pre-push checks..."
 
 # 1. 单元测试
-echo "  [1/2] Pytest..."
-if ! pytest tests/ -q > /dev/null 2>&1; then
-    echo "  [BLOCK] Tests failed. Run 'pytest tests/' for details."
+echo "  [1/2] Tests..."
+if ! [TEST_CMD] > /dev/null 2>&1; then
+    echo "  [BLOCK] Tests failed. Run '[TEST_CMD]' for details."
     exit 1
 fi
 
 # 2. 漂移检测
 echo "  [2/2] Drift detector..."
-if ! py -m tools.drift_detector --full > /dev/null 2>&1; then
-    echo "  [BLOCK] Drift detected. Run 'py -m tools.drift_detector --full' for details."
+if ! [DRIFT_CMD] > /dev/null 2>&1; then
+    echo "  [BLOCK] Drift detected. Run '[DRIFT_CMD]' for details."
     exit 1
 fi
 
@@ -1066,7 +1070,7 @@ exit 0
 | API 解析验证 | 规范引用的类是否能 import | BLOCKING |
 | 文件同步 | 规范引用的文件是否存在 | WARNING |
 | 版本锁定 | 依赖版本是否匹配锁定 | BLOCKING |
-| 契约消费 | ctx 字段是否被实际消费 | INFO |
+| 契约消费 | 上下文字段是否被实际消费 | INFO |
 
 ### 4.4 测试策略
 
@@ -1074,7 +1078,7 @@ exit 0
 |---------|---------|------|---------|
 | **单元测试** | 每个函数/方法 | pytest | Step 3 |
 | **集成测试** | 模块间数据流 | pytest + fixtures | Step 3 |
-| **契约测试** | ctx 字段读写 | 自定义 validator | Step 4 |
+| **契约测试** | 上下文字段读写 | 自定义 validator | Step 4 |
 | **回归测试** | 历史 bug 不复发 | pytest markers | Step 3 |
 | **性能基准** | 关键路径耗时 | pytest-benchmark | 按需 |
 
@@ -1086,30 +1090,30 @@ import pytest
 from unittest.mock import AsyncMock, patch
 
 # 1. 测试命名：test_<场景>_<预期行为>
-def test_seed_ranker_returns_sorted_list():
-    """种子排序器应返回按 UCB1 分数降序排列的列表"""
+def test_price_calculator_returns_discounted_total():
+    """价格计算器应返回按折扣规则折算后的总价"""
     # Arrange
-    seeds = [Seed("a", 0.5), Seed("b", 0.8), Seed("c", 0.3)]
-    
+    items = [Item("a", 50.0), Item("b", 30.0), Item("c", 20.0)]
+
     # Act
-    result = rank_seeds(seeds, asr_history=empty_history())
-    
+    result = calculate_total(items, discount_policy=default_policy())
+
     # Assert
-    assert result[0].name == "b"  # 最高分在前
-    assert result[-1].name == "c"  # 最低分在后
+    assert result[0].name == "b"  # 折扣力度最大的在前
+    assert result[-1].name == "c"  # 折扣力度最小的在后
 
 # 2. 异步测试
 @pytest.mark.asyncio
-async def test_execute_attack_returns_results():
-    """攻击执行器应返回非空结果"""
-    ctx = create_mock_ctx()
-    await execute_attacks(ctx)
-    assert len(ctx.attack_results) > 0
+async def test_order_processor_persists_results():
+    """订单处理器应将结果写入上下文"""
+    ctx = create_mock_context()
+    await process_orders(ctx)
+    assert len(ctx.order_results) > 0
 
 # 3. 边界测试
-def test_rank_seeds_with_empty_list():
-    """空种子列表应返回空列表而非报错"""
-    result = rank_seeds([], asr_history=empty_history())
+def test_calculate_total_with_empty_list():
+    """空列表应返回空结果而非报错"""
+    result = calculate_total([], discount_policy=default_policy())
     assert result == []
 
 # 4. 异常测试
@@ -1129,110 +1133,121 @@ def test_parse_invalid_file_raises_valueerror():
 
 ### 4.5 实时检查与自动化
 
+> **最佳实践**：将门禁检查前置到"保存时"和"提交时"，防止违规累积。以下为通用模式，命令请替换为你项目的实际实现。
+
 #### 4.5.1 实时文件监听器
 
 > **最佳实践**：保存时自动运行架构检查，防止违规累积到 commit。
 
 ```bash
 # 启动实时监听（全量模式）
-py -m tools.watch_guard
+[WATCH_CMD]
 
 # 快速模式（仅检查修改的文件）
-py -m tools.watch_guard --fast
+[WATCH_CMD] --fast
 
-# 监听特定包
-py -m tools.watch_guard --package strike
+# 监听特定包/目录
+[WATCH_CMD] --package <your_package>
 ```
 
-**效果**：每次保存 .py 文件后自动运行 R-DELIVERY 规则检查，违规立即显示。
+**效果**：每次保存源文件后自动运行红线规则检查，违规立即显示。
+
+**实现建议**：用文件监听库（Python `watchdog` / Node `chokidar` / Go `fsnotify`）对变更文件触发 `[QUICKCHECK_CMD]`，监听进程只读不写。
 
 #### 4.5.2 快速单文件检查
 
 ```bash
 # 检查单个文件
-py -m tools.quick_check path/to/file.py
+[QUICKCHECK_CMD] path/to/file
 
-# 检查所有核心包文件
-py -m tools.quick_check --all
+# 检查所有核心模块文件
+[QUICKCHECK_CMD] --all
 ```
 
-**检查项**：
-- R-DELIVERY-1：文件行数 ≤300
-- R-DELIVERY-3：跨层导入检测
-- R-DELIVERY-5：模块 docstring 检查
+**检查项（示例，可按项目红线裁剪）**：
+- 单文件行数 ≤300
+- 跨层导入检测
+- 模块 docstring 检查
 
 #### 4.5.3 Git Hooks 自动安装
 
 ```bash
 # 安装 hooks（pre-commit + pre-push）
-py -m tools.install_hooks
+[INSTALL_HOOKS_CMD]
 
 # 移除 hooks
-py -m tools.install_hooks --remove
+[INSTALL_HOOKS_CMD] --remove
 ```
 
 **自动触发流程**：
 ```
 git commit → pre-commit hook:
-  1. data_flow_validator (pytest tests/test_data_flow_integrity.py)
-  2. architecture_guard (py -m tools.guard)
+  1. 静态架构检查（[GUARD_CMD]）
+  2. 代码风格检查（[LINT_CMD]）
 
 git push → pre-push hook:
-  1. data_flow_validator (全量)
-  2. architecture_guard
-  3. drift_detector (--full)
+  1. 单元测试（[TEST_CMD]）
+  2. 静态架构检查（[GUARD_CMD]）
+  3. 漂移检测（[DRIFT_CMD]）
 ```
 
 ### 4.6 信号优雅退出
 
-> **最佳实践**：生产级信号处理，确保中断时日志完整写入。
+> **最佳实践**：长驻进程（CLI 工具、服务、监听器）注册信号处理器，确保中断时日志完整写入、资源正确释放。
 
 ```python
-# core/logging_config.py
+# 通用模式（以 Python 为例）
 import signal
 
-def install_signal_handlers(ctx=None):
+def install_signal_handlers():
     """注册 SIGINT/SIGTERM 处理器"""
     signal.signal(signal.SIGINT, _signal_handler)
     signal.signal(signal.SIGTERM, _signal_handler)
 
 def _signal_handler(signum, frame):
     """优雅退出：第一次 Ctrl+C 触发清理，第二次强制退出"""
+    global _signal_fired
     if _signal_fired:
         os._exit(130)  # 二次中断立即退出
     _signal_fired = True
-    raise KeyboardInterrupt  # 触发 asyncio 清理
+    raise KeyboardInterrupt  # 触发 asyncio / 资源清理
 ```
 
-### 4.7 插件化 Initializer 注册
+**要点**：
+- 一次中断触发优雅清理（flush 日志、关闭连接），二次中断强制退出
+- 退出前务必 flush/close 日志文件句柄
 
-> **最佳实践**：动态发现与注册组件，避免硬编码导入。
+### 4.7 插件化组件注册
+
+> **最佳实践**：动态发现与注册组件（Initializer、插件、中间件），避免硬编码导入，新增组件无需修改入口代码。
 
 ```python
-# core/initializer_registry.py
-def register_initializers(specs: list[dict]) -> list[Any]:
+# 通用模式：注册器 + 动态类解析
+def register_components(specs: list[dict]) -> list[Any]:
     """
-    动态注册 Initializer。
-    
-    搜索路径：
-    1. pyrit.orchestrator.initializers
-    2. pyrit.scenario.initializers
-    3. pyrit.setup.initializers
-    4. strike/ core/ (自定义)
-    
+    动态注册组件。
+
+    搜索路径（示例，按项目分层调整）：
+    1. 框架内置组件包
+    2. 项目自定义组件目录
+
     spec 格式：{"class": "ClassName", "args": {"arg1": "val1"}}
     """
     for spec in specs:
-        cls = _resolve_class(spec["class"])  # 动态解析
+        cls = _resolve_class(spec["class"])  # 动态解析（importlib / 反射）
         instance = cls(**spec.get("args", {}))
-        # 自动注册到 ctx...
+        # 注册到上下文 / 注册表...
 ```
 
-**使用方式**：
+**使用方式**（示例）：
 ```bash
-# CLI 动态添加 Initializer
+# CLI 动态添加组件
 python main.py --add-initializer SystemPromptInitializer,prompt="You are..."
 ```
+
+**要点**：
+- 组件以声明式 spec（类名 + 参数）描述，由注册器统一实例化
+- 类解析失败应快速报错（fail-fast），而非静默跳过
 
 ### 4.8 日志与可观测性
 
@@ -1259,7 +1274,7 @@ logger.error("Failed to parse: %s", file_path, exc_info=True)
 
 **生产级特性**：
 - 双写日志：终端 + 文件
-- 按 endpoint 切换日志文件
+- 按模块/组件切分日志文件
 - 信号处理时自动 flush/close
 
 ---
@@ -1490,7 +1505,7 @@ logger.error("Failed to parse: %s", file_path, exc_info=True)
 #### 开发中
 | 触发词 | 自动执行 |
 |--------|---------|
-| **"开发必跑"** / **"开发验证"** / **"完整验证"** / **"规范对齐"** | 6 步全流程验证 + 修复（guard → ruff → test → dry-run → drift → dataflow） |
+| **"开发必跑"** / **"开发验证"** / **"完整验证"** / **"规范对齐"** | 6 步全流程验证 + 修复（guard → lint → test → dry-run → drift → dataflow） |
 | `"门禁"` | 四步质量门禁 |
 | `"守卫"` | 静态检查 |
 
@@ -1513,24 +1528,23 @@ logger.error("Failed to parse: %s", file_path, exc_info=True)
 | `ModuleNotFoundError` | 依赖未安装 / 虚拟环境未激活 | `pip install -r requirements.txt` |
 | `ImportError` 循环导入 | 架构层级违反 | 改为函数内延迟导入 |
 | 测试全部通过但功能错 | 测试覆盖不足 / 测试本身有 bug | 检查断言是否正确 |
-| guard 报 BLOCKING | 红线被违反 | 运行 `py -m tools.guard -v` 查看详情 |
+| guard 报 BLOCKING | 红线被违反 | 运行 `[GUARD_CMD] -v` 查看详情 |
 | AI 产出不存在 API | AI 幻觉 | 手动验证 API 是否存在 |
-| lint 报大量错误 | 未配置 ruff / 代码风格不一致 | `ruff check . --fix` |
+| lint 报大量错误 | 未配置 linter / 代码风格不一致 | 运行 `[LINT_CMD] --fix`（如 `ruff check . --fix` / `eslint . --fix`） |
 | dry-run 通过但实际运行失败 | 测试环境与生产环境不一致 | 检查配置、依赖版本 |
 
 ### 附录 D：术语表
 
 | 术语 | 定义 |
 |------|------|
-| **ASR** | Attack Success Rate，攻击成功率 = 成功攻击数 / 总攻击数 |
 | **SSOT** | Single Source of Truth，单一事实源——一个概念只能有一个实现 |
 | **BLOCKING** |  guard 检查级别，违例会阻断 commit/push |
 | **WARNING** | guard 检查级别，违例会警告但不阻断 |
 | **INFO** | guard 检查级别，仅提示信息 |
-| **dry-run** | 运行时验证模式，不实际执行攻击，只验证数据流 |
+| **dry-run** | 运行时验证模式，不实际执行业务动作，只验证数据流 |
 | **门禁** | 四步质量检查：guard → lint → test → dry-run |
 | **backlog** | 唯一待办池，记录发现的非本任务问题 |
-| **ctx** | PipelineContext，流水线上下文——阶段间数据交换的唯一枢纽 |
+| **上下文对象** | 阶段/模块间数据交换的唯一枢纽（如 `AppContext`），字段契约见蓝图 |
 | **不变量** | 任何变更不得破坏的硬性架构约束 |
 | **债务** | 已识别的架构/代码问题，登记后冻结，专项消除 |
 | **PoC** | Proof of Concept，可独立运行的概念验证脚本 |
@@ -1538,9 +1552,8 @@ logger.error("Failed to parse: %s", file_path, exc_info=True)
 | **Glue 代码** | 连接现有原生组件的胶水层——自研代码的合法角色之一 |
 | **Enhancement 代码** | 在现有原生组件基础上增强功能——自研代码的合法角色之一 |
 | **Output 代码** | 结果输出/展示层——自研代码的合法角色之一 |
-| **FIRST_SUCCESS** | 短路策略——首条路径成功后立即停止当前种子其他路径 |
-| **0-token 评分** | 不使用 LLM token 的评分器（如规则匹配、关键词检测） |
-| **OR 聚合** | 多个评分器结果取 OR（任一成功即成功）——ASR 最大化策略 |
+
+> **领域术语**：特定领域（如红队安全）的扩展术语在对应领域指南的附录中定义。
 
 ### 附录 E：版本控制策略
 
@@ -1573,18 +1586,16 @@ type:
   debt: 债务消除
 
 示例:
-  feat(strike): TASK-042 新增供应链攻击模块
-  fix(assess): TASK-043 修复 Wilson CI 计算精度问题
+  feat(order): TASK-042 新增订单批量导出功能
+  fix(auth): TASK-043 修复令牌刷新的竞态问题
 ```
 
 ---
 
-*文档版本：v2.3 | 创建日期：2026-09-09 | 更新：新增5分钟快速入门指南、裁决速查案例、模板替换指引（宪法模板+开发必跑命令）、多技术栈命令适配表 | 维护者：pyrit-mini 规范团队*
+*文档版本：v2.4 | 创建日期：2026-09-09 | 更新：全文通用化改造——剥离项目专属工具与术语，统一采用 `[占位符]` + 示例的模式；修复版本号不一致 | 本指南自包含，可整体复制到任何 AI 编程项目使用*
 
-> **📚 文档家族**：
-> - **本指南**（通用基础）：适用于所有 AI 辅助编程场景，提供通用的规范框架和模板。
-> - **扩展指南**：[PyRIT 原生红队开发指南](red-team-dev-guide.md) v2.3 — 基于本指南扩展的红队专属规范。
+> **📚 文档家族（可选扩展）**：
+> - **本指南**（通用基础）：自包含，适用于所有 AI 辅助编程场景，不依赖任何其他文档。
+> - **领域扩展指南**（如本项目有）：针对特定领域（如红队安全）的扩展规范，见同目录下其他指南。
 >
-> **阅读建议**：
-> - 先读本指南的「5 分钟快速入门」建立基础认知
-> - 如有特定领域需求，再读对应的扩展指南</longcat_think>
+> **复制到新项目时**：本指南正文可直接使用；上方"文档家族"区块可按需保留或删除。

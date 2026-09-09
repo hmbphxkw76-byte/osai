@@ -52,7 +52,7 @@
 | ID | 陈述 | 关键验收 | 考纲模块 |
 |----|------|---------|---------|
 | REQ-109 | A2A/多智能体攻击执行 | 现状仅有 ma_* 种子（5 条）；执行层须支持至少 cross-agent injection / agent impersonation / workflow corruption 三类攻击编排进升级链（多轮技术，尊重 adversarial target 有无） | M4 Multi-Agent & A2A |
-| REQ-110 | Embedding 攻击落地 | strike/embedding_inversion.py（8.4KB）实装或按蓝图 Q4 决策树裁决：属 PyRIT 域则实装（信息抽取/倒置两类），域外则以外部工具形态接入并回填数据；**禁止维持 stub 编排状态（R-H1）** | M6 Embeddings |
+| REQ-110 | Embedding 攻击落地 | **✅ 已裁决（蓝图 Q4）**：黑盒 HTTP 不可测试 → 编排内不实装（`strike/embedding_inversion.py` 不存在且不再创建）；仅允许域外工具形态接入回填数据（对齐 50-ROADMAP M6 / 蓝图 9.2 Embedding 分支）。禁止维持 stub 编排状态（R-H1） | M6 Embeddings |
 | REQ-111 | 供应链侦察 | 仅报告侦察建议（SBOM/依赖/模型权重来源检查项清单，写入 fingerprint → report 渲染）；**不引入新运行时依赖（NEG-4 约束）** | M8 Supply Chain |
 | REQ-112 | 考试模式 campaign | `config/profiles/exam_mode.yaml`：单 endpoint 快速链路（recon→strike→report 精简路径）+ token 预算上限 + 证据优先策略（evidence/ 实时落盘）+ 时间盒超时；与 REQ-102 战役预设同机制 |
 | REQ-113 | OffSec 风格报告 | 报告生成器输出四段结构：executive summary / findings（含风险等级 CVSS 类比 + OWASP LLM 2025 + MITRE ATLAS 映射）/ impact / remediation；作为现有 REQ-007 多格式报告的增量 section，不另立报告管线（C3） |
