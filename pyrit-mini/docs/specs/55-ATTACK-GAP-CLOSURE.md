@@ -1,6 +1,6 @@
 # 55-ATTACK-GAP-CLOSURE.md — 攻击缺口完整优化方案
 
-**版本**: v1.2 (2026-09-09)
+**版本**: v1.3 (2026-09-09)
 **状态**: 实施完成 + 全链路自主决策架构设计
 **作者**: AI Red Team
 
@@ -517,8 +517,8 @@ class DecisionEngine:
         # 条件2: 预算消耗过快
         if ctx.budget_consumed["ratio"] > 0.8:
             return True
-        # 条件3: 连续失败
-        if ctx.consecutive_failures > 3:
+        # 条件3: 连续失败（≥3 次即触发，对齐 R-DECIDE-3 / 蓝图 6.1 统一表）
+        if ctx.consecutive_failures >= 3:
             return True
         # 条件4: 新能力发现
         if ctx.new_capabilities_detected:
@@ -571,12 +571,11 @@ class DecisionEngine:
 
 ### 9.5 决策系统护栏
 
-| 护栏 | 级别 | 描述 |
-|------|------|------|
-| R-DECIDE-1 | BLOCKING | 决策系统不得绕过人工确认的关键安全边界 (R-S1) |
-| R-DECIDE-2 | WARNING | 决策调整必须记录到 orchestration_log |
-| R-DECIDE-3 | WARNING | 自动策略切换需基于 ≥3 次连续失败或 ASR 显著下降 |
-| R-DECIDE-4 | INFO | 决策引擎应优先选择已有高 ASR 证据的策略 |
+> **SSOT 声明**（v1.3）：决策系统护栏的**唯一定义**在 [40-GUARDRAILS.md 1G-DECIDE](40-GUARDRAILS.md)（R-DECIDE-1~6，含检查器登记簿 1F）。本节原重复登记表已删除——此前本节 R-DECIDE-4（策略先验优先）与 40 中 R-DECIDE-4（人类控制权）编号冲突，该条款在 40 中已归位为 R-DECIDE-6。架构设计（本章 9.1~9.4）不受影响。
+
+| 条款 | 检查器 | 级别 |
+|------|--------|------|
+| R-DECIDE-1~6 | 见 40-GUARDRAILS 1F 登记簿（check_decision_* / check_human_override） | BLOCKING/WARNING/INFO |
 
 ---
 

@@ -3,6 +3,7 @@
 > **版本**: v2.0 (2026-09-09)
 > **作者**: AI Red Team Architecture
 > **效力**: 强制 — 所有模块修改必须通过数据流完整性验证
+> **STATUS: ARCHIVED** — 本文档已合并入 [10-ARCHITECTURE.md 第四章](10-ARCHITECTURE.md)，不再独立维护（v2.3 / REV-13 合并，用户会话批准）。**权威规约以 10-ARCHITECTURE.md 第四章为准**；验证工具链（`tools/data_flow_validator.py` + `tools/data_flow_hooks.py` + `tests/test_data_flow_integrity.py`，29 项测试）仍正常运行。本文件仅作历史归档保留，其内容与 10-ARCHITECTURE.md 第四章冲突时以后者为准。
 
 ## 1. 数据流架构概述
 

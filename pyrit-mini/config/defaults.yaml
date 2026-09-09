@@ -13,6 +13,7 @@ timeout_max_retries: 5
 timeout_max_delay: 120
 
 # ── 评分 ──
+target_asr: 90            # 目标 ASR 锚点（SSOT，I11/NFR-13）：文档/决策/报告引用目标值只准读此键
 scorer_timeout: 30
 dual_judge_enabled: true
 dual_judge_high_confidence_threshold: 0.85  # R4 要求 >= 0.85

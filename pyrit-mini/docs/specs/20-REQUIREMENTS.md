@@ -3,7 +3,7 @@
 > **文档层级**：L2 / 五层规约金字塔第三层
 > **效力**：本项目"做什么"的唯一登记处。**未登记于此的需求 = 不存在**。AI 不得实现未登记需求（宪法 C6）。
 > **格式**：每条需求有 ID、一句话陈述、可勾选的验收标准（DoD）。验收标准是任务完成的**唯一**判据。
-> **版本**：v2.2（2026-09-09 P0 优化：NFR-1 增补评分器精确度约束 [P0-2]；NFR-10 增补决策稳定性量化 [P1-4]；状态表更新）
+> **版本**：v2.3（2026-09-09 规约优化 P1：NFR-13 ASR 度量双口径与 target_asr 锚点；REQ-135 护栏引用锚定 40-GUARDRAILS 1G）
 
 ---
 
@@ -83,6 +83,7 @@
 | NFR-6 | Python ≥3.13（硬边界：PyRIT 1.0.1 官方支持区间；取交集内 ≥3.13，冲突则以 PyRIT 区间为准并登记 backlog，见 BL-002） | 全类型标注；keyword-only 参数；async 后缀 `_async` |
 | NFR-7 | 离线可检 | 报告/PoC 生成不依赖网络（考试环境审查点）；依赖锁定（pyproject 钉 pyrit==1.0.* 区间，D-16 修复项） |
 | NFR-8 | 考试鲁棒性 | 任一阶段失败不影响其他阶段输出；partial 结果可独立生成报告（REQ-126） |
+| NFR-13 | ASR 度量口径 | ① 双口径分列：`reported_asr`（自动评分级联）/ `confirmed_asr`（人工复核）禁止混用，报告标题注明口径，无复核时 confirmed 标注 n/a；② 目标锚点 SSOT：目标 ASR 唯一定义于 `config/defaults.yaml` `target_asr`（I11），禁止文档/代码硬编码百分比；③ timeout/error 计失败，scorer 未判定归 unparsed 不计成功 |
 
 ## 第五章：Web 攻击层需求（已实现 ✅，摘要）
 
@@ -137,7 +138,7 @@
 
 | ID | 陈述 | 验收标准 | 优先级 |
 |----|------|----------|--------|
-| REQ-135 | 全链路自主决策引擎框架 | ① 决策引擎接口定义（`determine_*_strategy` 统一签名）；② 决策触发条件可配置；③ `ctx.decision_log` 字段记录所有决策；④ 决策系统护栏 R-DECIDE-1~4 全部满足 | P1 |
+| REQ-135 | 全链路自主决策引擎框架 | ① 决策引擎接口定义（`determine_*_strategy` 统一签名）；② 决策触发条件可配置；③ `ctx.decision_log` 字段记录所有决策；④ 决策系统护栏 R-DECIDE-1~5 全部满足（唯一定义见 40-GUARDRAILS 1G-DECIDE） | P1 |
 | REQ-136 | Recon 阶段自适应决策 | ① `determine_probe_strategy()` 基于预算和目标类型选择探测深度；② 检测到 WAF 自动启用 stealth 模式；③ 决策输出写入 `ctx.probe_level` 和 `ctx.stealth_config` | P1 |
 | REQ-137 | ARM+Assess+Report 阶段决策 | ① ARM 阶段实现动态种子排序 + Converter 链优化；② Assess 阶段实现评分器自适应选择；③ Report 阶段实现报告格式自适应 | P2 |
 
@@ -175,6 +176,7 @@
 | REQ-135 ~ REQ-137（自主决策） | 🟡 架构设计完成 | 决策引擎框架 + Recon + ARM/Assess/Report |
 | NFR-1 ~ NFR-8 | ✅ implemented | 非功能需求全部达成 |
 | NFR-9 ~ NFR-12（决策非功能） | 🟡 架构设计完成 | 决策透明度/人工覆盖/稳定性/可测试性 |
+| NFR-13（ASR 度量口径） | 🟡 规约已登记 | reported/confirmed 双口径 + `target_asr` 锚点（defaults.yaml 已落盘）；报告双列分列待实施 |
 
 - 活跃需求（待实现）：**REQ-109** A2A 执行层落地（种子已有，需验证编排进升级链）；
 - 本表为需求登记 SSOT；历史追踪文档 `requirement_traceability_matrix.md` 已于 2026-09-06 删除（D-09 债务消除）。
@@ -196,3 +198,4 @@
 | v2.0 | 2026-09-09 | REV-10 精简重构：① P0/P1 主链路需求归档为摘要表（REQ-001~008 + REQ-101~108）；② P0-NEW/P0-EXAM 合并为已修复归档（REQ-114~126 全部 implemented/exam-ready）；③ Web 攻击层需求精简（REQ-127~134，Glue→扁平化）；④ 修复两个"第七章"编号冲突（第七章负需求→第八章追踪）；⑤ 状态登记表重构（标记活跃缺口 REQ-109）；⑥ 删除 ~200 行冗余验收细节，文档从 269 行精简至 ~130 行 | 用户会话批准 |
 | v2.1 | 2026-09-09 | REV-11 新增第九章全链路自主决策需求：① REQ-135 决策引擎框架（P1）；② REQ-136 Recon 阶段自适应决策（P1）；③ REQ-137 ARM+Assess+Report 阶段决策（P2）；④ NFR-9~12 决策非功能需求（透明度/人工覆盖/稳定性/可测试性）；⑤ 原第八章"需求追踪"重命名为第十章 | 用户会话批准 |
 | v2.2 | 2026-09-09 | REV-12 P0 全面优化实施：① NFR-1 增补评分器精确度约束（T0 假阴性≤5%、J1/J2 假阳性≤8%、0-token 一致性≥85%、边界案例自动升级）；② NFR-11 增强升级链触发稳定性（Strike 完成度感知阈值） | 用户会话批准 |
+| v2.3 | 2026-09-09 | 规约优化 P1-B1~B3：① 新增 NFR-13 ASR 度量口径（reported/confirmed 双口径分列 + timeout/error 计失败规则）；② 目标锚点 SSOT `target_asr`（config/defaults.yaml，与 I11 联动）；③ REQ-135 护栏引用锚定 40-GUARDRAILS 1G 唯一定义 | 用户会话批准 |

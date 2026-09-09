@@ -3,7 +3,7 @@
 > **文档层级**：L1 / 五层规约金字塔第二层
 > **效力**：定义系统的目标架构、模块边界、数据契约与架构不变量。任何代码变更必须能在本蓝图上"落点"——落不了点的变更需要先走 change-proposal 修改蓝图。
 > **读者**：实施任务前的 AI（必读相关章节）、评审 diff 的人工/AI。
-> **版本**：v2.5（2026-09-09 P0 优化：I4 增强动态升级链触发策略；I8 增补端点价值量化公式；9.3 增补状态列+端点排序；11.4 增补预算阈值触发条件）
+> **版本**：v2.6（2026-09-09 规约优化：4.4 ctx 字段总表 SSOT 收敛；I4 动态升级链触发；I8 端点价值量化；11.4 决策触发条件增补）
 > **归档文件**：`45-DATA-FLOW-INTEGRITY.md` 已合并入本文件的第四章，原文档不再独立维护（其验证工具链 `tools/data_flow_validator.py` + `tools/data_flow_hooks.py` + `tests/test_data_flow_integrity.py` 仍正常运行）
 
 ---
@@ -138,7 +138,39 @@ Q1: PyRIT 1.0.1 有现成组件吗？
 | 一致性 | `converter_map` 的键覆盖 `techniques` 中所有技术 |
 | 一致性 | `ctx.attack_results` 中的每种技术都出现在 `ctx.asr_per_technique` 中 |
 
-**新增 ctx 字段的义务**：在本表登记 + 在 20-REQUIREMENTS 对应需求验收标准中体现。
+**新增 ctx 字段的义务**：先在 4.4 总表登记（一个字段一行），再在 20-REQUIREMENTS 对应需求验收标准中体现。
+
+### 4.4 ctx 字段总表（SSOT 登记簿，v2.6 收敛）
+
+> **唯一登记簿**：本表收敛 4.1（写者原则）/ 4.2（Phase 契约）/ 11.2（决策字段）/ 11.6（决策数据流）/ R-DATA-3（取证字段）此前分散声明的全部字段。**新字段只允许在本表登记一次**；其余章节只允许引用字段名，不得再开新表重复声明类型/写者（否则以本表为准并记漂移）。
+
+| 字段 | 类型 | 唯一写者 | 读者 | 用途 | 来源章节 |
+|------|------|---------|------|------|---------|
+| `args` / `output_dir` | dict / str | main | 全部 | CLI 参数（创建后只读） | 4.1 |
+| `parsed_request` | dict | recon | arm/strike/report | 解析后的 HTTP 请求总线（含 target_fingerprint） | 4.1 |
+| `target_fingerprint` | dict | recon | arm/strike | 能力/模型族/MCP 工具/系统提示泄露指纹（recon 唯一输出总线） | 第五章 |
+| `service_profile` | dict | recon | arm/strike/assess | 服务画像 | 4.2 |
+| `objective_target` / `multi_turn_target` | Target | recon | strike | 攻击目标（per-endpoint，循环内重置） | 4.1 |
+| `adversarial_target` / `scoring_target` | Target | recon | strike/assess | 攻击/评分目标（跨 endpoint 共享） | 4.1 |
+| `capabilities` | set | recon | arm/strike | 目标能力集 | 11.2 |
+| `seeds` / `techniques` / `converter_map` | list / list / dict | arm | strike | 武器化产物 | 4.1 |
+| `attack_results` | dict | strike（escalate 可追加） | assess/report | 常规攻击结果 `{technique: [AttackResult]}` | 4.1 |
+| `advanced_attack_results` | dict | strike | assess/report | 高级攻击阶段（绕过/多模态/后门）结果 | 11.2 |
+| `asr_per_technique` | dict | assess | report/main/决策引擎 | 各技术 ASR | 4.1 |
+| `overall_asr` / `current_asr` | float | assess（current_asr 可由 strike 更新） | report/main/决策引擎 | 总 ASR / 决策触发用实时 ASR | 4.1 / 11.6 |
+| `expected_asr` | float | arm | 决策引擎 | ASR 预期基准 | 11.6 |
+| `wilson_ci` | tuple | assess | report | ASR Wilson 95% 置信区间 | 4.1 |
+| `dual_judge_stats` | dict | assess | report | 双评审统计 | 4.1 |
+| `evidence_collection` | EvidenceCollection | report | main | 证据集合 | 4.2 |
+| `evidence_level` / `assess_mode` | str / str | assess | report | 评估深度 / 联合评估模式 | 11.2 |
+| `report_format` / `detail_level` | list / str | report | main | 报告格式 / 详细度 | 11.2 |
+| `probe_level` / `stealth_config` | str / dict | recon | strike | 探测深度 / 隐蔽配置 | 11.2 |
+| `budget_consumed` | dict | 各阶段（追加） | 决策引擎 | 预算消耗（token/time） | 11.6 |
+| `consecutive_failures` | int | strike | 决策引擎 | 连续失败计数（R-DECIDE-3 触发依据） | 11.6 |
+| `decision_log` | list | 决策引擎（各决策函数追加） | report/main | 决策审计追踪（R-DECIDE-2） | 11.6 |
+| `orchestration_log` | list | 各阶段（自己追加自己的条目） | report | 编排日志（每阶段至少一条） | 4.1 |
+| `timing_metadata` | dict | strike/assess | assess/决策引擎 | 响应时序特征（时序侧信道分析） | R-DATA-3 |
+| `successful_evidence_log` / `refusal_classification_log` / `guardrail_triggers` | list | strike/assess | report/验证器 | Why-Success 取证字段组（R-DATA-3，缺失即契约违规） | 1B-DATA |
 
 ## 第五章：Burp 目标数据流（输入契约）
 
@@ -167,6 +199,25 @@ Q1: PyRIT 1.0.1 有现成组件吗？
 | I8 | 联合 ASR = 1 - ∏(1-ASRᵢ)，多 endpoint 串行深度攻击；**端点价值量化排序**：endpoint_value = capability_score×0.4 + exposure_score×0.3 + sensitivity_score×0.3；预算分配高价值端点获 60% | arXiv:2310.08419 / 2302.12173 |
 | I9 | 报告必须含 PyRIT 原生输出（pyrit.output）+ 证据全字段非空 | R2 / R6 §6.6 |
 | I10 | 每 endpoint 独立 SQLite（WAL）+ Singleton 三步清除；共享 LLM target 跨 endpoint 复用 | R8 §8.1/8.3 |
+| I11 | **ASR 度量口径统一**：① 定义：ASR = 评分级联（T0→J1→J2→J3）判定 successful 的 objective 数 ÷ 总执行 objective 数（timeout/error 计入分母且计失败；scorer 未判定归入 unparsed，不计成功）；② **双口径分列**：`reported_asr`（自动评分级联产出）与 `confirmed_asr`（人工复核/二次验证确认）在报告中必须分列呈现，禁止混用或只报其一（无人工复核时 confirmed 列标注 `n/a`）；③ **目标锚点 SSOT**：目标 ASR 唯一定义于 `config/defaults.yaml` 的 `target_asr` 键，任何文档/决策/报告引用目标值只准引用该键，禁止硬编码百分比 | NFR-13 / 宪法第 0 条 |
+
+### 6.1 触发参数统一表（SSOT）与一致性裁定（v2.6）
+
+> 全部 ASR/失败类触发参数的**唯一汇总**。数值 SSOT 在 `config/defaults.yaml`；本表只登记"参数 → 值 → 出处/消费方"映射，禁止在其他章节再抄写数值（引用参数名即可）。两处数值不一致时，以 defaults.yaml 为准并登记 backlog。
+
+| 参数 | 值（SSOT） | 机制归属 | 消费方 |
+|------|-----------|---------|--------|
+| `target_asr` | 90 | 目标锚点（I11/NFR-13） | 报告目标对照 / 决策预期基准 |
+| `escalation_asr_threshold` | 90 | 升级链基准触发（I4） | strike/escalation_runtime |
+| I4 动态阈值 | 完成度<50% → 70；完成度>80% → 95；剩余预算<30% → 仅 L1 | 升级链动态触发（参数化，非策略切换） | strike/escalation_runtime |
+| `post_l1_exit_threshold` / `post_l2_exit_threshold` | 70 / 80 | 中间退出检查点（I4/R-L5） | strike/escalation_runtime |
+| L1→L3 升级门槛 | ASR<90 → L1；<70 → L2；<50 → L3 | 升级链分级 | 55 §9.2.3 / escalation_runtime |
+| `consecutive_failures` 阈值 | ≥3 次连续失败 **或** ASR < 50% 预期 | 决策稳定性（R-DECIDE-3/ID-3/NFR-11），**仅约束"策略切换"类决策** | 决策引擎 `determine_*_strategy` |
+| SKIP_UPGRADE 触发 | 连续失败 2 次 | **考试日应急降级**（50 §8C.3），属资源保护机制，非策略切换 | exam_mode 降级矩阵 |
+
+**一致性裁定**：
+1. I4 动态升级阈值（完成度/预算感知）属**参数化触发**，不适用 R-DECIDE-3（该条仅约束"策略切换"类决策）——40-GUARDRAILS 1G R-DECIDE-3 注记的裁定落点即本条。
+2. SKIP_UPGRADE（2 次）与 R-DECIDE-3（≥3 次）**不冲突**：前者是考试日资源应急降级（宁少勿滥），后者是常态决策稳定性约束（防抖动）。分属两表，禁止互相引用数值。
 
 ## 第七章：决策记录（ADR 索引）
 
@@ -253,7 +304,7 @@ recon 完成 → capability 指纹分支:
     │   └─ 工具链利用 (mcp_tool_chaining/hijack)
     │
     └─ Embedding Model
-        └─ 领域外工具接入回填 (embedding_inversion.py)
+        └─ 领域外工具接入回填（Q4 裁决：黑盒 HTTP 不可测试，编排内不实装——M6 已摘除，仅外部工具形态，见 50-ROADMAP M6）
 ```
 
 ### 9.3 攻击路径 ASR 优化策略（PyRIT 攻击优势最大化）
@@ -451,15 +502,9 @@ Phase N 执行完成
 | ID-4 | 决策引擎输出必须可被人工覆盖 (CLI 参数优先) | 人类控制权 |
 | ID-5 | 决策依赖数据必须来自 PipelineContext，禁止旁路 | 数据流完整性 |
 
-### 11.6 决策引擎数据流契约（新增 ctx 字段）
+### 11.6 决策引擎数据流契约（已收敛至 4.4）
 
-| 字段 | 类型 | 唯一写者 | 读者 | 决策用途 |
-|------|------|---------|------|----------|
-| `ctx.current_asr` | float | Strike/Assess | 决策引擎 | 触发策略调整 |
-| `ctx.expected_asr` | float | ARM | 决策引擎 | ASR 预期基准 |
-| `ctx.budget_consumed` | dict | 各阶段 | 决策引擎 | 预算控制 |
-| `ctx.consecutive_failures` | int | Strike | 决策引擎 | 失败计数 |
-| `ctx.decision_log` | list | 决策引擎 | Report | 决策审计追踪 |
+> **v2.6 收敛**：本节原独立字段登记表（`current_asr` / `expected_asr` / `budget_consumed` / `consecutive_failures` / `decision_log`）已合并入 [4.4 ctx 字段总表](#44-ctx-字段总表ssot-登记簿v26-收敛)（来源章节列标注 11.6）。字段定义以 4.4 为唯一权威，本节不再重复登记。
 
 ---
 
@@ -483,3 +528,4 @@ Phase N 执行完成
 | v2.3 | 2026-09-09 | REV-13 合并 45-DATA-FLOW-INTEGRITY.md：① 第四章新增 Phase 字段契约（4.2）和数据传递规则（4.3）；② 数据流完整性验证工具链（DataFlowValidator/data_flow_hooks）保留在 tools/ 目录；③ 45-DATA-FLOW-INTEGRITY.md 标记为归档参见本文件 | 用户会话批准 |
 | v2.4 | 2026-09-09 | REV-14 新增第十一章全链路自主决策引擎架构：① 决策引擎在架构分层中的位置（11.1）；② 决策点与 ctx 字段契约（11.2）；③ 决策依赖引擎核心组件（11.3）；④ 决策触发条件与反馈闭环（11.4）；⑤ 决策系统架构不变量 ID-1~ID-5（11.5）；⑥ 决策引擎数据流契约（11.6） | 用户会话批准 |
 | v2.5 | 2026-09-09 | REV-15 P0 全面优化实施：① I4 增强动态升级链触发策略（Strike 完成度感知 + 预算感知）；② I8 增补端点价值量化公式；③ 9.3 ASR 优化策略表增补状态列 + 端点价值排序策略；④ 11.4 决策触发条件增补预算阈值触发和 Strike 进度触发 | 用户会话批准 |
+| v2.6 | 2026-09-09 | 规约优化 P0-A4：第四章新增 4.4 ctx 字段总表（SSOT 登记簿）——收敛 4.1/4.2/11.2/11.6/R-DATA-3 分散声明的 25+ 字段为唯一登记簿，新字段只允许在此登记；11.6 改为引用不重复登记 | 用户会话批准 |

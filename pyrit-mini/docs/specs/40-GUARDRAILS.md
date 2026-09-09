@@ -3,7 +3,7 @@
 > **文档层级**：L4 / 五层规约金字塔第五层
 > **效力**：红线 = 绝对禁止，视同宪法级（裁决序见 00-CONSTITUTION 第二章）。质量门禁 = 完成任务的必要不充分条件。
 > **执行机制**：三层防线（静态 guard / 运行时 dry-run / git 钩子），继承 SKILL.md D2 条款并收编。
-> **版本**：v2.3（2026-09-09 精简 1F 检查器登记簿格式 + 新增 7C 证据验证执行点）
+> **版本**：v2.4（2026-09-09 规约优化三批实施：登记簿唯一化/引用修正/ASR 双口径/编号修复）
 
 ---
 
@@ -28,10 +28,10 @@
 
 | # | 红线 | guard 检查器 | 级别 |
 |---|------|-------------|------|
-| R-DATA-1 | ARM→Strike→Assess 数据流完整性（快照验证 25 项测试） | `check_data_flow_integrity()` | INFO/WARNING |
+| R-DATA-1 | ARM→Strike→Assess 数据流完整性（快照验证 29 项测试） | `check_data_flow_integrity()` | INFO/WARNING |
 
 **R-DATA-1 判定**:
-- ✅ PASS: 25/25 数据流测试通过 → INFO (不阻断)
+- ✅ PASS: 29/29 数据流测试通过 → INFO (不阻断)
 - ❌ FAIL: 任何字段契约违规或传递断点 → WARNING (提示修复)
 - 🔴 BLOCKING: 严重数据断点 → 阻断 commit (通过 pre-push 全量验证)
 
@@ -55,8 +55,9 @@
 | # | 红线 | guard 检查器 |
 |---|------|-------------|
 | R-TOOLS-1 | `core/` 或 `utils/` 下文件带 `if __name__ == "__main__"` 块（CLI 工具必须放在 `tools/`） | `check_cli_location()` |
+| R-TOOLS-2 | 单模块行数上限 850 行（原 R-SIZE 编号归位；原 60-REDTEAM 文档遗留编号 R-DELIVERY-3 一并作废，跨层导入判定改引蓝图 2.2 依赖矩阵） | `check_delivery_module_size()` |
 
-判定标准：`
+判定标准：
 - ✅ 允许：`main.py`（根目录）、`tools/*.py` 带 `__main__`
 - ❌ 禁止：`core/*.py`、`utils/*.py`、`recon/*.py`、`arm/*.py`、`strike/*.py`、`assess/*.py`、`report/*.py` 带 `__main__`
 
@@ -177,13 +178,22 @@ pyrit-drift --full --report
 | check_glue_pluginisolation | R-WEB-1 | BLOCKING | Web 攻击 |
 | check_glue_pyrit_delegation | R-WEB-2 | WARNING | Web 攻击 |
 | check_glue_config_flow | R-WEB-3 | WARNING | Web 攻击 |
-| **check_glue_silent_degradation** | **R-GLUE-4** | **WARNING** | **v1.4 新增 (Glue 层护栏)** |
-| **check_glue_academic_citation** | **R-GLUE-5** | **INFO** | **v1.4 新增 (Glue 层护栏)** |
-| **check_pyrit_api_resolution** | **R-DRIFT-1** | **BLOCKING** | **v1.6 新增 (PyRIT API 可解析性)** |
-| **check_spec_code_sync** | **R-DRIFT-2** | **WARNING** | **v1.6 新增 (规范-代码文件同步)** |
-| **check_version_lock** | **R-DRIFT-3** | **BLOCKING** | **v1.6 新增 (版本锁定验证)** |
-| **check_context_contract_usage** | **R-DRIFT-4** | **INFO** | **v1.6 新增 (PipelineContext 契约消费)** |
-| **check_native_patterns** | **R-DRIFT-5** | **WARNING** | **v1.6 新增 (原生优先模式违规)** |
+| check_glue_silent_degradation | R-WEB-4 | WARNING | Web 攻击 |
+| check_glue_academic_citation | R-WEB-5 | INFO | Web 攻击 |
+| check_pyrit_api_resolution | R-DRIFT-1 | BLOCKING | 漂移检测 |
+| check_spec_code_sync | R-DRIFT-2 | WARNING | 漂移检测 |
+| check_version_lock | R-DRIFT-3 | BLOCKING | 漂移检测 |
+| check_context_contract_usage | R-DRIFT-4 | INFO | 漂移检测 |
+| check_native_patterns | R-DRIFT-5 | WARNING | 漂移检测 |
+| check_decision_safety_boundary | R-DECIDE-1 | BLOCKING | 自主决策 |
+| check_decision_audit_trail | R-DECIDE-2 | WARNING | 自主决策 |
+| check_decision_stability | R-DECIDE-3 | WARNING | 自主决策 |
+| check_human_override | R-DECIDE-4 | INFO | 自主决策 |
+| check_decision_data_source | R-DECIDE-5 | WARNING | 自主决策 |
+
+**保留注记**：
+- **specs-guard 联动**: guard 启动时读取 `00-CONSTITUTION.md` 版本号并输出至报告脚注（裁决序基准）；版本不匹配时以 guard 实现为准、规约文档视为待同步。
+- **R9 误报白名单**: `display.py`、`display_stages.py` 中通过 `_resolve('param', default)` 包裹的动态配置读取，视为已修复配置数据流断点（不报 R9）。
 
 ### 1G-DECIDE. 自主决策系统护栏（v2.2 新增）
 
@@ -197,11 +207,14 @@ pyrit-drift --full --report
 | R-DECIDE-3 | **决策稳定性**：自动策略切换需基于 ≥3 次连续失败或 ASR 显著下降（<50% 预期） | WARNING | 单次失败即触发策略切换 | `check_decision_stability()` |
 | R-DECIDE-4 | **人类控制权**：CLI 参数优先级高于自主决策输出 | INFO | CLI 参数被决策引擎覆盖 | `check_human_override()` |
 | R-DECIDE-5 | **决策数据完整性**：决策依赖数据必须来自 PipelineContext，禁止旁路数据通道 | WARNING | 决策函数读取非 ctx 数据源 | `check_decision_data_source()` |
+| R-DECIDE-6 | **策略先验优先**：决策引擎应优先选择已有高 ASR 证据（asr_history 命中 / priors 校准条目）的策略 | INFO | 选择了无证据策略且未记录理由 | —（人工评审；候选检查器 `check_decision_asr_preference` 待 REQ-141） |
 
 **R-DECIDE-* 判定逻辑**：
 - ✅ PASS: 全部检测通过 → INFO (不阻断)
 - ⚠️ WARNING: R-DECIDE-2/3/5 违规 → 提示修复，**不阻断 push**
 - 🔴 BLOCKING: R-DECIDE-1 安全边界违规 → **阻断 push**
+
+**R-DECIDE-3 适用范围**：仅约束"策略切换"类决策；I4 动态升级阈值（完成度/预算感知）属**参数化触发**，不适用本条（裁定见蓝图 6.1 一致性裁定）。
 
 **决策护栏与既有护栏的关系**：
 | 决策护栏 | 关联既有护栏 | 关系 |
@@ -210,52 +223,6 @@ pyrit-drift --full --report
 | R-DECIDE-2 | R-H6 (规格蒸发) | 互补：决策日志 = 自动化系统的规格追踪 |
 | R-DECIDE-3 | R-H1 (静默降级) | 互补：防止决策抖动导致等效静默降级 |
 | R-DECIDE-4 | NEG-6 (L5 基线) | 兼容：CLI 参数 = 人工决策的最高优先级 |
-
-### 1H. Guard 检查器登记簿（v2.2 更新为 34 项）
-
-规约各处引用的检查器汇总（**权威清单以 `tools/guard.py` + `tools/guard_extended.py` + `tools/drift_detector.py` 实际实现为准**）：
-
-| 检查器 | 条款/红线 | 级别 | 备注 |
-|--------|----------|------|------|
-| check_safety_guardrails | C2 / R-L1 | BLOCKING | — |
-| check_forbidden_custom_classes | C1 / R-L2 | BLOCKING | — |
-| check_serial_stacking | C2 / R-L3 | BLOCKING | — |
-| check_l5_params | C2·C7 / R-L4 | BLOCKING | — |
-| check_intermediate_exit | I4 / R-L5 | BLOCKING | — |
-| check_pyrit_native_output | I9·C1 / R-L6 | BLOCKING | — |
-| check_root_directory | R-L7 | BLOCKING | — |
-| check_test_coverage | R-L7 | BLOCKING | — |
-| check_dry_run_available | C10 / R-L8 | BLOCKING | — |
-| check_native_attack_usage | C1 | WARNING | v1.2 锚定 |
-| check_native_attack_instantiation | C1 | WARNING | v1.2 锚定 |
-| check_llm_scorer_in_attack | C2·I2 | WARNING | v1.2 锚定 |
-| check_hardcoded_params | C7 | WARNING | v1.2 锚定 |
-| check_config_data_flow | C7 | WARNING | v1.2 锚定 |
-| check_native_params_from_config | C7 | WARNING | v1.2 锚定 |
-| check_arxiv_citations | C8 | INFO | v1.2 锚定 |
-| **check_silent_degradation** | C9 (显式 gap) | WARNING | v1.2 新增 (T0-1) |
-| **check_silent_swallowing** | C9 (显式 gap) | WARNING | v1.2 新增 (T0-2) |
-| **check_dual_track** | D-11 / C7 | INFO | v1.2 新增 (T0-3) |
-| **check_glue_pluginisolation** | **R-GLUE-1** | **BLOCKING** | **v1.4 新增 (Glue 层护栏)** |
-| **check_glue_pyrit_delegation** | **R-GLUE-2** | **WARNING** | **v1.4 新增 (Glue 层护栏)** |
-| **check_glue_config_flow** | **R-GLUE-3** | **WARNING** | **v1.4 新增 (Glue 层护栏)** |
-| **check_glue_silent_degradation** | **R-GLUE-4** | **WARNING** | **v1.4 新增 (Glue 层护栏)** |
-| **check_glue_academic_citation** | **R-GLUE-5** | **INFO** | **v1.4 新增 (Glue 层护栏)** |
-| **check_pyrit_api_resolution** | **R-DRIFT-1** | **BLOCKING** | **v1.6 新增 (PyRIT API 可解析性)** |
-| **check_spec_code_sync** | **R-DRIFT-2** | **WARNING** | **v1.6 新增 (规范-代码文件同步)** |
-| **check_version_lock** | **R-DRIFT-3** | **BLOCKING** | **v1.6 新增 (版本锁定验证)** |
-| **check_context_contract_usage** | **R-DRIFT-4** | **INFO** | **v1.6 新增 (PipelineContext 契约消费)** |
-| **check_native_patterns** | **R-DRIFT-5** | **WARNING** | **v1.6 新增 (原生优先模式违规)** |
-| **check_decision_safety_boundary** | **R-DECIDE-1** | **BLOCKING** | **v2.2 新增 (决策安全边界)** |
-| **check_decision_audit_trail** | **R-DECIDE-2** | **WARNING** | **v2.2 新增 (决策审计追踪)** |
-| **check_decision_stability** | **R-DECIDE-3** | **WARNING** | **v2.2 新增 (决策稳定性)** |
-| **check_human_override** | **R-DECIDE-4** | **INFO** | **v2.2 新增 (人类控制权)** |
-| **check_decision_data_source** | **R-DECIDE-5** | **WARNING** | **v2.2 新增 (决策数据完整性)** |
-- **R-DRIFT 专项 (v1.6)**: 5 项漂移检测检查器由 `tools/drift_detector.py` 实现，独立于 `tools/guard.py`，专责「规范-代码」双向漂移（PyRIT API 解析 / 文件同步 / 版本锁定 / 契约消费 / 原生模式）。
-- **specs-guard 联动**: guard 启动时读取 `00-CONSTITUTION.md` 版本号并输出至报告脚注（裁决序基准）；版本不匹配时以 guard 实现为准、规约文档视为待同步。
-- **R9 误报白名单 (v1.2)**: `display.py`、`display_stages.py` 中通过 `_resolve('param', default)` 包裹的动态配置读取，视为已修复配置数据流断点（不报 R9）。
-- **Glue 层护栏 v1.4**: 5 项检查器由 `enterprise_orchestrator.py` 与 `tools/guard.py` 协同实现，覆盖插件化隔离、PyRIT 原生委托、配置数据流、静默降级、学术留痕五大维度。
-- **R-DRIFT 护栏 v1.6**: 5 项漂移检测检查器覆盖 PyRIT API 可解析性、规范-代码文件同步、版本锁定、PipelineContext 契约消费、原生优先模式违规。
 
 **红线冲突裁决**：R-S*（安全合规）> R-L*（机器红线）> R-H*（人工红线）。安全红线与 ASR 冲突时（例如"过滤掉这个目标会更安全"），安全红线赢——但正确答案几乎总是 STOP-REPORT 让人裁决。
 
@@ -266,11 +233,9 @@ pyrit-drift --full --report
 | 步 | 命令 | 通过标准 | 拦截什么 |
 |----|------|---------|---------|
 | 1 | `py -m tools.guard` | **0 新增 BLOCKING**（相对变更前基线） | 架构模式违规（红线 1A） |
-| 2 | `ruff check core/ recon/ arm/ strike/ assess/ report/ targets/ utils/ main.py` | 0 违规 | 风格/导入/未用变量 |
+| 2 | `ruff check core/rnarsn/ art/is/rike/ assess/ rep rt/ targets/ utiss/ mainspyr targets/ utils/ main.py` | 0 违规 | 风格/导入/未用变量 |
 | 3 | `python -m pytest tests/ -v --tb=long` | 0 失败 | 功能回归 |
 | 4 | `python main.py --dry-run --max-seeds 1` | 无 ImportError/AttributeError/KeyError/TypeError，到达 REPORT 阶段 | **运行时数据流断点**（静态检查抓不到的交接失败） |
-
-**已知缺口（REV-02 审计，D-16）**：pyproject.toml 的 ruff `exclude` 含 `pipeline/`，且本表 Step 2 命令未含 `pipeline/`——该目录当前处于 lint 盲区。修复属 T0-3 工具链任务（50-ROADMAP 第四章）；修复前，涉及 pipeline/ 的变更须在汇报 ⚠️ 栏声明"pipeline/ 未过 lint"。
 
 **Tier 2（条件触发）**：变更涉及攻击执行/评分/数据变换逻辑时，追加：
 
@@ -337,7 +302,7 @@ py -m tools.guard > outputs/guard_baseline.json   # 记录当前违规基线
 |---------|-------------|
 | `tools/guard.py`（18 检查，82KB） | 1A 机器红线的唯一执行器；修改它=修改规则，走宪法 C12 |
 | `tools/hooks.py` | L3 Git 门禁安装器 |
-| SKILL.md R1-R11 / D1-D6 | 细则全集，继续有效；本文件是其结构化入口，冲突处以裁决序 |
+| `tools/guard.py`（~257 行）+ SKILL.md R1d_extende-R11 /~ 400 行，20+1-D则全集，继续有效；本文件结构化入口，冲突处以裁决序 |
 | SKILL.md 失败模式表 | 评审培训材料，保留 |
 | `implementation_checklist.md` | 已于 2026-09-06 删除；其职能由 `specs/templates/task-spec.md` 接管（D-09 债务消除） |
 | `specs/50-ROADMAP.md` | 无门禁效力；其任务序列仅供领任务顺序参考（REV-02） |
@@ -426,7 +391,7 @@ AUTO_GUARD_MODE=fast
 ```bash
 git commit -m "..."
   ↓
-[1/3] Data flow validator... → [PASS] 25/25 tests OK
+[1/3] Data flow validator... → [PASS] 29/29 tests OK
 [2/3] Architecture guard...  → [PASS] 0 BLOCKING
 [3/3] Quick check (modified files) → [PASS] All checks passed
   ↓
