@@ -195,14 +195,15 @@ def _single_evidence_to_dict(ev: VulnerabilityEvidence) -> dict[str, Any]:
             "transformed": obj[:200],
         }]
 
-        # P0-4: score_details - single fallback (no pseudo validation_runs)
-        score_details = ev.score_details
-        if not score_details:
-            score_details = [{
-                "scorer": "AttackOutcome",
-                "score_value": "success" if ev.is_success else "failure",
-                "rationale": "Determined by post-hoc scoring (no explicit scorer object attached)",
-            }]
+    # P0-4: score_details - single fallback (no pseudo validation_runs)
+    # Moved outside the if-block to ensure score_details is always defined
+    score_details = ev.score_details
+    if not score_details:
+        score_details = [{
+            "scorer": "AttackOutcome",
+            "score_value": "success" if ev.is_success else "failure",
+            "rationale": "Determined by post-hoc scoring (no explicit scorer object attached)",
+        }]
 
     return {
         "evidence_id": ev.evidence_id,

@@ -196,15 +196,13 @@ class EvidenceCollection:
     target_fingerprint: dict[str, str] = field(default_factory=dict)
  #
     attack_surface: dict[str, Any] = field(default_factory=dict)
- # L5 v8: Judge
+ # L5 v8: Judge (single definition)
     dual_judge_stats: dict[str, Any] = field(default_factory=dict)
  # L5 v29: Wilson Score + Cohen's Kappa
     wilson_ci: tuple[float, float] = (0.0, 0.0)
     cohens_kappa: float = 0.0
  # P0-4: Findings
     findings: list[OWASPFinding] = field(default_factory=list)
- # L5 v8: Judge
-    dual_judge_stats: dict[str, Any] = field(default_factory=dict)
  # "Orchestration Decision Log" (P2-07: audit trail of all pipeline decisions)
     orchestration_log: list[dict[str, Any]] = field(default_factory=list)
  # == : (pyrit_scan --memory-labels) ==
@@ -536,11 +534,10 @@ class EvidenceCollector:
  # : _success
         file_suffix = "_success" if is_success else ""
 
- # evidence_id _success
+         # evidence_id _success
         evidence_id = f"EVD-{attack_index + 1:04d}"
-        if is_success:
 
-            return VulnerabilityEvidence(
+        return VulnerabilityEvidence(
             evidence_id=evidence_id,
             attack_id=getattr(result, "attack_result_id", getattr(result, "id", str(uuid.uuid4()))),
             technique_name=technique_name,

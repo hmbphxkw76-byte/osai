@@ -64,7 +64,7 @@ _SPEC_NATIVE_ATTACK_CLASSES: dict[str, str] = {
     "CrescendoAttack": "pyrit.executor.attack.multi_turn",
     "TAPAttack": "pyrit.executor.attack.multi_turn",
     "PAIRAttack": "pyrit.executor.attack.multi_turn",
-    "XPIAAttack": "pyrit.executor.attack.multi_turn",
+    # XPIAAttack 在 PyRIT 1.0.1 中不在 multi_turn, 标记为 N/A
     "SequentialAttack": "pyrit.executor.attack.compound",
     "ManyShotJailbreakAttack": "pyrit.executor.attack",
     "MultiPromptSendingAttack": "pyrit.executor.attack",
@@ -81,21 +81,21 @@ _SPEC_NATIVE_CONVERTER_PREFIXES: tuple[str, ...] = (
 )
 
 _SPEC_NATIVE_SCORER_CLASSES: dict[str, str] = {
-    "SelfAskTrueFalseScorer": "pyrit.scoring",
-    "SelfAskRefusalScorer": "pyrit.scoring",
-    "SelfAskLikertScorer": "pyrit.scoring",
-    "SelfAskCategoryScorer": "pyrit.scoring",
-    "RegexScorer": "pyrit.scoring",
-    "SubStringScorer": "pyrit.scoring",
-    "TrueFalseScorer": "pyrit.scoring",
-    "FloatScaleScorer": "pyrit.scoring",
+    "SelfAskTrueFalseScorer": "pyrit.score",
+    "SelfAskRefusalScorer": "pyrit.score",
+    "SelfAskLikertScorer": "pyrit.score",
+    "SelfAskCategoryScorer": "pyrit.score",
+    "RegexScorer": "pyrit.score",
+    "SubStringScorer": "pyrit.score",
+    "TrueFalseScorer": "pyrit.score",
+    "FloatScaleScorer": "pyrit.score",
 }
 
 _SPEC_NATIVE_TARGET_CLASSES: dict[str, str] = {
-    "OpenAIChatTarget": "pyrit.target",
-    "HTTPTarget": "pyrit.target",
-    "PromptTarget": "pyrit.target",
-    "TextTarget": "pyrit.target",
+    "OpenAIChatTarget": "pyrit.prompt_target",
+    "HTTPTarget": "pyrit.prompt_target",
+    "PromptTarget": "pyrit.prompt_target",
+    "TextTarget": "pyrit.prompt_target",
 }
 
 # PipelineContext 字段契约 (从 10-ARCHITECTURE.md 第四章提取，原 45-DATA-FLOW-INTEGRITY.md 已合并)

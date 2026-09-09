@@ -109,9 +109,9 @@ def _build_sarif(evidence: Any) -> dict[str, Any]:
     }
 
 def _build_rules(evidence: Any) -> list[dict[str, Any]]:
+    """ SARIF ( OWASP EURX??"""
     # P1-5: 延迟导入 MITRE ATLAS 技术映射
     from report.evidence import _MITRE_ATLAS_TECHNIQUES
-    """ SARIF ( OWASP EURX??"""
     rules: list[dict[str, Any]] = []
     seen_owasp_ids: set[str] = set()
 

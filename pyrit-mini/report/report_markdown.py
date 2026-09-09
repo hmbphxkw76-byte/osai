@@ -411,6 +411,9 @@ def _generate_findings_markdown(evidence: EvidenceCollection, *, success_only: b
 
         if failure_categories:
             desc_map = {
+                "converter_blocked": "Target content filtering blocked encoded payload",
+                "jailbreak_refused": "Target refused jailbreak attempt",
+                "other": "Uncategorized failure - requires manual analysis",
             }
             for cat, count in sorted(failure_categories.items(), key=lambda x: x[1], reverse=True):
                 desc = desc_map.get(cat, "Unknown failure category")
@@ -481,6 +484,8 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
         lines.append("|-----------|-------|")
         if fp:
             fp_keys = [
+                "app_type", "target_type", "auth_type", "capabilities",
+                "model_family", "language", "framework", "content_type",
             ]
             for key in fp_keys:
                 val = fp.get(key, "")
@@ -723,7 +728,6 @@ def _generate_technical_markdown(evidence: EvidenceCollection) -> str:
 
 def _append_evidence_card(lines: list[str], ev: VulnerabilityEvidence) -> None:
     """Append evidence card markdown section with Attack Chain visualization."""
-    _TRUNCATE_LEN = 200
     lines.append(f"### {ev.evidence_id} - {ev.owasp_id}: {ev.owasp_category}")
     lines.append("")
 
