@@ -51,17 +51,51 @@ from pathlib import Path
 from typing import Any
 
 
-def auto_start_guard_watcher() -> None:
-    """Check .env.local and auto-start guard watcher if enabled.
+def _load_auto_guard_from_yaml() -> dict[str, Any]:
+    """Load auto-guard settings from config/defaults.yaml.
 
-    Environment variables:
-        AUTO_GUARD_WATCH=1  — Enable auto-watch
-        AUTO_GUARD_MODE=fast — Watch mode (fast/full)
+    Priority fallback chain: env vars > yaml > hardcoded defaults.
+    Returns dict with 'enabled' (bool) and 'mode' (str).
     """
-    if os.environ.get("AUTO_GUARD_WATCH") != "1":
-        return
+    import yaml as _yaml
 
-    mode = os.environ.get("AUTO_GUARD_MODE", "fast")
+    defaults = {"enabled": False, "mode": "fast"}
+    yaml_path = Path("config/defaults.yaml")
+    if yaml_path.exists():
+        try:
+            with open(yaml_path, "r", encoding="utf-8") as f:
+                cfg = _yaml.safe_load(f) or {}
+                defaults["enabled"] = bool(cfg.get("auto_guard_watch", False))
+                defaults["mode"] = str(cfg.get("auto_guard_mode", "fast"))
+        except Exception:
+            pass
+    return defaults
+
+
+def auto_start_guard_watcher() -> None:
+    """Auto-start guard watcher based on configuration.
+
+    Priority chain (highest → lowest):
+        1. Environment variables (AUTO_GUARD_WATCH / AUTO_GUARD_MODE)
+        2. config/defaults.yaml (auto_guard_watch / auto_guard_mode)
+        3. Hardcoded defaults (enabled=False, mode=fast)
+    """
+    # 1. Check env vars (highest priority)
+    env_watch = os.environ.get("AUTO_GUARD_WATCH")
+    env_mode = os.environ.get("AUTO_GUARD_MODE")
+
+    if env_watch is not None:
+        # Env var explicitly set — use it
+        enabled = env_watch == "1"
+        mode = env_mode if env_mode else "fast"
+    else:
+        # No env var — fallback to YAML
+        yaml_cfg = _load_auto_guard_from_yaml()
+        enabled = yaml_cfg["enabled"]
+        mode = yaml_cfg["mode"]
+
+    if not enabled:
+        return
     project_root = Path(__file__).resolve().parent
 
     # Start watcher in background (non-blocking)

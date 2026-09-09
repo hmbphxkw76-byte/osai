@@ -83,6 +83,11 @@ adaptive_random_seed: 42
 adaptive_max_attempts: 3        # 每个 objective 最多尝试 3 种技术
 adaptive_technique_filter: null # null = 全部技术
 
+# ── 自动守卫 (watch_guard) ──
+# 优先级: 环境变量(AUTO_GUARD_WATCH) > 本文件 > 硬编码默认值(false/fast)
+auto_guard_watch: false       # true=启用实时守卫 (等价于 AUTO_GUARD_WATCH=1)
+auto_guard_mode: "fast"       # fast=仅检查修改文件 / full=全量检查
+
 # 攻击面→技术标签映射 (v60 SSOT)
 scenario_technique_filters:
   mcp_server:

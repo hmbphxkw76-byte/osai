@@ -74,9 +74,20 @@
 
 ## 6. 附件
 
-- `raw/claude.json` — Claude 原始报告
-- `raw/gpt4o.json` — GPT-4o 原始报告
-- `raw/glm4.json` — GLM-4 原始报告
-- `aligned/diff.json` — 差异对齐结果
-- `aligned/kappa.json` — κ 计算详情
-- `adjudication/decision.json` — 仲裁记录
+> 目录结构对齐 `60-CROSS-MODEL-VERIFICATION.md` 第 6.1 节规范。
+
+```
+outputs/cross_model_review/
+└── {YYYYMMDD}-{change_id}/
+    ├── trigger.md          # 触发变更说明（本报告）
+    ├── raw/                # 原始审查报告
+    │   ├── claude.json
+    │   ├── gpt4o.json
+    │   └── glm4.json
+    ├── aligned/            # 对齐结果
+    │   ├── diff.json
+    │   └── kappa.json
+    ├── adjudication/       # 仲裁记录
+    │   └── decision.json
+    └── summary.md          # 人类可读摘要
+```

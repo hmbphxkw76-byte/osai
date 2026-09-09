@@ -1,7 +1,7 @@
 # 55-ATTACK-GAP-CLOSURE.md — 攻击缺口完整优化方案
 
-**版本**: v1.5 (2026-09-09 新增跨模型规约审查引用：9.6 节集成 60-CROSS-MODEL-VERIFICATION.md 协议)
-**状态**: 四大攻击缺口实施完成 + 文件上传攻击模块
+**版本**: v1.8 (2026-09-09 REV-18: 新增 gap 6 Workflow Evasion 安全扫描绕过)
+**状态**: 四大攻击缺口实施完成 + 文件上传攻击模块 + Workflow Evasion
 **作者**: AI Red Team
 
 ## 1. 背景与目标

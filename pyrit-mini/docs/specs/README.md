@@ -71,7 +71,7 @@
 | 6 | `pytest tests/test_data_flow_integrity.py -v` | 全部通过 | 修复契约违规 |
 
 **详细规则文档**: `tools/__init__.py` — 【完整验证触发规则】
-**快速参考卡片**: `DEV-TRIAD-CHECKLIST.md` — 【开发全审速查表】
+**快速参考卡片**: `70-DEV-TRIAD-CHECKLIST.md` — 【开发全审速查表】
 
 ---
 
@@ -115,6 +115,7 @@
 | L4 | [40-GUARDRAILS.md](40-GUARDRAILS.md) | 红线 R-L / R-H / R-S / R-WEB (含R-WEB-6任意端口) / R-DRIFT / R-DATA / R-DECIDE / R-TOOLS / R-DOC (代码-文档同步，含R-DOC-5命令行文档) / R-CROSS (跨模型审查) / 四步门禁 / 三层防线 / 登记簿 (46项，1F 唯一，含R-L1/R-L7新实现) / 交付验证清单 (7D CLI文档验收) / 考试合规 / spec-code drift 修复 (v3.0) | v3.0 |
 | 配套 | [50-ROADMAP.md](50-ROADMAP.md) | 路线图：AI-300 考纲映射 / 红队实践 / 基准校准 (阶段 0.5) / 任务序列 / 会话模型 / Runbook / 考试日故障降级矩阵 / 跨模型审查系统 (阶段 1D) | v1.10 |
 | 配套 | [55-ATTACK-GAP-CLOSURE.md](55-ATTACK-GAP-CLOSURE.md) | 攻击缺口闭环：四大缺口分析 / 文件上传攻击缺口 (v1.4新增) / 黑盒可测性约束 (4.1-B) / 全链路自主决策架构 / 跨模型规约审查集成 (v1.5新增) / A2A多智能体侦察框架 (v1.7新增) / Workflow Evasion安全扫描绕过 (v1.8新增) | v1.8 |
+| 配套 | [56-A2A-MULTI-AGENT-ATTACK.md](56-A2A-MULTI-AGENT-ATTACK.md) | A2A多智能体攻击优化方案：五大攻击向量 (Workflow/SQL注入/Rogue Agent/Card Spoofing/Data Poisoning) / 59+测试 / 38+种子 | v1.0 |
 | 配套 | [60-CROSS-MODEL-VERIFICATION.md](60-CROSS-MODEL-VERIFICATION.md) | 跨模型规约审查协议：审查模型注册簿 / 触发规则 / Prompt模板 / 差异对齐 / 仲裁协议 / Schema标准 / 存储结构 / κ度量指标 / 工具链集成 | v1.0 |
 | 配套 | [templates/task-spec.md](templates/task-spec.md) | 任务规格模板 + 考试变体 | v1.1 |
 | 配套 | [templates/cross-model-review.md](templates/cross-model-review.md) | 跨模型审查报告模板（快速决策卡 + 差异对齐表 + κ指标 + 修复清单） | v1.0 |
