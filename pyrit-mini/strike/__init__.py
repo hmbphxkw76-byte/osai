@@ -9,6 +9,7 @@
 # PAIR/TAP - arXiv:2310.08419 (PAIR) / arXiv:2405.17350 (TAP)
 # ASR Trend Tracker - arXiv:2403.04132 (Statistical Significance)
 # Decision Safety - arXiv:2407.01232 (Auth Framework) / NIST AI RMF 600-1
+# SQL Injection Evasion - arXiv:2403.15514 (SQL obfuscation) / arXiv:2306.05685 (Adaptive evasion)
 """strike - Attack execution module.
 
 6-phase attack pipeline with PyRIT native AttackExecutor:
@@ -110,6 +111,17 @@ __all__ = [
     "generate_homograph_link_payload",
     "generate_homograph_domain",
     "get_available_techniques",
+    # SQL Injection Evasion (arXiv:2403.15514 / arXiv:2306.05685)
+    "SQLInjectionEvasion",
+    "create_sql_injection_evasion",
+    "EvasionPayload",
+    "generate_hex_encoded_xp_cmdshell",
+    "generate_gradual_escalation_chain",
+    "generate_lolbin_evasion",
+    "encode_hex",
+    "generate_char_concatenation",
+    "generate_timing_jitter_evasion",
+    "generate_multi_step_fragmentation",
 ]
 
 # Lazy imports for Web security modules
@@ -193,5 +205,14 @@ def __getattr__(name: str) -> Any:
                 "get_available_techniques"):
         from strike import link_evasion
         return getattr(link_evasion, name)
+
+    # SQL Injection Evasion module (arXiv:2403.15514 / arXiv:2306.05685)
+    if name in ("SQLInjectionEvasion", "create_sql_injection_evasion",
+                "EvasionPayload", "generate_hex_encoded_xp_cmdshell",
+                "generate_gradual_escalation_chain", "generate_lolbin_evasion",
+                "encode_hex", "generate_char_concatenation",
+                "generate_timing_jitter_evasion", "generate_multi_step_fragmentation"):
+        from strike import sql_injection_evasion
+        return getattr(sql_injection_evasion, name)
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

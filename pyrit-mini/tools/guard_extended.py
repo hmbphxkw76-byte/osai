@@ -865,6 +865,9 @@ def register_extended_checks(guard_cls) -> None:
     guard_cls.check_attack_gap_documented = check_attack_gap_documented
     guard_cls.check_requirements_guardrails_synced = check_requirements_guardrails_synced
     guard_cls.check_readme_version_synced = check_readme_version_synced
+    # R-L1 / R-L7: 攻击端防御逻辑检查 + 根目录结构检查 (v2.9 新增实现, 修复 spec-code drift)
+    guard_cls.check_no_defense_in_attack_dirs = check_no_defense_in_attack_dirs
+    guard_cls.check_top_level_structure = check_top_level_structure
 
 
 # ===============================================================================
@@ -1866,6 +1869,216 @@ def check_delivery_init_export_consistency(self) -> None:
                         fix_hint=f"在 __init__.py 中添加 from .{py_file.stem} import {class_name}",
                     ))
                     break
+
+
+# ===============================================================================
+# R-L1: 攻击端安全护栏检查 - 防御代码不得出现在攻击目录 (v2.9 新增实现)
+# ===============================================================================
+
+# 攻击目录模式：包含以下关键词的顶层目录
+_ATTACK_DIR_PATTERNS = [
+    "strike",
+    "arm",
+    "recon",
+    "attack",  # 捕获 future attack_* 目录
+]
+
+# 检测防御/安全逻辑的关键词
+_DEFENSE_KEYWORDS = [
+    r"class\s+.*(?:Defense|Sandbox|Filter|Analyzer|Scanner|Guard|Blocker|Protector|Validator)\w*",
+    r"def\s+(?:detect|block|filter|sanitize|check_security|validate_safety|is_malicious|is_dangerous)\w*",
+    r"(?:whitelist|blacklist|allow_list|block_list|security_policy|safe_mode|access_control)",
+    r"class\s+FileAccessSandbox",
+    r"class\s+ASTAnalyzer",
+    r"class\s+DefenseOrchestrator",
+    r"def\s+check_.*access",
+    r"def\s+sanitize_.*content",
+]
+
+# 预定义豁免 (已知的安全测试相关正常代码 - "防御"名称实际用于攻击/侦察目的)
+# 这些文件虽然使用了 defense/detect/filter 等关键词，但实际是攻击工具：
+# - recon/*: 检测/分析目标系统的防御机制 (用于绕过)
+# - strike/*: 分析/验证会话安全 (用于攻击)
+# - stealth/blacklist: 攻击隐蔽配置
+_DEFENSE_CHECK_WHITELIST = {
+    # 攻击模块白名单
+    "strike/output_filter_bypass.py": "攻击端过滤器绕过 (正向攻击技术)",
+    "strike/asr_forensics.py": "攻击后取证分析 (服务于ASR证据链)",
+    "report/evidence_extract.py": "证据提取 (服务于报告生成)",
+    # 侦察模块白名单 - 检测目标防御用于绕过
+    "recon/guardrail_detector.py": "检测目标防护机制 (用于绕过)",
+    "recon/a2a_defense_awareness.py": "分析目标A2A防御 (用于绕过)",
+    "recon/stealth_config.py": "攻击隐蔽配置 (converter_blacklist)",
+    "recon/confidence_scorer.py": "攻击置信度评估 (filter_by_level)",
+    "recon/auth_detector.py": "检测目标认证机制 (用于绕过)",
+    "recon/api_classifier.py": "API分类识别 (攻击面侦察)",
+    "recon/model_seed_mapper.py": "模型指纹识别 (用于选择攻击策略)",
+    "recon/prompt_injector.py": "注入检测 (攻击面侦察)",
+    "recon/trust_chain_probe.py": "信任链探测 (攻击)",
+    "recon/multi_agent_topology.py": "拓扑分析 (攻击侦察)",
+    # 会话攻击白名单
+    "strike/session/session_id_analyzer.py": "会话ID分析 (攻击)",
+    "strike/session/session_pattern_analyzer.py": "会话模式分析 (攻击)",
+    "strike/session/validation.py": "会话验证 (攻击)",
+}
+
+
+def check_no_defense_in_attack_dirs(self) -> None:
+    """R-L1-IMP: 攻击目录中不得存在防御/安全护栏逻辑 (BLOCKING)
+
+    真实实现：扫描所有攻击相关目录，检测是否存在防御性代码。
+    攻击目录包括: strike/, arm/, recon/, 以及任何名称含 attack 的顶层目录。
+
+    检测逻辑:
+    1. 识别攻击目录 (strike/arm/recon/attack_*)
+    2. 扫描文件内容中的防御/安全关键词
+    3. 发现匹配则报告 BLOCKING 违规
+
+    Reference: 40-GUARDRAILS.md 1A R-L1
+    """
+    Severity, Violation = _get_violation_classes()
+
+    for path in self.source_files:
+        try:
+            content = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        rel_path = str(path.relative_to(self.root))
+        norm_path = rel_path.replace("\\", "/")
+
+        # 检查是否在攻击目录中
+        parts = norm_path.split("/")
+        if not parts:
+            continue
+        top_dir = parts[0]
+
+        # 判断是否为攻击目录
+        is_attack_dir = any(
+            top_dir == pattern or (pattern == "attack" and "attack" in top_dir)
+            for pattern in _ATTACK_DIR_PATTERNS
+        )
+
+        if not is_attack_dir:
+            continue
+
+        # 检查白名单
+        if norm_path in _DEFENSE_CHECK_WHITELIST:
+            continue
+
+        # 检测防御代码关键词
+        for i, line in enumerate(content.split("\n"), 1):
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+
+            for pattern in _DEFENSE_KEYWORDS:
+                if re.search(pattern, stripped, re.IGNORECASE):
+                    self.violations.append(Violation(
+                        rule="R-L1",
+                        severity=Severity.BLOCKING,
+                        file=rel_path,
+                        line=i,
+                        description=f"攻击端存在防御逻辑: {stripped[:60]} (匹配模式: {pattern})",
+                        fix_hint="攻击目录中的防御/安全逻辑必须迁移到独立的 safety/ 目录或删除",
+                    ))
+                    break  # 每个文件只报第一个匹配
+
+
+# ===============================================================================
+# R-L7: 根目录结构合法性检查 (v2.9 新增实现)
+# ===============================================================================
+
+# 允许的顶层目录 (白名单)
+_ALLOWED_TOP_LEVEL_DIRS = {
+    "strike",
+    "arm",
+    "recon",
+    "core",
+    "assess",
+    "report",
+    "utils",
+    "tools",
+    "tests",
+    "data",
+    "docs",
+    "outputs",  # 运行时生成
+    "config",   # 配置文件目录
+}
+
+# 允许的顶层文件
+_ALLOWED_TOP_LEVEL_FILES = {
+    "main.py",
+    "pyproject.toml",
+    "README.md",
+    "DEV-TRIAD-CHECKLIST.md",
+    ".gitignore",
+    ".env.local",
+    ".env",
+}
+
+
+def check_top_level_structure(self) -> None:
+    """R-L7-IMP: 检查根目录结构合法性 (BLOCKING)
+
+    真实实现：检测未授权的顶层目录/文件。
+
+    规则:
+    1. 新顶层目录必须在 _ALLOWED_TOP_LEVEL_DIRS 中
+    2. 新顶层文件必须在 _ALLOWED_TOP_LEVEL_FILES 中
+    3. 发现未授权则报告 BLOCKING
+
+    Reference: 40-GUARDRAILS.md 1A R-L7
+    """
+    Severity, Violation = _get_violation_classes()
+
+    # 检查顶层目录
+    for item in self.root.iterdir():
+        if not item.is_dir():
+            continue
+
+        name = item.name
+        # 忽略隐藏目录
+        if name.startswith("."):
+            continue
+        # 忽略 __pycache__ 等
+        if name in {"__pycache__", "node_modules", "pyrit_mini.egg-info"}:
+            continue
+
+        if name.lower() not in _ALLOWED_TOP_LEVEL_DIRS:
+            # 检查是否是已知的允许目录（不区分大小写）
+            normalized = name.lower()
+            if normalized not in _ALLOWED_TOP_LEVEL_DIRS:
+                self.violations.append(Violation(
+                    rule="R-L7",
+                    severity=Severity.BLOCKING,
+                    file=name,
+                    line=0,
+                    description=f"未授权的顶层目录: {name} (不在允许列表中)",
+                    fix_hint=f"将 {name}/ 合并到已有目录 (strike/arm/recon/tools/utils/data/docs) 或添加到 _ALLOWED_TOP_LEVEL_DIRS",
+                ))
+
+    # 检查顶层文件
+    for item in self.root.iterdir():
+        if not item.is_file():
+            continue
+
+        name = item.name
+        # 忽略隐藏文件
+        if name.startswith("."):
+            continue
+
+        if name not in _ALLOWED_TOP_LEVEL_FILES:
+            # 检查是否是已知的允许文件模式
+            if not (name.startswith("test_") and name.endswith(".py")):
+                self.violations.append(Violation(
+                    rule="R-L7",
+                    severity=Severity.WARNING,
+                    file=name,
+                    line=0,
+                    description=f"未登记的顶层文件: {name}",
+                    fix_hint=f"将 {name} 移至合适的子目录或添加到 _ALLOWED_TOP_LEVEL_FILES",
+                ))
 
 
 def check_delivery_module_docstring(self) -> None:
