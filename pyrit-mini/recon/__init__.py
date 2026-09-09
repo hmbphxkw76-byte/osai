@@ -44,7 +44,6 @@ from recon.confidence_scorer import (
 )
 from recon.endpoint_sorter import (
     ClassificationResult,
-    classify_http_content,
     sort_burp_list_by_priority,
     sort_endpoints_by_priority,
 )
@@ -105,7 +104,6 @@ __all__ = [
     "decode_jwt_payload",
     # Attack surface classification (merged from attack_surface_classifier)
     "ClassificationResult",
-    "classify_http_content",
     # RAG pipeline probe (P1 enhancement 2026-09-08, attacker-slimmed)
     "RAGPipelineProfile",
     "run_rag_pipeline_probe",

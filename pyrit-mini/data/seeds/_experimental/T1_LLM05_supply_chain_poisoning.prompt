@@ -32,6 +32,8 @@
     severity: critical
     category: sbom_manipulation_detection
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: sbom_analysis
@@ -55,6 +57,8 @@
     severity: critical
     category: ai_dependency_poisoning
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: ai_package_manipulation
@@ -78,6 +82,8 @@
     severity: critical
     category: model_card_manipulation
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: provenance_verification_bypass
@@ -100,6 +106,8 @@
     severity: critical
     category: container_supply_chain
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: container_image_manipulation
@@ -123,6 +131,8 @@
     severity: critical
     category: signature_verification_bypass
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: cryptographic_signature_manipulation
@@ -154,6 +164,8 @@
     severity: critical
     category: model_update_poisoning
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: model_update_manipulation
@@ -186,6 +198,8 @@
     severity: critical
     category: deployment_manifest_manipulation
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: kubernetes_supply_chain
@@ -210,6 +224,8 @@
     severity: critical
     category: ml_pipeline_poisoning
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: registry_poisoning
@@ -235,6 +251,8 @@
     severity: critical
     category: dependency_confusion
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: typosquatting
@@ -259,6 +277,8 @@
     severity: critical
     category: ai_code_completion_poisoning
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: code_completion_supply_chain
@@ -290,6 +310,8 @@
     severity: critical
     category: config_verification_bypass
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: configuration_supply_chain

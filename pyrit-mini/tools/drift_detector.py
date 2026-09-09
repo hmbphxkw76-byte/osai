@@ -99,12 +99,14 @@ _SPEC_NATIVE_TARGET_CLASSES: dict[str, str] = {
 }
 
 # PipelineContext 字段契约 (从 10-ARCHITECTURE.md 第四章提取，原 45-DATA-FLOW-INTEGRITY.md 已合并)
+# 注意: 嵌套字段(如 parsed_request.target_fingerprint)和运行时动态字段(如 evidence_collection)
+# 不在此处枚举，避免 INFO 级误报。
 _PIPELINE_CONTEXT_CONTRACTS: dict[str, list[str]] = {
-    "recon": ["objective_target", "parsed_request", "service_profile", "target_fingerprint"],
+    "recon": ["objective_target", "parsed_request", "service_profile"],
     "arm": ["seeds", "techniques", "converter_map"],
     "strike": ["attack_results"],
     "assess": ["asr_per_technique", "overall_asr", "dual_judge_stats", "wilson_ci"],
-    "report": ["final_report", "evidence_collection"],
+    "report": [],  # report 阶段字段通过 report/ 模块访问，非 ctx 直接字段
 }
 
 # 规范文档中引用的文件路径 (需要定期验证存在性)

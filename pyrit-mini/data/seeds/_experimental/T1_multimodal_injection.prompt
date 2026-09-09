@@ -23,6 +23,8 @@
     severity: critical
     category: image_injection
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: multimodal_image_injection
@@ -45,6 +47,8 @@
     severity: critical
     category: image_injection
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: multimodal_image_injection
@@ -62,6 +66,8 @@
     severity: critical
     category: image_injection
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: multimodal_qr_injection
@@ -78,6 +84,8 @@
     severity: critical
     category: image_steganography
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: multimodal_steganography
@@ -99,6 +107,8 @@
     severity: critical
     category: image_metadata_injection
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: multimodal_metadata_injection
@@ -115,6 +125,8 @@
     severity: critical
     category: adversarial_vision
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: multimodal_adversarial_vision
@@ -136,6 +148,8 @@
     severity: critical
     category: audio_injection
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: multimodal_audio_injection
@@ -152,6 +166,8 @@
     severity: critical
     category: audio_ultrasonic_injection
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: multimodal_ultrasonic_injection
@@ -168,6 +184,8 @@
     severity: critical
     category: audio_steganography
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: multimodal_audio_steganography
@@ -186,6 +204,8 @@
     severity: critical
     category: synthetic_voice_injection
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: multimodal_synthetic_voice
@@ -208,6 +228,8 @@
     severity: critical
     category: file_metadata_injection
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: multimodal_file_metadata
@@ -226,6 +248,8 @@
     severity: critical
     category: file_encoding_injection
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: multimodal_file_encoding
@@ -242,6 +266,8 @@
     severity: critical
     category: file_watermark_injection
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: multimodal_watermark_injection
@@ -260,6 +286,8 @@
     severity: critical
     category: file_macro_injection
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: multimodal_macro_injection
@@ -281,6 +309,8 @@
     severity: critical
     category: structured_data_injection
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: multimodal_structured_data
@@ -299,6 +329,8 @@
     severity: critical
     category: markup_injection
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: multimodal_markup_injection

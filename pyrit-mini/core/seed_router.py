@@ -1,29 +1,18 @@
-# Seed-Converter-Technique Intelligent Router — 种子-转换器-技术智能路由器
-#
-# 功能:
-#   1. 根据种子metadata自动匹配最佳converter
-#   2. 根据种子metadata自动选择最佳attack technique
-#   3. 确保DoS/高token消耗种子默认禁用
-#   4. 提供统一的种子消费接口
-#
-# 学术依据:
-#   - Wei et al. (arXiv:2307.15043): >2层串行stacking ASR下降
-#   - Zeng et al. (arXiv:2402.19181): Authority endorsement ASR 38.4%
-#   - Chao et al. (arXiv:2310.08419): PAIR迭代优化
-#   - Zou et al. (arXiv:2307.15043): GCG对抗攻击
-#
-# 集成点:
-#   - arm/seed_ranker.py: 加载种子后调用router进行匹配
-#   - strike/executor.py: 执行攻击时查询router获取配置
-#   - core/phases/arm.py: ARM阶段集成router
-#
-# 金字塔位置: core/ (运行时模块)
-
-"""
-Seed-Converter-Technique Intelligent Router
+"""Seed-Converter-Technique Intelligent Router — 种子-转换器-技术智能路由器
 
 Routes seeds to optimal PyRIT converters and attack techniques based on
 seed metadata (attack_vector, suitable_for, category) and target capabilities.
+
+Academic basis:
+    - Wei et al. (arXiv:2307.15043): >2 layer serial stacking ASR degradation
+    - Zeng et al. (arXiv:2402.19181): Authority endorsement ASR 38.4%
+    - Chao et al. (arXiv:2310.08419): PAIR iterative optimization
+    - Zou et al. (arXiv:2307.15043): GCG adversarial attacks
+
+Integration:
+    - arm/seed_ranker.py: Matches seeds after loading
+    - strike/executor.py: Queries router during attack execution
+    - core/phases/arm.py: ARM phase router integration
 """
 
 from __future__ import annotations

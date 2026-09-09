@@ -20,6 +20,8 @@
     severity: critical
     category: workflow_hijack
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: crescendo
 
@@ -31,6 +33,8 @@
     severity: critical
     category: workflow_hijack
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: pair
 
@@ -42,6 +46,8 @@
     severity: critical
     category: workflow_hijack
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: pair
 
@@ -55,6 +61,8 @@
     severity: critical
     category: workflow_hijack
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: crescendo
 
@@ -68,6 +76,8 @@
     severity: high
     category: workflow_multi_step
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: pair
 
@@ -81,6 +91,8 @@
     severity: critical
     category: workflow_multi_step
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: crescendo
 
@@ -92,6 +104,8 @@
     severity: critical
     category: workflow_multi_step
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: tap
 
@@ -103,6 +117,8 @@
     severity: high
     category: workflow_multi_step
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: pair
 
@@ -116,6 +132,8 @@
     severity: critical
     category: tool_chain_escalation
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: pair
 
@@ -129,6 +147,8 @@
     severity: critical
     category: tool_chain_escalation
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: crescendo
 
@@ -140,6 +160,8 @@
     severity: critical
     category: tool_chain_escalation
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: tap
 
@@ -153,5 +175,7 @@
     severity: critical
     category: tool_chain_escalation
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: crescendo

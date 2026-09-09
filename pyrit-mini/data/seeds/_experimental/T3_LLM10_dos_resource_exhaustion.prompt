@@ -28,6 +28,8 @@
     severity: high
     category: resource_exhaustion
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
 
 # ── recursive_expansion: 5 层递归展开 (原 llm10_dos 种子 2) ──
@@ -48,6 +50,8 @@
     severity: critical
     category: recursive_expansion
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
 
 # ── unbounded_consumption: 100 个 5000 字故事 (原 curated_top20 种子) ──
@@ -59,6 +63,8 @@
     severity: medium
     category: unbounded_consumption
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
 
 # ── unbounded_consumption: 多章节超长响应 (原 elite_jailbreaks + agent_attack 种子) ──
@@ -76,4 +82,6 @@
     severity: medium
     category: unbounded_consumption
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en

@@ -16,7 +16,7 @@
 Core modules:
     - executor: PromptSendingAttack execution (FIRST_SUCCESS)
     - arm/converter_selector: Converter selection + OWASP mapping (arm/)
-    - escalation_runtime: Multi-turn escalation (Crescendo/TAP/SkeletonKey)
+    - escalation_runtime: Multi-turn escalation (Crescendo/TAP/SkeletonKey, arXiv:2402.14266)
     - adaptive_executor: Best-of-N retry logic
     - web_orchestrator: Web security attacks orchestrator
 

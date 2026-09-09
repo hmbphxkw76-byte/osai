@@ -21,6 +21,8 @@
     severity: critical
     category: misinformation_narrative_chain
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: narrative_foundation
@@ -39,6 +41,8 @@
     severity: critical
     category: misinformation_narrative_chain
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: narrative_elaboration
@@ -59,6 +63,8 @@
     severity: high
     category: misinformation_synthetic_journalism
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: synthetic_journalism
@@ -77,6 +83,8 @@
     severity: critical
     category: misinformation_political
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: synthetic_political_content
@@ -97,6 +105,8 @@
     severity: critical
     category: misinformation_provenance
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: synthetic_human_mimicry
@@ -122,6 +132,8 @@
     severity: critical
     category: deepfake_persona_synthesis
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: persona_synthesis
@@ -141,6 +153,8 @@
     severity: high
     category: deepfake_voice_script
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: voice_deepfake_training
@@ -160,6 +174,8 @@
     severity: critical
     category: misinformation_financial_fraud
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: synthetic_fraud_content
@@ -177,6 +193,8 @@
     severity: critical
     category: misinformation_academic
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: synthetic_academic_content
@@ -200,6 +218,8 @@
     severity: critical
     category: social_engineering_phishing
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: social_engineering
@@ -217,6 +237,8 @@
     severity: critical
     category: social_engineering_whaling
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: personalized_social_engineering
@@ -237,6 +259,8 @@
     severity: critical
     category: social_engineering_romance
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: synthetic_scam_sequence
@@ -256,6 +280,8 @@
     severity: critical
     category: business_email_compromise
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: synthetic_bec_sequence

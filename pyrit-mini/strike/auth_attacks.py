@@ -11,6 +11,7 @@ auth_attacks.py - 认证攻击模块
 - 代码量从481行减少到约320行（减少33%）
 
 Academic basis:
+    - Greshake et al. (arXiv:2302.12173): PromptInjection via PromptSendingAttack
     - Zeng et al. (arXiv:2402.19181): Enterprise AI auth attack surfaces, ASR 38.4%
     - Alwen et al. (arXiv:1703.05380): JWT algorithm confusion attacks
     - RFC 7519 Section 6: Unsecured JWTs (alg=none)

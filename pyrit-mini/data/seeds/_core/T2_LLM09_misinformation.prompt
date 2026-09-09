@@ -25,6 +25,8 @@
     severity: high
     category: hallucination_fabrication
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending,skeleton_key
 
@@ -44,6 +46,8 @@
     severity: high
     category: hallucination_fabrication
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending,skeleton_key
 
@@ -62,6 +66,8 @@
     severity: critical
     category: vulnerability_hallucination
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending,crescendo_simulated,cot_hijack
 
@@ -81,6 +87,8 @@
     severity: high
     category: biography_hallucination
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending,skeleton_key
 
@@ -100,6 +108,8 @@
     severity: critical
     category: legal_hallucination
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending,skeleton_key
 
@@ -119,6 +129,8 @@
     severity: high
     category: hallucination_fabrication
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: zh
     suitable_for: prompt_sending,skeleton_key
 
@@ -139,6 +151,8 @@
     severity: high
     category: standards_hallucination
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending,skeleton_key
 
@@ -157,6 +171,8 @@
     severity: critical
     category: fake_news_generation
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending,skeleton_key
 
@@ -174,6 +190,8 @@
     severity: medium
     category: api_hallucination
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending
 
@@ -194,6 +212,8 @@
     severity: high
     category: citation_hallucination
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending,skeleton_key
 
@@ -214,6 +234,8 @@
     severity: high
     category: regulatory_hallucination
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: zh
     suitable_for: prompt_sending,skeleton_key
 
@@ -234,5 +256,7 @@
     severity: critical
     category: vulnerability_hallucination
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending,skeleton_key,crescendo_simulated

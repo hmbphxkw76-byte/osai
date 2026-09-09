@@ -6,6 +6,7 @@ audit_evasion.py - 审计逃逸攻击模块
 仅保留可通过HTTP端点黑盒测试的攻击向量。
 
 Academic basis:
+    - Greshake et al. (arXiv:2302.12173): PromptInjection via PromptSendingAttack
     - OWASP: Log Injection / CRLF Injection
     - OWASP: Security Logging and Monitoring Failures
     - Zeng et al. (arXiv:2402.19181): Enterprise audit evasion

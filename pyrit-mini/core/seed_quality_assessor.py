@@ -1,27 +1,16 @@
-# Seed Quality Assessment & Auto-Retirement Engine — 种子质量评估与自动淘汰引擎
-#
-# 功能:
-#   1. 评估种子的历史表现数据 (ASR, 成功率)
-#   2. 自动淘汰过时/低效种子
-#   3. 推荐新种子集成到主流水线
-#   4. 生成种子库存健康报告
-#
-# 学术依据:
-#   - Zou et al. (arXiv:2307.15043) — 对抗攻击泛化性评估
-#   - Liu et al. (arXiv:2402.04249) — HarmBench 标准化评估
-#
-# 集成点:
-#   - 在每次攻击执行后更新种子表现统计
-#   - 周期性种子健康检查 (dry-run模式)
-#   - 生成种子库优化报告
-#
-# 金字塔位置: core/ (运行时模块)
-
-"""
-Seed Quality Assessment & Auto-Retirement Engine
+"""Seed Quality Assessment & Auto-Retirement Engine — 种子质量评估与自动淘汰引擎
 
 Monitors seed performance across attack runs and automatically retires
 underperforming or outdated seeds from active rotation.
+
+Academic basis:
+    - Zou et al. (arXiv:2307.15043): Adversarial attack generalization evaluation
+    - Liu et al. (arXiv:2402.04249): HarmBench standardized evaluation
+
+Integration:
+    - Updates seed performance statistics after each attack execution
+    - Periodic seed health checks (dry-run mode)
+    - Generates seed library optimization reports
 """
 
 from __future__ import annotations

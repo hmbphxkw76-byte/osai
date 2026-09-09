@@ -73,7 +73,7 @@ _ESCALATION_STRATEGIES = {
         "max_turns": 3,
         "arxiv": "arXiv:2202.03286",
         "target_asr_range": [0.10, 0.45],
-        "native_class": None,  # No native class, uses PromptSendingAttack
+        "native_class": None,  # No native class, uses PromptSendingAttack (arXiv:2302.12173)
     },
 }
 

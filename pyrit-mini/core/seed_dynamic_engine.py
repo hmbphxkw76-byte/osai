@@ -1,25 +1,18 @@
-# Seed Dynamic Generation Engine — 种子动态生成引擎
-#
-# 功能: 基于侦察阶段获取的目标上下文，动态生成定制化攻击种子
-# 学术依据:
-#   - Perez et al. (arXiv:2202.03286) — Red Teaming Language Models (few-shot)
-#   - Chao et al. (arXiv:2310.08419) — PAIR: Prompt Automatic Iterative Refinement
-#   - Mehrotra et al. (arXiv:2310.08419) — Jailbreaking & Mitigation
-#
-# 集成点:
-#   - core/phases/arm.py — 在 ARM 阶段消费侦察上下文生成种子
-#   - core/phases/strike.py — 在攻击执行前动态注入个性化种子
-#
-# 金字塔位置: core/ (运行时模块，非一次性修复脚本)
-
-"""
-Seed Dynamic Generation Engine
-
-Transforms static seed templates into context-aware, personalized attack seeds
-based on reconnaissance intelligence from PipelineContext.
-"""
-
 from __future__ import annotations
+
+"""Seed Dynamic Generation Engine — 种子动态生成引擎
+
+基于侦察阶段获取的目标上下文，动态生成定制化攻击种子。
+
+Academic basis:
+    - Perez et al. (arXiv:2202.03286): Red Teaming Language Models (few-shot)
+    - Chao et al. (arXiv:2310.08419): PAIR: Prompt Automatic Iterative Refinement
+    - Mehrotra et al. (arXiv:2310.08419): Jailbreaking & Mitigation
+
+Integration:
+    - core/phases/arm.py: Consumes recon context to generate seeds in ARM phase
+    - core/phases/strike.py: Dynamically inject personalized seeds before attack execution
+"""
 
 import logging
 import random

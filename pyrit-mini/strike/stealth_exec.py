@@ -14,7 +14,7 @@ Core capabilities:
 Architectural alignment:
     - strike → core (uses PipelineContext)
     - strike → arm (uses converter selection)
-    - PyRIT native: wraps PromptSendingAttack without modification
+    - PyRIT native: wraps PromptSendingAttack (arXiv:2302.12173) without modification
 
 Stealth presets:
     - disabled: No delays (baseline mode)

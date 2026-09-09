@@ -178,6 +178,8 @@
     severity: high
     category: knowledge_base_version_rollback
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 2
     attack_vector: version_manipulation
@@ -203,6 +205,8 @@
     severity: critical
     category: incremental_index_poisoning
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: supply_chain_injection
@@ -231,6 +235,8 @@
     severity: critical
     category: retrieval_cache_poisoning
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 2
     attack_vector: cache_manipulation

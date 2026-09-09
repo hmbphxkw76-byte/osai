@@ -16,6 +16,8 @@
     severity: high
     category: model_architecture_extraction
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: architecture_probe
@@ -28,6 +30,8 @@
     severity: high
     category: model_architecture_extraction
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: architecture_probe
@@ -42,6 +46,8 @@
     severity: critical
     category: model_architecture_extraction
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: architecture_probe
@@ -54,6 +60,8 @@
     severity: high
     category: model_architecture_extraction
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: architecture_probe
@@ -74,6 +82,8 @@
     severity: high
     category: model_parameter_inference
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: parameter_side_channel
@@ -92,6 +102,8 @@
     severity: high
     category: model_parameter_inference
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: parameter_side_channel
@@ -110,6 +122,8 @@
     severity: high
     category: model_parameter_inference
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: parameter_side_channel
@@ -124,6 +138,8 @@
     severity: critical
     category: model_parameter_inference
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: parameter_side_channel
@@ -145,6 +161,8 @@
     severity: critical
     category: training_data_extraction
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: training_data_extraction
@@ -164,6 +182,8 @@
     severity: critical
     category: training_data_extraction
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: training_data_extraction
@@ -183,6 +203,8 @@
     severity: high
     category: training_data_extraction
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: training_data_extraction
@@ -203,6 +225,8 @@
     severity: critical
     category: training_data_extraction
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: training_data_extraction
@@ -227,6 +251,8 @@
     severity: critical
     category: functional_clone_probe
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: capability_enumeration
@@ -246,6 +272,8 @@
     severity: high
     category: functional_clone_probe
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: behavioral_fingerprinting
@@ -262,6 +290,8 @@
     severity: high
     category: functional_clone_probe
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: methodology_extraction

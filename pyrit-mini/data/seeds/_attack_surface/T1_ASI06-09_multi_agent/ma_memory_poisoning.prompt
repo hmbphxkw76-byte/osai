@@ -15,6 +15,8 @@
     severity: critical
     category: memory_persistence_injection
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: memory_injection
@@ -29,6 +31,8 @@
     severity: high
     category: memory_extraction
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: memory_extraction
@@ -45,6 +49,8 @@
     severity: critical
     category: memory_persistence_injection
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: memory_injection

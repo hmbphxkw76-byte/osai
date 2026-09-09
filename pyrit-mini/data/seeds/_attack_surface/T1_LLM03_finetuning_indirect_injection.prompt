@@ -79,6 +79,8 @@
     severity: high
     category: multi_turn_accumulation
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 2
     attack_vector: progressive_activation
@@ -95,6 +97,8 @@
     severity: critical
     category: encoded_trigger
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 2
     attack_vector: encoding_evasion

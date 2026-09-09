@@ -7,6 +7,7 @@ HTTP方法篡改、头部注入、API版本绕过等Web安全攻击。
 重构后代码量从456行减少到约150行（减少67%）。
 
 Academic basis:
+    - Greshake et al. (arXiv:2302.12173): PromptInjection via PromptSendingAttack
     - OWASP API Security Top 10: API4:2019 Lack of Resources & Rate Limiting
     - PortSwigger: HTTP Request Smuggling (CL.TE / TE.CL)
     - OWASP: Web Cache Poisoning

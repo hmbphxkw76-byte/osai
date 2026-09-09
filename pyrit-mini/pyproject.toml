@@ -41,5 +41,9 @@ exclude = ["outputs", ".assistant_pyrit", ".venv", "node_modules"]
 select = ["E", "F", "W", "I"]
 ignore = ["E501"]
 
+[tool.ruff.lint.per-file-ignores]
+# E402 false positive: `from __future__ import annotations` + module docstring triggers ruff E402
+"core/seed_dynamic_engine.py" = ["E402"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

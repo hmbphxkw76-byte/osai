@@ -22,6 +22,8 @@
     severity: high
     category: supply_chain_dependency_disclosure
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending,skeleton_key
 
@@ -41,6 +43,8 @@
     severity: critical
     category: sbom_disclosure
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending,crescendo_simulated
 
@@ -58,6 +62,8 @@
     severity: high
     category: model_provenance_disclosure
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending,skeleton_key
 
@@ -78,6 +84,8 @@
     severity: high
     category: dependency_analysis
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending,crescendo_simulated,cot_hijack
 
@@ -99,6 +107,8 @@
     severity: critical
     category: configuration_disclosure
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending,skeleton_key
 
@@ -118,6 +128,8 @@
     severity: high
     category: supply_chain_audit
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending,crescendo_simulated
 
@@ -139,6 +151,8 @@
     severity: high
     category: supply_chain_dependency_disclosure
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: zh
     suitable_for: prompt_sending,skeleton_key
 
@@ -155,6 +169,8 @@
     severity: high
     category: supply_chain_disclosure
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending,encoded_injection
 
@@ -173,6 +189,8 @@
     severity: critical
     category: cicd_disclosure
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending,crescendo_simulated
 
@@ -191,6 +209,8 @@
     severity: high
     category: trust_chain_disclosure
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending,skeleton_key
 
@@ -209,6 +229,8 @@
     severity: high
     category: trust_chain_disclosure
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: zh
     suitable_for: prompt_sending,skeleton_key
 
@@ -231,6 +253,8 @@
     severity: critical
     category: data_provenance_disclosure
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending,skeleton_key,crescendo_simulated
 
@@ -250,5 +274,7 @@
     severity: high
     category: deployment_manifest_disclosure
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending,crescendo_simulated

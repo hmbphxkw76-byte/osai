@@ -23,23 +23,26 @@ if TYPE_CHECKING:
 @dataclass
 class PipelineContext:
     """
+    Pipeline context carrying all data across attack phases.
 
-    :
-        args: CLI
-        output_dir: Output directory
-        model_name:  ()
-        parsed_request:  Burp
-        objective_target:  (PyRIT PromptTarget )
-        adversarial_target:  ()
-        converter_target: Converter  LLM  ()
-        scoring_target:  LLM
-        seeds: Load
-        techniques:
-        converter_map:  -> Converter
-        attack_results:
-        asr_per_technique:  ASR
-        overall_asr:  ASR
-        scenario_result_id:  ID ()
+    Fields:
+        args: CLI arguments
+        output_dir: Output directory for results
+        model_name: Target model name
+        parsed_request: Parsed Burp request
+        objective_target: Attack target (PyRIT PromptTarget)
+        adversarial_target: Adversarial target (GCG/PAIR)
+        converter_target: Converter LLM target
+        scoring_target: Scoring LLM target
+        seeds: Loaded attack seeds
+        techniques: Selected attack techniques
+        converter_map: Technique -> Converter mapping
+        attack_results: Attack execution results
+        asr_per_technique: ASR per technique
+        overall_asr: Overall ASR
+        scenario_result_id: Scenario result ID
+        mcpsec_version: MCPSec bridge version
+        scenario_name: Active scenario name
     """
 
     args: "argparse.Namespace"

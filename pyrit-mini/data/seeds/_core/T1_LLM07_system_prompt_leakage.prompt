@@ -15,6 +15,8 @@
     severity: high
     category: system_prompt_leakage
     source: jailbreakbench
+    tier: 1
+    attack_vector: prompt_leakage
     language: en
     suitable_for: prompt_sending
 
@@ -33,6 +35,8 @@
     severity: high
     category: system_prompt_leakage
     source: owasp_llm
+    tier: 1
+    attack_vector: prompt_leakage
     language: en
     suitable_for: prompt_sending,skeleton_key
 
@@ -46,6 +50,8 @@
     severity: high
     category: system_prompt_leakage
     source: jailbreakbench
+    tier: 1
+    attack_vector: prompt_leakage
     language: en
     suitable_for: prompt_sending
 
@@ -61,6 +67,8 @@
     severity: high
     category: system_prompt_leakage
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending
 
@@ -75,6 +83,8 @@
     severity: high
     category: system_prompt_leakage
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending,crescendo_simulated
 
@@ -90,6 +100,8 @@
     severity: high
     category: system_prompt_leakage
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending
 
@@ -104,6 +116,8 @@
     severity: high
     category: system_prompt_leakage
     source: owasp_llm
+    tier: 1
+    attack_vector: prompt_leakage
     language: zh
     suitable_for: prompt_sending
 
@@ -118,6 +132,8 @@
     severity: critical
     category: system_prompt_leakage
     source: owasp_llm
+    tier: 1
+    attack_vector: prompt_leakage
     language: en
     suitable_for: prompt_sending,skeleton_key
 
@@ -131,6 +147,8 @@
     severity: high
     category: system_prompt_leakage
     source: jailbreakbench
+    tier: 1
+    attack_vector: prompt_leakage
     language: en
     suitable_for: prompt_sending
 
@@ -147,6 +165,8 @@
     severity: high
     category: system_prompt_leakage
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending,crescendo_simulated,cot_hijack
 
@@ -160,6 +180,8 @@
     severity: high
     category: system_prompt_leakage
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending
 
@@ -174,6 +196,8 @@
     severity: high
     category: system_prompt_leakage
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending
 
@@ -190,6 +214,8 @@
     severity: high
     category: system_prompt_leakage
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending,crescendo_simulated
 
@@ -207,6 +233,8 @@
     severity: high
     category: system_prompt_leakage
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending,skeleton_key
 
@@ -221,5 +249,7 @@
     severity: high
     category: system_prompt_leakage
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending,crescendo_simulated

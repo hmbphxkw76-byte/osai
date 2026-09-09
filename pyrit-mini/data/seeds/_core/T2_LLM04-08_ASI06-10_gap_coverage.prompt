@@ -13,6 +13,8 @@
     severity: "high"
     category: "data_poisoning"
     source: "curated"
+    tier: 1
+    attack_vector: direct_injection
     language: "en"
 
 - value: |
@@ -23,6 +25,8 @@
     severity: "high"
     category: "data_poisoning"
     source: "curated"
+    tier: 1
+    attack_vector: direct_injection
     language: "en"
 
 # ── LLM08: Vector and Embedding Weaknesses (2 seeds) ──
@@ -37,6 +41,8 @@
     severity: "high"
     category: "embedding_weakness"
     source: "curated"
+    tier: 1
+    attack_vector: direct_injection
     language: "en"
 
 - value: |
@@ -47,6 +53,8 @@
     severity: "high"
     category: "embedding_weakness"
     source: "curated"
+    tier: 1
+    attack_vector: direct_injection
     language: "en"
 
 # ── ASI06: Memory Poisoning (1 seed) ──
@@ -61,6 +69,8 @@
     severity: "critical"
     category: "memory_poisoning"
     source: "curated"
+    tier: 1
+    attack_vector: direct_injection
     language: "en"
 
 # ── ASI07: Cross-Agent Injection (1 seed) ──
@@ -75,6 +85,8 @@
     severity: "critical"
     category: "cross_agent_injection"
     source: "curated"
+    tier: 1
+    attack_vector: direct_injection
     language: "en"
 
 # ── ASI08: Cascading Failures (1 seed) ──
@@ -89,6 +101,8 @@
     severity: "critical"
     category: "cascading_failures"
     source: "curated"
+    tier: 1
+    attack_vector: direct_injection
     language: "en"
 
 # ── ASI09: Trust Boundary Violation (1 seed) ──
@@ -103,6 +117,8 @@
     severity: "critical"
     category: "trust_boundary"
     source: "curated"
+    tier: 1
+    attack_vector: direct_injection
     language: "en"
 
 # ── ASI10: Rogue Agent (1 seed) ──
@@ -117,4 +133,6 @@
     severity: "critical"
     category: "rogue_agent"
     source: "curated"
+    tier: 1
+    attack_vector: direct_injection
     language: "en"

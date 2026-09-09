@@ -27,7 +27,7 @@ Constitution compliance:
     - Pure prompt-based (no binary exploit)
 
 Data Flow:
-    multimodal_seeds → carrier_converter → PromptSendingAttack → OCR/VLM → execute
+    multimodal_seeds → carrier_converter → PromptSendingAttack (arXiv:2302.12173) → OCR/VLM → execute
 """
 from __future__ import annotations
 

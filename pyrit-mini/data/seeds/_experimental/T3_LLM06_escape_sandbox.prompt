@@ -15,6 +15,8 @@
     severity: high
     category: emotional_manipulation
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 3
     attack_vector: social_engineering
@@ -29,6 +31,8 @@
     severity: high
     category: contextual_relativism
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 3
     attack_vector: narrative_pivot
@@ -43,6 +47,8 @@
     severity: critical
     category: encoding_evasion
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 3
     attack_vector: encoding_evasion
@@ -57,6 +63,8 @@
     severity: critical
     category: role_playing_escape
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 3
     attack_vector: persona_injection
@@ -71,6 +79,8 @@
     severity: critical
     category: hypothetical_opt_out
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 3
     attack_vector: safety_bypass
@@ -85,6 +95,8 @@
     severity: critical
     category: code_form_evasion
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 3
     attack_vector: format_shifting

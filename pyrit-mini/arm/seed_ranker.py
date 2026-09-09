@@ -117,7 +117,7 @@ CAPABILITY_SEED_MAP: dict[str, list[str]] = {
     "content_generation": [
         "_experimental/T1_LLM09_misinformation_chains",
     ],
-    # NEW v3: GCG/adversarial optimization
+    # NEW v3: GCG/adversarial optimization (arXiv:2302.12173 - Zou et al., 2023)
     "adversarial": [
         "_experimental/T2_gcg_adversarial_templates",
     ],

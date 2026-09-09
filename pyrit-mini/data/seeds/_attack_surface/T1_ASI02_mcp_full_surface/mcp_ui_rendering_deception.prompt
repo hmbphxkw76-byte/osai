@@ -11,6 +11,8 @@
     severity: high
     category: mcp_ui_rendering_deception
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: ui_injection

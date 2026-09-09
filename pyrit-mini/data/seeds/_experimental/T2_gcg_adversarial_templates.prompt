@@ -20,6 +20,8 @@
     severity: high
     category: gcg_adversarial_suffix
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 2
     attack_vector: adversarial_suffix_analysis
@@ -37,6 +39,8 @@
     severity: high
     category: gcg_transferability
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 2
     attack_vector: adversarial_transferability
@@ -58,6 +62,8 @@
     severity: high
     category: cross_model_adversarial
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 2
     attack_vector: cross_model_transfer
@@ -76,6 +82,8 @@
     severity: medium
     category: gradient_free_optimization
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 2
     attack_vector: gradient_free_adversarial
@@ -97,6 +105,8 @@
     severity: medium
     category: adversarial_defense_detection
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 2
     attack_vector: adversarial_defense
@@ -126,6 +136,8 @@
     severity: high
     category: pair_iteration_template
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 2
     attack_vector: pair_jailbreak_iteration
@@ -152,6 +164,8 @@
     severity: high
     category: pair_iteration_template
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 2
     attack_vector: pair_jailbreak_iteration
@@ -176,6 +190,8 @@
     severity: critical
     category: tap_tree_attack
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 2
     attack_vector: tap_multi_turn
@@ -201,6 +217,8 @@
     severity: high
     category: best_of_n_variation
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 2
     attack_vector: best_of_n_optimization
@@ -224,6 +242,8 @@
     severity: critical
     category: crescendo_escalation
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 2
     attack_vector: crescendo_gradual_escalation
@@ -245,6 +265,8 @@
     severity: high
     category: reverse_crescendo
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 2
     attack_vector: reverse_crescendo_escalation
@@ -267,6 +289,8 @@
     severity: critical
     category: multi_language_crescendo
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 2
     attack_vector: multi_language_escalation

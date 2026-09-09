@@ -16,6 +16,8 @@
     severity: critical
     category: token_smuggling_base64
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending
 
@@ -27,6 +29,8 @@
     severity: critical
     category: token_smuggling_base64
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: pair
 
@@ -38,6 +42,8 @@
     severity: critical
     category: token_smuggling_base64
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending
 
@@ -51,6 +57,8 @@
     severity: critical
     category: token_smuggling_unicode
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: pair
 
@@ -62,6 +70,8 @@
     severity: high
     category: token_smuggling_unicode
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: tap
 
@@ -75,6 +85,8 @@
     severity: critical
     category: token_smuggling_split
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending
 
@@ -86,6 +98,8 @@
     severity: critical
     category: token_smuggling_split
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: pair
 
@@ -97,6 +111,8 @@
     severity: high
     category: token_smuggling_split
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending
 
@@ -110,6 +126,8 @@
     severity: critical
     category: token_smuggling_homoglyph
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: pair
 
@@ -121,6 +139,8 @@
     severity: high
     category: token_smuggling_cipher
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending
 
@@ -134,6 +154,8 @@
     severity: critical
     category: token_smuggling_hex
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: prompt_sending
 
@@ -145,5 +167,7 @@
     severity: high
     category: token_smuggling_hex
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     suitable_for: pair

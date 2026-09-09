@@ -96,6 +96,8 @@
     severity: high
     category: cross_user_leak
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 2
     attack_vector: multi_tenant_bypass
@@ -113,6 +115,8 @@
     severity: high
     category: retrieval_priority_manipulation
     source: curated
+    tier: 1
+    attack_vector: direct_injection
     language: en
     tier: 1
     attack_vector: priority_override

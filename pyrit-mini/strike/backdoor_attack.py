@@ -21,7 +21,8 @@ Academic basis:
     - Wan et al. (arXiv:2307.10709): Instruction tuning poisoning ASR 50-75%
 
 Constitution compliance:
-    - R-NATIVE-1: Uses PyRIT native PromptSendingAttack with crafted seeds
+    - R-NATIVE-1: Uses PyRIT native PromptSendingAttack with crafted seeds (arXiv:2302.12173)
+    - R-NATIVE-1: Uses PyRIT native CrescendoAttack (arXiv:2404.01833)
     - R-SIZE: < 250 lines
     - No infinite loops: bounded max_triggers=5
     - Pure prompt-based (no binary exploit)
