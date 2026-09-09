@@ -185,7 +185,72 @@ pyrit-drift --full --report
 | **check_context_contract_usage** | **R-DRIFT-4** | **INFO** | **v1.6 新增 (PipelineContext 契约消费)** |
 | **check_native_patterns** | **R-DRIFT-5** | **WARNING** | **v1.6 新增 (原生优先模式违规)** |
 
-- 本表对照 `tools/guard.py` + `tools/guard_extended.py` + `tools/drift_detector.py` 实际实现同步（29 项 = 24 基座 + 5 漂移检测）。
+### 1G-DECIDE. 自主决策系统护栏（v2.2 新增）
+
+> **适用范围**：全链路自主决策引擎（`determine_*_strategy` 系列函数、`DecisionEngine` 类、反馈闭环机制）。
+> **架构依据**：`10-ARCHITECTURE.md` 第十一章 + `55-ATTACK-GAP-CLOSURE.md` 第九章。
+
+| # | 红线 | 级别 | 判定特征 | 检查器 |
+|---|------|------|----------|--------|
+| R-DECIDE-1 | **安全边界保护**：决策系统不得绕过人工确认的关键安全边界（R-S1 授权目标集） | BLOCKING | 决策引擎输出攻击目标不在授权列表中 | `check_decision_safety_boundary()` |
+| R-DECIDE-2 | **决策审计追踪**：所有自主决策必须记录到 `ctx.decision_log` | WARNING | 决策函数执行后 `ctx.decision_log` 无新增条目 | `check_decision_audit_trail()` |
+| R-DECIDE-3 | **决策稳定性**：自动策略切换需基于 ≥3 次连续失败或 ASR 显著下降（<50% 预期） | WARNING | 单次失败即触发策略切换 | `check_decision_stability()` |
+| R-DECIDE-4 | **人类控制权**：CLI 参数优先级高于自主决策输出 | INFO | CLI 参数被决策引擎覆盖 | `check_human_override()` |
+| R-DECIDE-5 | **决策数据完整性**：决策依赖数据必须来自 PipelineContext，禁止旁路数据通道 | WARNING | 决策函数读取非 ctx 数据源 | `check_decision_data_source()` |
+
+**R-DECIDE-* 判定逻辑**：
+- ✅ PASS: 全部检测通过 → INFO (不阻断)
+- ⚠️ WARNING: R-DECIDE-2/3/5 违规 → 提示修复，**不阻断 push**
+- 🔴 BLOCKING: R-DECIDE-1 安全边界违规 → **阻断 push**
+
+**决策护栏与既有护栏的关系**：
+| 决策护栏 | 关联既有护栏 | 关系 |
+|----------|-------------|------|
+| R-DECIDE-1 | R-S1 (授权边界) | 强化：决策系统同样受 R-S1 约束 |
+| R-DECIDE-2 | R-H6 (规格蒸发) | 互补：决策日志 = 自动化系统的规格追踪 |
+| R-DECIDE-3 | R-H1 (静默降级) | 互补：防止决策抖动导致等效静默降级 |
+| R-DECIDE-4 | NEG-6 (L5 基线) | 兼容：CLI 参数 = 人工决策的最高优先级 |
+
+### 1H. Guard 检查器登记簿（v2.2 更新为 34 项）
+
+规约各处引用的检查器汇总（**权威清单以 `tools/guard.py` + `tools/guard_extended.py` + `tools/drift_detector.py` 实际实现为准**）：
+
+| 检查器 | 条款/红线 | 级别 | 备注 |
+|--------|----------|------|------|
+| check_safety_guardrails | C2 / R-L1 | BLOCKING | — |
+| check_forbidden_custom_classes | C1 / R-L2 | BLOCKING | — |
+| check_serial_stacking | C2 / R-L3 | BLOCKING | — |
+| check_l5_params | C2·C7 / R-L4 | BLOCKING | — |
+| check_intermediate_exit | I4 / R-L5 | BLOCKING | — |
+| check_pyrit_native_output | I9·C1 / R-L6 | BLOCKING | — |
+| check_root_directory | R-L7 | BLOCKING | — |
+| check_test_coverage | R-L7 | BLOCKING | — |
+| check_dry_run_available | C10 / R-L8 | BLOCKING | — |
+| check_native_attack_usage | C1 | WARNING | v1.2 锚定 |
+| check_native_attack_instantiation | C1 | WARNING | v1.2 锚定 |
+| check_llm_scorer_in_attack | C2·I2 | WARNING | v1.2 锚定 |
+| check_hardcoded_params | C7 | WARNING | v1.2 锚定 |
+| check_config_data_flow | C7 | WARNING | v1.2 锚定 |
+| check_native_params_from_config | C7 | WARNING | v1.2 锚定 |
+| check_arxiv_citations | C8 | INFO | v1.2 锚定 |
+| **check_silent_degradation** | C9 (显式 gap) | WARNING | v1.2 新增 (T0-1) |
+| **check_silent_swallowing** | C9 (显式 gap) | WARNING | v1.2 新增 (T0-2) |
+| **check_dual_track** | D-11 / C7 | INFO | v1.2 新增 (T0-3) |
+| **check_glue_pluginisolation** | **R-GLUE-1** | **BLOCKING** | **v1.4 新增 (Glue 层护栏)** |
+| **check_glue_pyrit_delegation** | **R-GLUE-2** | **WARNING** | **v1.4 新增 (Glue 层护栏)** |
+| **check_glue_config_flow** | **R-GLUE-3** | **WARNING** | **v1.4 新增 (Glue 层护栏)** |
+| **check_glue_silent_degradation** | **R-GLUE-4** | **WARNING** | **v1.4 新增 (Glue 层护栏)** |
+| **check_glue_academic_citation** | **R-GLUE-5** | **INFO** | **v1.4 新增 (Glue 层护栏)** |
+| **check_pyrit_api_resolution** | **R-DRIFT-1** | **BLOCKING** | **v1.6 新增 (PyRIT API 可解析性)** |
+| **check_spec_code_sync** | **R-DRIFT-2** | **WARNING** | **v1.6 新增 (规范-代码文件同步)** |
+| **check_version_lock** | **R-DRIFT-3** | **BLOCKING** | **v1.6 新增 (版本锁定验证)** |
+| **check_context_contract_usage** | **R-DRIFT-4** | **INFO** | **v1.6 新增 (PipelineContext 契约消费)** |
+| **check_native_patterns** | **R-DRIFT-5** | **WARNING** | **v1.6 新增 (原生优先模式违规)** |
+| **check_decision_safety_boundary** | **R-DECIDE-1** | **BLOCKING** | **v2.2 新增 (决策安全边界)** |
+| **check_decision_audit_trail** | **R-DECIDE-2** | **WARNING** | **v2.2 新增 (决策审计追踪)** |
+| **check_decision_stability** | **R-DECIDE-3** | **WARNING** | **v2.2 新增 (决策稳定性)** |
+| **check_human_override** | **R-DECIDE-4** | **INFO** | **v2.2 新增 (人类控制权)** |
+| **check_decision_data_source** | **R-DECIDE-5** | **WARNING** | **v2.2 新增 (决策数据完整性)** |
 - **R-DRIFT 专项 (v1.6)**: 5 项漂移检测检查器由 `tools/drift_detector.py` 实现，独立于 `tools/guard.py`，专责「规范-代码」双向漂移（PyRIT API 解析 / 文件同步 / 版本锁定 / 契约消费 / 原生模式）。
 - **specs-guard 联动**: guard 启动时读取 `00-CONSTITUTION.md` 版本号并输出至报告脚注（裁决序基准）；版本不匹配时以 guard 实现为准、规约文档视为待同步。
 - **R9 误报白名单 (v1.2)**: `display.py`、`display_stages.py` 中通过 `_resolve('param', default)` 包裹的动态配置读取，视为已修复配置数据流断点（不报 R9）。
@@ -459,3 +524,5 @@ git push origin main
 | v1.5 | 2026-09-08 | REV-05 过度工程化清理（精简白名单）：① 白名单移除向量DB投毒和微调后门注入（黑盒HTTP不可测试）；② 适用范围移除已删除模块（vector_glue、finetuning_glue）；③ 护栏数量不变（R-GLUE-1~R-GLUE-5 仍适用保留的3个模块） | 用户会话批准 |
 | v1.6 | 2026-09-09 | REV-06 规范漂移检测系统：① 新增 1E-DRIFT 规范漂移检测护栏（R-DRIFT-1~R-DRIFT-5：PyRIT API 解析验证 BLOCKING / 规范表格-代码同步 WARNING / 版本变更锁定 BLOCKING / 契约消费验证 INFO / 原生模式违规 WARNING）；② 1F 检查器登记簿新增 5 项 Drift Detector 检查器（总计 29 项）；③ 调用方式：`pyrit-drift` / `py -m tools.drift_detector --full` | 用户会话批准 |
 | v2.0 | 2026-09-09 | REV-07 合并 60-REDTEAM-DELIVERY-FRAMEWORK.md：① 新增第七章"交付验证清单"（通用验证模板 + watch/quick 命令速查 + .env.local 配置 + Git Hooks 完整流程）；② 原第七章（考试合规）重命名为第八章；③ 删除冗余文档 `60-REDTEAM-DELIVERY-FRAMEWORK.md` | 用户会话批准 |
+| v2.1 | 2026-09-09 | REV-08 新增 R-DATA-2 ASR 中心性红线 + R-DATA-3 取证数据字段红线；数据流完整性测试 50 项全覆盖 | 用户会话批准 |
+| v2.2 | 2026-09-09 | REV-09 新增自主决策系统护栏：① 新增 1G-DECIDE 自主决策系统护栏（R-DECIDE-1~R-DECIDE-5：安全边界保护 BLOCKING / 决策审计追踪 WARNING / 决策稳定性 WARNING / 人类控制权 INFO / 决策数据完整性 WARNING）；② 1H 检查器登记簿新增 5 项决策检查器（总计 34 项）；③ 决策护栏与既有护栏关系映射 | 用户会话批准 |

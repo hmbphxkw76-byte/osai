@@ -10,7 +10,7 @@ import logging
 from typing import Any
 
 # P0-D: _is_success SSOT import from utils.attack_utils
-from utils.attack_utils import _is_success
+from utils.attack_utils import _is_success  # noqa: F401  # re-exported for evidence.py
 
 logger = logging.getLogger(__name__)
 

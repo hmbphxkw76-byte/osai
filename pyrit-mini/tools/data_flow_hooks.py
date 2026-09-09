@@ -4,14 +4,14 @@
 用法: 在每个 phase 模块中导入并调用
 
     from tools.data_flow_hooks import snapshot_hook
-    
+
     # 在 phase 执行完时调用
     snapshot_hook(ctx, "post_recon")
     snapshot_hook(ctx, "post_arm")
     snapshot_hook(ctx, "post_strike")
     snapshot_hook(ctx, "post_assess")
     snapshot_hook(ctx, "post_report")
-    
+
     # 在流水线结束时验证
     from tools.data_flow_hooks import validate_and_report
     report = validate_and_report(ctx)
@@ -54,13 +54,13 @@ def reset_validator() -> None:
 def snapshot_hook(ctx: Any, phase: str, metadata: dict | None = None) -> None:
     """
     阶段快照钩子 — 在 phase 执行结束时调用
-    
+
     集成到流水线的推荐方式:
-    
+
     # 在 core/phases/recon.py 的 _run_recon_phase 末尾:
     from tools.data_flow_hooks import snapshot_hook
     snapshot_hook(ctx, "post_recon")
-    
+
     Args:
         ctx: PipelineContext 实例
         phase: 阶段标识，如 "post_recon", "post_arm", "post_strike", "post_assess"
@@ -75,12 +75,12 @@ def snapshot_hook(ctx: Any, phase: str, metadata: dict | None = None) -> None:
 def validate_and_report(ctx: Any) -> str:
     """
     执行完整数据流验证并返回格式化报告
-    
+
     在流水线结束时调用（Report 阶段完成后），返回可读报告字符串。
-    
+
     Args:
         ctx: PipelineContext 实例
-        
+
     Returns:
         格式化验证报告文本
     """
@@ -109,10 +109,10 @@ def validate_and_report(ctx: Any) -> str:
 def validate_quick(ctx: Any) -> bool:
     """
     快速数据流验证 — 仅检查关键字段
-    
+
     使用独立验证器，避免全局状态污染。
     覆盖 Recon → ARM → Strike → Assess → Report/Evidence 全链路。
-    
+
     Returns:
         是否通过
     """
@@ -136,16 +136,15 @@ def validate_quick(ctx: Any) -> bool:
 def integrate_with_phases() -> None:
     """
     自动集成到 phases 模块的代码钩子
-    
+
     在 main.py 或 orchestrator.py 中调用一次，
     自动在每个 phase 结束时插入 snapshot_hook 调用。
-    
+
     使用猴子补丁(monkey-patch)方式，无需修改原始 phase 文件。
-    
+
     注意: 仅在开发/调试环境使用，生产环境建议显式调用
     """
     import importlib
-    import sys
 
     phase_modules = [
         ("core.phases.recon", "recon", "post_recon"),

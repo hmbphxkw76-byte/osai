@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import sys
-import os
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -105,7 +103,7 @@ class TestSeedDynamicEngine(unittest.TestCase):
     def test_generate_rag_secrets(self) -> None:
         """Should generate RAG-targeted secret extraction seeds."""
         secrets = ["api_keys", "db_credentials"]
-        seeds = self.engine.generate_rag_secrets(secrets)
+        self.engine.generate_rag_secrets(secrets)
         self.assertEqual(len(secrets), len(secrets))
 
     def test_inject_seeds_into_ctx(self) -> None:

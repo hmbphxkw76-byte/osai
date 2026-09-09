@@ -34,6 +34,7 @@ class TestBuildProbeBody:
 
         class MockParsed:
             chat_id = None
+            body = '{"prompt": "{PROMPT}", "model": "gpt-4o"}'
 
         result = _build_probe_body(MockParsed(), "hello world")
         data = json.loads(result)
@@ -46,6 +47,7 @@ class TestBuildProbeBody:
 
         class MockParsed:
             chat_id = "sess-123"
+            body = '{"prompt": "{PROMPT}", "session_id": "{CHAT_ID}"}'
 
         result = _build_probe_body(MockParsed(), "test")
         data = json.loads(result)
@@ -58,6 +60,7 @@ class TestBuildProbeBody:
 
         class MockParsed:
             chat_id = None
+            body = '{"message": "hello"}'
 
         result = _build_probe_body(MockParsed(), "hi")
         data = json.loads(result)
@@ -69,6 +72,7 @@ class TestBuildProbeBody:
 
         class MockParsed:
             chat_id = None
+            body = ""
 
         result = _build_probe_body(MockParsed(), "probe")
         data = json.loads(result)
@@ -275,7 +279,7 @@ class TestDetectLanguage:
         """Chinese text (>5% CJK) should be detected as 'zh'."""
         from recon.capability_detector import _detect_language
 
-        text = "converter(s)"
+        text = "这是一个用于测试的中文文本示例"
         assert _detect_language(text) == "zh"
 
     def test_english_detection(self):

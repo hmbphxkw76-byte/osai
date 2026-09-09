@@ -34,6 +34,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from utils.attack_utils import is_attack_successful
+
 logger = logging.getLogger(__name__)
 
 # === Backdoor Attack Strategy Registry ===
@@ -145,7 +147,7 @@ async def execute_trigger_word_attack(
             result = await attack.execute_async(objective=trigger_prompt)
 
             # Check if trigger activated backdoor behavior
-            if _is_backdoor_activated(result, trigger):
+            if _is_backdoor_activated(result, trigger):  # Uses is_attack_successful internally
                 logger.info(
                     "[Backdoor] Trigger '%s' activated backdoor behavior!",
                     trigger,
@@ -341,7 +343,7 @@ async def run_backdoor_attack(
     # Compute backdoor ASR
     backdoor_asr = 0.0
     if all_results:
-        successful = sum(1 for r in all_results if _is_result_success(r))
+        successful = sum(1 for r in all_results if is_attack_successful(r))
         backdoor_asr = successful / len(all_results)
 
     # Update ctx
@@ -401,7 +403,7 @@ def _is_backdoor_activated(result: Any, trigger: str) -> bool:
     Heuristic: If the result is successful and contains sensitive information,
     the backdoor was likely activated.
     """
-    if not _is_result_success(result):
+    if not is_attack_successful(result):
         return False
 
     # Check response content for sensitive information indicators
@@ -438,12 +440,4 @@ def _get_response_text(result: Any) -> str:
     return ""
 
 
-def _is_result_success(result: Any) -> bool:
-    """Check if an attack result was successful."""
-    outcome = getattr(result, "outcome", "")
-    if outcome:
-        return str(outcome).lower() == "success"
-    score = getattr(result, "score_value", None)
-    if score:
-        return str(score).lower() in ("true", "1", "success")
-    return False
+

@@ -6,6 +6,9 @@
 # Output Filter Bypass - arXiv:2402.05124 (Many-Shot Jailbreaking)
 # Multimodal Injection - arXiv:2403.07860 (FigStep) / arXiv:2306.13213 (Visual Adv)
 # Backdoor Attack - arXiv:2301.11916 (Sleeper Agents) / arXiv:2004.06660 (TrojLLM)
+# PAIR/TAP - arXiv:2310.08419 (PAIR) / arXiv:2405.17350 (TAP)
+# ASR Trend Tracker - arXiv:2403.04132 (Statistical Significance)
+# Decision Safety - arXiv:2407.01232 (Auth Framework) / NIST AI RMF 600-1
 """strike - Attack execution module.
 
 6-phase attack pipeline with PyRIT native AttackExecutor:
@@ -37,6 +40,12 @@ Multimodal Injection (arXiv:2403.07860):
 
 Backdoor Attack (arXiv:2301.11916):
     - backdoor_attack: Trigger word activation + context-conditional behavior
+
+Decision System (v2.0):
+    - decision_safety: R-DECIDE-1 safety boundary protection
+    - asr_trend_tracker: ASR trend analysis for adaptive decisions
+    - pair_tap_strategies: PAIR/TAP as independent strategy options
+    - attack_knowledge_base: Historical attack knowledge for cross-target transfer
 """
 
 from typing import Any

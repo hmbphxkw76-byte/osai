@@ -168,10 +168,16 @@ _EMBEDDING_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# RAG structural patterns: JSON keys that indicate retrieval-augmented generation
+_RAG_SOURCE_PATTERN = re.compile(
+    r'"(?:source_documents|retrieved_docs|citations|context_chunks|retrieved_context|knowledge_chunks|references|documents)"\s*:',
+    re.IGNORECASE,
+)
+
 # Map capabilities to their detection patterns
 _STRUCTURAL_PATTERNS: dict[str, list[re.Pattern[str]]] = {
     "agent": [_TOOL_JSON_PATTERN, _FUNCTION_CALL_PATTERN, _AGENT_CARD_PATTERN],
-    "rag": [_RAG_CITATION_PATTERN],
+    "rag": [_RAG_CITATION_PATTERN, _RAG_SOURCE_PATTERN],
     "mcp": [_MCP_JSONRPC_PATTERN],
     "embedding": [_EMBEDDING_PATTERN],
     "multi_agent": [_AGENT_CARD_PATTERN],

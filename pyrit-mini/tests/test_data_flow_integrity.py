@@ -24,19 +24,16 @@ import pytest
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tools.data_flow_validator import (
-    DataFlowValidator,
-    DataFlowReport,
-    ValidationResult,
-    format_report,
-)
 from tools.data_flow_hooks import (
+    reset_validator,
     snapshot_hook,
     validate_and_report,
     validate_quick,
-    reset_validator,
 )
-
+from tools.data_flow_validator import (
+    DataFlowValidator,
+    format_report,
+)
 
 # =============================================================================
 # Mock objects
@@ -253,7 +250,7 @@ class TestFieldContracts:
         ctx = create_mock_ctx(phase="arm")
         validator = DataFlowValidator(ctx)
         validator.snapshot("post_arm")
-        report = validator.validate_all()
+        validator.validate_all()
 
         techniques_count = validator.snapshots["post_arm"].fields.get("techniques_count", 0)
         assert techniques_count >= 1, "ARM should select at least 1 attack technique"
@@ -263,7 +260,7 @@ class TestFieldContracts:
         ctx = create_mock_ctx(phase="arm")
         validator = DataFlowValidator(ctx)
         validator.snapshot("post_arm")
-        report = validator.validate_all()
+        validator.validate_all()
 
         cm_size = validator.snapshots["post_arm"].fields.get("converter_map_size", 0)
         assert cm_size >= 1, "ARM should build at least 1 converter_map entry"
@@ -273,7 +270,7 @@ class TestFieldContracts:
         ctx = create_mock_ctx(phase="strike")
         validator = DataFlowValidator(ctx)
         validator.snapshot("post_strike")
-        report = validator.validate_all()
+        validator.validate_all()
 
         total_results = validator.snapshots["post_strike"].fields.get("attack_results_total", 0)
         assert total_results >= 1, "Strike should produce at least 1 attack result"
@@ -283,7 +280,7 @@ class TestFieldContracts:
         ctx = create_mock_ctx(phase="assess")
         validator = DataFlowValidator(ctx)
         validator.snapshot("post_assess")
-        report = validator.validate_all()
+        validator.validate_all()
 
         asr_count = validator.snapshots["post_assess"].fields.get("asr_techniques_count", 0)
         assert asr_count >= 1, "Assess should compute ASR for at least 1 technique"
@@ -293,7 +290,7 @@ class TestFieldContracts:
         ctx = create_mock_ctx(phase="assess")
         validator = DataFlowValidator(ctx)
         validator.snapshot("post_assess")
-        report = validator.validate_all()
+        validator.validate_all()
 
         overall_asr = validator.snapshots["post_assess"].fields.get("overall_asr", 0.0)
         assert 0 <= overall_asr <= 100, \
@@ -630,7 +627,7 @@ class TestFullPipeline:
         # ================================================================
         # Assess reads from: ctx.attack_results
         total_attacks = sum(len(v) for v in ctx.attack_results.values())
-        successful = sum(1 for results in ctx.attack_results.values() for _ in results)
+        sum(1 for results in ctx.attack_results.values() for _ in results)
 
         ctx.asr_per_technique = {}
         for tech, results in ctx.attack_results.items():
@@ -894,14 +891,12 @@ class TestIntegration:
 
     def test_data_flow_hooks_importable(self):
         """data_flow_hooks module should be importable."""
-        from tools.data_flow_hooks import snapshot_hook, validate_and_report
         assert callable(snapshot_hook)
         assert callable(validate_and_report)
 
     def test_tools_package_exists(self):
         """tools package should exist."""
-        from tools import data_flow_validator
-        from tools import data_flow_hooks
+        from tools import data_flow_hooks, data_flow_validator
         assert data_flow_validator is not None
         assert data_flow_hooks is not None
 
@@ -1108,7 +1103,7 @@ class TestASRForensicsModule:
 
     def test_asr_forensics_module_importable(self):
         """asr_forensics module should be importable."""
-        from strike.asr_forensics import extract_asr_forensics, apply_forensics_to_ctx
+        from strike.asr_forensics import apply_forensics_to_ctx, extract_asr_forensics
         assert callable(extract_asr_forensics)
         assert callable(apply_forensics_to_ctx)
 

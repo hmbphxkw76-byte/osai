@@ -35,6 +35,7 @@ from typing import Any
 
 # Session-Aware Attack Framework: SessionStateManager
 from strike.session import SessionStateManager  # noqa: F401
+from utils.attack_utils import is_attack_successful
 
 logger = logging.getLogger(__name__)
 
@@ -336,7 +337,7 @@ async def run_escalation_chain(
     attack_results = getattr(ctx, "attack_results", {}) or {}
     for technique, results in attack_results.items():
         for result in results:
-            if not _is_result_success(result):
+            if not is_attack_successful(result):
                 obj = getattr(result, "objective", "") or ""
                 if obj and obj not in failed_objectives:
                     failed_objectives.append(obj)
@@ -407,7 +408,7 @@ async def run_escalation_chain(
 
     # Compute escalation ASR
     if all_results:
-        successful = sum(1 for r in all_results if _is_result_success(r))
+        successful = sum(1 for r in all_results if is_attack_successful(r))
         esc_ctx.current_asr = successful / len(all_results)
 
     # Update ctx
@@ -453,15 +454,6 @@ async def run_escalation_chain(
     }
 
 
-def _is_result_success(result: Any) -> bool:
-    """Check if an attack result was successful."""
-    outcome = getattr(result, "outcome", "")
-    if outcome:
-        return str(outcome).lower() == "success"
-    score = getattr(result, "score_value", None)
-    if score:
-        return str(score).lower() in ("true", "1", "success")
-    return False
 
 
 def _select_best_result(results: list[Any]) -> Any | None:
@@ -469,6 +461,6 @@ def _select_best_result(results: list[Any]) -> Any | None:
     if not results:
         return None
     for r in results:
-        if _is_result_success(r):
+        if is_attack_successful(r):
             return r
     return results[-1]  # Return last result as fallback

@@ -268,14 +268,14 @@ class ArchitectureGuard:
 
     def check_data_flow_integrity(self) -> None:
         """R-DATA-1: Recon → ARM → Strike → Assess → Report/Evidence 全链路数据流完整性验证
-        
+
         检查 PipelineContext 在各 Phase 边界的数据传递是否完整一致。
         通过 import data_flow_validator 运行自动化测试。
         覆盖 5 阶段 × (字段契约 + 传递规则 + 跨阶段一致性) = 完整验证链。
         """
         import subprocess
         import sys
-        
+
         # 运行 pytest 测试数据流完整性 (仅运行快速测试集)
         try:
             result = subprocess.run(
@@ -288,12 +288,12 @@ class ArchitectureGuard:
                 timeout=60,
                 cwd=str(self.root),
             )
-            
+
             if result.returncode != 0:
                 # 解析失败信息
                 output_lines = result.stdout.strip().split("\n")[-10:] if result.stdout else []
-                detail = "\n".join(output_lines) if output_lines else "pytest 执行失败"
-                
+                "\n".join(output_lines) if output_lines else "pytest 执行失败"
+
                 self.violations.append(Violation(
                     rule="R-DATA-1",
                     severity=Severity.WARNING,
@@ -348,7 +348,7 @@ class ArchitectureGuard:
         self.check_serial_stacking()
         self.check_forbidden_custom_classes()
         self.check_cli_location()
-        
+
         # R-DATA-1: 数据流完整性验证 (每次 guard 运行时自动检查)
         self.check_data_flow_integrity()
 

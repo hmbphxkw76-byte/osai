@@ -4,7 +4,7 @@
 
 问题: tools/hooks.py 从 cwd 向上找 .git，但本项目 cwd 是 pyrit-mini/，
       .git 实际在上一级目录 osai/.git/。
-     
+
 解决: 直接写 hooks 到正确位置。
 
 使用: py -m tools.install_hooks_local
@@ -123,22 +123,22 @@ def install():
     if not _HOOKS_DIR.exists():
         print(f"ERROR: .git/hooks not found at {_HOOKS_DIR}")
         return 1
-    
+
     # 写入 pre-commit
     commit_path = _HOOKS_DIR / "pre-commit"
     commit_path.write_text(_PRE_COMMIT, encoding="utf-8", newline="\n")
-    
+
     # 写入 pre-push
-    push_path = _HOOKS_DIR / "pre-push"  
+    push_path = _HOOKS_DIR / "pre-push"
     push_path.write_text(_PRE_PUSH, encoding="utf-8", newline="\n")
-    
+
     # 尝试设置可执行权限 (POSIX)
     try:
         os.chmod(commit_path, 0o755)
         os.chmod(push_path, 0o755)
     except OSError:
         pass
-    
+
     print(f"[OK] Installed: {commit_path}")
     print(f"[OK] Installed: {push_path}")
     print()

@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -713,7 +713,7 @@ class DataFlowValidator:
                 message += f"WCI lower ({wc[0]}) > upper ({wc[1]})"
             elif wc[0] == 0.0 and wc[1] == 0.0:
                 passed = False
-                message += f"WCI 未计算 (0.0, 0.0)"
+                message += "WCI 未计算 (0.0, 0.0)"
             else:
                 message += f"WCI 有效: [{wc[0]:.3f}, {wc[1]:.3f}] ✓"
 
@@ -800,7 +800,7 @@ class DataFlowValidator:
                         passed=True,
                         phase_from="recon",
                         phase_to="report",
-                        message=f"orchestration_log 包含全部 4 个核心阶段记录 ✓",
+                        message="orchestration_log 包含全部 4 个核心阶段记录 ✓",
                         severity="info",
                     ))
             elif "post_assess" in self.snapshots:
@@ -826,7 +826,7 @@ class DataFlowValidator:
                         passed=True,
                         phase_from="recon",
                         phase_to="assess",
-                        message=f"orchestration_log 包含全部 4 个核心阶段记录 ✓",
+                        message="orchestration_log 包含全部 4 个核心阶段记录 ✓",
                         severity="info",
                     ))
 
@@ -974,14 +974,10 @@ def format_report(report: DataFlowReport, ascii_only: bool = False) -> str:
         S_PASS = "[PASS]"
         S_FAIL = "[FAIL]"
         S_WARN = "[WARN]"
-        S_INFO = "[INFO]"
-        S_DOT = "*"
     else:
         S_PASS = "✅"
         S_FAIL = "❌"
         S_WARN = "⚠️"
-        S_INFO = "ℹ️"
-        S_DOT = "•"
 
     lines: list[str] = []
 

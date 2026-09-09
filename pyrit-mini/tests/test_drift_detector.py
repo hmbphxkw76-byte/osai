@@ -14,13 +14,13 @@ import pytest
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 
-from tools.drift_detector import (
+from tools.drift_detector import (  # noqa: E402
+    _PIPELINE_CONTEXT_CONTRACTS,
+    _SPEC_REFERENCED_MODULES,
     DriftDetector,
     DriftFinding,
     DriftReport,
     DriftSeverity,
-    _PIPELINE_CONTEXT_CONTRACTS,
-    _SPEC_REFERENCED_MODULES,
 )
 
 

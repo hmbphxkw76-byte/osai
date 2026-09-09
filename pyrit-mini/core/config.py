@@ -28,20 +28,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-# .env (python-dotenv)
-try:
-    from dotenv import load_dotenv
-
-    load_dotenv()
-except ImportError:
-    pass
-
-logger = logging.getLogger(__name__)
-
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_DEFAULTS_YAML = _PROJECT_ROOT / "config" / "defaults.yaml"
-
-
 # Config parser helpers (extracted to _config_parsers.py)
 from core._config_parsers import (
     _apply_config_file,
@@ -55,6 +41,20 @@ from core._config_parsers import (
     _parse_memory_labels,
     _parse_seed_filters,
 )
+
+# .env (python-dotenv)
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass
+
+logger = logging.getLogger(__name__)
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_DEFAULTS_YAML = _PROJECT_ROOT / "config" / "defaults.yaml"
+
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

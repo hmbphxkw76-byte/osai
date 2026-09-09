@@ -302,7 +302,11 @@ def _probe_capabilities(response_text: str) -> dict[str, bool]:
         model_family ,  bool
     """
     if not response_text or len(response_text) < 10:
-        return {}
+        # Return all capabilities as False for empty/short input
+        return {cap: False for cap in get_all_capability_names()
+                if not cap.startswith(("function_calling", "memory", "workflow",
+                                       "multi_tenant", "session_auth",
+                                       "mcp_protocol", "a2a_protocol", "embedding_rag"))}
 
     capabilities: dict[str, bool | str] = {}
 
@@ -454,7 +458,7 @@ def _detect_model_family(text: str) -> str | None:
 
     for model_key, patterns in _MODEL_PATTERNS:
         for pat in patterns:
-            if pat in text_lower:
+            if pat and pat in text_lower:  # skip empty patterns
                 return model_key
 
     return None

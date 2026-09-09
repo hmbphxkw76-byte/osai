@@ -12,13 +12,11 @@ Usage:
 
 import argparse
 import hashlib
-import os
 import subprocess
 import sys
 import time
 from pathlib import Path
 from typing import Dict, Set, Tuple
-
 
 # === Configuration ===
 WATCHED_DIRS = ["strike", "recon", "arm", "assess", "core", "report", "utils", "tools"]
@@ -174,8 +172,8 @@ else:
             print("  [PASS] Initial check passed")
         else:
             # Count by severity
-            blocking = output.count("BLOCKING") if output else 0
-            warnings = output.count("WARNING") if output else 0
+            output.count("BLOCKING") if output else 0
+            output.count("WARNING") if output else 0
             print(f"  [INFO] Found issues: {output.strip().split(chr(10))[-1] if output else 'unknown'}")
 
         print("[2/2] Starting file watcher...")
@@ -203,7 +201,7 @@ else:
                     ok, output = self._run_full_guard()
 
                 if ok:
-                    print(f"  [PASS] All checks passed")
+                    print("  [PASS] All checks passed")
                 else:
                     # Show summary
                     lines = output.strip().split("\n")
@@ -211,7 +209,7 @@ else:
                         last_line = lines[-1] if lines else ""
                         print(f"  [WARN] {last_line}")
                         # Show R-DELIVERY specific
-                        rdelivery_lines = [l for l in lines if "R-DELIVERY" in l]
+                        rdelivery_lines = [line for line in lines if "R-DELIVERY" in line]
                         if rdelivery_lines:
                             print("  R-DELIVERY violations:")
                             for line in rdelivery_lines[:3]:

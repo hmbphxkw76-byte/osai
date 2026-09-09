@@ -20,7 +20,7 @@ class TestInjectPlaceholder:
 
     def test_pascalcase_query(self):
         """Test with PascalCase 'Query' field."""
-        from recon.burp_parser import inject_prompt_placeholder
+        from recon.prompt_injector import inject_prompt_placeholder
 
         body = json.dumps({
             "Inputs": {"stuNo": "123", "CourseName": ""},

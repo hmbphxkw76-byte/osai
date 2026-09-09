@@ -29,6 +29,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from utils.attack_utils import is_attack_successful
+
 logger = logging.getLogger(__name__)
 
 # === Bypass Strategy Registry ===
@@ -217,7 +219,7 @@ async def run_output_filter_bypass(
     attack_results = getattr(ctx, "attack_results", {}) or {}
     for technique, results in attack_results.items():
         for result in results:
-            if not _is_result_success(result):
+            if not is_attack_successful(result):
                 obj = getattr(result, "objective", "") or ""
                 if obj and obj not in failed_objectives:
                     failed_objectives.append(obj)
@@ -256,7 +258,7 @@ async def run_output_filter_bypass(
     # Compute bypass ASR
     bypass_asr = 0.0
     if all_results:
-        successful = sum(1 for r in all_results if _is_result_success(r))
+        successful = sum(1 for r in all_results if is_attack_successful(r))
         bypass_asr = successful / len(all_results)
 
     # Update ctx
@@ -305,12 +307,4 @@ async def run_output_filter_bypass(
     }
 
 
-def _is_result_success(result: Any) -> bool:
-    """Check if an attack result was successful."""
-    outcome = getattr(result, "outcome", "")
-    if outcome:
-        return str(outcome).lower() == "success"
-    score = getattr(result, "score_value", None)
-    if score:
-        return str(score).lower() in ("true", "1", "success")
-    return False
+

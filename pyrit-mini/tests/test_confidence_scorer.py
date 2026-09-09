@@ -37,7 +37,7 @@ class TestMatchCapabilityI18n:
         """Chinese keyword should match."""
         from recon.confidence_scorer import match_capability_i18n
 
-        assert match_capability_i18n("", "agent") is True
+        assert match_capability_i18n("我可以使用工具", "agent") is True
 
     def test_case_insensitive_english(self):
         """English matching should be case-insensitive."""
@@ -62,7 +62,7 @@ class TestMatchCapabilityI18n:
         from recon.confidence_scorer import match_capability_i18n
 
         assert match_capability_i18n("model context protocol", "mcp") is True
-        assert match_capability_i18n("", "mcp") is True
+        assert match_capability_i18n("模型上下文协议", "mcp") is True
 
 
 class TestScoreCapability:
@@ -119,8 +119,8 @@ class TestScoreCapability:
         )
         result = score_capability(response, "agent", source="passive")
         assert result.confidence > 0.3
-        # Should have keyword_matches in evidence
-        assert any("keyword_matches" in e for e in result.evidence)
+        # Should have keyword_count in evidence
+        assert any("keyword_count" in e for e in result.evidence)
 
     def test_confidence_clamped_to_1(self):
         """Confidence should be clamped to [0.0, 1.0]."""

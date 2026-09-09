@@ -27,6 +27,21 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = PROJECT_ROOT / "config" / "defaults.yaml"
 
+
+@dataclass
+class ClassificationResult:
+    """Classification result for attack surface detection.
+
+    Attributes:
+        attack_surface: Detected attack surface type
+        confidence: Classification confidence [0.0, 1.0]
+        evidence: List of evidence indicators
+    """
+    attack_surface: str
+    confidence: float
+    evidence: list[str] = field(default_factory=list)
+
+
 class ScenarioRouter:
     """
         - imports config/defaults.yaml Load scenario_technique_filters

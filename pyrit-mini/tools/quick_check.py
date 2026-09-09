@@ -11,7 +11,6 @@ import re
 import sys
 from pathlib import Path
 
-
 # === Quick Architecture Checks ===
 MAX_LINE_LIMIT = 300  # R-DELIVERY-1
 MODULE_DOCSTRING_REQUIRED = True  # R-DELIVERY-5
@@ -172,7 +171,7 @@ def main():
                 print(f"  ... and {len(all_violations) - 20} more")
             sys.exit(1)
         else:
-            print(f"  [PASS] All files pass R-DELIVERY rules")
+            print("  [PASS] All files pass R-DELIVERY rules")
             sys.exit(0)
 
     else:

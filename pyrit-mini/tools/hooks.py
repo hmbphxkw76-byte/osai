@@ -32,6 +32,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 def find_git_root() -> str | None:
     """定位 .git 根目录"""
+    # Method 1: Try using git command
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--git-dir"],
@@ -47,6 +48,15 @@ def find_git_root() -> str | None:
             return os.path.dirname(git_dir)
     except Exception:
         pass
+
+    # Method 2: Fallback - search for .git directory by walking up
+    current = _PROJECT_ROOT
+    while current != current.parent:
+        git_dir = current / ".git"
+        if git_dir.exists():
+            return str(current)
+        current = current.parent
+
     return None
 
 def _find_python_exe() -> str:

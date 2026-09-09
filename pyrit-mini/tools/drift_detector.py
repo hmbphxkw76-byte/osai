@@ -39,7 +39,6 @@ import sys
 from dataclasses import dataclass, field
 from enum import IntEnum
 from pathlib import Path
-from typing import Any
 
 # UTF-8 强制 (兼容 Windows GBK 终端)
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
@@ -322,7 +321,7 @@ class DriftDetector:
                     ),
                     spec_source="pyproject.toml",
                     code_target="pyproject.toml",
-                    fix_hint=f"pip install pyrit==1.0.* 回滚到锁定版本",
+                    fix_hint="pip install pyrit==1.0.* 回滚到锁定版本",
                 ))
         else:
             self.report.findings.append(DriftFinding(

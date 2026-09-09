@@ -12,13 +12,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.seed_quality_assessor import (
+    _MIN_SEED_SAMPLES,
     SeedPerformanceMetrics,
     SeedQualityAssessor,
-    SeedHealthReport,
     assess_seed_library_health,
-    _RETIREMENT_THRESHOLD,
-    _WARNING_THRESHOLD,
-    _MIN_SEED_SAMPLES,
 )
 
 

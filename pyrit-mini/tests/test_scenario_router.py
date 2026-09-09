@@ -161,14 +161,15 @@ class TestApplyScenarioOverrides:
 
     def test_no_override_when_cli_set(self, router):
         """v60: Should not override CLI-set filter."""
+        from dataclasses import dataclass, field
 
         @dataclass
         class MockArgs:
-            adaptive_technique_filter: list[str] | None = ["custom_tag"]
+            adaptive_technique_filter: list[str] | None = field(default_factory=lambda: ["custom_tag"])
 
         @dataclass
         class MockCtx:
-            args: MockArgs = None
+            args: MockArgs = field(default_factory=MockArgs)
 
         ctx = MockCtx()
         ctx.args = MockArgs()

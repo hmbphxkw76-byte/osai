@@ -511,15 +511,7 @@ def _recursive_find_prompt_path(
 
 def _score_single_prompt_field(key: str, value: Any) -> int:
     """converter(s) (key+value) , prompt """
-    if _is_likely_non_prompt(value):
-        return 0
-
-    stripped = value.strip()
-
-    has_space = " " in stripped
-    has_non_ascii = any(ord(c) > 127 for c in stripped)
-    is_natural_lang = has_space or has_non_ascii
-
+    # Check key name score first (before rejecting on value)
     key_lower = key.lower()
     if key_lower in _PROMPT_NAME_HINTS:
         name_score = 30
@@ -529,6 +521,19 @@ def _score_single_prompt_field(key: str, value: Any) -> int:
             if hint in key_lower:
                 name_score = 15
                 break
+
+    # Empty string with matching key name is a valid placeholder target
+    if isinstance(value, str) and value.strip() == "" and name_score > 0:
+        return name_score
+
+    if _is_likely_non_prompt(value):
+        return 0
+
+    stripped = value.strip()
+
+    has_space = " " in stripped
+    has_non_ascii = any(ord(c) > 127 for c in stripped)
+    is_natural_lang = has_space or has_non_ascii
 
     if is_natural_lang:
         value_score = 60
