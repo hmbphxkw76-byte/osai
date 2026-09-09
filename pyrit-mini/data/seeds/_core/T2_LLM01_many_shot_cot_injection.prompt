@@ -25,6 +25,8 @@
     severity: "high"
     category: "prompt_injection"
     source: "many_shot"
+    tier: 2
+    attack_vector: many_shot_cot
     language: "en"
 
 - value: |
@@ -43,6 +45,8 @@
     severity: "high"
     category: "prompt_injection"
     source: "many_shot"
+    tier: 2
+    attack_vector: many_shot_cot
     language: "en"
 
 # ── LLM02: Sensitive Info — Many-Shot (1 seed) ──
@@ -61,6 +65,8 @@
     severity: "critical"
     category: "sensitive_info"
     source: "many_shot"
+    tier: 2
+    attack_vector: many_shot_cot
     language: "en"
 
 # ── LLM07: System Prompt Leakage — Many-Shot (1 seed) ──
@@ -79,4 +85,6 @@
     severity: "critical"
     category: "system_prompt_leakage"
     source: "many_shot"
+    tier: 2
+    attack_vector: many_shot_cot
     language: "en"

@@ -20,6 +20,8 @@
     severity: high
     category: system_prompt_leakage
     source: multiturn
+    tier: 2
+    attack_vector: multi_turn
     language: en
     suitable_for: crescendo
 
@@ -31,6 +33,8 @@
     severity: medium
     category: embedding_weakness
     source: multiturn
+    tier: 2
+    attack_vector: multi_turn
     language: en
     suitable_for: crescendo
 
@@ -42,6 +46,8 @@
     severity: medium
     category: function_signature_probe
     source: multiturn
+    tier: 2
+    attack_vector: multi_turn
     language: en
     suitable_for: crescendo
 
@@ -53,6 +59,8 @@
     severity: medium
     category: security_config_probe
     source: multiturn
+    tier: 2
+    attack_vector: multi_turn
     language: en
     suitable_for: crescendo
 
@@ -64,6 +72,8 @@
     severity: medium
     category: session_info_leak
     source: multiturn
+    tier: 2
+    attack_vector: multi_turn
     language: en
     suitable_for: crescendo
 
@@ -78,6 +88,8 @@
     severity: high
     category: function_schema_probe
     source: multiturn
+    tier: 2
+    attack_vector: multi_turn
     language: en
     suitable_for: tap
 
@@ -89,6 +101,8 @@
     severity: high
     category: function_bulk_call
     source: multiturn
+    tier: 2
+    attack_vector: multi_turn
     language: en
     suitable_for: tap
 
@@ -100,6 +114,8 @@
     severity: high
     category: embedding_weakness
     source: multiturn
+    tier: 2
+    attack_vector: multi_turn
     language: en
     suitable_for: tap
 
@@ -111,6 +127,8 @@
     severity: critical
     category: cross_tenant
     source: multiturn
+    tier: 2
+    attack_vector: multi_turn
     language: en
     suitable_for: tap
 
@@ -122,6 +140,8 @@
     severity: high
     category: mcp_tool_enumeration
     source: multiturn
+    tier: 2
+    attack_vector: multi_turn
     language: en
     suitable_for: tap
 
@@ -136,6 +156,8 @@
     severity: critical
     category: system_prompt_leakage
     source: multiturn
+    tier: 2
+    attack_vector: multi_turn
     language: en
     suitable_for: pair
 
@@ -147,6 +169,8 @@
     severity: critical
     category: secret_extraction
     source: multiturn
+    tier: 2
+    attack_vector: multi_turn
     language: en
     suitable_for: pair
 
@@ -158,6 +182,8 @@
     severity: critical
     category: function_param_secret
     source: multiturn
+    tier: 2
+    attack_vector: multi_turn
     language: en
     suitable_for: pair
 
@@ -169,6 +195,8 @@
     severity: critical
     category: secret_extraction
     source: multiturn
+    tier: 2
+    attack_vector: multi_turn
     language: en
     suitable_for: pair
 
@@ -180,5 +208,7 @@
     severity: critical
     category: privilege_escalation
     source: multiturn
+    tier: 2
+    attack_vector: multi_turn
     language: en
     suitable_for: pair

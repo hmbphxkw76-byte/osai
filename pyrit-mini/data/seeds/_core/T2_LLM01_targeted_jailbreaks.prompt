@@ -14,6 +14,8 @@
     severity: critical
     category: system_prompt_leakage
     source: targeted_jailbreaks
+    tier: 2
+    attack_vector: targeted_jailbreak
     language: en
     suitable_for: crescendo
 
@@ -25,6 +27,8 @@
     severity: critical
     category: system_prompt_leakage
     source: targeted_jailbreaks
+    tier: 2
+    attack_vector: targeted_jailbreak
     language: en
     suitable_for: pair
 
@@ -36,6 +40,8 @@
     severity: high
     category: system_prompt_leakage
     source: targeted_jailbreaks
+    tier: 2
+    attack_vector: targeted_jailbreak
     language: en
     suitable_for: tap
 
@@ -51,6 +57,8 @@
     severity: high
     category: embedding_weakness
     source: targeted_jailbreaks
+    tier: 2
+    attack_vector: targeted_jailbreak
     language: en
     suitable_for: crescendo
 
@@ -62,6 +70,8 @@
     severity: high
     category: embedding_weakness
     source: targeted_jailbreaks
+    tier: 2
+    attack_vector: targeted_jailbreak
     language: en
     suitable_for: pair
 
@@ -77,6 +87,8 @@
     severity: critical
     category: excessive_agency
     source: targeted_jailbreaks
+    tier: 2
+    attack_vector: targeted_jailbreak
     language: en
     suitable_for: crescendo
 
@@ -88,6 +100,8 @@
     severity: critical
     category: excessive_agency
     source: targeted_jailbreaks
+    tier: 2
+    attack_vector: targeted_jailbreak
     language: en
     suitable_for: tap
 
@@ -103,6 +117,8 @@
     severity: critical
     category: sensitive_info_disclosure
     source: targeted_jailbreaks
+    tier: 2
+    attack_vector: targeted_jailbreak
     language: en
     suitable_for: crescendo
 
@@ -114,6 +130,8 @@
     severity: critical
     category: sensitive_info_disclosure
     source: targeted_jailbreaks
+    tier: 2
+    attack_vector: targeted_jailbreak
     language: en
     suitable_for: pair
 
@@ -129,6 +147,8 @@
     severity: high
     category: prompt_injection
     source: targeted_jailbreaks
+    tier: 2
+    attack_vector: targeted_jailbreak
     language: en
     suitable_for: crescendo
 
@@ -140,6 +160,8 @@
     severity: high
     category: prompt_injection
     source: targeted_jailbreaks
+    tier: 2
+    attack_vector: targeted_jailbreak
     language: en
     suitable_for: pair
 
@@ -155,6 +177,8 @@
     severity: critical
     category: tool_misuse
     source: targeted_jailbreaks
+    tier: 2
+    attack_vector: targeted_jailbreak
     language: en
     suitable_for: crescendo
 
@@ -170,6 +194,8 @@
     severity: critical
     category: cross_agent_injection
     source: targeted_jailbreaks
+    tier: 2
+    attack_vector: targeted_jailbreak
     language: en
     suitable_for: crescendo
 
@@ -185,6 +211,8 @@
     severity: critical
     category: memory_poisoning
     source: targeted_jailbreaks
+    tier: 2
+    attack_vector: targeted_jailbreak
     language: en
     suitable_for: crescendo
 
@@ -200,6 +228,8 @@
     severity: critical
     category: improper_output_handling
     source: targeted_jailbreaks
+    tier: 2
+    attack_vector: targeted_jailbreak
     language: en
     suitable_for: crescendo
 
@@ -215,5 +245,7 @@
     severity: high
     category: supply_chain
     source: targeted_jailbreaks
+    tier: 2
+    attack_vector: targeted_jailbreak
     language: en
     suitable_for: pair
