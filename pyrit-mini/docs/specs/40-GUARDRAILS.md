@@ -13,13 +13,13 @@
 
 | # | 红线 | guard 检查器 |
 |---|------|-------------|
-| R-L1 | 攻击端（strike/arm/recon）出现安全护栏/内容过滤逻辑 | `check_safety_guardrails()` |
+| R-L1 | 攻击端（strike/arm/recon/attack_*）出现安全护栏/内容过滤逻辑 | `check_no_defense_in_attack_dirs()` **[v2.9 已实现]** |
 | R-L2 | 自定义 Executor/Target/Scorer 基类替代 PyRIT 原生 | `check_forbidden_custom_classes()` |
 | R-L3 | `ConverterConfiguration` 串联堆叠（>1 converter） | `check_serial_stacking()` |
 | R-L4 | defaults.yaml 参数低于 L5 基线（max_attempts≥3、escalation_asr_threshold≥90 等） | `check_l5_params()` |
 | R-L5 | 升级链缺失 L1/L2 中间退出检查点 | `check_intermediate_exit()` |
 | R-L6 | 报告生成未调用 pyrit.output 原生模块 | `check_pyrit_native_output()` |
-| R-L7 | 根目录出现非法文件；tests/ 缺失 | `check_root_directory()` / `check_test_coverage()` |
+| R-L7 | 根目录出现未授权顶层目录/文件 | `check_top_level_structure()` **[v2.9 已实现]** |
 | R-L8 | `--dry-run` 参数或实现缺失 | `check_dry_run_available()` |
 
 ### 1A-DATA. 数据流完整性红线（v1.4 新增）
