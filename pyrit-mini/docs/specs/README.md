@@ -112,7 +112,7 @@
 | L1 | [10-ARCHITECTURE.md](10-ARCHITECTURE.md) | 技术蓝图：分层依赖 / ctx 契约（4.4 SSOT 总表） / 不变量 / ADR / 债务簿 / PyRIT攻击引擎 / Web攻击层 + 数据流完整性 / 全链路自主决策引擎 (第十一章) / 跨模型规约审查架构 (第十二章) | v2.8 |
 | L2 | [20-REQUIREMENTS.md](20-REQUIREMENTS.md) | 需求登记：P0 (已实现 ✅) / P1 (已实现 ✅) / 活跃需求 / NFR（含 NFR-13 ASR 双口径与 target_asr 锚点 + NFR-14~16 审查非功能） / NEG / 自主决策需求 / 文件上传攻击需求 (REQ-138~144) / 跨模型审查需求 (REQ-144~146) | v2.5 |
 | L3 | [30-TASKS.md](30-TASKS.md) | 任务协议：生命周期 / 粒度上限 / 八步协议 / STOP-REPORT / 考试速查 / 跨模型审查任务协议 (第十章) | v2.2 |
-| L4 | [40-GUARDRAILS.md](40-GUARDRAILS.md) | 红线 R-L / R-H / R-S / R-WEB (含R-WEB-6任意端口) / R-DRIFT / R-DATA / R-DECIDE / R-TOOLS / R-DOC (代码-文档同步，含R-DOC-5命令行文档) / R-CROSS (跨模型审查) / 四步门禁 / 三层防线 / 登记簿 (45项，1F 唯一) / 交付验证清单 (7D CLI文档验收) / 考试合规 | v2.9 |
+| L4 | [40-GUARDRAILS.md](40-GUARDRAILS.md) | 红线 R-L / R-H / R-S / R-WEB (含R-WEB-6任意端口) / R-DRIFT / R-DATA / R-DECIDE / R-TOOLS / R-DOC (代码-文档同步，含R-DOC-5命令行文档) / R-CROSS (跨模型审查) / 四步门禁 / 三层防线 / 登记簿 (46项，1F 唯一，含R-L1/R-L7新实现) / 交付验证清单 (7D CLI文档验收) / 考试合规 / spec-code drift 修复 (v3.0) | v3.0 |
 | 配套 | [50-ROADMAP.md](50-ROADMAP.md) | 路线图：AI-300 考纲映射 / 红队实践 / 基准校准 (阶段 0.5) / 任务序列 / 会话模型 / Runbook / 考试日故障降级矩阵 / 跨模型审查系统 (阶段 1D) | v1.10 |
 | 配套 | [55-ATTACK-GAP-CLOSURE.md](55-ATTACK-GAP-CLOSURE.md) | 攻击缺口闭环：四大缺口分析 / 文件上传攻击缺口 (v1.4新增) / 黑盒可测性约束 (4.1-B) / 全链路自主决策架构 / 跨模型规约审查集成 (v1.5新增) / A2A多智能体侦察框架 (v1.7新增) / Workflow Evasion安全扫描绕过 (v1.8新增) | v1.8 |
 | 配套 | [60-CROSS-MODEL-VERIFICATION.md](60-CROSS-MODEL-VERIFICATION.md) | 跨模型规约审查协议：审查模型注册簿 / 触发规则 / Prompt模板 / 差异对齐 / 仲裁协议 / Schema标准 / 存储结构 / κ度量指标 / 工具链集成 | v1.0 |

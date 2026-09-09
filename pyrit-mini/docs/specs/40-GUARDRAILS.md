@@ -3,7 +3,7 @@
 > **文档层级**：L4 / 五层规约金字塔第五层
 > **效力**：红线 = 绝对禁止，视同宪法级（裁决序见 00-CONSTITUTION 第二章）。质量门禁 = 完成任务的必要不充分条件。
 > **执行机制**：三层防线（静态 guard / 运行时 dry-run / git 钩子），继承 SKILL.md D2 条款并收编。
-> **版本**：v2.9（2026-09-09 REV-16：新增 R-DOC-5 命令行文档同步护栏；第七章交付验证清单新增 CLI 文档验收项）
+> **版本**：v3.0（2026-09-09 REV-17：修复 spec-code drift — R-L1/R-L7 真正实现，check_no_defense_in_attack_dirs + check_top_level_structure）
 
 ---
 
@@ -201,19 +201,19 @@ pyrit-drift --full --report
 | 手动开发 | `pyrit-drift` | 开发时实时检测 |
 | CI/CD | `pyrit-drift --full --report` | 定期审计/PR 检查 |
 
-### 1F. Guard 检查器登记簿（v2.7 新增 5 项跨模型审查，总计 44 项）
+### 1F. Guard 检查器登记簿（v2.9 新增 2 项，总计 46 项）
 
 规约各处引用的检查器汇总（**权威清单以 `tools/guard.py` + `tools/drift_detector.py` 实际实现为准**）：
 
 | 检查器 | 条款/红线 | 级别 | 分类 |
 |--------|----------|------|------|
-| check_safety_guardrails | C2 / R-L1 | BLOCKING | 核心安全 |
+| check_no_defense_in_attack_dirs | C2 / R-L1 | BLOCKING | 核心安全 |
 | check_forbidden_custom_classes | C1 / R-L2 | BLOCKING | 核心安全 |
 | check_serial_stacking | C2 / R-L3 | BLOCKING | 核心安全 |
 | check_l5_params | C2·C7 / R-L4 | BLOCKING | 核心安全 |
 | check_intermediate_exit | I4 / R-L5 | BLOCKING | 核心安全 |
 | check_pyrit_native_output | I9·C1 / R-L6 | BLOCKING | 核心安全 |
-| check_root_directory | R-L7 | BLOCKING | 核心安全 |
+| check_top_level_structure | R-L7 | BLOCKING | 核心安全 |
 | check_test_coverage | R-L7 | BLOCKING | 核心安全 |
 | check_dry_run_available | C10 / R-L8 | BLOCKING | 核心安全 |
 | check_native_attack_usage | C1 | WARNING | PyRIT 原生 |
@@ -598,3 +598,5 @@ git push origin main
 | v2.6 | 2026-09-09 | 新增文件上传攻击护栏：① 1D 适用范围扩展（新增 file_upload_executor.py）；② 新增 R-WEB-6 任意端口支持护栏（BLOCKING）；③ 白名单新增 2 个文件上传攻击向量（间接Prompt注入、RAG知识库投毒）；④ R-WEB-3 配置数据流扩展（文件上传目标URL）；⑤ R-WEB-5 学术留痕扩展（文件上传攻击向量） | 用户会话批准 |
 | v2.7 | 2026-09-09 | 新增 1C-DOC 代码-文档同步护栏：① R-DOC-1 CLI参数文档同步检查；② R-DOC-2 攻击模块缺口文档同步检查；③ R-DOC-3 需求/红线同步检查；④ R-DOC-4 README版本索引同步检查；⑤ 1F检查器登记簿新增4项检查器（总计 38 类）；⑥ 文档同步清单（代码变更必查） | 用户会话批准 |
 | v2.8 | 2026-09-09 | REV-15 新增跨模型规约审查护栏：① 1I-CROSS 跨模型规约审查护栏（R-CROSS-1~5：审查前置 BLOCKING / 一致性达标 BLOCKING / 审查记录完整 WARNING / 修复跟踪 WARNING / 审查时效 INFO）；② 1F 登记簿新增 5 项跨模型审查检查器（总计 44 项）；③ 降级策略与护栏关系映射 | 用户会话批准 |
+| v2.9 | 2026-09-09 | **REV-16：新增 R-DOC-5 命令行文档同步护栏**：① `check_cli_usage_shown_in_delivery()` 检查器 (WARNING)——新增/修改 CLI 参数必须在交付验收时显示完整命令行用法；② 第七章交付验证清单新增 7D CLI 文档验收项（参数列表+基础示例+组合攻击示例）；③ 1F 登记簿新增 1 项检查器（总计 46 项）；④ 文档同步清单新增交付验收项 | 用户会话批准 |
+| v3.0 | 2026-09-09 | **REV-17 修复 spec-code drift (R-L1/R-L7)**：① **R-L1 真正实现**——新增 `check_no_defense_in_attack_dirs()` 检查器 (BLOCKING)，检测攻击目录 (strike/arm/recon/attack_*) 中的防御逻辑 (Defense/Sandbox/Filter/Analyzer/Guard 类等)；含 `_DEFENSE_CHECK_WHITELIST` 白名单覆盖合法侦察代码 (guardrail_detector.py、stealth_config.py、session validation 等)；② **R-L7 真正实现**——新增 `check_top_level_structure()` 检查器 (BLOCKING)，基于 `_ALLOWED_TOP_LEVEL_DIRS` / `_ALLOWED_TOP_LEVEL_FILES` 白名单检测未授权顶层目录/文件；③ 1F 登记簿更新名称映射 (check_safety_guardrails→check_no_defense_in_attack_dirs, check_root_directory→check_top_level_structure)；④ R-L1 适用范围扩展至 attack_* 目录模式匹配（未来新增攻击目录自动覆盖） | 用户会话批准 |
