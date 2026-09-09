@@ -1,20 +1,21 @@
 # 55-ATTACK-GAP-CLOSURE.md — 攻击缺口完整优化方案
 
-**版本**: v1.3 (2026-09-09)
-**状态**: 实施完成 + 全链路自主决策架构设计
+**版本**: v1.5 (2026-09-09 新增跨模型规约审查引用：9.6 节集成 60-CROSS-MODEL-VERIFICATION.md 协议)
+**状态**: 四大攻击缺口实施完成 + 文件上传攻击模块
 **作者**: AI Red Team
 
 ## 1. 背景与目标
 
 ### 1.1 缺口分析
 
-基于对 pyrit-mini 代码库的全面审计，识别出三大攻击缺口：
+基于对 pyrit-mini 代码库的全面审计，识别出四大攻击缺口：
 
 | 缺口 | 当前状态 | 目标状态 | 优先级 |
 |------|----------|----------|--------|
 | 输出过滤器绕过 | 缺乏专门模块 | 4种PyRIT原生攻击策略 | P0 |
 | 多模态注入 | 种子库存在但集成度低 | 4种载体通道完整集成 | P0 |
 | 对抗性微调/后门 | 种子库丰富但缺乏执行器 | 4种攻击策略完整执行 | P1 |
+| 文件上传攻击 | HTTP multipart上传+触发处理 | 通用文件上传执行器 | P1 |
 
 ### 1.2 设计原则
 
@@ -82,7 +83,132 @@ ctx.bypass_context → 存储结果
 
 ---
 
-## 3. 缺口 2: 多模态注入攻击
+## 5. 缺口 4: 文件上传攻击 (File Upload Attack)
+
+### 5.1 学术理论基础
+
+| 技术 | 论文 | ASR | 机制 |
+|------|------|-----|------|
+| Indirect Prompt Injection | arXiv:2302.12173 (Greshake et al.) | 70-90% | 通过文档上传间接注入prompt指令 |
+| PoisonedRAG | arXiv:2406.04245 (Zou et al.) | 60-80% | 知识库投毒，污染RAG检索结果 |
+| Multimodal Document Attack | arXiv:2306.13254 (Shayegani et al.) | 50-70% | 多模态文档载体攻击 |
+| Backdoor via Data Poisoning | arXiv:2302.10149 (Bagdasaryan et al.) | 65-85% | 训练数据投毒后门攻击 |
+
+### 5.2 攻击模式
+
+| 模式 | 说明 | 适用场景 |
+|------|------|----------|
+| Single Upload + Trigger | 单文件上传 + 触发处理 | 测试基础文件上传过滤 |
+| Multi Upload + Trigger | 多文件上传 + 触发处理 | RAG批量投毒 |
+| Split Document Injection | 分文档注入（模板+载荷） | 间接Prompt注入绕检测 |
+| PoisonedRAG Upload | 知识库文档投毒 | RAG系统污染 |
+
+### 5.3 PyRIT 原生组件
+
+```python
+import aiohttp  # HTTP multipart上传
+from pathlib import Path  # 文件操作
+```
+
+### 5.4 新增文件
+
+**文件**: `strike/file_upload_executor.py` (~400行)
+
+**核心功能**:
+- `execute_file_upload()` — 单文件上传执行
+- `execute_trigger()` — 处理触发端点执行
+- `execute_file_upload_attack_chain()` — 完整攻击链
+- `run_file_upload_attack()` — 流水线集成入口
+
+**数据类**:
+- `UploadConfig` — 上传配置（文件路径、字段名、额外字段等）
+- `UploadResult` — 上传结果
+- `TriggerResult` — 触发结果
+- `FileUploadAttackResult` — 完整攻击链结果
+
+### 5.5 CLI 参数
+
+| 参数 | 默认值 | 说明 | 示例 |
+|------|--------|------|------|
+| `--file-upload-target` | None | 目标基础URL | `http://192.168.50.22:8004` |
+| `--upload-endpoint` | `/upload` | 上传端点路径 | `/api/v1/upload` |
+| `--trigger-endpoint` | `/summarize` | 处理触发端点 | `/process`, `/analyze` |
+| `--upload-files` | None | 逗号分隔的文件列表 | `payload.txt,template.txt` |
+| `--upload-field-name` | `file` | 表单字段名 | `document`, `attachment` |
+| `--trigger-method` | `POST` | 触发请求方法 | `POST`, `GET`, `PUT` |
+
+### 5.6 数据流
+
+```
+CLI参数 (--file-upload-target, --upload-files, --trigger-endpoint)
+    ↓
+run_file_upload_attack(ctx) → 流水线集成入口
+    ↓
+execute_file_upload_attack_chain() → 多步攻击链编排
+    ↓
+execute_file_upload() → aiohttp multipart POST 上传文件
+    ↓
+execute_trigger() → HTTP 触发处理端点
+    ↓
+FileUploadAttackResult → 结果存入 ctx.attack_results
+    ↓
+orchestration_log → 审计日志记录
+```
+
+### 5.7 使用示例
+
+```bash
+# 基础文件上传攻击
+python main.py --file-upload-target http://target:8004 \
+               --upload-files malicious_doc.txt \
+               --trigger-endpoint /summarize
+
+# 分文档间接Prompt注入（Split Document Injection）
+python main.py --file-upload-target http://target:8004 \
+               --upload-files template_doc.txt,payload_doc.txt \
+               --trigger-endpoint /analyze \
+               --upload-field-name document
+
+# RAG知识库投毒
+python main.py --file-upload-target http://target:8004 \
+               --upload-endpoint /kb/ingest \
+               --upload-files poisoned1.txt,poisoned2.txt \
+               --trigger-endpoint /kb/sync \
+               --trigger-method POST
+```
+
+### 5.8 测试覆盖
+
+**文件**: `tests/test_file_upload_executor.py` (39个测试用例)
+
+| 测试类 | 测试数 | 覆盖内容 |
+|--------|--------|----------|
+| TestDataClasses | 7 | 数据结构构造 |
+| TestHelperFunctions | 9 | 辅助函数 |
+| TestExecuteFileUpload | 3 | 文件上传执行 |
+| TestExecuteTrigger | 2 | 触发执行 |
+| TestExecuteFileUploadAttackChain | 2 | 完整攻击链 |
+| TestRunFileUploadAttack | 3 | 流水线集成 |
+| TestCLIArguments | 7 | CLI参数解析 |
+| TestEdgeCases | 4 | 边界情况 |
+| TestUniversalTargetSupport | 2 | 通用目标支持 |
+
+### 5.9 验收标准
+
+- ✅ 支持任意端口（0-65535，无硬编码限制）
+- ✅ 支持任意上传端点路径
+- ✅ 支持任意触发端点路径
+- ✅ 支持分文档注入攻击模式
+- ✅ 支持知识库投毒攻击模式
+- ✅ 流水线集成正确（dry-run通过）
+- ✅ 数据流完整性测试通过
+- ✅ 39/39 测试用例通过
+- ✅ ruff 0 errors
+- ✅ py_compile 通过
+
+---
+
+## 6. 缺口 2: 多模态注入攻击 (移至原Section 3)
 
 ### 3.1 学术理论基础
 
@@ -553,9 +679,10 @@ class DecisionEngine:
 - [x] 输出过滤器绕过策略 (4种 PyRIT 原生攻击)
 - [x] 多模态注入策略 (4种载体通道)
 - [x] 后门攻击策略 (4种攻击向量)
-- [x] CLI 参数扩展 (6个新参数)
-- [x] 流水线集成 (`_run_advanced_attacks_phase`)
-- [x] 测试覆盖 (23/23 passed)
+- [x] 文件上传攻击执行器 (通用 multipart 上传 + 触发)
+- [x] CLI 参数扩展 (12个新参数)
+- [x] 流水线集成 (`_run_advanced_attacks_phase` + `_run_file_upload_phase`)
+- [x] 测试覆盖 (39 file_upload + 24 advanced = 63/63 passed)
 
 #### Phase 2: 阶段内决策增强 (待实施)
 
@@ -596,3 +723,21 @@ class DecisionEngine:
 | v1.1 | 2026-09-09 | 流水线集成完成：`_run_advanced_attacks_phase()` 集成到 strike.py；CLI 参数扩展完成：新增 6 个参数；测试覆盖完成：23/23 passed |
 | v1.2 | 2026-09-09 | 新增第九章"全链路自主决策架构"：① 五阶段决策系统 (Recon/ARM/Strike/Assess/Report)；② 决策依赖与数据流契约；③ 实施路线图 (4 Phase)；④ 决策系统护栏 (R-DECIDE-1~4) |
 | v1.3 | 2026-09-09 | 规约优化 P0-A3 + P1-B7：① 9.5 决策护栏去重——删除与 40-GUARDRAILS 1G 冲突的重复登记表（原 R-DECIDE-4 编号冲突归位），改为 SSOT 引用；② 9.2 伪代码连续失败阈值 `>3`→`>=3` 对齐 R-DECIDE-3；③ 新增 4.1-B 黑盒可测性约束（禁止白盒假设/指纹黑盒来源/prompt 通道触发/不可测即摘除） | 用户会话批准 |
+| v1.4 | 2026-09-09 | 新增缺口 4: 文件上传攻击 (File Upload Attack)：① 新增 `strike/file_upload_executor.py` (~400行) 通用文件上传执行器；② 新增 6 个 CLI 参数 (`--file-upload-target`, `--upload-endpoint`, `--trigger-endpoint`, `--upload-files`, `--upload-field-name`, `--trigger-method`)；③ 流水线集成 `_run_file_upload_phase()`；④ 新增 39 个测试用例 (tests/test_file_upload_executor.py)；⑤ 支持任意端口 (0-65535)、任意端点路径、分文档注入、知识库投毒等攻击模式 | 用户会话批准 |
+| v1.5 | 2026-09-09 | 新增跨模型规约审查引用：① 新增 9.6 节引用 60-CROSS-MODEL-VERIFICATION.md 协议；② 决策系统护栏新增 R-CROSS-1~5 引用（跨模型审查前置/一致性达标/审查记录完整/修复跟踪/审查时效）；③ 阶段 1D 任务清单引用（T1D-1~10） | 用户会话批准 |
+
+### 9.6 跨模型规约审查集成（v1.5 新增）
+
+> **引用**: 跨模型规约审查完整协议见 [60-CROSS-MODEL-VERIFICATION.md](60-CROSS-MODEL-VERIFICATION.md)
+
+为确保本缺口优化方案与跨模型审查协议对齐：
+
+| 审查护栏 | 本方案落点 | 级别 |
+|---------|-----------|------|
+| R-CROSS-1 审查前置 | 本方案变更需经过 ≥2 模型交叉确认 | BLOCKING |
+| R-CROSS-2 一致性达标 | κ < 0.6 时禁止合入本方案任何变更 | BLOCKING |
+| R-CROSS-3 审查记录完整 | 审查记录包含 raw/ + aligned/ + adjudication/ 三层产物 | WARNING |
+| R-CROSS-4 修复跟踪 | confirmed findings 创建跟踪任务 | WARNING |
+| R-CROSS-5 审查时效 | 本方案合入后 90 天内必须有一次跨模型审查 | INFO |
+
+**实施依赖**：阶段 1D（T1D-1~10）完成后，本方案后续变更自动纳入跨模型审查流水线。

@@ -394,6 +394,66 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=["trigger_word", "context_conditional", "persona_switch", "multi_turn_accumulation"],
         help=" Force backdoor strategy (default: auto-detect)",
     )
+    # == Web Page Injection: CSS Hidden Content for Browser Agents ==
+    # arXiv:2302.12173 - Greshake et al., Indirect Prompt Injection
+    # arXiv:2306.13254 - Shayegani et al., Multimodal Cybersecurity Risks
+    # --enable-web-injection: Enable CSS hidden content injection for browse agents
+    # --web-injection-strategy: CSS hiding strategy (font_size_zero/display_none/opacity_zero/clip_path/all)
+    # --web-injection-template: Attack template (slack_extraction/system_prompt_leak/credential_extraction/email_exfiltration)
+    # --web-injection-target: Target URL with browse capability (e.g., http://target:8005)
+    # --web-injection-browse-endpoint: Browse endpoint path (default: /browse)
+    #
+    # Usage example:
+    #   python main.py --enable-web-injection \
+    #                  --web-injection-target http://target:8005 \
+    #                  --web-injection-template slack_extraction
+    #
+    # Attack flow:
+    #   1. Generate malicious HTML with CSS hidden payload
+    #   2. Host page on temporary HTTP server
+    #   3. Trigger agent to fetch page via /browse endpoint
+    #   4. Agent processes raw HTML (including hidden elements)
+    #   5. LLM executes hidden instructions, exfiltrates data
+    #
+    # Extraction Pipeline Gap:
+    #   - Content extractors strip display:none / font-size:0 elements
+    #   - Monitoring systems (Kibana/SIEM) only see visible text
+    #   - LLM processes raw HTML tokens including hidden content
+    advanced_group.add_argument(
+        "--enable-web-injection",
+        action="store_true",
+        default=False,
+        help=" Enable CSS hidden content injection for browser agents; "
+             "arXiv:2302.12173, ASR 85-95%%",
+    )
+    advanced_group.add_argument(
+        "--web-injection-strategy",
+        type=str,
+        default="font_size_zero",
+        choices=["font_size_zero", "display_none", "opacity_zero", "clip_path", "position_offscreen", "all"],
+        help=" CSS hiding strategy (default: font_size_zero)",
+    )
+    advanced_group.add_argument(
+        "--web-injection-template",
+        type=str,
+        default="system_prompt_leak",
+        choices=["slack_extraction", "system_prompt_leak", "credential_extraction", "email_exfiltration"],
+        help=" Attack template type (default: system_prompt_leak)",
+    )
+    advanced_group.add_argument(
+        "--web-injection-target",
+        type=str,
+        default=None,
+        metavar="URL",
+        help=" Target URL with browse capability (e.g., http://target:8005)",
+    )
+    advanced_group.add_argument(
+        "--web-injection-browse-endpoint",
+        type=str,
+        default="/browse",
+        metavar="PATH",
+        help=" Browse endpoint path (default: /browse)",
+    )
     parser.add_argument(
         "--no-synergy",
         action="store_false",
@@ -435,6 +495,73 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         default=False,
         help=" Scenario  model_scenario ",
+    )
+
+    # == File Upload Attack: Multi-step Document Injection ==
+    # arXiv:2302.12173 - Greshake et al., Indirect Prompt Injection via Documents
+    # arXiv:2406.04245 - Zou et al., PoisonedRAG: Knowledge Base Poisoning
+    # arXiv:2306.13254 - Shayegani et al., Multimodal Document Cybersecurity Risks
+    # --file-upload-target: Target base URL (e.g., http://192.168.50.22:8004)
+    # --upload-endpoint: Upload endpoint path (default: /upload)
+    # --trigger-endpoint: Processing trigger endpoint (default: /summarize)
+    # --upload-files: Comma-separated list of files to upload
+    # --upload-field-name: Form field name for file (default: file)
+    # --trigger-method: HTTP method for trigger (default: POST)
+    #
+    # Usage example:
+    #   python main.py --file-upload-target http://target:8004 \
+    #                  --upload-files payload.txt,template.txt \
+    #                  --trigger-endpoint /summarize
+    #
+    # Split document injection (indirect prompt injection):
+    #   python main.py --file-upload-target http://target:8004 \
+    #                  --upload-files template_doc.txt,payload_doc.txt \
+    #                  --trigger-endpoint /analyze
+    fileupload_group = parser.add_argument_group(
+        "File Upload Attack (Document Injection)"
+    )
+    fileupload_group.add_argument(
+        "--file-upload-target",
+        type=str,
+        default=None,
+        metavar="URL",
+        help=" Target base URL for file upload attack (e.g., http://192.168.50.22:8004)",
+    )
+    fileupload_group.add_argument(
+        "--upload-endpoint",
+        type=str,
+        default="/upload",
+        metavar="PATH",
+        help=" Upload endpoint path (default: /upload)",
+    )
+    fileupload_group.add_argument(
+        "--trigger-endpoint",
+        type=str,
+        default="/summarize",
+        metavar="PATH",
+        help=" Processing trigger endpoint path (default: /summarize)",
+    )
+    fileupload_group.add_argument(
+        "--upload-files",
+        type=str,
+        default=None,
+        metavar="FILES",
+        help=" Comma-separated list of file paths to upload (e.g., payload.txt,template.txt)",
+    )
+    fileupload_group.add_argument(
+        "--upload-field-name",
+        type=str,
+        default="file",
+        metavar="NAME",
+        help=" Form field name for file upload (default: file)",
+    )
+    fileupload_group.add_argument(
+        "--trigger-method",
+        type=str,
+        default="POST",
+        choices=["POST", "GET", "PUT"],
+        metavar="METHOD",
+        help=" HTTP method for trigger endpoint (default: POST)",
     )
 
     args = parser.parse_args(argv)
@@ -560,12 +687,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     if getattr(args, "no_scenario", False):
         args.scenario_enabled = False
 
- # --list-scenarios: Scenario
+     # --list-scenarios: Scenario
     if getattr(args, "list_scenarios", False):
         from core.scenario_router import get_router
+
         router = get_router()
         print(router.format_scenarios_display())
         sys.exit(0)
+
+    # --upload-files: comma-separated string -> list[str]
+    upload_files_raw = getattr(args, "upload_files", None)
+    if upload_files_raw and isinstance(upload_files_raw, str):
+        args.upload_files = [
+            f.strip() for f in upload_files_raw.split(",") if f.strip()
+        ]
+    elif upload_files_raw is None:
+        args.upload_files = []
 
  # --technique-filter:
  # v60: , synergy_config.technique_tags

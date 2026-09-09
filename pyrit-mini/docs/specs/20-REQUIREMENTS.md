@@ -3,7 +3,7 @@
 > **文档层级**：L2 / 五层规约金字塔第三层
 > **效力**：本项目"做什么"的唯一登记处。**未登记于此的需求 = 不存在**。AI 不得实现未登记需求（宪法 C6）。
 > **格式**：每条需求有 ID、一句话陈述、可勾选的验收标准（DoD）。验收标准是任务完成的**唯一**判据。
-> **版本**：v2.3（2026-09-09 规约优化 P1：NFR-13 ASR 度量双口径与 target_asr 锚点；REQ-135 护栏引用锚定 40-GUARDRAILS 1G）
+> **版本**：v2.5（2026-09-09 REV-14：新增第九章 B 跨模型规约审查需求 REQ-144~146 + NFR-14~16）
 
 ---
 
@@ -100,6 +100,32 @@
 | REQ-134 | 攻击成功率度量 | 全部 Web 攻击模块 | ✅ |
 | REQ-128/131 | ~~向量 DB/Fine-tuning 攻击~~ | 已移除（黑盒不可测试） | — |
 
+## 第 5A 章：文件上传攻击需求（已实现 ✅，v2.4 新增）
+
+> **背景**：支持任意 HTTP 目标系统的文件上传攻击场景，包括 multipart/form-data 上传和后续处理触发。
+> **学术依据**：Greshake et al. (arXiv:2302.12173) 间接 Prompt 注入、Zou et al. (arXiv:2406.04245) PoisonedRAG 投毒。
+
+| ID | 陈述 | 关键验收 | 代码落点 | 状态 |
+|----|------|---------|----------|------|
+| REQ-138 | 通用文件上传执行 | ① 支持 multipart/form-data 上传；② 支持任意端口 (0-65535)；③ 支持自定义表单字段名 | `strike/file_upload_executor.py` | ✅ |
+| REQ-139 | 处理触发机制 | ① 支持上传后触发处理端点；② 支持自定义 HTTP 方法 (POST/GET/PUT)；③ 支持 JSON 请求体 | `strike/file_upload_executor.py` | ✅ |
+| REQ-140 | 多文件攻击链 | ① 支持单/多文件顺序上传；② 支持分文档注入模式；③ 支持知识库投毒模式 | `strike/file_upload_executor.py` | ✅ |
+| REQ-141 | CLI 参数支持 | ① `--file-upload-target` 指定目标 URL；② `--upload-files` 指定文件列表；③ `--upload-endpoint` / `--trigger-endpoint` 指定端点路径 | `core/config.py` | ✅ |
+| REQ-142 | 流水线集成 | ① 集成到 `_run_file_upload_phase()`；② 结果存入 `ctx.attack_results`；③ 审计日志记录到 `orchestration_log` | `core/phases/strike.py` | ✅ |
+| REQ-143 | 测试覆盖 | ① 39 个测试用例覆盖全部核心功能；② CLI 参数解析测试；③ 边界情况测试 | `tests/test_file_upload_executor.py` | ✅ |
+| REQ-144 | 代码-文档同步 | ① CLI 参数变更必须同步更新 `red-team-dev-guide.md` 附录 D；② 新增攻击模块必须同步更新 `55-ATTACK-GAP-CLOSURE.md`；③ 新增需求/红线必须同步更新 `20-REQUIREMENTS.md` 和 `40-GUARDRAILS.md`；④ 文档版本号变更必须同步更新 `README.md` 金字塔索引 | `docs/specs/` + `docs/guides/` | ✅ |
+
+**CLI 参数清单**：
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `--file-upload-target` | str | None | 目标基础 URL（如 `http://192.168.50.22:8004`） |
+| `--upload-endpoint` | str | `/upload` | 上传端点路径 |
+| `--trigger-endpoint` | str | `/summarize` | 处理触发端点路径 |
+| `--upload-files` | str | None | 逗号分隔的文件路径列表 |
+| `--upload-field-name` | str | `file` | 表单字段名（如 `document`、`attachment`） |
+| `--trigger-method` | str | `POST` | 触发请求方法（POST/GET/PUT） |
+
 ## 第六章：需求变更流程（防偏航核心）
 
 **任何新想法（无论来自用户还是 AI）进入代码的唯一路径**：
@@ -138,7 +164,7 @@
 
 | ID | 陈述 | 验收标准 | 优先级 |
 |----|------|----------|--------|
-| REQ-135 | 全链路自主决策引擎框架 | ① 决策引擎接口定义（`determine_*_strategy` 统一签名）；② 决策触发条件可配置；③ `ctx.decision_log` 字段记录所有决策；④ 决策系统护栏 R-DECIDE-1~5 全部满足（唯一定义见 40-GUARDRAILS 1G-DECIDE） | P1 |
+| REQ-135 | 全链路自主决策引擎框架 | ① 决策引擎接口定义（`determine_*_strategy` 统一签名）；② 决策触发条件可配置；③ `ctx.decision_log` 字段记录所有决策；④ 决策系统护栏 R-DECIDE-1~6 全部满足（唯一定义见 40-GUARDRAILS 1G-DECIDE；R-DECIDE-6 为 INFO 人工评审） | P1 |
 | REQ-136 | Recon 阶段自适应决策 | ① `determine_probe_strategy()` 基于预算和目标类型选择探测深度；② 检测到 WAF 自动启用 stealth 模式；③ 决策输出写入 `ctx.probe_level` 和 `ctx.stealth_config` | P1 |
 | REQ-137 | ARM+Assess+Report 阶段决策 | ① ARM 阶段实现动态种子排序 + Converter 链优化；② Assess 阶段实现评分器自适应选择；③ Report 阶段实现报告格式自适应 | P2 |
 
@@ -162,6 +188,35 @@
 
 ---
 
+## 第九章 B：跨模型规约审查需求（v2.2 新增）
+
+> **背景**：基于 00-CONSTITUTION C14 条款，定义跨模型规约审查的功能需求。详细协议见 `60-CROSS-MODEL-VERIFICATION.md`。
+
+### 第九章 B1：审查引擎核心需求
+
+| ID | 陈述 | 验收标准 | 优先级 |
+|----|------|---------|--------|
+| REQ-144 | 系统应支持多模型并行审查 | ① 支持 ≥3 模型同时审查；② 各模型独立输出 JSON 报告；③ 模型池可配置 | P1 |
+| REQ-145 | 系统应自动计算一致性指标 | ① 计算 Pairwise κ 和 Overall κ；② 输出 agreement_rate 和仲裁率；③ κ < 0.6 时阻断合入 | P1 |
+| REQ-146 | 系统应支持分级仲裁 | ① confirmed findings 自动采纳；② single-model findings 标记待人工；③ disputed findings 按保守原则升级 | P1 |
+
+### 第九章 B2：审查非功能需求
+
+| ID | 维度 | 标准 |
+|----|------|------|
+| NFR-14 | 审查时效 | FULL 审查单次耗时 ≤ 5 分钟（3 模型并行） |
+| NFR-15 | 审查存储 | 审查记录永久保留，支持历史 κ 趋势分析 |
+| NFR-16 | 降级能力 | 模型池不足时自动降级到单模型+人工模式 |
+
+### 第九章 B3：审查需求状态追踪
+
+| 需求组 | 状态 | 备注 |
+|--------|------|------|
+| REQ-144~146 审查引擎 | 🟡 规约已登记 | 待工具链实施 |
+| NFR-14~16 审查非功能 | 🟡 规约已登记 | 随实施同步验证 |
+
+---
+
 ## 第十章：需求追踪
 
 **状态登记表**（2026-09-09 v2.0 精简重构）：
@@ -174,9 +229,12 @@
 | REQ-114 ~ REQ-126（P0-NEW + P0-EXAM） | ✅ implemented | 2026-09-08 修复/考试就绪 |
 | REQ-127 ~ REQ-134（Web 攻击层） | ✅ implemented | 认证/API Gateway/审计逃逸/编排器 |
 | REQ-135 ~ REQ-137（自主决策） | 🟡 架构设计完成 | 决策引擎框架 + Recon + ARM/Assess/Report |
+| REQ-138 ~ REQ-144（文件上传攻击） | ✅ implemented | 通用文件上传执行器 + CLI参数 + 流水线集成 + 39测试 + 文档同步 |
+| REQ-145 ~ REQ-147（跨模型审查） | 🟡 规约已登记 | 多模型并行/一致性指标/分级仲裁 |
 | NFR-1 ~ NFR-8 | ✅ implemented | 非功能需求全部达成 |
 | NFR-9 ~ NFR-12（决策非功能） | 🟡 架构设计完成 | 决策透明度/人工覆盖/稳定性/可测试性 |
 | NFR-13（ASR 度量口径） | 🟡 规约已登记 | reported/confirmed 双口径 + `target_asr` 锚点（defaults.yaml 已落盘）；报告双列分列待实施 |
+| NFR-14 ~ NFR-16（审查非功能） | 🟡 规约已登记 | 审查时效/存储/降级能力 |
 
 - 活跃需求（待实现）：**REQ-109** A2A 执行层落地（种子已有，需验证编排进升级链）；
 - 本表为需求登记 SSOT；历史追踪文档 `requirement_traceability_matrix.md` 已于 2026-09-06 删除（D-09 债务消除）。
@@ -199,3 +257,6 @@
 | v2.1 | 2026-09-09 | REV-11 新增第九章全链路自主决策需求：① REQ-135 决策引擎框架（P1）；② REQ-136 Recon 阶段自适应决策（P1）；③ REQ-137 ARM+Assess+Report 阶段决策（P2）；④ NFR-9~12 决策非功能需求（透明度/人工覆盖/稳定性/可测试性）；⑤ 原第八章"需求追踪"重命名为第十章 | 用户会话批准 |
 | v2.2 | 2026-09-09 | REV-12 P0 全面优化实施：① NFR-1 增补评分器精确度约束（T0 假阴性≤5%、J1/J2 假阳性≤8%、0-token 一致性≥85%、边界案例自动升级）；② NFR-11 增强升级链触发稳定性（Strike 完成度感知阈值） | 用户会话批准 |
 | v2.3 | 2026-09-09 | 规约优化 P1-B1~B3：① 新增 NFR-13 ASR 度量口径（reported/confirmed 双口径分列 + timeout/error 计失败规则）；② 目标锚点 SSOT `target_asr`（config/defaults.yaml，与 I11 联动）；③ REQ-135 护栏引用锚定 40-GUARDRAILS 1G 唯一定义 | 用户会话批准 |
+| v2.4 | 2026-09-09 | 新增第 5A 章文件上传攻击需求 REQ-138~143：① REQ-138 通用文件上传执行（multipart/form-data）；② REQ-139 处理触发机制（自定义 HTTP 方法）；③ REQ-140 多文件攻击链（分文档注入/知识库投毒）；④ REQ-141 CLI 参数支持（6 个新参数）；⑤ REQ-142 流水线集成；⑥ REQ-143 测试覆盖（39 个测试用例）；⑦ 更新需求追踪登记表 | 用户会话批准 |
+| v2.5 | 2026-09-09 | 新增 REQ-144 代码-文档同步需求：① CLI 参数变更必须同步更新 `red-team-dev-guide.md` 附录 D；② 新增攻击模块必须同步更新 `55-ATTACK-GAP-CLOSURE.md`；③ 新增需求/红线必须同步更新 `20-REQUIREMENTS.md` 和 `40-GUARDRAILS.md`；④ 文档版本号变更必须同步更新 `README.md` 金字塔索引 | 用户会话批准 |
+| v2.6 | 2026-09-09 | REV-14 新增第九章 B 跨模型规约审查需求：① REQ-145 多模型并行审查（≥3 模型+独立 JSON 输出+模型池可配置）；② REQ-146 一致性指标自动计算（Pairwise/Overall κ+阻断阈值）；③ REQ-147 分级仲裁（confirmed 自动采纳/single-model 标记/disputed 保守升级）；④ NFR-14~16 审查非功能需求（时效/存储/降级能力）；⑤ 更新需求追踪登记表新增 REQ-145~147 + NFR~14~16 条目 | 用户会话批准 |

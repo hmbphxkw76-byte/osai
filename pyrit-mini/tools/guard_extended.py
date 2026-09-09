@@ -18,6 +18,7 @@ tools/guard_extended.py - R-PIPE / R-IMPORT / R-REDTEAM / R-EVID / R-REPORT 扩�
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -841,6 +842,180 @@ def register_extended_checks(guard_cls) -> None:
     guard_cls.check_delivery_architecture_alignment = check_delivery_architecture_alignment
     guard_cls.check_delivery_init_export_consistency = check_delivery_init_export_consistency
     guard_cls.check_delivery_module_docstring = check_delivery_module_docstring
+    # R-DOC-1~4: 代码-文档同步护栏检查器 (v2.7)
+    guard_cls.check_cli_params_documented = check_cli_params_documented
+    guard_cls.check_attack_gap_documented = check_attack_gap_documented
+    guard_cls.check_requirements_guardrails_synced = check_requirements_guardrails_synced
+    guard_cls.check_readme_version_synced = check_readme_version_synced
+
+
+# ===============================================================================
+# R-DOC: Code-Documentation Sync Checks (v2.7)
+# ===============================================================================
+
+# Document paths
+_DOCS_GUIDE_PATH = "docs/guides/red-team-dev-guide.md"
+_DOCS_GAP_PATH = "docs/specs/55-ATTACK-GAP-CLOSURE.md"
+_DOCS_REQ_PATH = "docs/specs/20-REQUIREMENTS.md"
+_DOCS_GR_PATH = "docs/specs/40-GUARDRAILS.md"
+_DOCS_README_PATH = "docs/specs/README.md"
+_CONFIG_PATH = "core/config.py"
+
+
+def _read_file_safely(root: Path, rel_path: str) -> str:
+    """Read file with UTF-8 encoding, return empty string on failure."""
+    try:
+        return (root / rel_path).read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        return ""
+    except OSError:
+        return ""
+
+
+def check_cli_params_documented(self) -> None:  # type: ignore[override]
+    """R-DOC-1: CLI parameter changes must be documented in red-team-dev-guide.md Appendix D."""
+    Severity, Violation = _get_violation_classes()
+
+    config_content = _read_file_safely(self.root, _CONFIG_PATH)
+    guide_content = _read_file_safely(self.root, _DOCS_GUIDE_PATH)
+
+    if not config_content or not guide_content:
+        return  # Cannot check, skip
+
+    # Extract CLI parameters from config.py (argparse --xxx args)
+    cli_params = re.findall(r'add_argument\(["\']--(\w[\w-]*)', config_content)
+    if not cli_params:
+        return
+
+    # Check each param exists in guide Appendix D
+    undocumented = []
+    for param in cli_params:
+        # Look for the param name in various formats
+        patterns = [
+            f"--{param}",
+            f"`--{param}`",
+            f"---{param}",
+        ]
+        if not any(p in guide_content for p in patterns):
+            undocumented.append(param)
+
+    if undocumented:
+        self.violations.append(Violation(
+            rule="R-DOC-1",
+            severity=Severity.WARNING,
+            file=_CONFIG_PATH,
+            line=0,
+            description=f"CLI parameters not documented in red-team-dev-guide.md Appendix D: {', '.join(undocumented[:5])}{'...' if len(undocumented) > 5 else ''}",
+            fix_hint=f"Add the following parameters to docs/guides/red-team-dev-guide.md Appendix D CLI reference: {', '.join(f'--{p}' for p in undocumented[:5])}",
+        ))
+
+
+def check_attack_gap_documented(self) -> None:  # type: ignore[override]
+    """R-DOC-2: New attack modules must be documented in 55-ATTACK-GAP-CLOSURE.md."""
+    Severity, Violation = _get_violation_classes()
+
+    gap_content = _read_file_safely(self.root, _DOCS_GAP_PATH)
+    if not gap_content:
+        return
+
+    # Find attack executor modules in strike/ directory
+    strike_dir = self.root / "strike"
+    if not strike_dir.is_dir():
+        return
+
+    undocumented = []
+    for py_file in sorted(strike_dir.glob("*_executor.py")):
+        module_name = py_file.stem
+        # Check if module is referenced in gap doc
+        if module_name not in gap_content and py_file.name not in gap_content:
+            undocumented.append(module_name)
+
+    if undocumented:
+        self.violations.append(Violation(
+            rule="R-DOC-2",
+            severity=Severity.WARNING,
+            file="strike/",
+            line=0,
+            description=f"Attack modules not documented in 55-ATTACK-GAP-CLOSURE.md: {', '.join(undocumented)}",
+            fix_hint=f"Add gap analysis section in docs/specs/55-ATTACK-GAP-CLOSURE.md for: {', '.join(undocumented)}",
+        ))
+
+
+def check_requirements_guardrails_synced(self) -> None:  # type: ignore[override]
+    """R-DOC-3: New requirements/guardrails must be synced across 20-REQUIREMENTS.md and 40-GUARDRAILS.md."""
+    Severity, Violation = _get_violation_classes()
+
+    req_content = _read_file_safely(self.root, _DOCS_REQ_PATH)
+    gr_content = _read_file_safely(self.root, _DOCS_GR_PATH)
+
+    if not req_content or not gr_content:
+        return
+
+    # Look for potential orphans: REQ items that might need guardrail rules
+    # This is a heuristic check - flag patterns like "check_xxx" functions without R-xxx
+    checker_funcs = set(re.findall(r'def (check_\w+)', gr_content))
+    registered_checkers = set(re.findall(r'guard_cls\.(\w+) = ', gr_content))
+
+    orphans = checker_funcs - registered_checkers
+    # Filter out private/internal checkers
+    orphans = {f for f in orphans if not f.startswith("_") and f != "check_mcpsec_bridge_integration"}
+
+    if orphans:
+        self.violations.append(Violation(
+            rule="R-DOC-3",
+            severity=Severity.WARNING,
+            file=_DOCS_GR_PATH,
+            line=0,
+            description=f"Checker functions not registered in 1F registry: {', '.join(list(orphans)[:3])}{'...' if len(orphans) > 3 else ''}",
+            fix_hint="Register new checker functions in 40-GUARDRAILS.md 1F registry and tools/guard_extended.py register_extended_checks()",
+        ))
+
+
+def check_readme_version_synced(self) -> None:  # type: ignore[override]
+    """R-DOC-4: Document version numbers must be synced in README.md pyramid index."""
+    Severity, Violation = _get_violation_classes()
+
+    readme_content = _read_file_safely(self.root, _DOCS_README_PATH)
+    if not readme_content:
+        return
+
+    # Extract version numbers from README
+    versions_in_readme = {}
+    for match in re.finditer(r'\[(\d+)-(CONSTITUTION|ARCHITECTURE|REQUIREMENTS|GUARDRAILS|ROADMAP|ATTACK-GAP)\]\([^)]+\).*?(v[\d.]+)', readme_content):
+        doc_key = f"{match.group(1)}-{match.group(2)}"
+        versions_in_readme[doc_key] = match.group(3)
+
+    # Check individual doc files for mismatches
+    doc_files = {
+        "00-CONSTITUTION": ("docs/specs/00-CONSTITUTION.md", r'\*\*版本\*\*: (v[\d.]+)'),
+        "20-REQUIREMENTS": ("docs/specs/20-REQUIREMENTS.md", r'\*\*版本\*\*: (v[\d.]+)'),
+        "40-GUARDRAILS": ("docs/specs/40-GUARDRAILS.md", r'\*\*版本\*\*: (v[\d.]+)'),
+        "55-ATTACK-GAP": ("docs/specs/55-ATTACK-GAP-CLOSURE.md", r'\*\*版本\*\*: (v[\d.]+)'),
+    }
+
+    mismatches = []
+    for key, (doc_path, version_pattern) in doc_files.items():
+        doc_content = _read_file_safely(self.root, doc_path)
+        if not doc_content:
+            continue
+        doc_match = re.search(version_pattern, doc_content)
+        if doc_match:
+            doc_version = doc_match.group(1)
+            readme_key = key.replace("CONSTITUTION", "CONSTITUTION").replace("ARCHITECTURE", "ARCHITECTURE").replace("REQUIREMENTS", "REQUIREMENTS").replace("GUARDRAILS", "GUARDRAILS").replace("ATTACK-GAP", "ATTACK-GAP")
+            if readme_key in versions_in_readme:
+                if versions_in_readme[readme_key] != doc_version:
+                    mismatches.append((key, versions_in_readme[readme_key], doc_version))
+
+    if mismatches:
+        details = "; ".join(f"{k}: README={v1}, doc={v2}" for k, v1, v2 in mismatches)
+        self.violations.append(Violation(
+            rule="R-DOC-4",
+            severity=Severity.INFO,
+            file=_DOCS_README_PATH,
+            line=0,
+            description=f"Version mismatch: {details}",
+            fix_hint="Sync version numbers in docs/specs/README.md pyramid index to match individual document version headers",
+        ))
 
 
 # ===============================================================================

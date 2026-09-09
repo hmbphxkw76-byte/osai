@@ -3,7 +3,7 @@
 > **文档层级**：L4 / 五层规约金字塔第五层
 > **效力**：红线 = 绝对禁止，视同宪法级（裁决序见 00-CONSTITUTION 第二章）。质量门禁 = 完成任务的必要不充分条件。
 > **执行机制**：三层防线（静态 guard / 运行时 dry-run / git 钩子），继承 SKILL.md D2 条款并收编。
-> **版本**：v2.5（2026-09-09 规约优化三批实施：登记簿唯一化/引用修正/ASR 双口径/编号修复；四步门禁 Step 2 命令乱码修复并统一为 `ruff check .`）
+> **版本**：v2.8（2026-09-09 REV-15：新增 1I-CROSS 跨模型规约审查护栏 R-CROSS-1~5；1F 登记簿新增 5 项检查器总计 44 项；降级策略与护栏关系映射）
 
 ---
 
@@ -50,6 +50,45 @@
 - ✅ PASS: `successful_evidence_log`/`refusal_classification_log`/`guardrail_triggers`/`timing_metadata` 字段存在
 - ℹ️ INFO: 字段存在但为空列表（首次运行无数据，正常）
 
+### 1C-DOC. 代码-文档同步护栏（v2.7 新增）
+
+> **适用范围**：所有代码变更（尤其是新增/修改 CLI 参数、攻击模块、流水线集成时）。
+> **目的**：确保代码变更后，相关规约文档同步更新，防止"代码先进、文档滞后"的漂移。
+
+| # | 红线 | guard 检查器 | 级别 |
+|---|------|-------------|------|
+| R-DOC-1 | CLI 参数变更必须同步更新 `docs/guides/red-team-dev-guide.md` 附录 D CLI 参数参考 | `check_cli_params_documented()` | WARNING |
+| R-DOC-2 | 新增攻击模块必须同步更新 `docs/specs/55-ATTACK-GAP-CLOSURE.md` 对应缺口章节 | `check_attack_gap_documented()` | WARNING |
+| R-DOC-3 | 新增需求/红线必须同步更新 `docs/specs/20-REQUIREMENTS.md` 和 `docs/specs/40-GUARDRAILS.md` | `check_requirements_guardrails_synced()` | WARNING |
+| R-DOC-4 | 文档版本号变更必须同步更新 `docs/specs/README.md` 金字塔版本索引 | `check_readme_version_synced()` | INFO |
+
+**R-DOC-1 判定**:
+- ✅ PASS: `core/config.py` 中新增的 `--xxx` 参数在 `docs/guides/red-team-dev-guide.md` 附录 D 中有对应条目
+- ❌ FAIL: 发现 CLI 参数未文档化 → WARNING (提示补充文档)
+
+**R-DOC-2 判定**:
+- ✅ PASS: `strike/` 下新增攻击模块在 `55-ATTACK-GAP-CLOSURE.md` 中有对应缺口章节
+- ❌ FAIL: 发现攻击模块未登记缺口 → WARNING (提示补充缺口分析)
+
+**R-DOC-3 判定**:
+- ✅ PASS: `20-REQUIREMENTS.md` 中新增 REQ-xxx 在 `40-GUARDRAILS.md` 1F 登记簿中有对应检查器（如适用）
+- ❌ FAIL: 发现需求/红线未同步 → WARNING (提示补充)
+
+**R-DOC-4 判定**:
+- ✅ PASS: `README.md` 金字塔版本索引与各文档版本号一致
+- ℹ️ INFO: 版本号不一致 → 提示同步
+
+**文档同步清单**（代码变更时必须检查）：
+
+| 变更类型 | 必须同步的文档 |
+|----------|---------------|
+| 新增 CLI 参数 | `docs/guides/red-team-dev-guide.md` 附录 D |
+| 新增攻击模块 | `docs/specs/55-ATTACK-GAP-CLOSURE.md` |
+| 新增需求 | `docs/specs/20-REQUIREMENTS.md` |
+| 新增红线/护栏 | `docs/specs/40-GUARDRAILS.md` |
+| 版本号变更 | `docs/specs/README.md` 金字塔索引 |
+| 新增测试 | `tests/test_*.py` + 文档测试覆盖章节 |
+
 ### 1A-TOOLS. 目录职责红线（v1.3 新增）
 
 | # | 红线 | guard 检查器 |
@@ -88,19 +127,21 @@
 | R-S4 | **测试隔离**：tests/ 全部 mock API 调用；禁止测试触发对真实目标的攻击流量 |
 | R-S5 | **不当武器化输出**：生成的 PoC/报告默认面向授权红队评估交付；不附加"无授权也可用"的引导性内容 |
 
-### 1D. Web攻击专项护栏（v1.6 更新）
+### 1D. Web攻击专项护栏（v2.5 更新）
 
-> **适用范围**：strike/ 目录下所有Web攻击模块（auth_attacks.py、web_attacks.py、audit_evasion.py、web_orchestrator.py）。这些模块作为 PyRIT 原生框架与Web安全攻击之间的桥梁，必须遵守本节专项护栏。
+> **适用范围**：strike/ 目录下所有Web攻击模块（auth_attacks.py、web_attacks.py、audit_evasion.py、web_orchestrator.py、file_upload_executor.py）。这些模块作为 PyRIT 原生框架与Web安全攻击之间的桥梁，必须遵守本节专项护栏。
 
 > **v1.6 变更**：从 glue/ 目录迁移到 strike/ 目录，模块扁平化重组。
+> **v2.5 变更**：新增文件上传攻击执行器（file_upload_executor.py），扩展适用范围。
 
 | # | 红线 | 级别 | 判定特征 |
 |---|------|------|----------|
 | R-WEB-1 | **插件化隔离**：Web攻击模块必须通过 try/except ImportError 实现可选依赖安装，不得将企业 SDK（PyJWT等）声明为硬依赖 | BLOCKING | 缺失 try/except 包裹的企业 SDK import |
 | R-WEB-2 | **PyRIT 原生委托**：Web攻击模块不得重写攻击执行逻辑（PromptSendingAttack / SkeletonKeyAttack / CrescendoAttack 等），仅允许构造 PyRIT 原生组件可消费的 payload/target/scorer 配置 | WARNING | Web攻击模块内出现 attack.execute() / attack._execute() 等攻击执行逻辑 |
-| R-WEB-3 | **配置数据流**：Web攻击参数（JWT 算法类型、Gateway类型、审计日志格式）必须走 `config/defaults.yaml → ctx.args` 链路，禁止硬编码 | WARNING | Web攻击模块内出现攻击参数字面量（非从 ctx 读取） |
+| R-WEB-3 | **配置数据流**：Web攻击参数（JWT 算法类型、Gateway类型、审计日志格式、文件上传目标URL等）必须走 `config/defaults.yaml → ctx.args` 链路，禁止硬编码 | WARNING | Web攻击模块内出现攻击参数字面量（非从 ctx 读取） |
 | R-WEB-4 | **静默降级禁止**：Web攻击模块的降级路径（企业 SDK 不可用时的降级策略）必须在 orchestration_log 中显式记录，禁止静默 skip | WARNING | Web攻击模块内 except 块仅含 `pass` / `return None` 而无日志记录 |
-| R-WEB-5 | **学术留痕**：每个Web攻击向量（JWT alg=none、HTTP 走私等）必须有 arXiv 引用或 CVE 编号注释 | INFO | Web攻击函数无 arXiv/CVE 注释 |
+| R-WEB-5 | **学术留痕**：每个Web攻击向量（JWT alg=none、HTTP 走私、文件上传间接Prompt注入等）必须有 arXiv 引用或 CVE 编号注释 | INFO | Web攻击函数无 arXiv/CVE 注释 |
+| R-WEB-6 | **任意端口支持**：文件上传攻击模块必须支持任意端口 (0-65535)，禁止硬编码端口限制或端口范围校验 | BLOCKING | 文件上传模块中出现端口号硬编码或端口范围校验逻辑 |
 
 **Web攻击向量白名单**（已认可的Web攻击场景）：
 
@@ -109,8 +150,10 @@
 | JWT 算法混淆 | `strike/auth_attacks.py` | alg=none、RS256→HS256 降级、kid注入 | CVE-2015-9235（RS256→HS256 混淆）或 CVE-2018-0114（jwk header 注入） |
 | HTTP 请求走私 | `strike/web_attacks.py` | CL.TE/TE.CL 走私、路径参数覆盖 | PortSwigger HTTP Desync（Kettle, 2019） |
 | 审计日志注入 | `strike/audit_evasion.py` | CRLF 注入、ANSI 注入、时间戳伪造 | CWE-117 / CWE-93（OWASP Log Injection） |
+| 文件上传间接Prompt注入 | `strike/file_upload_executor.py` | multipart/form-data 上传、分文档注入 | arXiv:2302.12173（Greshake et al.） |
+| RAG知识库投毒 | `strike/file_upload_executor.py` | PoisonedRAG、chunk边界利用 | arXiv:2406.04245（Zou et al.） |
 
-> **v2.4 引用修正（C1）**：原表"arXiv:2207.01077"（无法验证为 JWT 相关论文）、"ANSI ISAAC 2023"（不存在）、"CVE-2023-50164"（实为 Apache Struts S2-066 文件上传路径穿越 RCE，与日志注入无关）三处错误归属已按上表修正。
+> **v2.5 引用修正**：新增文件上传攻击白名单条目（R-WEB-6 护栏 + 2个攻击向量）。
 
 ### 1E-DRIFT. 规范漂移检测护栏（v1.6 新增）
 
@@ -152,7 +195,7 @@ pyrit-drift --full --report
 | 手动开发 | `pyrit-drift` | 开发时实时检测 |
 | CI/CD | `pyrit-drift --full --report` | 定期审计/PR 检查 |
 
-### 1F. Guard 检查器登记簿（v2.3 精简为 34 项）
+### 1F. Guard 检查器登记簿（v2.7 新增 5 项跨模型审查，总计 44 项）
 
 规约各处引用的检查器汇总（**权威清单以 `tools/guard.py` + `tools/drift_detector.py` 实际实现为准**）：
 
@@ -187,6 +230,10 @@ pyrit-drift --full --report
 | check_version_lock | R-DRIFT-3 | BLOCKING | 漂移检测 |
 | check_context_contract_usage | R-DRIFT-4 | INFO | 漂移检测 |
 | check_native_patterns | R-DRIFT-5 | WARNING | 漂移检测 |
+| check_cli_params_documented | R-DOC-1 | WARNING | 文档同步 |
+| check_attack_gap_documented | R-DOC-2 | WARNING | 文档同步 |
+| check_requirements_guardrails_synced | R-DOC-3 | WARNING | 文档同步 |
+| check_readme_version_synced | R-DOC-4 | INFO | 文档同步 |
 | check_decision_safety_boundary | R-DECIDE-1 | BLOCKING | 自主决策 |
 | check_decision_audit_trail | R-DECIDE-2 | WARNING | 自主决策 |
 | check_decision_stability | R-DECIDE-3 | WARNING | 自主决策 |
@@ -227,6 +274,35 @@ pyrit-drift --full --report
 | R-DECIDE-4 | NEG-6 (L5 基线) | 兼容：CLI 参数 = 人工决策的最高优先级 |
 
 **红线冲突裁决**：R-S*（安全合规）> R-L*（机器红线）> R-H*（人工红线）。安全红线与 ASR 冲突时（例如"过滤掉这个目标会更安全"），安全红线赢——但正确答案几乎总是 STOP-REPORT 让人裁决。
+
+### 1I-CROSS. 跨模型规约审查护栏（v2.7 新增）
+
+> **适用范围**：所有规约文档（L0-L4：CONSTITUTION/ARCHITECTURE/REQUIREMENTS/GUARDRAILS/ROADMAP）的变更审查流程。
+> **架构依据**：`10-ARCHITECTURE.md` 第十二章 + `60-CROSS-MODEL-VERIFICATION.md` + `00-CONSTITUTION` C14。
+
+| # | 红线 | 级别 | 判定特征 | 检查器 |
+|---|------|------|----------|--------|
+| R-CROSS-1 | **审查前置**：L0-L4 规约变更必须经过跨模型审查（≥2 模型），single-model 审查结论不得直接写入规约文档 | BLOCKING | 规约文档已变更但 outputs/cross_model_review/ 无对应记录 | `check_cross_model_review()` |
+| R-CROSS-2 | **一致性达标**：跨模型审查 Overall κ < 0.6 时禁止合入，必须人工仲裁 | BLOCKING | κ 值低于阈值却已合入 | `check_review_consistency()` |
+| R-CROSS-3 | **审查记录完整**：审查记录必须包含 raw/ + aligned/ + adjudication/ 三层产物，永久保留 | WARNING | 审查记录缺失任何一层 | `check_review_artifacts()` |
+| R-CROSS-4 | **修复跟踪**：confirmed findings 必须创建跟踪任务，single-model findings 标记待人工 | WARNING | confirmed findings 未创建跟踪或 single-model 未标记 | `check_review_followup()` |
+| R-CROSS-5 | **审查时效**：规约变更自合入之日起 90 天内必须有一次跨模型审查 | INFO | 合入超 90 天未审查 | `check_review_freshness()` |
+
+**R-CROSS-* 判定逻辑**：
+- ✅ PASS: 全部检测通过 → INFO (不阻断)
+- ⚠️ WARNING: R-CROSS-3/4/5 违规 → 提示修复，**不阻断 push**
+- 🔴 BLOCKING: R-CROSS-1 无审查即合入 / R-CROSS-2 一致性不达标却已合入 → **阻断 push**
+
+**跨模型审查护栏与既有护栏的关系**：
+| 审查护栏 | 关联既有护栏 | 关系 |
+|----------|-------------|------|
+| R-CROSS-1 | C14 (宪法) | 强化：C14 声明"必须交叉确认"，R-CROSS-1 落地为 BLOCKING |
+| R-CROSS-2 | R-H6 (规格蒸发) | 互补：防止单模型幻觉导致规格蒸发 |
+| R-CROSS-3 | R-DATA-1 (数据流完整性) | 互补：审查记录 = 规约变更的可审计证据链 |
+| R-CROSS-4 | C9 (诚实汇报) | 互补：审查 findings 跟踪 = 诚实汇报的延伸 |
+| R-CROSS-5 | R-DRIFT-2 (规范同步) | 互补：审查时效 = 防止规约审查本身僵尸化 |
+
+**降级策略**：模型池不足（<2 可用）时，R-CROSS-1~4 降级为人工审查模式 + 代码存档记录，不阻断合入但标记 `needs-cross-model-pending`。
 
 ## 第二章：四步质量门禁（强制，顺序固定）
 
@@ -497,8 +573,11 @@ git push origin main
 | v1.5 | 2026-09-08 | REV-05 过度工程化清理（精简白名单）：① 白名单移除向量DB投毒和微调后门注入（黑盒HTTP不可测试）；② 适用范围移除已删除模块（vector_glue、finetuning_glue）；③ 护栏数量不变（R-GLUE-1~R-GLUE-5 仍适用保留的3个模块） | 用户会话批准 |
 | v1.6 | 2026-09-09 | REV-06 规范漂移检测系统：① 新增 1E-DRIFT 规范漂移检测护栏（R-DRIFT-1~R-DRIFT-5：PyRIT API 解析验证 BLOCKING / 规范表格-代码同步 WARNING / 版本变更锁定 BLOCKING / 契约消费验证 INFO / 原生模式违规 WARNING）；② 1F 检查器登记簿新增 5 项 Drift Detector 检查器（总计 29 项）；③ 调用方式：`pyrit-drift` / `py -m tools.drift_detector --full` | 用户会话批准 |
 | v2.0 | 2026-09-09 | REV-07 合并 60-REDTEAM-DELIVERY-FRAMEWORK.md：① 新增第七章"交付验证清单"（通用验证模板 + watch/quick 命令速查 + .env.local 配置 + Git Hooks 完整流程）；② 原第七章（考试合规）重命名为第八章；③ 删除冗余文档 `60-REDTEAM-DELIVERY-FRAMEWORK.md` | 用户会话批准 |
-| v2.1 | 2026-09-09 | REV-08 新增 R-DATA-2 ASR 中心性红线 + R-DATA-3 取证数据字段红线；数据流完整性测试 50 项全覆盖 | 用户会话批准 |
+| v2.1 | 2026-09-09 | REV-08 新增 R-DATA-2 ASR 中心性红线 + R-DATA-3 取证数据字段红线；R-DATA-1 实测 29 项测试 + R-DATA-2/3 同步覆盖 | 用户会话批准 |
 | v2.2 | 2026-09-09 | REV-09 新增自主决策系统护栏：① 新增 1G-DECIDE 自主决策系统护栏（R-DECIDE-1~R-DECIDE-5：安全边界保护 BLOCKING / 决策审计追踪 WARNING / 决策稳定性 WARNING / 人类控制权 INFO / 决策数据完整性 WARNING）；② 1H 检查器登记簿新增 5 项决策检查器（总计 34 项）；③ 决策护栏与既有护栏关系映射 | 用户会话批准 |
 | v2.3 | 2026-09-09 | REV-10 P0+P1+P2 文档优化：① 1F 检查器登记簿精简（移除冗余 v1.2/v1.4 锚定标注，新增 R-WEB-1~3 重命名映射，按分类分组）；② 7C 证据验证检查单增强（新增验证时机说明 + 失败处理逻辑 + 代码落点映射：`_validate_attack_evidence()` → `ctx.partial_results`） | 用户会话批准 |
 | v2.4 | 2026-09-09 | REV-11 规约优化三批实施：① 登记簿唯一化——1F 为唯一检查器登记簿，删除重复的 1H；② 引用修正——Web 攻击向量白名单三处错误归属（arXiv:2207.01077 / ANSI ISAAC 2023 / CVE-2023-50164）按可验证来源改写；③ R-DATA-1 测试数与 `tests/test_data_flow_integrity.py` 实测 29 项对齐；④ 新增 R-TOOLS-2（单模块行数上限 850 行，R-SIZE 编号归位、R-DELIVERY-3 作废）；⑤ 新增 R-DECIDE-6 策略先验优先；⑥ Step 2 命令统一为 `ruff check .`；⑦ 删除过时 D-16 注记 | 用户会话批准 |
 | v2.5 | 2026-09-09 | REV-12 P2-C4 修复：第二章四步门禁 Step 2 命令行字符损坏（mojibake），修复并统一为 `ruff check .`（范围由 [tool.ruff] exclude 限定），对齐宪法 C10 与 task-spec 模板 | 用户会话批准 |
+| v2.6 | 2026-09-09 | 新增文件上传攻击护栏：① 1D 适用范围扩展（新增 file_upload_executor.py）；② 新增 R-WEB-6 任意端口支持护栏（BLOCKING）；③ 白名单新增 2 个文件上传攻击向量（间接Prompt注入、RAG知识库投毒）；④ R-WEB-3 配置数据流扩展（文件上传目标URL）；⑤ R-WEB-5 学术留痕扩展（文件上传攻击向量） | 用户会话批准 |
+| v2.7 | 2026-09-09 | 新增 1C-DOC 代码-文档同步护栏：① R-DOC-1 CLI参数文档同步检查；② R-DOC-2 攻击模块缺口文档同步检查；③ R-DOC-3 需求/红线同步检查；④ R-DOC-4 README版本索引同步检查；⑤ 1F检查器登记簿新增4项检查器（总计 38 类）；⑥ 文档同步清单（代码变更必查） | 用户会话批准 |
+| v2.8 | 2026-09-09 | REV-15 新增跨模型规约审查护栏：① 1I-CROSS 跨模型规约审查护栏（R-CROSS-1~5：审查前置 BLOCKING / 一致性达标 BLOCKING / 审查记录完整 WARNING / 修复跟踪 WARNING / 审查时效 INFO）；② 1F 登记簿新增 5 项跨模型审查检查器（总计 44 项）；③ 降级策略与护栏关系映射 | 用户会话批准 |

@@ -1865,6 +1865,66 @@ logging:
   format: "standard"                 # 日志格式
 ```
 
+#### CLI 参数完整参考
+
+##### 文件上传攻击参数
+
+```bash
+# 文件上传攻击 (--file-upload-* 系列)
+--file-upload-target URL            # 目标基础URL（如 http://192.168.50.22:8004）
+                                    # 支持任意端口 (0-65535)
+--upload-endpoint PATH              # 上传端点路径（默认: /upload）
+--trigger-endpoint PATH             # 处理触发端点路径（默认: /summarize）
+--upload-files FILES                # 逗号分隔的文件路径列表（如 payload.txt,template.txt）
+--upload-field-name NAME            # 表单字段名（默认: file；如 document, attachment）
+--trigger-method METHOD             # 触发请求方法（默认: POST；可选: POST, GET, PUT）
+```
+
+##### 高级攻击参数
+
+```bash
+# 输出过滤器绕过
+--enable-bypass                     # 启用输出过滤器绕过攻击
+--bypass-threshold ASR              # 触发绕过的 ASR 阈值（默认: 0.30）
+
+# 多模态注入
+--enable-multimodal                 # 启用多模态注入攻击
+--multimodal-carrier CARRIER        # 强制指定载体（image_text/audio_frequency/file_metadata/adversarial_vision）
+
+# 后门攻击
+--enable-backdoor                   # 启用后门攻击
+--backdoor-strategy STRATEGY        # 强制指定策略（trigger_word/context_conditional/persona_switch/multi_turn_accumulation）
+```
+
+##### 文件上传攻击使用示例
+
+```bash
+# 示例1：基础文件上传攻击
+python main.py --file-upload-target http://192.168.50.22:8004 \
+               --upload-files malicious_doc.txt \
+               --trigger-endpoint /summarize
+
+# 示例2：分文档间接Prompt注入（Split Document Injection）
+python main.py --file-upload-target http://target:8080 \
+               --upload-files template_doc.txt,payload_doc.txt \
+               --trigger-endpoint /analyze \
+               --upload-field-name document
+
+# 示例3：RAG知识库投毒（PoisonedRAG）
+python main.py --file-upload-target http://target:9200 \
+               --upload-endpoint /kb/ingest \
+               --upload-files poisoned1.txt,poisoned2.txt,poisoned3.txt \
+               --trigger-endpoint /kb/sync \
+               --trigger-method POST
+
+# 示例4：结合高级攻击（文件上传 + 输出过滤器绕过）
+python main.py --file-upload-target http://target:3000 \
+               --upload-files payload.txt \
+               --trigger-endpoint /process \
+               --enable-bypass \
+               --bypass-threshold 0.25
+```
+
 #### .env 环境变量
 
 ```bash

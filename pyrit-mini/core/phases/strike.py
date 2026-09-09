@@ -114,6 +114,10 @@ async def _run_strike_phase(
     _attack_count_before_escalation = sum(
         len(v) for v in ctx.attack_results.values())
 
+    # === Web Page Injection Integration (arXiv:2302.12173) ===
+    # Execute CSS hidden content injection for browser-based AI agents
+    await _run_web_injection_phase(ctx)
+
     # === Web Security Attacks Integration ===
     # Execute web security attacks (JWT/Gateway/Audit) using service_profile data
     await _run_web_attacks_phase(ctx)
@@ -122,6 +126,11 @@ async def _run_strike_phase(
     # Execute output filter bypass / multimodal injection / backdoor attacks
     # arXiv:2402.05124 (Many-Shot Jailbreaking) / arXiv:2403.07860 (FigStep) / arXiv:2301.11916 (Sleeper Agents)
     await _run_advanced_attacks_phase(ctx)
+
+    # === File Upload Attack Integration ===
+    # Execute file upload + trigger chain for document injection attacks
+    # arXiv:2302.12173 (Greshake Indirect Injection) / arXiv:2406.04245 (PoisonedRAG)
+    await _run_file_upload_phase(ctx)
 
     # == : orchestration_log ==
     ctx.orchestration_log.append({
@@ -190,6 +199,176 @@ async def _run_strike_phase(
         snapshot_hook(ctx, "post_assess_forensic")
     except Exception as e:
         logger.debug("[Strike] Data flow snapshot skipped: %s", e)
+
+
+async def _run_web_injection_phase(ctx: "PipelineContext") -> None:
+    """(4.1) WEB PAGE INJECTION: CSS hidden content for browser-based AI agents.
+
+    Executes CSS hidden content injection attacks targeting AI agents with
+    web browsing capabilities. Generates malicious HTML pages with hidden
+    attack instructions that bypass content extraction but are processed by LLMs.
+
+    Attack flow:
+        1. Generate malicious HTML with CSS hidden payload
+        2. Host page on temporary HTTP server
+        3. Trigger agent to fetch page via /browse endpoint
+        4. Agent processes raw HTML (including hidden elements)
+        5. LLM executes hidden instructions, exfiltrates data
+
+    Extraction Pipeline Gap:
+        - Content extractors strip display:none / font-size:0 elements
+        - Monitoring systems (Kibana/SIEM) only see visible text
+        - LLM processes raw HTML tokens including hidden content
+
+    Data flow:
+        CLI args (--enable-web-injection, --web-injection-target, --web-injection-template)
+        → web_page_injector → malicious HTML → HTTP target → ctx.attack_results
+
+    Academic basis:
+        - Greshake et al. (arXiv:2302.12173): Indirect prompt injection ASR 60-90%
+        - Shayegani et al. (arXiv:2306.13254): Multimodal covert channels
+        - Perez et al. (arXiv:2202.00676): Tool output poisoning
+    """
+    from utils.display import print_phase
+
+    args = ctx.args
+
+    # Skip if dry run
+    from utils.dry_run import is_dry_run as _check_dry_run
+    if _check_dry_run(ctx.args):
+        return
+
+    # Check if web injection is enabled
+    _enable_web_injection = getattr(args, "enable_web_injection", False)
+    if not _enable_web_injection:
+        logger.debug("[WebInjection] Disabled - skip")
+        return
+
+    # Get target URL
+    _web_target = getattr(args, "web_injection_target", None)
+    if not _web_target:
+        logger.debug("[WebInjection] No target URL - skip")
+        return
+
+    try:
+        print_phase("STRIKE", "Web Page Injection (CSS Hidden Content)...")
+
+        # Import web page injector
+        from strike.web_page_injector import (
+            AdvancedInjectionScenarios,
+            WebPageInjector,
+        )
+
+        # Get strategy and template from CLI args
+        _strategy = getattr(args, "web_injection_strategy", "font_size_zero")
+        _template = getattr(args, "web_injection_template", "system_prompt_leak")
+        _browse_endpoint = getattr(args, "web_injection_browse_endpoint", "/browse")
+
+        # Generate malicious page
+        if _template in ("slack_extraction", "system_prompt_leak", "credential_extraction", "email_exfiltration"):
+            # Use predefined template
+            injector = WebPageInjector(default_strategy=_strategy)
+            visible_content = _get_default_visible_content(_template)
+            malicious_page = injector.generate_from_template(
+                _template, visible_content
+            )
+        else:
+            # Use advanced scenario
+            if _template == "research_assistant":
+                malicious_page = AdvancedInjectionScenarios.create_research_assistant_attack(
+                    target_secrets=["slack_token", "channel_id"]
+                )
+            else:
+                malicious_page = AdvancedInjectionScenarios.create_customer_support_attack()
+
+        # Store results
+        if "web_injection" not in ctx.attack_results:
+            ctx.attack_results["web_injection"] = []
+
+        injection_result = {
+            "attack_type": "web_injection",
+            "strategy": malicious_page.strategy,
+            "target": _web_target,
+            "template": _template,
+            "anti_extraction": malicious_page.anti_extraction,
+            "html_size": len(malicious_page.html_content),
+            "arxiv_reference": "arXiv:2302.12173",
+            "status": "generated",
+        }
+        ctx.attack_results["web_injection"].append(injection_result)
+
+        logger.info(
+            "[WebInjection] Generated malicious page: strategy=%s, template=%s, size=%d bytes",
+            malicious_page.strategy,
+            _template,
+            len(malicious_page.html_content),
+        )
+
+        # Log to orchestration
+        ctx.orchestration_log.append({
+            "phase": "web_injection",
+            "decision": "css_hidden_injection",
+            "input": {
+                "target": _web_target,
+                "strategy": _strategy,
+                "template": _template,
+                "browse_endpoint": _browse_endpoint,
+            },
+            "output": {
+                "html_size": len(malicious_page.html_content),
+                "anti_extraction": malicious_page.anti_extraction,
+            },
+            "reasoning": (
+                f"CSS hidden injection: {_strategy} strategy, "
+                f"{_template} template, arXiv:2302.12173"
+            ),
+        })
+
+    except Exception as e:
+        logger.warning("[WebInjection] Web injection phase error (non-fatal): %s", e)
+
+
+def _get_default_visible_content(template: str) -> str:
+    """Get default visible content for a given template.
+
+    Args:
+        template: Template type
+
+    Returns:
+        HTML content string for visible portion
+    """
+    templates = {
+        "slack_extraction": """
+        <h1>Cloud Computing Trends 2026</h1>
+        <p>Multi-cloud adoption continues to accelerate as enterprises seek to
+        avoid vendor lock-in. Kubernetes has become the de facto standard for
+        container orchestration.</p>
+        <p>Edge computing is emerging as a complement to centralized cloud,
+        particularly for IoT and real-time analytics use cases.</p>
+        """,
+        "system_prompt_leak": """
+        <h1>AI Industry Report 2026</h1>
+        <p>The artificial intelligence market is projected to reach $500 billion by 2027.
+        Large language models continue to drive innovation across industries.</p>
+        <p>Enterprise adoption of AI assistants has accelerated, with 65% of Fortune 500
+        companies now deploying AI-powered customer service solutions.</p>
+        """,
+        "credential_extraction": """
+        <h1>API Documentation - Authentication Guide</h1>
+        <p>This document provides comprehensive guidance on implementing secure
+        authentication for REST API endpoints.</p>
+        <h2>OAuth 2.0 Flow</h2>
+        <p>The authorization code flow is the most secure method for web applications.</p>
+        """,
+        "email_exfiltration": """
+        <h1>Customer Support Knowledge Base</h1>
+        <p>Welcome to the customer support knowledge base. This resource contains
+        articles and guides for troubleshooting common issues.</p>
+        <h2>Contact Information</h2>
+        <p>For urgent issues, please contact our support team via the portal.</p>
+        """,
+    }
+    return templates.get(template, templates["system_prompt_leak"])
 
 
 async def _run_web_attacks_phase(ctx: "PipelineContext") -> None:
@@ -461,6 +640,68 @@ async def _run_advanced_attacks_phase(ctx: "PipelineContext") -> None:
             f"(ASR={_current_asr:.1%})"
         ),
     })
+
+
+async def _run_file_upload_phase(ctx: "PipelineContext") -> None:
+    """(4.4) FILE UPLOAD ATTACK: Multi-step file upload + processing trigger.
+
+    Executes file upload attack chain for document-based injection attacks.
+    Supports:
+        - Single/multiple file uploads via multipart/form-data
+        - Trigger processing endpoint after upload
+        - Split document injection (template + payload)
+        - PoisonedRAG knowledge base poisoning
+
+    Data flow:
+        CLI args (--file-upload-target, --upload-files, --trigger-endpoint)
+        → file_upload_executor → HTTP target → ctx.attack_results
+
+    Academic basis:
+        - Greshake et al. (arXiv:2302.12173): Indirect prompt injection via documents
+        - Zou et al. (arXiv:2406.04245): PoisonedRAG knowledge base poisoning
+        - Shayegani et al. (arXiv:2306.13254): Multimodal document attacks
+    """
+    from utils.display import print_phase
+
+    args = ctx.args
+
+    # Skip if dry run
+    from utils.dry_run import is_dry_run as _check_dry_run
+    if _check_dry_run(ctx.args):
+        return
+
+    # Check if file upload attack is enabled
+    _upload_target = getattr(args, "file_upload_target", None)
+    _upload_files = getattr(args, "upload_files", []) or []
+
+    if not _upload_target and not _upload_files:
+        logger.debug("[FileUpload] No file upload config - skip")
+        return
+
+    try:
+        print_phase("STRIKE", "File Upload Attack (Document Injection)...")
+
+        from strike.file_upload_executor import run_file_upload_attack
+
+        upload_report = await run_file_upload_attack(ctx)
+
+        # Store results in ctx.attack_results
+        if upload_report.get("status") == "success":
+            if "file_upload" not in ctx.attack_results:
+                ctx.attack_results["file_upload"] = []
+            ctx.attack_results["file_upload"].append(upload_report)
+
+            logger.info(
+                "[FileUpload] Attack complete: target=%s, uploads=%d, errors=%d",
+                upload_report.get("target", "unknown"),
+                upload_report.get("uploads", 0),
+                len(upload_report.get("errors", [])),
+            )
+        else:
+            logger.warning("[FileUpload] Attack failed: %s", upload_report.get("reason", "unknown"))
+
+    except Exception as e:
+        logger.warning("[FileUpload] File upload phase error (non-fatal): %s", e)
 
 
 async def _run_escalate_phase(

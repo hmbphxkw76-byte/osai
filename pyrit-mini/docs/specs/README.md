@@ -95,6 +95,9 @@
 | | `"测试"` | pytest tests/ 运行测试 |
 | | `"backlog"` | 查看/登记待办池 |
 | | `"hooks"` | 安装/检查 git hooks |
+| **跨模型审查** | `"跨模型审查"` | 执行跨模型规约审查（FULL 模式：3 模型并行 + κ 计算 + 仲裁） |
+| | `"交叉校验"` | 执行跨模型交叉确认（LIGHT 模式：1 模型快速审查） |
+| | `"审查报告"` | 查看最新跨模型审查报告 |
 | **考试场景** | `"考试模式"` | 切换为 OffSec AI-300 考试流程 |
 | | `"考试合规"` | 运行 7D 定期自检 |
 | | `"模板"` | 查看攻击模板速查表 (TPL-*) |
@@ -103,14 +106,16 @@
 
 | 层 | 文件 | 职责 | 版本 |
 |----|------|------|------|
-| L0 | [00-CONSTITUTION.md](00-CONSTITUTION.md) | AI 行为宪法：使命 / 裁决序 / C1-C13 / 违宪症状 / 制宪配套 / 考试专项附录 | v2.1 |
-| L1 | [10-ARCHITECTURE.md](10-ARCHITECTURE.md) | 技术蓝图：分层依赖 / ctx 契约（4.4 SSOT 总表） / 不变量 / ADR / 债务簿 / PyRIT攻击引擎 / Web攻击层 + 数据流完整性 / 全链路自主决策引擎 (第十一章) | v2.7 |
-| L2 | [20-REQUIREMENTS.md](20-REQUIREMENTS.md) | 需求登记：P0 (已实现 ✅) / P1 (已实现 ✅) / 活跃需求 / NFR（含 NFR-13 ASR 双口径与 target_asr 锚点） / NEG / 自主决策需求 | v2.3 |
-| L3 | [30-TASKS.md](30-TASKS.md) | 任务协议：生命周期 / 粒度上限 / 八步协议 / STOP-REPORT / 考试速查 | v2.1 |
-| L4 | [40-GUARDRAILS.md](40-GUARDRAILS.md) | 红线 R-L / R-H / R-S / R-WEB / R-DRIFT / R-DATA / R-DECIDE / R-TOOLS / 四步门禁 / 三层防线 / 登记簿 (34项，1F 唯一) / 交付验证清单 / 考试合规 | v2.5 |
-| 配套 | [50-ROADMAP.md](50-ROADMAP.md) | 路线图：AI-300 考纲映射 / 红队实践 / 基准校准 (阶段 0.5) / 任务序列 / 会话模型 / Runbook / 考试日故障降级矩阵 | v1.9 |
-| 配套 | [55-ATTACK-GAP-CLOSURE.md](55-ATTACK-GAP-CLOSURE.md) | 攻击缺口闭环：缺口分析 / 黑盒可测性约束 (4.1-B) / 全链路自主决策架构 | v1.3 |
+| L0 | [00-CONSTITUTION.md](00-CONSTITUTION.md) | AI 行为宪法：使命 / 裁决序 / C1-C14 (含跨模型一致性优先) / 违宪症状 / 制宪配套 / 考试专项附录 | v2.2 |
+| L1 | [10-ARCHITECTURE.md](10-ARCHITECTURE.md) | 技术蓝图：分层依赖 / ctx 契约（4.4 SSOT 总表） / 不变量 / ADR / 债务簿 / PyRIT攻击引擎 / Web攻击层 + 数据流完整性 / 全链路自主决策引擎 (第十一章) / 跨模型规约审查架构 (第十二章) | v2.8 |
+| L2 | [20-REQUIREMENTS.md](20-REQUIREMENTS.md) | 需求登记：P0 (已实现 ✅) / P1 (已实现 ✅) / 活跃需求 / NFR（含 NFR-13 ASR 双口径与 target_asr 锚点 + NFR-14~16 审查非功能） / NEG / 自主决策需求 / 文件上传攻击需求 (REQ-138~144) / 跨模型审查需求 (REQ-144~146) | v2.5 |
+| L3 | [30-TASKS.md](30-TASKS.md) | 任务协议：生命周期 / 粒度上限 / 八步协议 / STOP-REPORT / 考试速查 / 跨模型审查任务协议 (第十章) | v2.2 |
+| L4 | [40-GUARDRAILS.md](40-GUARDRAILS.md) | 红线 R-L / R-H / R-S / R-WEB (含R-WEB-6任意端口) / R-DRIFT / R-DATA / R-DECIDE / R-TOOLS / R-DOC (代码-文档同步) / R-CROSS (跨模型审查) / 四步门禁 / 三层防线 / 登记簿 (44项，1F 唯一) / 交付验证清单 / 考试合规 | v2.8 |
+| 配套 | [50-ROADMAP.md](50-ROADMAP.md) | 路线图：AI-300 考纲映射 / 红队实践 / 基准校准 (阶段 0.5) / 任务序列 / 会话模型 / Runbook / 考试日故障降级矩阵 / 跨模型审查系统 (阶段 1D) | v1.10 |
+| 配套 | [55-ATTACK-GAP-CLOSURE.md](55-ATTACK-GAP-CLOSURE.md) | 攻击缺口闭环：四大缺口分析 / 文件上传攻击缺口 (v1.4新增) / 黑盒可测性约束 (4.1-B) / 全链路自主决策架构 / 跨模型规约审查集成 (v1.5新增) | v1.5 |
+| 配套 | [60-CROSS-MODEL-VERIFICATION.md](60-CROSS-MODEL-VERIFICATION.md) | 跨模型规约审查协议：审查模型注册簿 / 触发规则 / Prompt模板 / 差异对齐 / 仲裁协议 / Schema标准 / 存储结构 / κ度量指标 / 工具链集成 | v1.0 |
 | 配套 | [templates/task-spec.md](templates/task-spec.md) | 任务规格模板 + 考试变体 | v1.1 |
+| 配套 | [templates/cross-model-review.md](templates/cross-model-review.md) | 跨模型审查报告模板（快速决策卡 + 差异对齐表 + κ指标 + 修复清单） | v1.0 |
 | 配套 | [templates/change-proposal.md](templates/change-proposal.md) | 变更提案模板 | v1.0 |
 
 > **已归档文件**：
@@ -173,6 +178,9 @@
 | `pyrit-drift --full` | 规范漂移检测 (全量模式，含版本锁定) | 发布前/CI/CD |
 | `pyrit-drift --full --report` | JSON 报告输出 | CI 集成 |
 | `pyrit-dataflow` (或 `py -m tools.data_flow_validator`) | 数据流完整性验证 (ARM→Strike→Assess) | commit/push 时自动触发 |
+| `pyrit-cross` (或 `py -m tools.cross_model_review`) | 跨模型规约审查（FULL 模式：3 模型并行 + κ 计算 + 仲裁） | 规约文档变更时触发 |
+| `pyrit-cross --full` | 全量跨模型审查 | L0-L4 核心文档变更时 |
+| `pyrit-cross --light` | 快速单模型审查 | 单文件 docstring/注释变更时 |
 | `pyrit-watch` (或 `py -m tools.watch_guard`) | 实时文件监视 | 开发期持续运行 |
 | `pyrit-quick` (或 `py -m tools.quick_check`) | 单文件快速架构检查 | 修改单个模块后 |
 | `pyrit-hooks` (或 `py -m tools.hooks`) | Git hooks 安装 | 初始化工作区 |
