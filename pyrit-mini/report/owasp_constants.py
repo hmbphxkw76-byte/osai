@@ -1,11 +1,16 @@
-"""OWASP ??evidence.py .
+"""OWASP constants and MITRE ATLAS mappings for evidence.py.
 
- MITRE ATLAS , OWASP , OWASP Web Top 10 BX.
+Provides:
+    - MITRE ATLAS technique mappings (tactic, technique_id, url)
+    - OWASP LLM Top 10 categories and mitigations
+    - OWASP Agentic AI Top 10 categories and mitigations
+    - OWASP Web Top 10 categories and mitigations
+    - Severity level definitions
 """
 
-# EUREUR MITRE ATT&CK for AI Systems (ATLAS) EUREUR
+# MITRE ATT&CK for AI Systems (ATLAS) technique mappings
 # Reference: https://atlas.mitre.org/
-# [: MITRE ATLAS (Adversarial Threat Landscape for AI Systems)
+# MITRE ATLAS (Adversarial Threat Landscape for AI Systems)
 # frames AI-specific attack techniques analogous to ATT&CK for traditional IT.
 _MITRE_ATLAS_TECHNIQUES: dict[str, dict[str, str]] = {
     "LLM01": {

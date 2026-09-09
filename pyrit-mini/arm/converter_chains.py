@@ -1,36 +1,33 @@
-"""L5 ?Converter ?? arXiv [+EUR?
+"""L5 Converter Chains — arXiv-backed attack vector implementations.
 
-L5 v34 :
-    PyRIT PromptSendingAttack ?PromptNormalizer.convert_values_async
-    EUR?ConverterConfiguration EURC (??
-     executor.py ?_build_converter_config EUR?1 ?converter?
-    yu l5_optimal  converter , executor ?1 EUR?
+L5 v34 Design:
+    PyRIT PromptSendingAttack executes PromptNormalizer.convert_values_async
+    per-ConverterConfiguration (1:1 mapping). executor.py calls _build_converter_config
+    with 1 converter per config; l5_optimal preset builds the candidate list; executor
+    selects up to 1 converter per attempt.
 
-[:
-    - encoding_bypass: Wei et al. (arXiv:2307.15043) ??
-       Base64 ASR 7%,  Base64+ROT13 ASR 12%,  ASR 4% (payload ?
-      EUR? 2 ?(Base64 + ROT13), ?PromptSendingAttack
-    - stealth_evasion: Shayegani et al. (arXiv:2306.13254) ?Unicode
-      EUR? 1 ?(UnicodeSubstitution only, ZeroWidth  JSON)
-    - persuasion: Zeng et al. (arXiv:2402.19181) ? ASR 30-40%
+Academic references:
+    - encoding_bypass: Wei et al. (arXiv:2307.15043) - selective encoding
+       Base64 ASR 7%,  Base64+ROT13 ASR 12%, 3-layer stack ASR 4% (payload decay)
+      Reduced to 2 conv (Base64 + ROT13), per PromptSendingAttack
+    - stealth_evasion: Shayegani et al. (arXiv:2306.13254) - Unicode substitution
+      Reduced to 1 conv (UnicodeSubstitution only, ZeroWidth breaks JSON)
+    - persuasion: Zeng et al. (arXiv:2402.19181) - authority ASR 30-40%
       Authority endorsement ASR 38.4%, Logical appeal ASR 28.7%, Tone ASR 22.1%
-      EUR? 1 ?(authority), v34 ?executor EUR?1 ?converter
-    - format_injection: ?OCR/EUR?
-    - multi_encoding:  ?[+er 3 ? ASR
-    - decomposition: DrAttack (arXiv:2402.14266) ?B ASR 40-60%
-      EUR? 1 ?( recall ?<0.3)
-    - variation: ?ASR 20-30%
-      Best-of-N (N=3) ASR  1.5x (v34: N ?10  3)
-    - flip:  ASR 15-25% (TTP ASR?)
+      Reduced to 1 conv (authority), v34 executor uses 1 converter
+    - format_injection: AsciiArt OCR/visual exploitation
+    - multi_encoding: 3-phase encoding cascade ASR data
+    - decomposition: DrAttack (arXiv:2402.14266) - decomposition+reconstruction ASR 40-60%
+      Reduced to 1 conv (recall <0.3)
+    - variation: AutoDAN-style ASR 20-30%
+      Best-of-N (N=3) ASR boost 1.5x (v34: N=10 → 3)
 
-    L5 v34 Converter EUR?(l5_optimal):
-        EUR?converter , executor.py +u?1 EUR?
-    ? authority(38.4%) > variation(20-30%) > ROT13(30-40%) > ...
-
-     ASR (?+ Best-of-N + escalation): 23-35%
-    v34 : ASR=23.4%, Cohen's Kappa=0.729 (substantial)
-    [: PyRIT (arXiv:2407.01232) SequentialAttack ,
-      Wei et al. (arXiv:2307.15043)  >2 ?ASR yu
+    L5 v34 Converter Chain design (l5_optimal):
+        Per-attempt single converter, executor.py picks +1 converter per attempt
+    Expected ASR (multi-conv + Best-of-N + escalation): 23-35%
+    Baseline: ASR=23.4%, Cohen's Kappa=0.729 (substantial)
+    Refs: PyRIT (arXiv:2407.01232) SequentialAttack multi-path,
+      Wei et al. (arXiv:2307.15043) >2-layer stack ASR decay law
 """
 
 from __future__ import annotations

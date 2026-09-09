@@ -184,12 +184,12 @@ def load_seeds(
     Returns:
         list[AttackSeedGroup]: Ranked list of attack seed groups.
     """
- # L5 v8: Comma-separated seed files
+    # L5 v8: Comma-separated seed files
     seed_files = [s.strip() for s in seed_file.split(",") if s.strip()]
     if not seed_files:
         seed_files = [seed_file]
 
- # Fixed #1: Auto-augment targeted seed files based on capability tags
+    # Fixed #1: Auto-augment targeted seed files based on capability tags
     added_by_capability: list[str] = []
     if capabilities:
         cap_list = [c.strip().lower() for c in capabilities.split(",") if c.strip()]

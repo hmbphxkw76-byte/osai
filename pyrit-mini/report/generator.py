@@ -1,19 +1,19 @@
-"""generator -
+"""generator - Multi-format report generation entry point.
 
-:
-    -  (_OWASP_ALL_CATEGORIES)
-    -  _classify_score_consistency
-    - generate_report: all (MD + HTML + JSON + PoC + CSV + ZIP)
-    -  _generate_markdown / _generate_html / _evidence_to_dict / _single_evidence_to_dict
-      ( report_markdown.py / report_html.py )
+Provides:
+    - _OWASP_ALL_CATEGORIES: OWASP category name mapping (Web + LLM + ASI)
+    - _classify_score_consistency: Score consistency classification
+    - generate_report: Main entry point (MD + HTML + JSON + PoC + CSV + ZIP)
+    - _generate_markdown / _generate_html / _evidence_to_dict / _single_evidence_to_dict
+      (delegates to report_markdown.py / report_html.py)
 
-:
-    generator.py ( + ) -> report_markdown.py (MD )
-                              -> report_html.py (HTML )
-                              -> report_utils.py ()
+Data flow:
+    generator.py (format selection + orchestration) -> report_markdown.py (MD output)
+                                                    -> report_html.py (HTML output)
+                                                    -> poc_generator.py (PoC scripts)
 
-:
-    generator.py from report_html/report_markdown function (in generate_report ).
+Design note:
+    generator.py imports functions from report_html/report_markdown lazily (in generate_report).
     P1-4: Jinja2 removed - HTML uses pure Python string formatting.
 """
 
@@ -28,8 +28,8 @@ from report.evidence import EvidenceCollection
 
 logger = logging.getLogger(__name__)
 
-# == OWASP (Web + LLM + ASI ) ==
-# report_html.py report_utils.py
+# OWASP category mapping (Web + LLM + Agentic AI)
+# Shared with report_html.py
 _OWASP_ALL_CATEGORIES: dict[str, str] = {
     # OWASP Web Top 10 (2025)
     "A01": "Broken Access Control",
@@ -67,24 +67,24 @@ _OWASP_ALL_CATEGORIES: dict[str, str] = {
 }
 
 def _classify_score_consistency(score_details: list[dict[str, Any]]) -> str:
-    """
+    """Classify score consistency across multiple scorers.
 
-     score_details converter(s) scorer :
-        -  -> N/A
-        -  scorer -> Post-hoc Dual Judge
-        -  scorer  -> Consistent
-        -  scorer  -> Minor Disagreement
+     Given score_details from converter(s) scorer, determines:
+        - N/A -> No scores available
+        - Post-hoc Dual Judge -> Only 1 scorer present
+        - Consistent -> All scorers agree (all true or all false)
+        - Minor Disagreement -> Scorers disagree
 
     Args:
-        score_details: ,  "scorer"  "score_value"
+        score_details: List of score dicts with "scorer" and "score_value" keys
 
     Returns:
-
+        Consistency classification string
     """
     if not score_details:
         return "N/A"
 
- # score_value
+    # Normalize score values
     score_values: list[str] = []
     for sd in score_details:
         val = str(sd.get("score_value", "")).lower().strip()
@@ -93,7 +93,7 @@ def _classify_score_consistency(score_details: list[dict[str, Any]]) -> str:
     if len(score_values) <= 1:
         return "Post-hoc Dual Judge"
 
- # (true/1 false/0)
+    # Classify agreement (true/1 false/0)
     truthy = {"true", "1", "yes"}
     falsy = {"false", "0", "no"}
 
@@ -104,13 +104,12 @@ def _classify_score_consistency(score_details: list[dict[str, Any]]) -> str:
         return "Consistent"
     return "Minor Disagreement"
 
-# == (, ) ==
-# report_markdown.py report_html.py
-# generator .
-# (wrapper ) .
+# Delegated generation functions (lazy import)
+# report_markdown.py and report_html.py implement the actual logic;
+# generator imports them lazily in generate_report to avoid circular deps.
 
 def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = False) -> str:
-    """ Markdown ( report_markdown).
+    """Generate Markdown report (delegates to report_markdown).
 
     Includes sections: dual_judge_stats, wilson_ci, cohens_kappa, Adaptive Dual Judge Statistics.
     """
@@ -119,7 +118,7 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
     return _impl(evidence, success_only=success_only)
 
 def _generate_html(evidence: EvidenceCollection, *, success_only: bool = False) -> str:
-    """ HTML ( report_html)."""
+    """Generate HTML report (delegates to report_html)."""
     from report.report_html import _generate_html as _impl
 
     return _impl(evidence, success_only=success_only)

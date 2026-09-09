@@ -122,11 +122,12 @@ def _generate_html(evidence: EvidenceCollection, *, success_only: bool = False) 
     return '\n'.join(html_parts)
 
 def _evidence_to_dict(evidence: EvidenceCollection, *, success_only: bool = False) -> dict[str, Any]:
-    """ ( JSON )
+    """Convert evidence collection to dictionary (for JSON serialization).
 
-    : main.py  orchestration_log / wilson_ci / cohens_kappa  evidence,
-     _evidence_to_dict ,  regen_report.py
-    : all, EnsureData flowimports main.py -> evidence -> JSON -> regen
+    Used by: main.py (orchestration_log / wilson_ci / cohens_kappa evidence),
+    _evidence_to_dict, and regen_report.py.
+
+    Data flow: main.py -> evidence -> JSON -> regen_report.py
     """
     ev_list = evidence.successful_evidence if success_only else evidence.evidence
 
@@ -150,6 +151,9 @@ def _evidence_to_dict(evidence: EvidenceCollection, *, success_only: bool = Fals
         "failure_analysis": evidence.failure_analysis,
         "dual_judge_stats": evidence.dual_judge_stats if hasattr(evidence, "dual_judge_stats") else {},
         "findings": [_finding_to_dict(f) for f in getattr(evidence, "findings", [])],
+        # NOTE: web_vuln_stats and discovered_endpoints were removed from EvidenceCollection
+        # during P0 audit (never populated). Kept here for backward compatibility with
+        # external consumers that may expect these keys in JSON output.
         "web_vuln_stats": getattr(evidence, "web_vuln_stats", {}),
         "discovered_endpoints": getattr(evidence, "discovered_endpoints", []),
         # : main.py Phase 4/5 , Data flow
@@ -159,18 +163,19 @@ def _evidence_to_dict(evidence: EvidenceCollection, *, success_only: bool = Fals
     }
 
 def _single_evidence_to_dict(ev: VulnerabilityEvidence) -> dict[str, Any]:
-    """converter(s)
+    """Convert single evidence to dictionary, handling converter(s) fallback.
 
-    Layer: EnsureEven if _build_evidence  (),
-    JSON all R10
+    Layer: Ensure JSON serialization works even if _build_evidence fails to populate
+    optional fields. Applies R10 fallback defaults for converter_chain, arxiv_reference,
+    conversation_history, converter_log, and score_details.
     """
- # P1-1 : converter_chain -> "none (baseline)"
+    # P1-1 fix: Ensure converter_chain -> "none (baseline)" instead of null
     converter_chain = ev.converter_chain or "none (baseline)"
 
- # P0-3 : arxiv_reference ->
+    # P0-3 fix: Ensure arxiv_reference has fallback value
     arxiv_ref = ev.arxiv_reference or "PyRIT (arXiv:2407.01232)"
 
- # P0-1 : conversation_history -> objective/harmful_output
+    # P0-1 fix: Ensure conversation_history falls back to objective/harmful_output
     conversation = ev.conversation_history
     if not conversation:
         obj = ev.objective or ""
@@ -185,7 +190,7 @@ def _single_evidence_to_dict(ev: VulnerabilityEvidence) -> dict[str, Any]:
         else:
             conversation = [{"role": "system", "content": "No conversation data available"}]
 
- # P0-2 : converter_log -> "none (baseline)"
+    # P0-2 fix: Ensure converter_log falls back to "none (baseline)"
     converter_log = ev.converter_log
     if not converter_log:
         obj = ev.objective or ""

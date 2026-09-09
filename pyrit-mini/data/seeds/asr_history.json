@@ -1,6 +1,8 @@
 {
-  "last_run": "2026-09-01T17:25:32.996157",
-  "asr": {},
+  "last_run": "2026-09-09T13:53:38.125687",
+  "asr": {
+    "test/seed": 0.5
+  },
   "seed_asr": {
     "Test objective 0": 100.0,
     "Test objective 1": 100.0,
@@ -41,54 +43,54 @@
   },
   "threshold_history": [
     {
-      "asr": 97.6,
-      "threshold": 0.75,
-      "timestamp": "2026-08-30T19:53:12.697450"
-    },
-    {
-      "asr": 97.6,
-      "threshold": 0.75,
-      "timestamp": "2026-08-30T19:53:12.697450"
-    },
-    {
-      "asr": 97.6,
-      "threshold": 0.75,
-      "timestamp": "2026-08-30T19:53:12.697450"
-    },
-    {
-      "asr": 43.7,
-      "threshold": 0.85,
-      "timestamp": "2026-08-30T21:51:03.098484"
-    },
-    {
-      "asr": 63.5,
-      "threshold": 0.85,
-      "timestamp": "2026-08-30T22:03:32.580683"
-    },
-    {
-      "asr": 18.7,
+      "asr": 0.5,
       "threshold": 0.8,
-      "timestamp": "2026-08-30T22:24:00.368144"
+      "timestamp": "2026-09-09T12:32:16.977609"
     },
     {
-      "asr": 100.0,
-      "threshold": 0.75,
-      "timestamp": "2026-08-30T22:44:59.895396"
+      "asr": 0.5,
+      "threshold": 0.8,
+      "timestamp": "2026-09-09T12:35:08.711261"
     },
     {
-      "asr": 100.0,
-      "threshold": 0.75,
-      "timestamp": "2026-08-30T22:48:25.355982"
+      "asr": 0.5,
+      "threshold": 0.8,
+      "timestamp": "2026-09-09T12:37:25.516884"
     },
     {
-      "asr": 55.0,
-      "threshold": 0.85,
-      "timestamp": "2026-08-31T23:37:03.740145"
+      "asr": 0.5,
+      "threshold": 0.8,
+      "timestamp": "2026-09-09T12:38:24.121904"
     },
     {
-      "asr": 100.0,
-      "threshold": 0.75,
-      "timestamp": "2026-09-01T00:03:15.462834"
+      "asr": 0.5,
+      "threshold": 0.8,
+      "timestamp": "2026-09-09T13:15:47.409137"
+    },
+    {
+      "asr": 0.5,
+      "threshold": 0.8,
+      "timestamp": "2026-09-09T13:27:54.504222"
+    },
+    {
+      "asr": 0.5,
+      "threshold": 0.8,
+      "timestamp": "2026-09-09T13:32:18.294973"
+    },
+    {
+      "asr": 0.5,
+      "threshold": 0.8,
+      "timestamp": "2026-09-09T13:37:50.906529"
+    },
+    {
+      "asr": 0.5,
+      "threshold": 0.8,
+      "timestamp": "2026-09-09T13:47:11.999431"
+    },
+    {
+      "asr": 0.5,
+      "threshold": 0.8,
+      "timestamp": "2026-09-09T13:53:38.125706"
     }
   ]
 }

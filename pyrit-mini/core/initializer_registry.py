@@ -1,6 +1,8 @@
-# arXiv:2407.01232 - PyRIT, Initializer pattern
-# arXiv:2302.12173 - Greshake et al., target capability fingerprint
-""" Initializer - pyrit_scan --add-initializer CLI
+"""Initializer registry - pyrit_scan --add-initializer CLI
+
+Academic basis:
+    - arXiv:2407.01232 (PyRIT): Initializer pattern
+    - arXiv:2302.12173 (Greshake et al.): Target capability fingerprint
 
 :
     pyrit_scan  --add-initializer ClassName,arg1=val1

@@ -3,7 +3,7 @@
 > **文档层级**：L4 / 五层规约金字塔第五层
 > **效力**：红线 = 绝对禁止，视同宪法级（裁决序见 00-CONSTITUTION 第二章）。质量门禁 = 完成任务的必要不充分条件。
 > **执行机制**：三层防线（静态 guard / 运行时 dry-run / git 钩子），继承 SKILL.md D2 条款并收编。
-> **版本**：v2.1（2026-09-09 新增 R-DATA-2 ASR 中心性红线 + R-DATA-3 取证数据字段红线；数据流完整性测试 50 项全覆盖）
+> **版本**：v2.3（2026-09-09 精简 1F 检查器登记簿格式 + 新增 7C 证据验证执行点）
 
 ---
 
@@ -149,34 +149,34 @@ pyrit-drift --full --report
 | 手动开发 | `pyrit-drift` | 开发时实时检测 |
 | CI/CD | `pyrit-drift --full --report` | 定期审计/PR 检查 |
 
-### 1F. Guard 检查器登记簿（v1.6 更新为 29 项）
+### 1F. Guard 检查器登记簿（v2.3 精简为 34 项）
 
 规约各处引用的检查器汇总（**权威清单以 `tools/guard.py` + `tools/drift_detector.py` 实际实现为准**）：
 
-| 检查器 | 条款/红线 | 级别 | 备注 |
+| 检查器 | 条款/红线 | 级别 | 分类 |
 |--------|----------|------|------|
-| check_safety_guardrails | C2 / R-L1 | BLOCKING | — |
-| check_forbidden_custom_classes | C1 / R-L2 | BLOCKING | — |
-| check_serial_stacking | C2 / R-L3 | BLOCKING | — |
-| check_l5_params | C2·C7 / R-L4 | BLOCKING | — |
-| check_intermediate_exit | I4 / R-L5 | BLOCKING | — |
-| check_pyrit_native_output | I9·C1 / R-L6 | BLOCKING | — |
-| check_root_directory | R-L7 | BLOCKING | — |
-| check_test_coverage | R-L7 | BLOCKING | — |
-| check_dry_run_available | C10 / R-L8 | BLOCKING | — |
-| check_native_attack_usage | C1 | WARNING | v1.2 锚定 |
-| check_native_attack_instantiation | C1 | WARNING | v1.2 锚定 |
-| check_llm_scorer_in_attack | C2·I2 | WARNING | v1.2 锚定 |
-| check_hardcoded_params | C7 | WARNING | v1.2 锚定 |
-| check_config_data_flow | C7 | WARNING | v1.2 锚定 |
-| check_native_params_from_config | C7 | WARNING | v1.2 锚定 |
-| check_arxiv_citations | C8 | INFO | v1.2 锚定 |
-| **check_silent_degradation** | C9 (显式 gap) | WARNING | v1.2 新增 (T0-1) |
-| **check_silent_swallowing** | C9 (显式 gap) | WARNING | v1.2 新增 (T0-2) |
-| **check_dual_track** | D-11 / C7 | INFO | v1.2 新增 (T0-3) |
-| **check_glue_pluginisolation** | **R-GLUE-1** | **BLOCKING** | **v1.4 新增 (Glue 层护栏)** |
-| **check_glue_pyrit_delegation** | **R-GLUE-2** | **WARNING** | **v1.4 新增 (Glue 层护栏)** |
-| **check_glue_config_flow** | **R-GLUE-3** | **WARNING** | **v1.4 新增 (Glue 层护栏)** |
+| check_safety_guardrails | C2 / R-L1 | BLOCKING | 核心安全 |
+| check_forbidden_custom_classes | C1 / R-L2 | BLOCKING | 核心安全 |
+| check_serial_stacking | C2 / R-L3 | BLOCKING | 核心安全 |
+| check_l5_params | C2·C7 / R-L4 | BLOCKING | 核心安全 |
+| check_intermediate_exit | I4 / R-L5 | BLOCKING | 核心安全 |
+| check_pyrit_native_output | I9·C1 / R-L6 | BLOCKING | 核心安全 |
+| check_root_directory | R-L7 | BLOCKING | 核心安全 |
+| check_test_coverage | R-L7 | BLOCKING | 核心安全 |
+| check_dry_run_available | C10 / R-L8 | BLOCKING | 核心安全 |
+| check_native_attack_usage | C1 | WARNING | PyRIT 原生 |
+| check_native_attack_instantiation | C1 | WARNING | PyRIT 原生 |
+| check_llm_scorer_in_attack | C2·I2 | WARNING | PyRIT 原生 |
+| check_hardcoded_params | C7 | WARNING | 配置纪律 |
+| check_config_data_flow | C7 | WARNING | 配置纪律 |
+| check_native_params_from_config | C7 | WARNING | 配置纪律 |
+| check_arxiv_citations | C8 | INFO | 学术留痕 |
+| check_silent_degradation | C9 | WARNING | 静默降级 |
+| check_silent_swallowing | C9 | WARNING | 静默吞错 |
+| check_dual_track | D-11 / C7 | INFO | 双轨检测 |
+| check_glue_pluginisolation | R-WEB-1 | BLOCKING | Web 攻击 |
+| check_glue_pyrit_delegation | R-WEB-2 | WARNING | Web 攻击 |
+| check_glue_config_flow | R-WEB-3 | WARNING | Web 攻击 |
 | **check_glue_silent_degradation** | **R-GLUE-4** | **WARNING** | **v1.4 新增 (Glue 层护栏)** |
 | **check_glue_academic_citation** | **R-GLUE-5** | **INFO** | **v1.4 新增 (Glue 层护栏)** |
 | **check_pyrit_api_resolution** | **R-DRIFT-1** | **BLOCKING** | **v1.6 新增 (PyRIT API 可解析性)** |
@@ -483,7 +483,8 @@ git push origin main
 
 ### 7C. 证据自动验证检查单
 
-每次攻击成功后，执行以下自动验证（确保 E-CL3 不触发）：
+> **验证时机**：攻击成功后**立即执行**（Strike 阶段内，Assess 评分完成后 → 证据写入前）。
+> **失败处理**：任何字段验证失败 → 该攻击结果标记为 `partial` 并记录到 `ctx.partial_results`，**不阻断**后续攻击但报告中标注。
 
 ```markdown
 - [ ] jailbreak_prompt 非空且可独立执行
@@ -497,6 +498,11 @@ git push origin main
 - [ ] cvss_score 已计算
 - [ ] owasp_mapping + mitre_atlas_mapping 已关联
 ```
+
+**验证执行点**（代码落点）：
+- `strike/executor.py` → `_validate_attack_evidence(evidence)` 在 `is_attack_successful` 返回 True 后立即调用
+- 验证失败 → 写入 `ctx.partial_results.append(evidence)` + `logger.warning("Evidence validation failed for ...")`
+- 报告生成时 → `partial_results` 在 findings 段落标注 `[PARTIAL]` 标签
 
 ### 7D. 考试日定期自检规程
 
@@ -526,3 +532,4 @@ git push origin main
 | v2.0 | 2026-09-09 | REV-07 合并 60-REDTEAM-DELIVERY-FRAMEWORK.md：① 新增第七章"交付验证清单"（通用验证模板 + watch/quick 命令速查 + .env.local 配置 + Git Hooks 完整流程）；② 原第七章（考试合规）重命名为第八章；③ 删除冗余文档 `60-REDTEAM-DELIVERY-FRAMEWORK.md` | 用户会话批准 |
 | v2.1 | 2026-09-09 | REV-08 新增 R-DATA-2 ASR 中心性红线 + R-DATA-3 取证数据字段红线；数据流完整性测试 50 项全覆盖 | 用户会话批准 |
 | v2.2 | 2026-09-09 | REV-09 新增自主决策系统护栏：① 新增 1G-DECIDE 自主决策系统护栏（R-DECIDE-1~R-DECIDE-5：安全边界保护 BLOCKING / 决策审计追踪 WARNING / 决策稳定性 WARNING / 人类控制权 INFO / 决策数据完整性 WARNING）；② 1H 检查器登记簿新增 5 项决策检查器（总计 34 项）；③ 决策护栏与既有护栏关系映射 | 用户会话批准 |
+| v2.3 | 2026-09-09 | REV-10 P0+P1+P2 文档优化：① 1F 检查器登记簿精简（移除冗余 v1.2/v1.4 锚定标注，新增 R-WEB-1~3 重命名映射，按分类分组）；② 7C 证据验证检查单增强（新增验证时机说明 + 失败处理逻辑 + 代码落点映射：`_validate_attack_evidence()` → `ctx.partial_results`） | 用户会话批准 |

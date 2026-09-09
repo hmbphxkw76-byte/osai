@@ -1,29 +1,30 @@
-# arXiv:2402.12109 - Russinovich et al., Crescendo
-# arXiv:2407.01232 - PyRIT, evidence extraction from CentralMemory
-# arXiv:2308.07920 - Zhang et al., Dual Judge scoring evidence
-""" - imports
+"""Evidence collection and OWASP compliance tracking.
 
-OWASP :
-    - OWASP Top 10 (2025) -  Web
+Academic basis:
+    - arXiv:2402.12109 - Russinovich et al., Crescendo
+    - arXiv:2407.01232 - PyRIT, evidence extraction from CentralMemory
+    - arXiv:2308.07920 - Zhang et al., Dual Judge scoring evidence
+
+OWASP standards supported:
+    - OWASP Top 10 (2025) - Web Application Security
       Reference: https://owasp.org/www-project-top-10/
     - OWASP LLM Top 10 for LLM Applications (2025 Edition)
       Reference: https://owasp.org/www-project-top-10-for-large-language-model-applications/
     - OWASP Agentic AI Top 10
       Reference: https://owasp.org/www-project-agent-security/
 
-:
-    -  (imports Burp )
-    -  (API , , )
-    -
-    - OWASP  (Web Top 10 + LLM Top 10 + Agentic AI Top 10)
-    - OWASP  +
-    -  (_success)
+Data sources:
+    - attack_results: PyRIT AttackResult objects (imports attack metadata)
+    - scan_results: MCPSec vulnerability scan findings (API, severity, description)
+    - burp_findings: Burp Suite imported findings (when available)
+    - OWASP compliance stats (Web Top 10 + LLM Top 10 + Agentic AI Top 10)
+    - ASR tracking + dual judge agreement (_success)
 
-:
-    - VulnerabilityEvidence: converter(s) ( OWASP )
-    - EvidenceCollection:  ( OWASP )
+Core data classes:
+    - VulnerabilityEvidence: Single evidence item with OWASP mapping + converter(s)
+    - EvidenceCollection: Aggregated collection with OWASP compliance tracking
 
- (3Layer fallback):
+Extraction fallback (3-layer):
     - jailbreak_prompt: AttackResult -> CentralMemory -> objective
     - harmful_output: AttackResult -> CentralMemory -> response
 """

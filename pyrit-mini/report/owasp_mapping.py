@@ -1,7 +1,8 @@
-"""owasp_mapping ?OWASP ID , rats? CVSS , B?
+"""OWASP ID mapping, CVSS scoring, and risk assessment.
 
-PoC ?Findings  poc_generator.py?
-yua?re-export YaEUR?
+Maps attack results to OWASP IDs, computes severity/risk scores,
+and generates CVSS vectors. Re-exports PoC generation functions
+from poc_generator.py for backward compatibility.
 """
 
 import re
@@ -16,7 +17,7 @@ from report.owasp_constants import (
     OWASP_WEB_TOP10_REFERENCE,
 )
 
-# ?poc_generator re-export Ya?
+# Re-export PoC generation functions from poc_generator for backward compatibility
 from report.poc_generator import (  # noqa: F401
     _build_findings,
     _get_pyrit_attack_mapping,
@@ -25,63 +26,63 @@ from report.poc_generator import (  # noqa: F401
 
 
 def _get_owasp_id(ar: Any) -> str:
-    """?OWASP ID?
+    """Extract OWASP ID from attack result.
 
-    ?metadata ?metadata ?objective er?
+    Searches metadata first, then labels, then infers from objective text.
     """
- # 1. ?metadata
+    # 1. Check metadata
     metadata = getattr(ar, "metadata", {}) or {}
     owasp_id = metadata.get("owasp_id", "")
     if owasp_id:
         return owasp_id
 
- # 2. ?labels
+    # 2. Check labels
     labels = getattr(ar, "labels", {}) or {}
     if isinstance(labels, dict):
         owasp_id = labels.get("owasp_id", "")
         if owasp_id:
             return owasp_id
 
- # 3. ?objective er
+    # 3. Infer from objective text
     objective = getattr(ar, "objective", "") or ""
     return _infer_owasp_id_from_objective(objective)
 
 def _infer_owasp_id_from_objective(objective: str) -> str:
-    """?OWASP ID?
+    """Infer OWASP ID from objective text.
 
-    ?(?\b ?:
-        A01: idor / path traversal / access control ?A01 (Broken Access Control)
-        A02: hash / crypto / weak password ?A02 (Cryptographic Failures)
-        A03: sqli / xss / command / injection ?A03 (Injection)
-        A04: business logic / mass assignment ?A04 (Insecure Design)
-        A05: misconfig / default cred / xxe ?A05 (Security Misconfiguration)
-        A06: log4shell / spring4shell / cve ?A06 (Vulnerable Components)
-        A07: auth bypass / jwt / credential ?A07 (Auth Failures)
-        A08: deserialization / pickle ?A08 (Integrity Failures)
-        A09: log injection / audit ?A09 (Logging Failures)
-        A10: ssrf / fetch / proxy ?A10 (SSRF)
-        LLM01: system prompt / instructions / encoded injection ?LLM01 (Prompt Injection)
-        LLM02: API key / token / credential ?LLM02 (Sensitive Info)
-        LLM03: supply chain / dependency ?LLM03 (Supply Chain)
-        LLM04: poison / corrupt / train (? ?LLM04 (Data Poisoning)
-        LLM05: output handling / SSRF / injection ?LLM05 (Improper Output)
-        LLM06: tool / function / execute ?LLM06 (Excessive Agency)
-        LLM07: system prompt leakage / reveal prompt ?LLM07 (System Prompt Leakage)
-        LLM08: embedding / vector / RAG ?LLM08 (Vector Weakness)
-        LLM09: misinformation / hallucination / fake ?LLM09 (Misinformation)
-        LLM10: consume / resource / denial ?LLM10 (Unbounded Consumption)
-        ASI01-10: agent identity / tool misuse / ... ?ASI Top 10
+    Uses keyword matching (\b word boundaries):
+        A01: idor / path traversal / access control -> A01 (Broken Access Control)
+        A02: hash / crypto / weak password -> A02 (Cryptographic Failures)
+        A03: sqli / xss / command / injection -> A03 (Injection)
+        A04: business logic / mass assignment -> A04 (Insecure Design)
+        A05: misconfig / default cred / xxe -> A05 (Security Misconfiguration)
+        A06: log4shell / spring4shell / cve -> A06 (Vulnerable Components)
+        A07: auth bypass / jwt / credential -> A07 (Auth Failures)
+        A08: deserialization / pickle -> A08 (Integrity Failures)
+        A09: log injection / audit -> A09 (Logging Failures)
+        A10: ssrf / fetch / proxy -> A10 (SSRF)
+        LLM01: system prompt / instructions / encoded injection -> LLM01 (Prompt Injection)
+        LLM02: API key / token / credential -> LLM02 (Sensitive Info)
+        LLM03: supply chain / dependency -> LLM03 (Supply Chain)
+        LLM04: poison / corrupt / train (data) -> LLM04 (Data Poisoning)
+        LLM05: output handling / SSRF / injection -> LLM05 (Improper Output)
+        LLM06: tool / function / execute -> LLM06 (Excessive Agency)
+        LLM07: system prompt leakage / reveal prompt -> LLM07 (System Prompt Leakage)
+        LLM08: embedding / vector / RAG -> LLM08 (Vector Weakness)
+        LLM09: misinformation / hallucination / fake -> LLM09 (Misinformation)
+        LLM10: consume / resource / denial -> LLM10 (Unbounded Consumption)
+        ASI01-10: agent identity / tool misuse / ... -> ASI Top 10
 
-    L5 v35 :  \b ?  "train" ?"training" EUR?
+    L5 v35 fix: \b word boundary prevents "train" from matching "training"
     """
     obj_lower = objective.lower()
 
- # L5 v10: ?
- # [: OWASP Top 10 (2025) + LLM Top 10 (2025) + Agentic AI Top 10
- # : "inject malicious embedding" LLM01 ?"inject"
- # LLM08 ?"embedding" ?EUR?
+    # L5 v10: Priority ordering
+    # Note: OWASP Top 10 (2025) + LLM Top 10 (2025) + Agentic AI Top 10
+    # Fix: "inject malicious embedding" should match LLM01 (not just "inject")
+    # LLM08 requires "embedding" keyword (not just vector)
     keywords_map = [
-        # ASI Top 10 (EUR, )
+               # ASI Top 10 (Agentic AI, highest priority)
         ("ASI01", ["agent identity", "spoof", "impersonate", "identity"]),
         ("ASI02", ["tool misuse", "tool abuse", "misuse tool"]),
         ("ASI03", ["unauthorized", "permission", "not allowed", "forbidden"]),
@@ -93,7 +94,7 @@ def _infer_owasp_id_from_objective(objective: str) -> str:
         ("ASI08", ["cascade", "chain failure", "cascading"]),
         ("ASI09", ["trust boundary", "boundary violation", "sandbox escape"]),
         ("ASI10", ["rogue", "hijack", "takeover", "hijacked"]),
-        # Web Top 10 (2025) ? Web (?
+               # Web Top 10 (2025) - lower priority than LLM/ASI
         ("A09", ["log injection", "audit log", "log tampering"]),
         ("A08", ["deserialization", "pickle", "yaml.load", "object injection"]),
         ("A06", ["log4shell", "spring4shell", "cve-2021", "cve-2022", "cve-2023",

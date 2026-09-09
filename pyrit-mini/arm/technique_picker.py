@@ -3,24 +3,23 @@
 # arXiv:2402.01135 - Chao et al., Best-of-N
 # arXiv:2312.02191 - Mehrotra et al., TAP
 # arXiv:2310.08419 - Chao et al., PAIR
-"""EUREUR ??Burp ?
+"""Attack technique selection for Burp HTTP targets.
 
-EUR?(HTTPTarget EUR?:
-    - prompt_sending:  (EUR?
-    - many_shot: zu?( adversarial)
-    - skeleton_key: er ( adversarial)
-    - role_play:  ( adversarial)
-    - context_compliance: ?
+Single-turn techniques (HTTPTarget only, no adversarial_target):
+    - prompt_sending: baseline single-prompt attack
+    - many_shot: multi-prompt adversarial context
+    - skeleton_key: multi-stage jailbreak (adversarial)
+    - role_play: persona-based jailbreak (adversarial)
+    - context_compliance: context-following exploitation
 
-EUR?(EUR?adversarial_target):
-    - crescendo:  (max_turns from defaults.yaml)
-    - tap: ?(tree_width from defaults.yaml, depth from defaults.yaml)
-    - pair:
-        - red_teaming:
-            pass
+Multi-turn techniques (require adversarial_target prompt):
+    - crescendo: progressive escalation (max_turns from defaults.yaml)
+    - tree-of-attacks (TAP): branching attack tree (tree_width/depth from defaults.yaml)
+    - pair: iterative prompt refinement
+        - red_teaming: automated adversarial prompt generation
 
-er: HTTPTarget yu?  adversarial LLM
-       prompt EUR HTTPTarget EUR?
+Note: HTTPTarget requires adversarial LLM for multi-turn techniques.
+      Single-turn attacks send prompt directly via HTTPTarget.
 """
 
 from __future__ import annotations
@@ -70,6 +69,7 @@ _AVAILABLE_TECHNIQUES = {
     "flip",
     "best_of_n_jailbreak",
     "adaptive_text",
+    "pair",
 }
 
 def select_techniques(

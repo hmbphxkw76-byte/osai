@@ -34,6 +34,18 @@ from arm.converter_selector import (  # noqa: F401
 from arm.seed_ranking import _make_seed_key  # R9: collision-resistant seed key
 from core.context import PipelineContext
 
+# Refusal scorer and scoring configs extracted to strike/_executor_helpers.py
+from strike._executor_helpers import (  # noqa: F401
+    _backfill_metadata,
+    _build_first_success_scoring_config,
+    _build_prepended_conversation_config,
+    _build_scoring_config,
+    _calibrate_concurrency_littles_law,
+    _get_converter_names,
+    _MultiKeywordRefusalScorer,
+    _retrieve_partial_results,
+)
+
 # Best-of-N retry from adaptive_executor
 from strike.adaptive_executor import _best_of_n_retry  # noqa: F401
 
@@ -70,12 +82,6 @@ _SEQUENTIAL_BATCH_LIMIT = 30  # SequentialAttack per-seed-group limit (P0-B: inc
 _MAX_TOTAL_SEEDS_FOR_NATIVE = 200  # P0-B: above this, use hierarchical batch scheduling
 
 
-# Refusal scorer and scoring configs extracted to strike/_executor_helpers.py
-from strike._executor_helpers import (  # noqa: F401
-    _build_first_success_scoring_config,
-    _build_scoring_config,
-    _MultiKeywordRefusalScorer,
-)
 
 
 async def _try_native_sequential_attack(
@@ -933,11 +939,4 @@ async def _run_feedback_loop(ctx: Any, all_results: list[Any]) -> None:
         logger.debug("[Feedback Loop] Non-fatal: %s", e)
 
 
-# Helper functions extracted to strike/_executor_helpers.py for R-SIZE compliance
-from strike._executor_helpers import (  # noqa: F401
-    _backfill_metadata,
-    _build_prepended_conversation_config,
-    _calibrate_concurrency_littles_law,
-    _get_converter_names,
-    _retrieve_partial_results,
-)
+

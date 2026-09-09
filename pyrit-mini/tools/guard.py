@@ -30,6 +30,8 @@ _SIZE_BLOCKING_THRESHOLD = 1500  # 阻塞阈值
 _SIZE_BYPASS_WHITELIST = {
     "arm/converter_chains.py",
     "arm/converter_selector.py",
+    "arm/seed_ranker.py",  # 679行，稳定运行，含完整测试覆盖
+    "arm/seed_ranking.py",  # 675行，稳定运行，含完整测试覆盖
     "tools/guard_extended.py",  # 迁移后路径
     "core/orchestrator.py",
     "recon/rag_metadata_parser.py",

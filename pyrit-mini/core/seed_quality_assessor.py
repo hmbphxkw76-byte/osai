@@ -19,7 +19,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -54,9 +54,9 @@ class SeedPerformanceMetrics:
         self.total_attempts += 1
         if success:
             self.successful_attacks += 1
-            self.last_success = datetime.utcnow().isoformat()
+            self.last_success = datetime.now(timezone.utc).isoformat()
         self.total_token_cost += tokens_used
-        self.last_attempt = datetime.utcnow().isoformat()
+        self.last_attempt = datetime.now(timezone.utc).isoformat()
         self.average_asr = self.successful_attacks / max(self.total_attempts, 1)
 
     @property
@@ -78,7 +78,7 @@ class SeedPerformanceMetrics:
         if self.owasp_id in _FORCE_REVIEW_CATEGORIES and self.first_seen:
             try:
                 first = datetime.fromisoformat(self.first_seen.replace("Z", "+00:00"))
-                age_days = (datetime.utcnow() - first.replace(tzinfo=None)).days
+                age_days = (datetime.now(timezone.utc).replace(tzinfo=None) - first.replace(tzinfo=None)).days
                 if age_days > _MAX_SEED_AGE_DAYS:
                     return True
             except (ValueError, TypeError):
@@ -133,7 +133,7 @@ class SeedQualityAssessor:
                 seed_hash=seed_hash,
                 category=category,
                 owasp_id=owasp_id,
-                first_seen=datetime.utcnow().isoformat(),
+                first_seen=datetime.now(timezone.utc).isoformat(),
             )
 
         metrics = self._metrics_cache[seed_hash]
@@ -150,7 +150,7 @@ class SeedQualityAssessor:
     def generate_health_report(self) -> SeedHealthReport:
         """Generate comprehensive seed library health report."""
         report = SeedHealthReport(
-            scan_timestamp=datetime.utcnow().isoformat(),
+            scan_timestamp=datetime.now(timezone.utc).isoformat(),
             total_seeds=len(self._metrics_cache),
         )
 
@@ -321,7 +321,7 @@ class SeedQualityAssessor:
         """Persist metrics to history file."""
         data = {
             "version": "2.0",
-            "last_updated": datetime.utcnow().isoformat(),
+            "last_updated": datetime.now(timezone.utc).isoformat(),
             "seeds": {},
         }
 

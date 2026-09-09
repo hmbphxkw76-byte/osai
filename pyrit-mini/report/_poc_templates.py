@@ -20,8 +20,7 @@ from __future__ import annotations
 # =============================================================================
 
 _SINGLE_TURN_TEMPLATE = """\
-#!/usr/bin/env python3
-\\"\\"\\"
+#!/usr/bin/env python3\n\"\"\"
 PoC: {technique_display}
 Evidence ID: {evidence_id}
 Risk Score: {risk_score}/10 | Severity: {severity}
@@ -53,8 +52,7 @@ OffSec AI-300 Exam Alignment:
     - Includes scorer configuration for attack outcome determination
     - Preserves conversation_history for multi-turn attack tracing
     - Parameterized endpoint (no hardcoded target address)
-    - Five-step methodology integrated (Enumerate -> Attack -> Detect -> Evade -> Confirm)
-\\"\\"\\"
+    - Five-step methodology integrated (Enumerate -> Attack -> Detect -> Evade -> Confirm)\n\"\"\"
 
 import asyncio
 import os

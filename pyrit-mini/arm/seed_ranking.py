@@ -127,20 +127,12 @@ def _rank_by_asr(
         except (json.JSONDecodeError, KeyError):
             pass
 
- # UCB
     import math
- # L5 v11: UCB C XEUR ?X"?
- # [: Auer et al. (arXiv:cs/0207052) ?UCB1 ?C
- # u-+:
- # - C ??X (X?
- # - C ??X+ (?ASR )
- # XEUR:
- # 1. (N < 10): C=0.8 (? EUR?
- # 2. (10 ?N < 50): C=0.5 ()
- # 3. X (N ?50): C=0.3 (? X)
- # 4. ", yu?
-    C = _compute_adaptive_ucb_c(seed_attempts, asr_history)
+    # 计算 UCB 探索因子 C 和总尝试次数 N
+    # 基于总尝试次数动态调整探索率
     N = sum(seed_attempts.values()) if seed_attempts else 1
+    # 使用 _compute_adaptive_ucb_c 计算探索因子 (传入总尝试次数)
+    C = _compute_adaptive_ucb_c(mean_reward=0.0, pull_count=1, total_pulls=N)
 
     with_ucb: list[tuple[float, int, AttackSeedGroup]] = []
     without_ucb: list[tuple[str, int, AttackSeedGroup]] = []  # (severity, idx, group)

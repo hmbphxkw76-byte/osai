@@ -1,4 +1,4 @@
-﻿"""Judge - dual_judge + adaptive_dual_judge + judge_utils
+"""Judge - dual_judge + adaptive_dual_judge + judge_utils
 
 v57 : converter(s) Judge , from,
          SSOT (Single Source of Truth)
