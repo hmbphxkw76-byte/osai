@@ -713,6 +713,45 @@ class DecisionEngine:
 |------|--------|------|
 | R-DECIDE-1~6 | 见 40-GUARDRAILS 1F 登记簿（check_decision_* / check_human_override） | BLOCKING/WARNING/INFO |
 
+### 9.7 Adaptive Executor 文档补全 (v1.6 新增)
+
+> **R-DOC-2 修复**: `strike/adaptive_executor.py` 此前未在本规范中登记。
+
+#### 功能概述
+
+| 属性 | 说明 |
+|------|------|
+| 文件 | `strike/adaptive_executor.py` (~120行) |
+| 职责 | 自适应攻击执行器：Best-of-N重试 + 自适应结果检测 |
+| 学术依据 | Chao et al. (arXiv:2402.01135) - Best-of-N Jailbreaking |
+| 依赖 | PyRIT native `is_attack_successful` SSOT |
+
+#### 核心API
+
+| 函数 | 功能 | 消费者 |
+|------|------|--------|
+| `_adaptive_outcome_success(result)` | 多维度攻击结果判定 (outcome/score_value/scores) | executor.py |
+| `_get_best_of_n_retries(ctx)` | 读取Best-of-N重试次数 (默认N=5) | executor.py |
+| `_fallback_score(result)` | 评分回退逻辑 | executor.py |
+
+#### 数据流
+
+```
+executor.execute_attacks()
+    ↓
+adaptive_executor._adaptive_outcome_success()
+    ↓ (多维度判定)
+  result.outcome → "success"/"failure"
+  result.score_value → bool/int/float
+  result.scores → dict[scorer → score]
+    ↓
+AttackOutcome (success/failure + evidence_chain)
+```
+
+#### 测试覆盖
+
+**文件**: 通过 `tests/test_strike.py` 和 `tests/test_advanced_attacks.py` 间接覆盖
+
 ---
 
 ## 10. 版本记录
@@ -725,6 +764,7 @@ class DecisionEngine:
 | v1.3 | 2026-09-09 | 规约优化 P0-A3 + P1-B7：① 9.5 决策护栏去重——删除与 40-GUARDRAILS 1G 冲突的重复登记表（原 R-DECIDE-4 编号冲突归位），改为 SSOT 引用；② 9.2 伪代码连续失败阈值 `>3`→`>=3` 对齐 R-DECIDE-3；③ 新增 4.1-B 黑盒可测性约束（禁止白盒假设/指纹黑盒来源/prompt 通道触发/不可测即摘除） | 用户会话批准 |
 | v1.4 | 2026-09-09 | 新增缺口 4: 文件上传攻击 (File Upload Attack)：① 新增 `strike/file_upload_executor.py` (~400行) 通用文件上传执行器；② 新增 6 个 CLI 参数 (`--file-upload-target`, `--upload-endpoint`, `--trigger-endpoint`, `--upload-files`, `--upload-field-name`, `--trigger-method`)；③ 流水线集成 `_run_file_upload_phase()`；④ 新增 39 个测试用例 (tests/test_file_upload_executor.py)；⑤ 支持任意端口 (0-65535)、任意端点路径、分文档注入、知识库投毒等攻击模式 | 用户会话批准 |
 | v1.5 | 2026-09-09 | 新增跨模型规约审查引用：① 新增 9.6 节引用 60-CROSS-MODEL-VERIFICATION.md 协议；② 决策系统护栏新增 R-CROSS-1~5 引用（跨模型审查前置/一致性达标/审查记录完整/修复跟踪/审查时效）；③ 阶段 1D 任务清单引用（T1D-1~10） | 用户会话批准 |
+| v1.6 | 2026-09-09 | 文档覆盖补全 (R-DOC-2 修复)：① 新增 9.7 节 Adaptive Executor 完整文档；② 登记 `strike/adaptive_executor.py` 核心API、数据流、学术依据 (Best-of-N arXiv:2402.01135)；③ 版本升至 v1.6 | 用户会话批准 |
 
 ### 9.6 跨模型规约审查集成（v1.5 新增）
 

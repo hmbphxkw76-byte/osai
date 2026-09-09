@@ -25,13 +25,14 @@
 
 | 文档 | 内容 | 作用 |
 |------|------|------|
-| `00-CONSTITUTION` | AI 行为宪法、裁决序、C1-C12 | 了解 AI 行为边界 |
+| `00-CONSTITUTION` | AI 行为宪法、裁决序、C1-C15 | 了解 AI 行为边界 |
 | `10-ARCHITECTURE` | 分层依赖、ctx 契约、不变量 | 了解架构设计 |
 | `20-REQUIREMENTS` | P0/P1/P2 需求、NFR、NEG | 了解需求状态 |
 | `30-TASKS` | 任务生命周期、八步协议 | 了解任务执行流程 |
-| `40-GUARDRAILS` | 红线清单、四步门禁、三层防线 | 了解红线与门禁 |
+| `40-GUARDRAILS` | 红线清单、R-CROSS 跨模型红线 | 了解红线与门禁 |
 | `50-ROADMAP` | 任务序列、会话模型 | 了解开发路线 |
 | `55-ATTACK-GAP` | 攻击缺口闭环状态 | 了解攻击覆盖 |
+| `60-CROSS-MODEL-VERIFICATION` | 跨模型审查协议、三级仲裁 | 了解跨模型一致性 |
 
 ### 🔧 开发验证覆盖的工具（开发中必跑）
 
@@ -70,6 +71,7 @@
 | 6 | `pytest tests/test_data_flow_integrity.py -v` | 全部通过 | 修复契约违规 |
 
 **详细规则文档**: `tools/__init__.py` — 【完整验证触发规则】
+**快速参考卡片**: `DEV-TRIAD-CHECKLIST.md` — 【开发全审速查表】
 
 ---
 

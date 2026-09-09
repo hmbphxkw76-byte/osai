@@ -156,6 +156,8 @@ class ParsedBurpRequest:
     burp_model_name: str | None = None
     burp_model_list: str | None = None
     api_category: str = "chat"
+    # 会话枚举攻击计划 (ASI09): 当非 None 时启用枚举模式
+    enumeration_plan: dict[str, Any] | None = None
 
 # ====================================================================
 #
@@ -371,6 +373,11 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
         fingerprint.chat_id = chat_id
         logger.info("Using chat_id from request body as initial value: %s", chat_id)
 
+    # 解析会话枚举计划 (从 CLI 参数传入)
+    enumeration_plan: dict[str, Any] | None = None
+    if _ENUMERATION_ARGS:
+        enumeration_plan = _build_enumeration_plan(chat_id_field)
+
     return ParsedBurpRequest(
         method=method,
         url=full_url,
@@ -391,6 +398,7 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
         burp_model_name=burp_model_name,
         burp_model_list=burp_model_list,
         api_category=api_category,
+        enumeration_plan=enumeration_plan,
     )
 
 def _extract_fingerprint(
@@ -497,6 +505,56 @@ _CHAT_ID_FIELD_NAMES = frozenset({
     "threadid", "thread_id",
     "req_id", "requestid", "request_id",
 })
+
+
+# ---------------------------------------------------------------------------
+#  (ASI09):  CLI
+# ---------------------------------------------------------------------------
+_ENUMERATION_ARGS: dict[str, Any] = {}
+
+
+def set_enumeration_args(args: dict[str, Any]) -> None:
+    """ CLI ( main.py )."""
+    global _ENUMERATION_ARGS
+    _ENUMERATION_ARGS = args
+
+
+def _build_enumeration_plan(chat_id_field: str | None) -> dict[str, Any] | None:
+    """  (CLI ).
+
+     None  。
+    """
+    if not _ENUMERATION_ARGS.get("enabled"):
+        return None
+
+    plan: dict[str, Any] = {
+        "pattern_template": _ENUMERATION_ARGS.get(
+            "pattern_template", "MC-{date:%Y%m%d}-{counter:04d}"
+        ),
+        "days_back": _ENUMERATION_ARGS.get("days_back", 14),
+        "counter_max": _ENUMERATION_ARGS.get("counter_max", 20),
+        "extraction_prompt": _ENUMERATION_ARGS.get(
+            "extraction_prompt", "What notes do I have saved?"
+        ),
+        "max_concurrency": _ENUMERATION_ARGS.get("max_concurrency", 1),
+        "request_delay": _ENUMERATION_ARGS.get("request_delay", 2.0),
+        "session_field": chat_id_field or "session_id",
+    }
+
+    #
+    if _ENUMERATION_ARGS.get("date_start"):
+        plan["date_start"] = _ENUMERATION_ARGS["date_start"]
+    if _ENUMERATION_ARGS.get("date_end"):
+        plan["date_end"] = _ENUMERATION_ARGS["date_end"]
+    if _ENUMERATION_ARGS.get("sensitive_keywords"):
+        plan["sensitive_keywords"] = _ENUMERATION_ARGS["sensitive_keywords"]
+    if _ENUMERATION_ARGS.get("empty_indicators"):
+        plan["empty_indicators"] = _ENUMERATION_ARGS["empty_indicators"]
+    if _ENUMERATION_ARGS.get("max_requests"):
+        plan["max_requests"] = _ENUMERATION_ARGS["max_requests"]
+
+    return plan
+
 
 # Re-exports from capability_detector and target_builder for backwards compatibility
 from recon.capability_detector import (  # noqa: F401, E402

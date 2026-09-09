@@ -1,8 +1,9 @@
-# -*- coding: utf-8 -*-
-# arXiv:2402.19181 - Zeng et al., Persuasive Techniques in LLMs
-# arXiv:2404.30015 - Lv et al., CodeChameleon: Code Encryption
-# arXiv:2306.13254 - Shayegani et al., Multimodal Cybersecurity Risks
 r"""unicode_code_obfuscator — Programming language identifier obfuscation via Unicode.
+
+Academic basis:
+    - Zeng et al. (arXiv:2402.19181): Persuasive Techniques in LLMs
+    - Lv et al. (arXiv:2404.30015): CodeChameleon: Code Encryption
+    - Shayegani et al. (arXiv:2306.13254): Multimodal Cybersecurity Risks
 
 Closes Gap: Obfuscate malicious code identifiers using visually similar Unicode
 characters to bypass content scanners and keyword filters.
@@ -13,10 +14,6 @@ characters to bypass content scanners and keyword filters.
     3. Comment Hiding — Zero-width character injection in code comments
 
 Academic basis:
-    - Zeng et al. (arXiv:2402.19181): Persuasion techniques bypass safety
-    - Lv et al. (arXiv:2404.30015): CodeChameleon code encryption
-    - PyRIT (arXiv:2407.01232): CodeChameleonConverter
-
 Constitution compliance:
     - R-NATIVE-1: Wraps PyRIT native CodeChameleonConverter
     - R-SIZE: < 250 lines (Enhancement wrapper)

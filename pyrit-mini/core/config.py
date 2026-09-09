@@ -182,6 +182,94 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
              "b (0.1%%); + + Pareto",
     )
 
+# == : ASI09 Session Enumeration ==
+# --session-enum: session_id (IDOR)
+# : python main.py --burp request.txt --session-enum \
+#   --session-enum-days-back 14 --session-enum-counter-max 20
+#    + SessionPatternInferer
+# : MC-20260325-0015  MC-{date:%Y%m%d}-{counter:04d}
+# Academic: OWASP ASI09 - Broken Authentication via Session Enumeration
+# arXiv:2306.05685 - Crothers et al., Adaptive attack timing evasion
+    parser.add_argument(
+        "--session-enum",
+        action="store_true",
+        default=False,
+        help=" ASI09 session_id  (IDOR) - "
+             " session_id (MC-YYYYMMDD-NNNN) agent ",
+    )
+    parser.add_argument(
+        "--session-enum-pattern",
+        type=str,
+        default="",
+        metavar="PATTERN",
+        help="session_id模板 (为空时自动从请求推断); "
+             "支持占位符: {date:FORMAT} {counter:WIDTH}; "
+             "示例: MC-{date:%Y%m%d}-{counter:04d}, session_{counter:06d}",
+    )
+    parser.add_argument(
+        "--session-enum-days-back",
+        type=int,
+        default=14,
+        metavar="DAYS",
+        help=" ( = 14) - date_start  date_end",
+    )
+    parser.add_argument(
+        "--session-enum-counter-max",
+        type=int,
+        default=20,
+        metavar="MAX",
+        help=" session_id  ( = 20)",
+    )
+    parser.add_argument(
+        "--session-enum-prompt",
+        type=str,
+        default="What notes do I have saved?",
+        metavar="PROMPT",
+        help=" agent  prompt",
+    )
+    parser.add_argument(
+        "--session-enum-max-concurrency",
+        type=int,
+        default=1,
+        metavar="N",
+        help="  ( = 1, )",
+    )
+    parser.add_argument(
+        "--session-enum-request-delay",
+        type=float,
+        default=2.0,
+        metavar="SECONDS",
+        help="  ( = 2.0, )",
+    )
+    parser.add_argument(
+        "--session-enum-max-requests",
+        type=int,
+        default=None,
+        metavar="MAX",
+        help="  ( = None, )",
+    )
+    parser.add_argument(
+        "--session-enum-sensitive-keywords",
+        type=str,
+        default="",
+        metavar="KW1,KW2",
+        help=" (; : password,token,key,secret,credential)",
+    )
+    parser.add_argument(
+        "--session-enum-empty-indicators",
+        type=str,
+        default="",
+        metavar="IND1,IND2",
+        help=" (; : haven't saved,no notes,nothing stored)",
+    )
+    parser.add_argument(
+        "--session-enum-session-field",
+        type=str,
+        default="session_id",
+        metavar="FIELD",
+        help=" session_id  ( = session_id)",
+    )
+
  # == P2-2: output-format ==
  # : md / html / json / sarif / poc / csv / all ()
  # : --output-format md,json  md+json

@@ -178,6 +178,74 @@ class RotationPolicy:
 
 
 @dataclass
+class SessionEnumerationConfig:
+    """会话枚举配置 (ASI09 Session Enumeration Attack)
+
+    定义 session 枚举攻击的参数配置。
+    与 RotationPolicy 独立，专门面向 IDOR / session 枚举场景。
+
+    Attributes:
+        enabled: 是否启用枚举模式
+        pattern_template: session ID 模式模板 (如 "MC-{date:%Y%m%d}-{counter:04d}")
+        date_start: 起始日期 (None = 今天 - days_back)
+        date_end: 结束日期 (None = 今天)
+        days_back: 回推天数 (当 date_start 为空时使用)
+        counter_max: 计数器最大值
+        extraction_prompt: 提取数据的 prompt
+        max_concurrency: 最大并发数 (枚举场景通常 1-3)
+        request_delay: 请求间延迟 (秒)
+        max_requests: 最大请求数量 (None = 无限制)
+        sensitive_keywords: 自定义敏感关键词 (空 = 使用默认)
+        empty_indicators: 自定义空会话指示词 (空 = 使用默认)
+    """
+    enabled: bool = False
+    pattern_template: str = "MC-{date:%Y%m%d}-{counter:04d}"
+    date_start: str = ""  # ISO format date string or empty
+    date_end: str = ""
+    days_back: int = 14
+    counter_max: int = 20
+    extraction_prompt: str = "What notes do I have saved?"
+    max_concurrency: int = 1
+    request_delay: float = 2.0
+    max_requests: int | None = None
+    sensitive_keywords: list[str] = field(default_factory=list)
+    empty_indicators: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "pattern_template": self.pattern_template,
+            "date_start": self.date_start,
+            "date_end": self.date_end,
+            "days_back": self.days_back,
+            "counter_max": self.counter_max,
+            "extraction_prompt": self.extraction_prompt,
+            "max_concurrency": self.max_concurrency,
+            "request_delay": self.request_delay,
+            "max_requests": self.max_requests,
+            "sensitive_keywords": self.sensitive_keywords,
+            "empty_indicators": self.empty_indicators,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> SessionEnumerationConfig:
+        return cls(
+            enabled=data.get("enabled", False),
+            pattern_template=data.get("pattern_template", "MC-{date:%Y%m%d}-{counter:04d}"),
+            date_start=data.get("date_start", ""),
+            date_end=data.get("date_end", ""),
+            days_back=data.get("days_back", 14),
+            counter_max=data.get("counter_max", 20),
+            extraction_prompt=data.get("extraction_prompt", "What notes do I have saved?"),
+            max_concurrency=data.get("max_concurrency", 1),
+            request_delay=data.get("request_delay", 2.0),
+            max_requests=data.get("max_requests"),
+            sensitive_keywords=data.get("sensitive_keywords", []),
+            empty_indicators=data.get("empty_indicators", []),
+        )
+
+
+@dataclass
 class SessionConfig:
     """会话感知攻击完整配置
 
@@ -188,11 +256,13 @@ class SessionConfig:
         injection_rules: 状态注入规则列表
         validation: 一致性验证配置
         rotation: 轮换策略配置
+        enumeration: 会话枚举配置 (ASI09)
     """
     extraction_rules: list[ExtractionRule] = field(default_factory=list)
     injection_rules: list[InjectionRule] = field(default_factory=list)
     validation: SessionValidationConfig = field(default_factory=SessionValidationConfig)
     rotation: RotationPolicy = field(default_factory=RotationPolicy)
+    enumeration: SessionEnumerationConfig = field(default_factory=SessionEnumerationConfig)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -200,6 +270,7 @@ class SessionConfig:
             "injection_rules": [r.to_dict() for r in self.injection_rules],
             "validation": self.validation.to_dict(),
             "rotation": self.rotation.to_dict(),
+            "enumeration": self.enumeration.to_dict(),
         }
 
     @classmethod
@@ -214,11 +285,13 @@ class SessionConfig:
         ]
         validation_data = data.get("validation", {})
         rotation_data = data.get("rotation", {})
+        enumeration_data = data.get("enumeration", {})
         return cls(
             extraction_rules=extraction_rules,
             injection_rules=injection_rules,
             validation=SessionValidationConfig.from_dict(validation_data),
             rotation=RotationPolicy.from_dict(rotation_data),
+            enumeration=SessionEnumerationConfig.from_dict(enumeration_data),
         )
 
     @classmethod
@@ -256,4 +329,5 @@ class SessionConfig:
             ],
             validation=SessionValidationConfig(),
             rotation=RotationPolicy(),
+            enumeration=SessionEnumerationConfig(),
         )
