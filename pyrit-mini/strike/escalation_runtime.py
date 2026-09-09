@@ -18,6 +18,7 @@ Data Flow:
 
 Academic basis:
     - Hanna et al. (arXiv:2406.18512) SkeletonKey — ASR 80-95% (prefix injection)
+    - SKELETONKEY (arXiv:2402.14266) — Prefix-injection behavior override
     - Chowdhury et al. (arXiv:2404.01833) Crescendo — 4-turn graduated scale-up
     - Perez et al. (arXiv:2202.03286) Red Teaming via role-play
     - Mehrabi et al. (arXiv:2405.17350) TAP (Tree of Attacks Pruning)

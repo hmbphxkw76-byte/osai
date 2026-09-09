@@ -49,7 +49,8 @@ from strike._executor_helpers import (  # noqa: F401
 # Best-of-N retry from adaptive_executor
 from strike.adaptive_executor import _best_of_n_retry  # noqa: F401
 
-# Session-Aware Attack Framework: SessionStateManager
+# Session-Aware Attack Framework: SessionStateManager + ConversationManager (PyRIT native)
+# R-SESSION-5: PyRIT ConversationManager for multi-turn dialog context management
 from strike.session import SessionStateManager  # noqa: F401
 
 # P2 : _is_success utils.attack_utils.SSOT

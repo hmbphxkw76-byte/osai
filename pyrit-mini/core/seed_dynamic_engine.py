@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Seed Dynamic Generation Engine — 种子动态生成引擎
 
 基于侦察阶段获取的目标上下文，动态生成定制化攻击种子。
@@ -13,6 +11,8 @@ Integration:
     - core/phases/arm.py: Consumes recon context to generate seeds in ARM phase
     - core/phases/strike.py: Dynamically inject personalized seeds before attack execution
 """
+
+from __future__ import annotations
 
 import logging
 import random

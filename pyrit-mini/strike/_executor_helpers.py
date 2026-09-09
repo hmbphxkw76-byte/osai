@@ -5,8 +5,11 @@
 This module contains utility functions for attack execution:
     - _get_converter_names: Extract converter class names for metadata backfill
     - _backfill_metadata: Backfill OWASP IDs into AttackResult.metadata
-    - _build_prepended_conversation_config: Build PrependedConversationConfig for SkeletonKey
+    - _build_prepended_conversation_config: Build PrependedConversationConfig for SkeletonKey (arXiv:2402.14266)
     - _retrieve_partial_results: Retrieve partial results from CentralMemory
+
+Academic basis:
+    - SKELETONKEY (arXiv:2402.14266) — Prefix-injection behavior override for red teaming
 """
 from __future__ import annotations
 
