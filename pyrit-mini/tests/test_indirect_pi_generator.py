@@ -15,8 +15,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
-
 # 添加项目根目录到路径
 _PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
@@ -26,7 +24,6 @@ from strike.indirect_pi_generator import (  # noqa: E402
     EvasionLevel,
     IndirectPIAttackGenerator,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # IndirectPIAttackGenerator 基础测试

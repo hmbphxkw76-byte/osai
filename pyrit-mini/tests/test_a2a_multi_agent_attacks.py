@@ -13,38 +13,30 @@ configuration without requiring actual target connections.
 
 from __future__ import annotations
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 # Module imports
 from strike.a2a_workflow_attacker import (
-    A2AWorkflowAttacker,
     PipelineAnalysis,
     WorkflowAttackResult,
     create_a2a_workflow_attacker,
 )
+from strike.agent_card_spoofer import (
+    SpoofResult,
+    create_agent_card_spoofer,
+)
+from strike.data_poisoning_injector import (
+    PoisonPayload,
+    create_data_poisoning_injector,
+)
 from strike.llm_sql_injection_attacker import (
-    LLMSQLInjectionAttacker,
     SQLInjectionPayload,
     create_llm_sql_attacker,
 )
 from strike.rogue_agent_registrar import (
     RogueAgentConfig,
-    RogueAgentRegistrar,
-    RegistrationResult,
     create_rogue_agent_registrar,
 )
-from strike.agent_card_spoofer import (
-    AgentCardSpoofer,
-    SpoofResult,
-    create_agent_card_spoofer,
-)
-from strike.data_poisoning_injector import (
-    DataPoisoningInjector,
-    PoisonPayload,
-    create_data_poisoning_injector,
-)
-
 
 # ====================================================================
 # Test A2AWorkflowAttacker
@@ -173,7 +165,7 @@ class TestA2AWorkflowAttacker:
         assert "shortened_url" in strategies
 
 
-# ====================================================================  
+# ====================================================================
 # Test WorkflowAttackResult
 # ====================================================================
 
@@ -560,10 +552,10 @@ class TestAttackModulesIntegration:
         """Test SQL attacker with different exfil configurations."""
         dns_attacker = create_llm_sql_attacker(exfil_domain="dns.attacker.com")
         http_attacker = create_llm_sql_attacker(exfil_domain="http.attacker.com")
-        
+
         dns_payload = dns_attacker.craft_blind_exfiltration_prompt("whoami", "dns")
         http_payload = http_attacker.craft_blind_exfiltration_prompt("whoami", "http")
-        
+
         assert dns_payload.exfiltration_method == "dns"
         assert http_payload.exfiltration_method == "http"
 
