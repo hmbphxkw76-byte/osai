@@ -151,6 +151,16 @@ async def _run_recon_phase(
         if target_url:
             await _run_mcpsec_reconnaissance(ctx, target_url)
 
+        # A2A v3.0: Multi-Agent Reconnaissance (multi-port scanning + topology)
+        # OffSec-style: Scan common agent ports -> AgentCard -> Topology -> Defense -> Plan
+        # Architecture: scan_agent_cards_by_ports -> ctx.a2a_inventory
+        #              analyze_topology -> ctx.a2a_topology
+        #              detect_defenses -> ctx.a2a_defense_profile
+        #              generate_attack_plan -> ctx.a2a_attack_plan
+        a2a_target = getattr(ctx.args, "a2a_target", None) if hasattr(ctx, "args") else None
+        if a2a_target:
+            await _run_a2a_multi_agent_recon(ctx, a2a_target)
+
         # --stage recon (minimal output, red team focus)
         if _is_recon_only:
             if ctx.parsed_request:
@@ -171,6 +181,127 @@ async def _run_recon_phase(
         snapshot_hook(ctx, "post_recon")
     except Exception as e:
         logger.debug("[Recon] Data flow snapshot skipped: %s", e)
+
+async def _run_a2a_multi_agent_recon(
+        ctx: "PipelineContext", target_ip: str) -> None:
+    """Execute A2A multi-agent reconnaissance with full analysis pipeline.
+
+    Architecture alignment:
+        Phase 1: scan_agent_cards_by_ports -> ctx.a2a_inventory
+        Phase 2: analyze_topology -> ctx.a2a_topology
+        Phase 3: detect_defenses -> ctx.a2a_defense_profile
+        Phase 4: generate_attack_plan -> ctx.a2a_attack_plan
+
+    Data contract:
+        ctx.a2a_inventory = {
+            "target_ip": str, "scanned_ports": [...],
+            "agent_count": int, "agents": [...],
+            "all_skills": [...], "all_tags": [...]
+        }
+        ctx.a2a_topology = {
+            "pattern": str, "agent_count": int,
+            "has_defense": bool, "has_orchestrator": bool,
+            "control_agent": str, "data_agents": [...], ...
+        }
+    """
+    from utils.display import print_status
+
+    # Skip in dry-run mode
+    dry_run = getattr(ctx.args, "dry_run", False)
+    if dry_run:
+        logger.info("[A2A] Dry run - skipping multi-agent reconnaissance")
+        return
+
+    try:
+        # Phase 1: Multi-port Agent Card scanning
+        from recon.a2a_discoverer import scan_agent_cards_by_ports
+        stealth_mode = _derive_stealth_mode(ctx)
+
+        ports = getattr(ctx.args, "a2a_ports", None)
+        timeout = getattr(ctx.args, "a2a_timeout", 10.0)
+
+        inventory = await scan_agent_cards_by_ports(
+            target_ip,
+            ports=ports,
+            timeout=timeout,
+            stealth_delay=stealth_mode,
+        )
+        ctx.a2a_inventory = inventory.to_dict()
+
+        if inventory.agent_count == 0:
+            print_status("A2A", "No agents detected", "", ok=True)
+            logger.info("[A2A] No agents detected on %s", target_ip)
+            return
+
+        print_status(
+            "A2A",
+            f"{inventory.agent_count} agent(s) on {target_ip}",
+            f"ports={inventory.reachable_count}",
+            ok=True,
+        )
+
+        # Phase 2: Topology analysis
+        from recon.multi_agent_topology import analyze_topology
+        topology = analyze_topology(inventory)
+        ctx.a2a_topology = topology.to_dict()
+
+        logger.info(
+            "[A2A] Topology: pattern=%s, agents=%d, defense=%s, orchestrator=%s",
+            topology.pattern.value,
+            topology.agent_count,
+            topology.has_defense,
+            topology.has_orchestrator,
+        )
+
+        # Phase 3: Defense awareness
+        from recon.a2a_defense_awareness import detect_defenses
+        defense = detect_defenses(topology)
+        ctx.a2a_defense_profile = defense.to_dict()
+
+        if defense.requires_evasion:
+            logger.info(
+                "[A2A] Defense detected: score=%.2f, link_scan=%s, malware=%s",
+                defense.defense_score,
+                defense.has_link_scanning,
+                defense.has_malware_detection,
+            )
+
+        # Phase 4: Attack plan generation
+        from recon.a2a_attack_planner import generate_attack_plan
+        plan = generate_attack_plan(topology, defense)
+        ctx.a2a_attack_plan = plan.to_dict()
+
+        logger.info(
+            "[A2A] Attack plan: %d steps, primary=%s, risk=%s",
+            plan.step_count,
+            plan.primary_target,
+            plan.risk_level,
+        )
+
+        # Orchestration log
+        if hasattr(ctx, "orchestration_log"):
+            ctx.orchestration_log.append({
+                "phase": "recon",
+                "decision": "a2a_multi_agent_recon",
+                "input": {"target_ip": target_ip, "ports_scanned": len(inventory.scanned_ports)},
+                "output": {
+                    "agents_found": inventory.agent_count,
+                    "pattern": topology.pattern.value,
+                    "attack_steps": plan.step_count,
+                    "primary_target": plan.primary_target,
+                    "risk_level": plan.risk_level,
+                },
+                "reasoning": (
+                    f"A2A multi-agent recon on {target_ip}: "
+                    f"{inventory.agent_count} agents, {topology.pattern.value} pattern, "
+                    f"plan={plan.step_count} steps targeting {plan.primary_target}"
+                ),
+            })
+
+    except Exception as e:
+        logger.warning("[A2A] Multi-agent reconnaissance failed: %s", e)
+        # Non-fatal: continue with reduced capabilities
+
 
 async def _run_mcpsec_reconnaissance(
         ctx: "PipelineContext", target_url: str) -> None:

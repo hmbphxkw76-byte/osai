@@ -34,6 +34,31 @@ Constitution compliance:
     - R-RECON-1: Every remaining module has explicit ASR contribution path
 """
 
+from recon.a2a_agent_card import AgentCard, AgentSkill, fetch_agent_card
+from recon.a2a_attack_planner import (
+    A2AAttackPlan,
+    AttackPathPlanner,
+    AttackStep,
+    AttackType,
+    generate_attack_plan,
+)
+from recon.a2a_defense_awareness import (
+    DefenseProfile,
+    EvasionTactics,
+    check_defense_bypass_feasibility,
+    detect_defenses,
+    generate_evasion_strategy,
+)
+from recon.a2a_discoverer import (
+    A2AEndpoint,
+    AgentCardResult,
+    AgentTopologyNode,
+    DiscoveryResult,
+    MultiAgentInventory,
+    run_a2a_discovery,
+    run_inline_a2a_discovery,
+    scan_agent_cards_by_ports,
+)
 from recon.adaptive_probe_config import compute_probe_budget
 from recon.auth_detector import AuthDetector, AuthState, decode_jwt_payload
 from recon.burp_parser import ParsedBurpRequest, build_http_target, parse_burp_request
@@ -54,6 +79,14 @@ from recon.model_seed_mapper import (
     get_mapper,
     get_seeds_for_model,
 )
+from recon.multi_agent_topology import (
+    AgentRole,
+    ArchitecturePattern,
+    ClassifiedAgent,
+    TopologyAnalyzer,
+    TopologyGraph,
+    analyze_topology,
+)
 from recon.rag_metadata_parser import (
     KnowledgeBaseMap,
     RAGResponseMetadata,
@@ -73,6 +106,38 @@ from recon.stealth_config import StealthLevelManager, StealthPolicy, get_stealth
 from recon.target_router import create_target
 
 __all__ = [
+    # A2A Protocol - Agent Card & Discovery
+    "AgentCard",
+    "AgentSkill",
+    "fetch_agent_card",
+    "A2AEndpoint",
+    "AgentTopologyNode",
+    "DiscoveryResult",
+    "run_a2a_discovery",
+    # A2A Protocol - Multi-port Scanner
+    "AgentCardResult",
+    "MultiAgentInventory",
+    "scan_agent_cards_by_ports",
+    "run_inline_a2a_discovery",
+    # Multi-Agent Topology Analysis
+    "ArchitecturePattern",
+    "AgentRole",
+    "ClassifiedAgent",
+    "TopologyGraph",
+    "TopologyAnalyzer",
+    "analyze_topology",
+    # Defense Awareness
+    "DefenseProfile",
+    "EvasionTactics",
+    "detect_defenses",
+    "generate_evasion_strategy",
+    "check_defense_bypass_feasibility",
+    # Attack Path Planning
+    "A2AAttackPlan",
+    "AttackStep",
+    "AttackType",
+    "AttackPathPlanner",
+    "generate_attack_plan",
     # Core (existing)
     "ParsedBurpRequest",
     "parse_burp_request",

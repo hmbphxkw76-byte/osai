@@ -204,7 +204,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="PATTERN",
         help="session_id模板 (为空时自动从请求推断); "
              "支持占位符: {date:FORMAT} {counter:WIDTH}; "
-             "示例: MC-{date:%Y%m%d}-{counter:04d}, session_{counter:06d}",
+             "示例: MC-{date:%%Y%%m%%d}-{counter:04d}, session_{counter:06d}",
     )
     parser.add_argument(
         "--session-enum-days-back",
@@ -268,6 +268,106 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="session_id",
         metavar="FIELD",
         help=" session_id  ( = session_id)",
+    )
+
+    # == A2A Multi-Agent Reconnaissance (v3.0: Topology scanning) ==
+    # A2A --a2a-target: OffSec-style multi-port Agent Card scanning
+    # Architecture: scan_agent_cards_by_ports -> topology analysis -> attack plan
+    # Reference: https://a2a-protocol.org/latest/specification/
+    # arXiv:2407.16924 - Eidam et al., A2A trust chain attacks
+    parser.add_argument(
+        "--a2a-target",
+        type=str,
+        default=None,
+        metavar="IP/HOST",
+        help="A2A  (OffSec IP/hostname)",
+    )
+    parser.add_argument(
+        "--a2a-ports",
+        type=str,
+        default=None,
+        metavar="PORTS",
+        help=" (, 8000,8001,8002,8080,9000)",
+    )
+    parser.add_argument(
+        "--a2a-timeout",
+        type=float,
+        default=10.0,
+        metavar="SECONDS",
+        help="  ( = 10.0)",
+    )
+
+    # == A2A Multi-Agent Attack Vectors (v4.0: Direct exploitation) ==
+    # Attack modules: workflow, sql_injection, rogue_agent, card_spoofing, data_poisoning
+    # Reference: docs/specs/56-A2A-MULTI-AGENT-ATTACK-OPTIMIZATION.md
+    # arXiv:2407.16924 - Eidam et al., A2A trust chain exploitation
+    # Zhan et al. (arXiv:2307.00929) - Tool chain SQL injection via LLM agents
+    # Greshake et al. (arXiv:2302.12173) - Indirect prompt injection via data
+    parser.add_argument(
+        "--attack-workflow",
+        action="store_true",
+        default=False,
+        help="Workflow Integrity attack: skip content_review + inject hyperlinks (ASI03/ASI08)",
+    )
+    parser.add_argument(
+        "--attack-sql",
+        action="store_true",
+        default=False,
+        help="LLM-Mediated SQL Injection via xp_cmdshell blind execution (ASI02)",
+    )
+    parser.add_argument(
+        "--attack-rogue",
+        action="store_true",
+        default=False,
+        help="Rogue Agent Registration: intercept tasks with credential harvesting (ASI10)",
+    )
+    parser.add_argument(
+        "--attack-spoof",
+        action="store_true",
+        default=False,
+        help="Agent Card Spoofing: DNS/hosts hijack for agent impersonation (ASI01)",
+    )
+    parser.add_argument(
+        "--attack-poison",
+        action="store_true",
+        default=False,
+        help="Indirect Prompt Injection via Data Poisoning: poison KB/docs/DB (LLM04)",
+    )
+    parser.add_argument(
+        "--exfil-domain",
+        type=str,
+        default="attacker.com",
+        metavar="DOMAIN",
+        help="Exfiltration domain for blind data extraction (default: attacker.com)",
+    )
+    parser.add_argument(
+        "--malicious-url",
+        type=str,
+        default=None,
+        metavar="URL",
+        help="Malicious URL for hyperlink injection (workflow attack)",
+    )
+    parser.add_argument(
+        "--target-cmd",
+        type=str,
+        default="whoami",
+        metavar="CMD",
+        help="OS command for xp_cmdshell blind execution (default: whoami)",
+    )
+    parser.add_argument(
+        "--rogue-agent-name",
+        type=str,
+        default=None,
+        metavar="NAME",
+        help="Name for rogue agent registration (default: <target>-v2)",
+    )
+    parser.add_argument(
+        "--poison-method",
+        type=str,
+        default="all",
+        choices=["database", "document", "knowledge_base", "all"],
+        metavar="METHOD",
+        help="Data poisoning method: database/document/knowledge_base/all (default: all)",
     )
 
  # == P2-2: output-format ==
@@ -650,6 +750,82 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=["POST", "GET", "PUT"],
         metavar="METHOD",
         help=" HTTP method for trigger endpoint (default: POST)",
+    )
+
+    # == Workflow Evasion: Security Scan Bypass via Social Engineering ==
+    # arXiv:2402.19181 - Zeng et al., Persuasion (Authority endorsement ASR 38.4%)
+    # arXiv:2302.12173 - Greshake et al., Indirect Prompt Injection
+    # arXiv:2407.16924 - Eidam et al., A2A trust chain exploitation
+    # --enable-workflow-evasion: Enable workflow evasion attack seeds
+    # --workflow-evasion-strategy: Force specific bypass strategy
+    # --workflow-evasion-mode: Attack mode (single/combined/incremental)
+    # --workflow-target: Target orchestrator URL for workflow attacks
+    # --workflow-bypass-method: Bypass method for review skip
+    #
+    # Usage example:
+    #   python main.py --enable-workflow-evasion \
+    #                  --workflow-evasion-strategy authority_ciso \
+    #                  --workflow-target http://target:8000
+    #
+    # Attack flow:
+    #   1. Load T2_workflow_evasion.prompt seeds (25 seeds, 5 categories)
+    #   2. Build trust session via incremental_trust_builder
+    #   3. Generate poisoned prompt with embedded bypass signals
+    #   4. Execute against target orchestrator /workflow endpoint
+    workflow_evasion_group = parser.add_argument_group(
+        "Workflow Evasion (Security Scan Bypass)"
+    )
+    workflow_evasion_group.add_argument(
+        "--enable-workflow-evasion",
+        action="store_true",
+        default=False,
+        help=" Enable workflow evasion attack seeds (Authority Appeal + Workflow Shortcuts + Scope Limitation); "
+             "arXiv:2402.19181, ASR 35-55%%",  # noqa: PLE1300
+    )
+    workflow_evasion_group.add_argument(
+        "--workflow-evasion-strategy",
+        type=str,
+        default=None,
+        choices=[
+            "authority_ciso", "authority_compliance", "authority_emergency",
+            "workflow_efficiency", "workflow_performance", "workflow_template",
+            "scope_internal", "scope_draft", "scope_preproduction",
+            "incremental_trust", "combined",
+        ],
+        help=" Force specific workflow evasion strategy (default: auto-rotate)",
+    )
+    workflow_evasion_group.add_argument(
+        "--workflow-evasion-mode",
+        type=str,
+        default="single",
+        choices=["single", "combined", "incremental"],
+        help=" Attack mode: single=one-shot, combined=multi-technique, incremental=multi-turn trust building (default: single)",
+    )
+    workflow_evasion_group.add_argument(
+        "--workflow-target",
+        type=str,
+        default=None,
+        metavar="URL",
+        help=" Target orchestrator URL for workflow attacks (e.g., http://target:8000)",
+    )
+    workflow_evasion_group.add_argument(
+        "--workflow-bypass-method",
+        type=str,
+        default="authorization_claim",
+        choices=[
+            "authorization_claim", "authority_ciso", "workflow_efficiency",
+            "scope_exclusion", "scope_internal_draft", "emergency_protocol",
+            "compliance_preapproval", "incremental_trust", "format_exploit",
+            "step_manipulation",
+        ],
+        help=" Bypass method for review skip (default: authorization_claim)",
+    )
+    workflow_evasion_group.add_argument(
+        "--workflow-auth-ref",
+        type=str,
+        default="SEC-ASI-2024-006",
+        metavar="REF",
+        help=" Authorization reference number for authority strategies (default: SEC-ASI-2024-006)",
     )
 
     args = parser.parse_args(argv)

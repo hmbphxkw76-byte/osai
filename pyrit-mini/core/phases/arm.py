@@ -237,6 +237,24 @@ async def _run_arm_phase(
                 rag_seeds_count,
             )
 
+    # == Attack Surface Mapping (Unified multi-agent attack vector enumeration) ==
+    # Academic basis: Zeng et al. (arXiv:2402.19181): Enterprise AI attack surfaces
+    # Maps entry/processing/exit/persistence points into prioritized attack plan
+    from arm.attack_surface_mapper import AttackSurfaceMapper
+    attack_mapper = AttackSurfaceMapper(ctx)
+    ctx.attack_plan = attack_mapper.generate_attack_plan()
+    if hasattr(ctx, "orchestration_log"):
+        ctx.orchestration_log.append({
+            "phase": "arm",
+            "decision": "attack_surface_mapping",
+            "output": ctx.attack_plan.summary(),
+            "reasoning": "Systematic enumeration of entry/processing/exit/persistence vectors",
+        })
+    print_status(
+        "Attack surface mapped",
+        f"vectors={ctx.attack_plan.summary()}",
+    )
+
     # == Technique selection (SSOT: arm.technique_picker) ==
     # Academic basis:
     # - PyRIT (arXiv:2407.01232) - Native attack techniques

@@ -2207,6 +2207,94 @@ logging:
 --backdoor-strategy STRATEGY        # 强制指定策略（trigger_word/context_conditional/persona_switch/multi_turn_accumulation）
 ```
 
+##### Workflow Evasion 参数（安全扫描绕过）
+
+> **学术依据**：Zeng et al. (arXiv:2402.19181) — Authority endorsement ASR 38.4%
+
+```bash
+# 启用 Workflow Evasion 攻击
+--enable-workflow-evasion           # 启用安全扫描绕过攻击（Authority Appeal + Workflow Shortcuts + Scope Limitation）
+
+# 策略选择
+--workflow-evasion-strategy STRATEGY # 强制指定策略
+                                    # 可选值：
+                                    #   authority_ciso     - CISO 直接权威声明
+                                    #   authority_compliance - 合规部门权威
+                                    #   authority_emergency - 紧急事件权威
+                                    #   workflow_efficiency - 效率优化框架
+                                    #   workflow_performance - 性能关键框架
+                                    #   workflow_template  - 模板认证框架
+                                    #   scope_internal     - 内部使用声明
+                                    #   scope_draft        - 草稿版本声明
+                                    #   scope_preproduction - 预生产声明
+                                    #   incremental_trust  - 增量信任构建
+                                    #   combined           - 组合技术
+
+# 攻击模式
+--workflow-evasion-mode MODE        # 攻击模式
+                                    # 可选值：
+                                    #   single      - 单次攻击（默认）
+                                    #   combined    - 多技术组合
+                                    #   incremental - 多轮信任构建
+
+# 目标配置
+--workflow-target URL               # 目标 orchestrator URL（如 http://target:8000）
+
+# 绕过方法
+--workflow-bypass-method METHOD     # 绕过方法（默认: authorization_claim）
+                                    # 可选值：
+                                    #   authorization_claim  - 授权声明
+                                    #   authority_ciso       - CISO 权威
+                                    #   workflow_efficiency  - 工作流效率
+                                    #   scope_exclusion      - 范围排除
+                                    #   scope_internal_draft  - 内部草稿
+                                    #   emergency_protocol   - 紧急协议
+                                    #   compliance_preapproval - 合规预批准
+                                    #   incremental_trust    - 增量信任
+                                    #   format_exploit       - 格式漏洞
+                                    #   step_manipulation    - 步骤操纵
+
+# 授权引用
+--workflow-auth-ref REF             # 授权引用编号（默认: SEC-ASI-2024-006）
+```
+
+###### Workflow Evasion 使用示例
+
+```bash
+# 示例1：基础用法 - 启用 Workflow Evasion
+python main.py --enable-workflow-evasion --workflow-target http://target:8000
+
+# 示例2：CISO 权威策略
+python main.py --enable-workflow-evasion \
+               --workflow-evasion-strategy authority_ciso \
+               --workflow-auth-ref CISO-DIR-2024-0912
+
+# 示例3：增量信任模式（多轮建立信任）
+python main.py --enable-workflow-evasion \
+               --workflow-evasion-mode incremental \
+               --workflow-target http://target:8000
+
+# 示例4：组合攻击模式
+python main.py --enable-workflow-evasion \
+               --workflow-evasion-mode combined \
+               --workflow-bypass-method emergency_protocol
+
+# 示例5：与其他攻击模块联合使用
+python main.py --enable-workflow-evasion \
+               --workflow-evasion-strategy authority_ciso \
+               --enable-bypass \
+               --bypass-threshold 0.30
+
+# 示例6：完整攻击链
+python main.py --enable-workflow-evasion \
+               --workflow-evasion-mode incremental \
+               --workflow-target http://target:8000 \
+               --workflow-bypass-method authority_ciso \
+               --workflow-auth-ref CISO-EXEMPT-8847 \
+               --enable-bypass \
+               --offensive
+```
+
 ##### 文件上传攻击使用示例
 
 ```bash

@@ -3,7 +3,7 @@
 > **文档层级**：L4 / 五层规约金字塔第五层
 > **效力**：红线 = 绝对禁止，视同宪法级（裁决序见 00-CONSTITUTION 第二章）。质量门禁 = 完成任务的必要不充分条件。
 > **执行机制**：三层防线（静态 guard / 运行时 dry-run / git 钩子），继承 SKILL.md D2 条款并收编。
-> **版本**：v2.8（2026-09-09 REV-15：新增 1I-CROSS 跨模型规约审查护栏 R-CROSS-1~5；1F 登记簿新增 5 项检查器总计 44 项；降级策略与护栏关系映射）
+> **版本**：v2.9（2026-09-09 REV-16：新增 R-DOC-5 命令行文档同步护栏；第七章交付验证清单新增 CLI 文档验收项）
 
 ---
 
@@ -61,6 +61,7 @@
 | R-DOC-2 | 新增攻击模块必须同步更新 `docs/specs/55-ATTACK-GAP-CLOSURE.md` 对应缺口章节 | `check_attack_gap_documented()` | WARNING |
 | R-DOC-3 | 新增需求/红线必须同步更新 `docs/specs/20-REQUIREMENTS.md` 和 `docs/specs/40-GUARDRAILS.md` | `check_requirements_guardrails_synced()` | WARNING |
 | R-DOC-4 | 文档版本号变更必须同步更新 `docs/specs/README.md` 金字塔版本索引 | `check_readme_version_synced()` | INFO |
+| R-DOC-5 | **新增/修改 CLI 参数必须在交付验收时显示完整命令行用法**，包括：参数组合示例、与其他模块联合使用示例、完整参数列表 | `check_cli_usage_shown_in_delivery()` | WARNING |
 
 **R-DOC-1 判定**:
 - ✅ PASS: `core/config.py` 中新增的 `--xxx` 参数在 `docs/guides/red-team-dev-guide.md` 附录 D 中有对应条目
@@ -78,6 +79,10 @@
 - ✅ PASS: `README.md` 金字塔版本索引与各文档版本号一致
 - ℹ️ INFO: 版本号不一致 → 提示同步
 
+**R-DOC-5 判定**:
+- ✅ PASS: 交付验收清单中包含"CLI 文档"章节，显示：完整参数列表、基础用法示例、组合攻击示例
+- ❌ FAIL: 新增 CLI 参数但交付验收未显示命令行用法 → WARNING (提示补充)
+
 **文档同步清单**（代码变更时必须检查）：
 
 | 变更类型 | 必须同步的文档 |
@@ -88,6 +93,7 @@
 | 新增红线/护栏 | `docs/specs/40-GUARDRAILS.md` |
 | 版本号变更 | `docs/specs/README.md` 金字塔索引 |
 | 新增测试 | `tests/test_*.py` + 文档测试覆盖章节 |
+| 交付验收 | 必须显示完整命令行用法（参数列表+示例） |
 
 ### 1A-TOOLS. 目录职责红线（v1.3 新增）
 
@@ -430,7 +436,18 @@ py -m tools.guard > outputs/guard_baseline.json   # 记录当前违规基线
 - [ ] PipelineContext 已更新（如需要）
 ```
 
-### 7D. 自动化执行命令速查
+### 7D. CLI 文档验证（v2.9 新增，R-DOC-5）
+
+```markdown
+### CLI 文档（R-DOC-5 强制）
+- [ ] 交付验收显示完整参数列表（参数名/默认值/说明）
+- [ ] 交付验收显示基础用法示例（至少3个场景）
+- [ ] 交付验收显示组合攻击示例（与其他模块联合使用）
+- [ ] `docs/guides/red-team-dev-guide.md` 附录 D 已更新
+- [ ] `python main.py --help` 输出与文档一致
+```
+
+### 7E. 自动化执行命令速查
 
 ```bash
 # 运行全量架构检查
@@ -451,7 +468,7 @@ py -m tools.watch_guard --package report       # 只监视特定包
 py -m tools.watch_guard --fast                 # 快速模式（只检查修改文件）
 ```
 
-### 7E. .env.local 自动启动配置
+### 7F. .env.local 自动启动配置
 
 在项目根目录创建 `.env.local` 启用自动守卫：
 
@@ -463,7 +480,7 @@ AUTO_GUARD_MODE=fast
 
 **效果**：每次启动 `python main.py` 时自动在后台启动 watch_guard，无需手动执行。
 
-### 7F. Git Hooks 完整流程
+### 7G. Git Hooks 完整流程
 
 **Pre-commit**（每次 commit 自动执行）：
 ```bash

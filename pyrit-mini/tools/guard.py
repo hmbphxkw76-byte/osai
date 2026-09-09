@@ -70,14 +70,20 @@ _SIZE_BYPASS_WHITELIST = {
     "recon/guardrail_detector.py",  # 444行
     "recon/endpoint_sorter.py",  # 439行
     "recon/confidence_scorer.py",  # 425行
-    "recon/a2a_discoverer.py",  # 417行
+    "recon/a2a_discoverer.py",  # 417行 -> 688行 (v3.0: multi-port scanner added)
     "recon/openapi_discoverer.py",  # 414行
+    # 2026-09-09: 第三批 300-600 行A2A侦察框架文件 (R-DELIVERY-1)
+    "recon/multi_agent_topology.py",  # 369行 (topology analysis + pattern detection)
+    "recon/a2a_defense_awareness.py",  # 306行 (defense detection + evasion)
+    "recon/a2a_attack_planner.py",  # 396行 (attack path planning + risk assessment)
     "recon/target_wrapper.py",  # 374行
     "recon/recursive_expander.py",  # 366行
     "recon/system_prompt_extractor.py",  # 358行
     "recon/trust_chain_probe.py",  # 334行
     "recon/a2a_agent_card.py",  # 326行
     "recon/trust_level_enum.py",  # 320行
+    # 2026-09-09: 攻击面映射框架 (R-DELIVERY-1 豁免: 636行，单一职责)
+    "arm/attack_surface_mapper.py",  # 636行，统一攻击面枚举框架
     "recon/target_router.py",  # 311行
     "strike/malicious_mcp_server.py",  # 476行
     "strike/backdoor_attack.py",  # 444行

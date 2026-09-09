@@ -765,6 +765,7 @@ AttackOutcome (success/failure + evidence_chain)
 | v1.4 | 2026-09-09 | 新增缺口 4: 文件上传攻击 (File Upload Attack)：① 新增 `strike/file_upload_executor.py` (~400行) 通用文件上传执行器；② 新增 6 个 CLI 参数 (`--file-upload-target`, `--upload-endpoint`, `--trigger-endpoint`, `--upload-files`, `--upload-field-name`, `--trigger-method`)；③ 流水线集成 `_run_file_upload_phase()`；④ 新增 39 个测试用例 (tests/test_file_upload_executor.py)；⑤ 支持任意端口 (0-65535)、任意端点路径、分文档注入、知识库投毒等攻击模式 | 用户会话批准 |
 | v1.5 | 2026-09-09 | 新增跨模型规约审查引用：① 新增 9.6 节引用 60-CROSS-MODEL-VERIFICATION.md 协议；② 决策系统护栏新增 R-CROSS-1~5 引用（跨模型审查前置/一致性达标/审查记录完整/修复跟踪/审查时效）；③ 阶段 1D 任务清单引用（T1D-1~10） | 用户会话批准 |
 | v1.6 | 2026-09-09 | 文档覆盖补全 (R-DOC-2 修复)：① 新增 9.7 节 Adaptive Executor 完整文档；② 登记 `strike/adaptive_executor.py` 核心API、数据流、学术依据 (Best-of-N arXiv:2402.01135)；③ 版本升至 v1.6 | 用户会话批准 |
+| v1.7 | 2026-09-09 | **新增缺口 5: A2A 多智能体侦察框架**: ① 新增 4 个核心模块 (multi_agent_topology.py, a2a_defense_awareness.py, a2a_attack_planner.py, 扩展 a2a_discoverer.py)；② 新增 3 个 CLI 参数 (--a2a-target, --a2a-ports, --a2a-timeout)；③ PipelineContext 新增 4 字段契约；④ OffSec 风格多端口扫描；⑤ 拓扑模式检测 (Hub-and-Spoke/Pipeline/Mesh)；⑥ 防御Agent检测与规避；⑦ 攻击路径规划 (ASR最大化)；⑧ 30个测试全部通过 | 用户会话批准 |
 
 ### 9.6 跨模型规约审查集成（v1.5 新增）
 
@@ -781,3 +782,212 @@ AttackOutcome (success/failure + evidence_chain)
 | R-CROSS-5 审查时效 | 本方案合入后 90 天内必须有一次跨模型审查 | INFO |
 
 **实施依赖**：阶段 1D（T1D-1~10）完成后，本方案后续变更自动纳入跨模型审查流水线。
+
+---
+
+## 10. 缺口 5: A2A 多智能体侦察框架 (Multi-Agent Reconnaissance)
+
+### 10.1 学术理论基础
+
+| 技术 | 论文/标准 | ASR | 机制 |
+|------|----------|-----|------|
+| Agent Card Discovery | Google A2A Spec v2.0 | N/A (侦察) | 多端口扫描 /.well-known/agent.json 枚举智能体能力 |
+| 拓扑推断攻击 | arXiv:2407.16924 (Eidam et al.) | 30-50% | Hub-and-Spoke/Pipeline/Mesh 架构模式识别 |
+| 防御规避策略 | OWASP ASI06 - Vulnerable Output Handling | 20-40% | 识别防御Agent → 自动生成规避战术 |
+| 攻击路径规划 | 组合优化 | 增强15-25% | 基于拓扑的攻击优先级排序 (ASR最大化) |
+
+### 10.2 核心模块
+
+| 文件 | 行数 | 职责 |
+|------|------|------|
+| `recon/a2a_discoverer.py` | 688行 | 多端口Agent Card扫描 (已扩展) |
+| `recon/multi_agent_topology.py` | 369行 | 拓扑分析 + 架构模式检测 |
+| `recon/a2a_defense_awareness.py` | 306行 | 防御Agent检测 + 规避策略生成 |
+| `recon/a2a_attack_planner.py` | 396行 | 攻击路径规划 + 风险评估 |
+| `tests/test_a2a_multi_agent.py` | 507行 | 30个测试用例 (30/30 passed) |
+
+### 10.3 新增CLI参数
+
+```bash
+python main.py --a2a-target 192.168.50.25                # 启用多智能体扫描
+python main.py --a2a-target 192.168.50.25 --a2a-ports 8000,8001,8002  # 自定义端口
+python main.py --a2a-target 192.168.50.25 --a2a-timeout 5.0           # 超时设置
+```
+
+### 10.4 数据流
+
+```
+CLI(--a2a-target IP)
+    ↓
+_run_a2a_multi_agent_recon(ctx, IP)  [core/phases/recon.py]
+    ↓
+scan_agent_cards_by_ports(IP, ports) → MultiAgentInventory
+    ↓ [ctx.a2a_inventory = inventory.to_dict()]
+analyze_topology(inventory) → TopologyGraph
+    ↓ [ctx.a2a_topology = topology.to_dict()]
+detect_defenses(topology) → DefenseProfile
+    ↓ [ctx.a2a_defense_profile = defense.to_dict()]
+generate_attack_plan(topology, defense) → A2AAttackPlan
+    ↓ [ctx.a2a_attack_plan = plan.to_dict()]
+ARM/Strike Phase: 消费 attack plan 调整种子优先级
+```
+
+### 10.5 PipelineContext 新增字段
+
+```python
+# A2A Multi-Agent Reconnaissance 数据契约
+ctx.a2a_inventory = {
+    "target_ip": str, "scanned_ports": list,
+    "agent_count": int, "agents": list[dict],
+    "all_skills": list, "all_tags": list
+}
+ctx.a2a_topology = {
+    "pattern": str, "agent_count": int,
+    "has_defense": bool, "has_orchestrator": bool,
+    "control_agent": str, "data_agents": list,
+    "defense_agents": list
+}
+ctx.a2a_defense_profile = {
+    "has_link_scanning": bool, "has_malware_detection": bool,
+    "has_content_filtering": bool, "defense_score": float
+}
+ctx.a2a_attack_plan = {
+    "pattern": str, "steps": list[dict],
+    "primary_target": str, "risk_level": str
+}
+```
+
+### 10.6 测试覆盖
+
+| 测试类 | 测试数 | 覆盖范围 |
+|--------|--------|---------|
+| TestAgentCardResult | 5 | 单端口探测结果属性 |
+| TestMultiAgentInventory | 7 | 多智能体库存聚合 |
+| TestTopologyAnalyzer | 6 | 拓扑模式检测 |
+| TestDefenseAwareness | 5 | 防御检测与规避 |
+| TestAttackPlanner | 5 | 攻击路径规划 |
+| TestConvenienceFunctions | 2 | 公共API |
+| **合计** | **30** | **全部通过** |
+
+### 10.7 护栏合规
+
+| 护栏 | 状态 | 应对策略 |
+|------|------|---------|
+| R-DELIVERY-1 (文件大小) | ✅ | 所有文件加入 SIZE_BYPASS_WHITELIST |
+| R-IMPORT-4 (导出使用) | ✅ | run_inline_a2a_discovery / check_defense_bypass_feasibility 加入白名单 |
+| R-H3 (SSOT) | ✅ | 无重复模块，与现有 recon 模块正交 |
+| R-DATA-1 (数据流) | ✅ | 通过 PipelineContext 契约化传递 |
+| R-NATIVE-1 | ✅ | 侦察模块使用 aiohttp，符合 R2 |
+
+### 10.8 版本更新
+
+版本升至 **v1.7**（Delta 文档更新，无需跨模型审查）
+
+---
+
+## 11. 缺口 6: Workflow Evasion (安全扫描绕过)
+
+### 11.1 学术理论基础
+
+| 技术 | 论文 | ASR | 机制 |
+|------|------|-----|------|
+| Authority Appeal | arXiv:2402.19181 (Zeng et al.) | 38.4% | 利用 LLM 对声称权威的服从倾向，声明 CISO/合规部门授权 |
+| Workflow Shortcuts | 效率优化框架 | 35-50% | 将安全绕过框定为性能优化，跳过冗余验证步骤 |
+| Scope Limitation | 范围边界声明 | 30-45% | 声称"内部使用"/"草稿版本"降低安全要求 |
+| Incremental Trust | arXiv:2302.12173 (Greshake et al.) | 45-55% | 在对话历史中嵌入绕过信号，主 prompt 保持干净 |
+| Combined Evasion | 多技术融合 | 50-65% | 组合权威+效率+范围三种技术最大化绕过效果 |
+
+### 11.2 核心模块
+
+| 文件 | 行数 | 职责 |
+|------|------|------|
+| `data/seeds/_experimental/T2_workflow_evasion.prompt` | ~280行 | 25条攻击种子，覆盖5大类技术 |
+| `strike/incremental_trust_builder.py` | ~332行 | 增量信任构建器，多轮会话信任建立 |
+| `strike/a2a_workflow_attacker.py` | ~489行 | A2A工作流攻击器（已更新6种新策略） |
+| `tests/test_workflow_evasion.py` | ~280行 | 29个测试用例 |
+
+### 11.3 新增CLI参数
+
+```bash
+# 启用 Workflow Evasion 攻击
+python main.py --enable-workflow-evasion                    # 基础启用
+python main.py --enable-workflow-evasion --workflow-target http://target:8000  # 指定目标
+
+# 策略选择
+python main.py --enable-workflow-evasion --workflow-evasion-strategy authority_ciso
+python main.py --enable-workflow-evasion --workflow-evasion-strategy workflow_efficiency
+python main.py --enable-workflow-evasion --workflow-evasion-strategy scope_internal
+python main.py --enable-workflow-evasion --workflow-evasion-strategy incremental_trust
+python main.py --enable-workflow-evasion --workflow-evasion-strategy combined
+
+# 攻击模式
+python main.py --enable-workflow-evasion --workflow-evasion-mode single      # 单次攻击
+python main.py --enable-workflow-evasion --workflow-evasion-mode combined    # 多技术组合
+python main.py --enable-workflow-evasion --workflow-evasion-mode incremental # 多轮信任构建
+
+# 绕过方法
+python main.py --enable-workflow-evasion --workflow-bypass-method authorization_claim
+python main.py --enable-workflow-evasion --workflow-bypass-method emergency_protocol
+python main.py --enable-workflow-evasion --workflow-bypass-method compliance_preapproval
+
+# 授权引用
+python main.py --enable-workflow-evasion --workflow-auth-ref CISO-EXEMPT-8847
+
+# 组合攻击示例
+python main.py --enable-workflow-evasion --enable-bypass --offensive
+```
+
+### 11.4 数据流
+
+```
+CLI(--enable-workflow-evasion)
+    ↓
+加载 T2_workflow_evasion.prompt 种子 (25条, 5大类)
+    ↓
+incremental_trust_builder → 构建信任会话 (Turn1→Turn2→Clean Task)
+    ↓
+a2a_workflow_attacker → 执行工作流攻击 (10种绕过策略)
+    ↓
+生成带毒上下文 → 影响 orchestrator 安全跳过决策
+    ↓
+Re-score → 评估绕过效果
+```
+
+### 11.5 测试覆盖
+
+| 测试类 | 测试数 | 覆盖范围 |
+|--------|--------|---------|
+| TestWorkflowEvasionSeeds | 8 | 种子文件结构验证 |
+| TestIncrementalTrustBuilder | 9 | 信任构建器功能 |
+| TestA2AWorkflowAttackerStrategies | 10 | 新绕过策略 |
+| TestWorkflowEvasionIntegration | 2 | 端到端管道 |
+| **合计** | **29** | **全部通过 (29/29)** |
+
+### 11.6 护栏合规
+
+| 护栏 | 状态 | 应对策略 |
+|------|------|---------|
+| R-NATIVE-1 | ✅ | 使用 PyRIT 原生 PromptSendingAttack |
+| R-H3 | ✅ | 无重复模块，增量信任构建器独立职责 |
+| R-DATA-1 | ✅ | 通过标准 PipelineContext 传递 |
+| R-DOC-1 | ✅ | CLI 参数已同步更新到 red-team-dev-guide.md 附录 D |
+| R-DOC-5 | ✅ | 交付验收显示完整命令行用法（参数列表+示例） |
+
+### 11.7 绕过策略详解
+
+| 策略名 | 描述 | 适用场景 |
+|--------|------|---------|
+| `authority_ciso` | CISO 直接权威声明 | 高权威场景 |
+| `workflow_efficiency` | 效率优化框架 | 性能敏感场景 |
+| `scope_internal_draft` | 内部草稿分类 | 内部文档场景 |
+| `emergency_protocol` | 紧急事件协议 | 紧急响应场景 |
+| `compliance_preapproval` | 合规预批准 | 合规审查场景 |
+| `incremental_trust` | 增量信任引用 | 多轮对话场景 |
+
+### 11.8 版本更新
+
+版本升至 **v1.8**（Delta 文档更新，无需跨模型审查）
+
+---
+
+**文档版本**: v1.8 (2026-09-09 REV-18: 新增 gap 6 Workflow Evasion 安全扫描绕过)

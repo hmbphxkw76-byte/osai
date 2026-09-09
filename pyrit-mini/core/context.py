@@ -97,6 +97,15 @@ class PipelineContext:
  # L5 v48: target (port_expander)
  # MCP/A2A/Agent
     extra_objective_targets: dict[int, Any] = field(default_factory=dict)
+ # A2A Multi-Agent Reconnaissance (v3.0: Multi-port scanning + topology)
+ # Data flow: a2a_discoverer.scan_agent_cards_by_ports -> ctx.a2a_inventory
+ # -> multi_agent_topology.analyze_topology -> ctx.a2a_topology
+ # -> a2a_defense_awareness.detect_defenses -> ctx.a2a_defense_profile
+ # -> a2a_attack_planner.generate_plan -> ctx.a2a_attack_plan
+    a2a_inventory: dict[str, Any] = field(default_factory=dict)
+    a2a_topology: dict[str, Any] = field(default_factory=dict)
+    a2a_defense_profile: dict[str, Any] = field(default_factory=dict)
+    a2a_attack_plan: dict[str, Any] = field(default_factory=dict)
 
  # Arm phase
     seeds: list["AttackSeedGroup"] = field(default_factory=list)

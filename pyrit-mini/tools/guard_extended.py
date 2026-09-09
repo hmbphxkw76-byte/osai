@@ -82,6 +82,9 @@ _INIT_EXPORT_WHITELIST = {
     "create_objective_scorer",
     "should_run_probe",
     "get_default_classifier",
+    # A2A reconnaissance utilities (public API, may be used by advanced scripts)
+    "run_inline_a2a_discovery",
+    "check_defense_bypass_feasibility",
 }
 
 # R-REDTEAM: 必须包含 arXiv 引用的技术

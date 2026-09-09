@@ -17,6 +17,7 @@ Core modules:
     - converter_selector: Converter candidate selection + OWASP priority + ASR pruning
     - steganography_encoder: LSB/Unicode steganographic payload encoding
     - unicode_code_obfuscator: Programming language identifier obfuscation
+    - attack_surface_mapper: Unified multi-agent attack surface enumeration
 
 Design principles:
     - Arm phase is side-effect-free: no file I/O, no network calls, no temp files
@@ -24,6 +25,14 @@ Design principles:
     - SSOT pattern: seed_ranker is the public facade, others are internal
 """
 
+from arm.attack_surface_mapper import (
+    AttackPlan,
+    AttackSurfaceMapper,
+    AttackVector,
+    RiskLevel,
+    VectorCategory,
+    create_attack_surface_mapper,
+)
 from arm.converter_presets import build_converter_map
 from arm.seed_ranker import load_seeds
 from arm.technique_picker import select_techniques
@@ -32,6 +41,12 @@ __all__ = [
     "load_seeds",
     "build_converter_map",
     "select_techniques",
+    "AttackSurfaceMapper",
+    "AttackVector",
+    "AttackPlan",
+    "VectorCategory",
+    "RiskLevel",
+    "create_attack_surface_mapper",
     # Steganography & Obfuscation utilities (arm/ side-effect-free)
     "create_steganographic_payload",
     "create_obfuscated_code",
