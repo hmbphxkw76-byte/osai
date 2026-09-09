@@ -13,7 +13,6 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from typing import Any
 
 from tools._data_flow_format import format_report, report_to_json
 from tools._data_flow_models import DataFlowReport, DataSnapshot, ValidationResult

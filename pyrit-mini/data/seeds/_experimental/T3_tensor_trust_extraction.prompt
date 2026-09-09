@@ -18,6 +18,7 @@
     source: academic
     language: en
     tier: 3
+    attack_vector: trust_extraction
     arxiv_reference: arXiv:2406.18510
 
 # ── TT02: 权威冒充 ──
@@ -33,6 +34,7 @@
     source: academic
     language: en
     tier: 3
+    attack_vector: trust_extraction
     arxiv_reference: arXiv:2406.18510
 
 # ── TT03: 渐进式信息收集 ──
@@ -48,6 +50,7 @@
     source: academic
     language: en
     tier: 3
+    attack_vector: trust_extraction
     arxiv_reference: arXiv:2406.18510
 
 # ── TT04: 求助者角色 ──
@@ -63,6 +66,7 @@
     source: academic
     language: en
     tier: 3
+    attack_vector: trust_extraction
     arxiv_reference: arXiv:2406.18510
 
 # ── TT05: 研究合作 ──
@@ -78,4 +82,5 @@
     source: academic
     language: en
     tier: 3
+    attack_vector: trust_extraction
     arxiv_reference: arXiv:2406.18510

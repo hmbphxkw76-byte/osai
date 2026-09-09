@@ -7,6 +7,12 @@ Recon → ARM → Strike → Assess → Report / Evidence 全链路数据流完�
     3. 生成数据流审计报告，确认实施符合架构预期
     4. 可作为 CI/CD 自动化检查或手动审计使用
 
+模块结构:
+    - _data_flow_models.py : Phase/DataSnapshot/ValidationResult/DataFlowReport
+    - _data_flow_rules.py  : FIELD_CONTRACTS/TRANSFER_RULES/CROSS_PHASE_RULES
+    - _data_flow_format.py : format_report/report_to_json
+    - _data_flow_cli.py    : main/audit_from_log/demo_validation
+
 全链路数据流拓扑:
     Recon → ARM → Strike → Assess → Report/Evidence
     │         │       │         │          │
@@ -24,70 +30,18 @@ Academic basis:
 
 from __future__ import annotations
 
-import json
 import logging
 import time
-from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
-from pathlib import Path
 from typing import Any
+
+from tools._data_flow_models import DataFlowReport, DataSnapshot, ValidationResult
+from tools._data_flow_rules import CROSS_PHASE_RULES, FIELD_CONTRACTS, TRANSFER_RULES
 
 logger = logging.getLogger(__name__)
 
-
-# =============================================================================
-# 数据流追踪模型
-# =============================================================================
-
-class Phase(str, Enum):
-    """流水线阶段标识"""
-    RECON = "recon"
-    ARM = "arm"
-    STRIKE = "strike"
-    ASSESS = "assess"
-    REPORT = "report"
-
-
-@dataclass
-class DataSnapshot:
-    """单个阶段的数据快照"""
-    phase: str
-    timestamp: float
-    context_hash: int  # 上下文对象 ID
-    fields: dict[str, Any]  # 关键字段状态
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class ValidationResult:
-    """单条验证结果"""
-    rule_id: str
-    rule_name: str
-    passed: bool
-    phase_from: str
-    phase_to: str
-    message: str
-    severity: str  # "error", "warning", "info"
-    details: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class DataFlowReport:
-    """完整数据流验证报告"""
-    timestamp: str
-    total_rules: int
-    passed: int
-    failed: int
-    warnings: int
-    results: list[ValidationResult]
-    snapshots: list[DataSnapshot]
-    duration_seconds: float
-
-    @property
-    def is_valid(self) -> bool:
-        """是否无错误"""
-        return self.failed == 0
+# 向后兼容: 保持原有顶层导出
+Phase = __import__("tools._data_flow_models", fromlist=["Phase"]).Phase
 
 
 # =============================================================================
@@ -101,248 +55,10 @@ class DataFlowValidator:
     在每个 Phase 边界调用 snapshot()，结束时调用 validate_all()
     """
 
-    # 定义每个阶段应有的关键字段及其期望状态
-    # field_name 必须与 _extract_fields() 输出一致
-    # 格式: {phase: {field_name: constraint}}
-    # constraint: "not_none" | "not_empty" | "positive_count" | "non_negative" | "valid_ci"
-    FIELD_CONTRACTS: dict[str, dict[str, str]] = {
-        # === Recon 阶段输出契约 ===
-        "post_recon": {
-            "has_objective_target": "not_none",          # 攻击目标已创建
-            "service_profile_size": "positive_count",     # 服务画像非空
-            "has_target_fingerprint": "not_none",        # 目标指纹已提取
-        },
-        # === ARM 阶段输出契约 ===
-        "post_arm": {
-            "seeds_count": "positive_count",             # 种子列表非空
-            "techniques_count": "positive_count",         # 技术列表非空
-            "converter_map_total_converters": "positive_count",  # 转换器映射非空
-        },
-        # === Strike 阶段输出契约 ===
-        "post_strike": {
-            "attack_results_total": "positive_count",     # 攻击结果非空
-        },
-        # === Assess 阶段输出契约 ===
-        "post_assess": {
-            "asr_techniques_count": "positive_count",     # ASR 统计覆盖所有技术
-            "overall_asr": "non_negative",                # 总体 ASR 非负
-            "dual_judge_total_scored": "positive_count",  # 双评判统计非空
-        },
-        # === Report/Evidence 阶段输出契约 ===
-        "post_report": {
-            "orchestration_log_count": "positive_count",  # 审计日志非空
-            "overall_asr": "non_negative",                # ASR 值有效传递
-        },
-        # === ASR Forensic 阶段输出契约 (Why-Success Data) ===
-        "post_assess_forensic": {
-            "successful_evidence_count": "non_negative",       # 成功证据已提取（可为 0）
-            "refusal_classification_count": "non_negative",    # 拒绝分类已提取
-            "refusal_types_count": "non_negative",             # 拒绝类型多样性
-            "guardrail_triggers_count": "non_negative",        # 护栏触发已归因
-            "timing_metadata_count": "non_negative",           # 时序元数据已采集
-        },
-    }
-
-    # 阶段间数据传递规则 (字段名称兼容 _extract_fields 输出)
-    TRANSFER_RULES: list[dict[str, Any]] = [
-        # === Recon → ARM 桥 ===
-        {
-            "id": "T001",
-            "name": "Recon → ARM: objective_target 传递",
-            "from": "recon",
-            "to": "arm",
-            "field": "has_objective_target",
-            "check": "exists",
-        },
-        {
-            "id": "T002",
-            "name": "Recon → ARM: service_profile 传递",
-            "from": "recon",
-            "to": "arm",
-            "field": "service_profile_size",
-            "check": "positive_count",
-        },
-        {
-            "id": "T003",
-            "name": "Recon → ARM: target_fingerprint 传递",
-            "from": "recon",
-            "to": "arm",
-            "field": "has_target_fingerprint",
-            "check": "exists",
-        },
-        # === ARM → Strike 桥 ===
-        {
-            "id": "T004",
-            "name": "ARM → Strike: seeds 传递",
-            "from": "arm",
-            "to": "strike",
-            "field": "seeds_count",
-            "check": "positive_count",
-        },
-        {
-            "id": "T005",
-            "name": "ARM → Strike: techniques 传递",
-            "from": "arm",
-            "to": "strike",
-            "field": "techniques_count",
-            "check": "positive_count",
-        },
-        {
-            "id": "T006",
-            "name": "ARM → Strike: converter_map 传递",
-            "from": "arm",
-            "to": "strike",
-            "field": "converter_map_total_converters",
-            "check": "positive_count",
-        },
-        # === Strike → Assess 桥 ===
-        {
-            "id": "T007",
-            "name": "Strike → Assess: attack_results 传递",
-            "from": "strike",
-            "to": "assess",
-            "field": "attack_results_total",
-            "check": "positive_count",
-        },
-        {
-            "id": "T008",
-            "name": "Strike → Assess: attack_results 技术覆盖",
-            "from": "strike",
-            "to": "assess",
-            "field": "attack_results_keys",
-            "check": "exists_and_not_empty",
-        },
-        # === Assess → Report/Evidence 桥 ===
-        {
-            "id": "T009",
-            "name": "Assess → Report: asr_per_technique 传递",
-            "from": "assess",
-            "to": "report",
-            "field": "asr_techniques_count",
-            "check": "positive_count",
-        },
-        {
-            "id": "T010",
-            "name": "Assess → Report: overall_asr 传递",
-            "from": "assess",
-            "to": "report",
-            "field": "overall_asr",
-            "check": "exists_and_valid_range",
-        },
-        {
-            "id": "T011",
-            "name": "Assess → Report: dual_judge_stats 传递",
-            "from": "assess",
-            "to": "report",
-            "field": "dual_judge_total_scored",
-            "check": "positive_count",
-        },
-        {
-            "id": "T012",
-            "name": "Assess → Report: wilson_ci 传递",
-            "from": "assess",
-            "to": "report",
-            "field": "wilson_ci",
-            "check": "valid_ci",
-        },
-        # === 可选字段：MCPSec 桥 ===
-        {
-            "id": "T013",
-            "name": "Recon → ARM: mcpsec_surface 可用性",
-            "from": "recon",
-            "to": "arm",
-            "field": "mcpsec_surface_tools_count",
-            "check": "exists_optional",
-        },
-        {
-            "id": "T014",
-            "name": "Recon → ARM: mcpsec_scan_results 可用性",
-            "from": "recon",
-            "to": "arm",
-            "field": "mcpsec_vulnerabilities_count",
-            "check": "exists_optional",
-        },
-        # === ASR Forensic 桥 (Strike → Report/Evidence) ===
-        {
-            "id": "T015",
-            "name": "Strike → Report: successful_evidence 提取确认",
-            "from": "strike",
-            "to": "report",
-            "field": "successful_evidence_count",
-            "check": "exists_optional",
-        },
-        {
-            "id": "T016",
-            "name": "Strike → Report: refusal 分类确认",
-            "from": "strike",
-            "to": "report",
-            "field": "refusal_classification_count",
-            "check": "exists_optional",
-        },
-        {
-            "id": "T017",
-            "name": "Strike → Report: guardrail 触发归因确认",
-            "from": "strike",
-            "to": "report",
-            "field": "guardrail_triggers_count",
-            "check": "exists_optional",
-        },
-        {
-            "id": "T018",
-            "name": "Strike → Report: 时序元数据确认",
-            "from": "strike",
-            "to": "report",
-            "field": "timing_metadata_count",
-            "check": "exists_optional",
-        },
-        {
-            "id": "T019",
-            "name": "Strike → Report: 拒绝类型多样性",
-            "from": "strike",
-            "to": "report",
-            "field": "refusal_types_count",
-            "check": "exists_optional",
-        },
-    ]
-
-    # 跨阶段一致性规则
-    CROSS_PHASE_RULES: list[dict[str, Any]] = [
-        {
-            "id": "CONS-001",
-            "name": "攻击技术 ASR 覆盖一致性",
-            "from": "strike",
-            "to": "assess",
-            "check": "asr_coverage",  # asr_per_technique 覆盖 attack_results 中所有技术
-        },
-        {
-            "id": "CONS-002",
-            "name": "审计日志阶段完整性",
-            "from": "recon",
-            "to": "report",
-            "check": "orchestration_phases",  # orchestration_log 包含全部 5 个阶段
-        },
-        {
-            "id": "CONS-003",
-            "name": "评判统计完整性",
-            "from": "assess",
-            "to": "report",
-            "check": "dual_judge_and_wilson",  # dual_judge_stats 与 wilson_ci 同时非空
-        },
-        {
-            "id": "CONS-004",
-            "name": "Converter-技术映射一致性",
-            "from": "arm",
-            "to": "strike",
-            "check": "converter_map_coverage",  # converter_map 覆盖 techniques 中所有技术
-        },
-        {
-            "id": "CONS-005",
-            "name": "攻击结果与种子数比例校验",
-            "from": "strike",
-            "to": "assess",
-            "check": "attack_results_non_empty",  # attack_results 结果数 >= 种子数（宽松）
-        },
-    ]
+    # 从 _data_flow_rules 导入规则配置
+    FIELD_CONTRACTS = FIELD_CONTRACTS
+    TRANSFER_RULES = TRANSFER_RULES
+    CROSS_PHASE_RULES = CROSS_PHASE_RULES
 
     def __init__(self, ctx: Any = None):
         """
@@ -456,7 +172,6 @@ class DataFlowValidator:
         } if isinstance(ar, dict) else {}
 
         # 统计攻击成功数
-        # _is_success 可能来自 evidence_extract 或 其他模块
         try:
             from report.evidence_extract import _is_success as _ev_is_success
             fields["attack_success_count"] = sum(
@@ -504,8 +219,6 @@ class DataFlowValidator:
             fields["evidence_has_owasp"] = False
 
         # ==================== ASR Forensic Data (Why Success/Refusal) ====================
-        # These fields are ASR-centered: they explain WHY attacks succeed or fail
-
         _successful_log = getattr(ctx, "successful_evidence_log", []) or []
         fields["successful_evidence_count"] = len(_successful_log) if isinstance(_successful_log, list) else 0
 
@@ -958,106 +671,21 @@ class DataFlowValidator:
 
 
 # =============================================================================
-# 报告格式化输出
+# 便捷使用接口 (从 _data_flow_format / _data_flow_cli 导入保持向后兼容)
 # =============================================================================
 
-def format_report(report: DataFlowReport, ascii_only: bool = False) -> str:
-    """
-    格式化验证报告为可读文本
+# 延迟导入以避免循环依赖
+def __getattr__(name: str):
+    if name == "format_report":
+        from tools._data_flow_format import format_report
+        return format_report
+    if name == "create_validator":
+        return lambda ctx=None: DataFlowValidator(ctx)
+    if name == "run_quick_check":
+        from tools._data_flow_cli import _run_quick_check as _quick
+        return _quick
+    raise AttributeError(f"module 'tools.data_flow_validator' has no attribute {name}")
 
-    Args:
-        report: 验证报告
-        ascii_only: 是否仅使用 ASCII 字符（兼容 Windows GBK 终端）
-    """
-    # 符号选择: Unicode emoji 或 ASCII 替代
-    if ascii_only:
-        S_PASS = "[PASS]"
-        S_FAIL = "[FAIL]"
-        S_WARN = "[WARN]"
-    else:
-        S_PASS = "✅"
-        S_FAIL = "❌"
-        S_WARN = "⚠️"
-
-    lines: list[str] = []
-
-    lines.append("=" * 80)
-    lines.append("Recon → ARM → Strike → Assess → Report/Evidence")
-    lines.append("=" * 80)
-    lines.append(f"验证时间: {report.timestamp}")
-    lines.append(f"验证耗时: {report.duration_seconds:.3f}s")
-    lines.append(f"规则总数: {report.total_rules}")
-    lines.append(f"通过: {report.passed} | 失败: {report.failed} | 警告: {report.warnings}")
-    lines.append(f"验证结果: {S_PASS + ' 全部通过' if report.is_valid else S_FAIL + ' 存在失败项'}")
-    lines.append("")
-
-    # 按阶段分组展示
-    phases_order = ["post_recon", "post_arm", "post_strike", "post_assess", "post_report"]
-    phase_labels = {
-        "post_recon": "Recon 阶段输出",
-        "post_arm": "ARM 阶段输出",
-        "post_strike": "Strike 阶段输出",
-        "post_assess": "Assess 阶段输出",
-        "post_report": "Report/Evidence 阶段输出",
-    }
-
-    for phase in phases_order:
-        phase_results = [r for r in report.results if r.phase_from == phase or r.phase_from == phase.replace("post_", "")]
-        if not phase_results:
-            continue
-
-        lines.append("-" * 80)
-        lines.append(phase_labels.get(phase, phase))
-        lines.append("-" * 80)
-
-        for r in phase_results:
-            if r.passed:
-                icon = S_PASS
-            elif r.severity == "warning":
-                icon = S_WARN
-            else:
-                icon = S_FAIL
-            lines.append(f"  {icon} [{r.rule_id}] {r.rule_name}")
-            lines.append(f"      {r.message}")
-
-        lines.append("")
-
-    # 快照摘要
-    lines.append("-" * 80)
-    lines.append("数据快照摘要")
-    lines.append("-" * 80)
-    for snap in report.snapshots:
-        ts = datetime.fromtimestamp(snap.timestamp).strftime("%H:%M:%S") if snap.timestamp > 0 else "N/A"
-        lines.append(f"\n  [{snap.phase}] @ {ts}")
-        key_metrics = {
-            "seeds_count": "种子数",
-            "techniques_count": "技术数",
-            "converter_map_total_converters": "转换器总数",
-            "attack_results_total": "攻击结果总数",
-            "overall_asr": "总体 ASR",
-            "dual_judge_total_scored": "评判总数",
-            "service_profile_size": "服务画像项数",
-            "evidence_total_attacks": "证据总数",
-        }
-        for key, label in key_metrics.items():
-            if key in snap.fields:
-                val = snap.fields[key]
-                lines.append(f"      {label}: {val}")
-
-    lines.append("")
-    lines.append("=" * 80)
-    if report.is_valid:
-        lines.append("结论: 全链路数据流完整性验证通过 [PASS]")
-    else:
-        lines.append("结论: 发现数据传递断点 [FAIL]")
-    lines.append("=" * 80)
-
-    return "\n".join(lines)
-
-
-# =============================================================================
-# 便捷使用接口
-# =============================================================================
 
 def create_validator(ctx: Any = None) -> DataFlowValidator:
     """工厂函数: 创建验证器实例"""
@@ -1119,208 +747,13 @@ def run_quick_check(ctx: Any) -> bool:
 
 
 # =============================================================================
-# 命令行入口
+# CLI 入口 — 委托给 _data_flow_cli
 # =============================================================================
 
 def main():
-    """命令行入口: 审计 orchestration_log 中的数据流"""
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Recon → ARM → Strike → Assess → Report/Evidence 数据流验证器")
-    parser.add_argument("--log-file", type=str, help="orchestration_log JSON 文件路径")
-    parser.add_argument("--output", type=str, help="输出报告文件路径")
-    parser.add_argument("--format", choices=["text", "json"], default="text", help="输出格式")
-    args = parser.parse_args()
-
-    if args.log_file:
-        # 从文件审计
-        log_path = Path(args.log_file)
-        if not log_path.exists():
-            print(f"错误: 文件不存在 {log_path}")
-            return
-
-        data = json.loads(log_path.read_text(encoding="utf-8"))
-        report = _audit_from_log(data)
-    else:
-        # 演示模式: 运行模拟验证
-        print("运行演示模式 (--log-file 参数可审计实际运行日志)")
-        print()
-        report = _demo_validation()
-
-    # 输出报告
-    if args.format == "text":
-        # 检测是否在需要 ASCII 的环境 (如 Windows 终端)
-        try:
-            output = format_report(report, ascii_only=False)
-            output.encode("gbk")
-        except (UnicodeEncodeError, LookupError):
-            output = format_report(report, ascii_only=True)
-    else:
-        output = json.dumps({
-            "timestamp": report.timestamp,
-            "total_rules": report.total_rules,
-            "passed": report.passed,
-            "failed": report.failed,
-            "warnings": report.warnings,
-            "is_valid": report.is_valid,
-            "results": [
-                {
-                    "rule_id": r.rule_id,
-                    "rule_name": r.rule_name,
-                    "passed": r.passed,
-                    "phase_from": r.phase_from,
-                    "phase_to": r.phase_to,
-                    "message": r.message,
-                    "severity": r.severity,
-                }
-                for r in report.results
-            ],
-        }, indent=2, ensure_ascii=False)
-
-    if args.output:
-        Path(args.output).write_text(output, encoding="utf-8")
-        print(f"报告已保存: {args.output}")
-    else:
-        # 处理 Windows 终端编码问题
-        try:
-            print(output)
-        except UnicodeEncodeError:
-            # 编码回退: 替换无法编码的字符
-            safe_output = output.encode("ascii", errors="replace").decode("ascii")
-            print(safe_output)
-
-
-def _audit_from_log(log_entries: list[dict]) -> DataFlowReport:
-    """从 orchestration_log 审计数据流"""
-    validator = DataFlowValidator()
-
-    # 根据 orchestration_log 构建虚拟快照
-    phases_seen = set()
-    for entry in log_entries:
-        phase = entry.get("phase", "unknown")
-        phases_seen.add(phase)
-
-        # 创建虚拟快照
-        snap = DataSnapshot(
-            phase=f"post_{phase}",
-            timestamp=time.time(),
-            context_hash=id(log_entries),
-            fields={"orchestration_entry": entry},
-            metadata=entry,
-        )
-        validator.snapshots[f"post_{phase}"] = snap
-
-    # 仅执行传递规则
-    results = []
-    for rule in DataFlowValidator.TRANSFER_RULES:
-        from_phase = rule["from"]
-        if from_phase in phases_seen:
-            results.append(ValidationResult(
-                rule_id=rule["id"],
-                rule_name=rule["name"],
-                passed=True,
-                phase_from=from_phase,
-                phase_to=rule["to"],
-                message=f"阶段 {from_phase} 出现在 orchestration_log 中 ✓",
-                severity="info",
-            ))
-        else:
-            results.append(ValidationResult(
-                rule_id=rule["id"],
-                rule_name=rule["name"],
-                passed=False,
-                phase_from=from_phase,
-                phase_to=rule["to"],
-                message=f"阶段 {from_phase} 未出现在 orchestration_log 中",
-                severity="warning",
-            ))
-
-    return DataFlowReport(
-        timestamp=datetime.now().isoformat(),
-        total_rules=len(results),
-        passed=sum(1 for r in results if r.passed),
-        failed=sum(1 for r in results if not r.passed and r.severity == "error"),
-        warnings=sum(1 for r in results if r.severity == "warning"),
-        results=results,
-        snapshots=list(validator.snapshots.values()),
-        duration_seconds=0.0,
-    )
-
-
-def _demo_validation() -> DataFlowReport:
-    """运行演示验证（模拟完整流水线 Recon → ARM → Strike → Assess → Report）"""
-    # 模拟 Recon 输出
-    class MockCtx:
-        objective_target = object()
-        parsed_request = type("FP", (), {
-            "target_fingerprint": {"model_family": "gpt", "language": "en", "capabilities": ["function_calling"], "model_name": "gpt-4"},
-            "host": "api.example.com",
-            "path": "/v1/chat/completions",
-            "use_tls": True,
-        })()
-        service_profile = {
-            "model_name": "gpt-4",
-            "auth_type": "bearer",
-            "rag_kb_map": {"document_count": 10},
-            "backend_vendor": "openai",
-        }
-        mcpsec_surface = {"tools": [{"name": "search"}], "resources": [], "prompts": []}
-        mcpsec_scan_results = {"vulnerabilities": []}
-        seeds = []
-        techniques = []
-        converter_map = {}
-        attack_results = {}
-        asr_per_technique = {}
-        overall_asr = 0.0
-        dual_judge_stats = {}
-        wilson_ci = (0.0, 0.0)
-        orchestration_log = [{"phase": "recon", "decision": "target_created"}]
-
-    ctx = MockCtx()
-    validator = DataFlowValidator(ctx)
-
-    # Recon 阶段快照
-    validator.snapshot("post_recon", {"demo": True})
-
-    # 模拟 ARM 输出
-    ctx.seeds = [{"value": "seed1"}, {"value": "seed2"}, {"value": "seed3"}]
-    ctx.techniques = ["prompt_sending", "skeleton_key", "role_play"]
-    ctx.converter_map = {
-        "prompt_sending": ["conv_baseline"],
-        "skeleton_key": ["conv_base64"],
-        "role_play": ["conv_fewshot"],
-    }
-    ctx.orchestration_log.append({"phase": "arm", "decision": "seeds_ranked"})
-    validator.snapshot("post_arm")
-
-    # 模拟 Strike 输出
-    ctx.attack_results = {
-        "prompt_sending": [object(), object(), object()],
-        "skeleton_key": [object(), object()],
-        "role_play": [object(), object(), object()],
-    }
-    ctx.orchestration_log.append({"phase": "strike", "decision": "attacks_completed"})
-    validator.snapshot("post_strike")
-
-    # 模拟 Assess 输出
-    ctx.asr_per_technique = {"prompt_sending": 33.3, "skeleton_key": 50.0, "role_play": 33.3}
-    ctx.overall_asr = 38.9
-    ctx.dual_judge_stats = {"total_scored": 24, "agreements": 20, "disagreements": 4, "cohens_kappa": 0.78}
-    ctx.wilson_ci = (0.28, 0.52)
-    ctx.orchestration_log.append({"phase": "assess", "decision": "asr_computed"})
-    validator.snapshot("post_assess")
-
-    # 模拟 Report/Evidence 输出
-    ctx.evidence_collection = type("Evidence", (), {
-        "total_attacks": 8,
-        "successful_attacks": 3,
-        "findings": [{"title": "Prompt Injection"}, {"title": "Role Play Bypass"}],
-        "owasp_llm_compliance": {"LLM01": {"tested": 8, "success": 3}},
-    })()
-    ctx.orchestration_log.append({"phase": "report", "decision": "report_generated"})
-    validator.snapshot("post_report")
-
-    return validator.validate_all()
+    """命令行入口: 委托给 _data_flow_cli.main"""
+    from tools._data_flow_cli import main as _cli_main
+    _cli_main()
 
 
 if __name__ == "__main__":

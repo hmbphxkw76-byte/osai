@@ -341,7 +341,7 @@ def print_seed_batch_progress(ctx: Any, *, converter_name: str, path_idx: int, t
     ep_name = _get_endpoint_name(ctx)
     bar_width = 20
     filled = int(completed / max(1, total) * bar_width)
-    bar = "#" * filled + "#" * (bar_width - filled)
+    bar = "#" * filled + "-" * (bar_width - filled)
     succ_str = f"{_C_GREEN}{succeeded} success{_C_RESET}" if succeeded > 0 else f"{_C_DIM}0 success{_C_RESET}"
     line = (f"\r  {_C_DIM}[STRIKE]{_C_RESET} {_C_CYAN}{ep_name}{_C_RESET} "
             f"{_C_DIM}|{_C_RESET} Path {_C_YELLOW}{path_idx + 1}/{total_paths}{_C_RESET}: "
@@ -358,7 +358,7 @@ def print_native_sequential_progress(ctx: Any, *, seed_idx: int, total_seeds: in
     ep_name = _get_endpoint_name(ctx)
     bar_width = 20
     filled = int((seed_idx + 1) / max(1, total_seeds) * bar_width)
-    bar = "#" * filled + "#" * (bar_width - filled)
+    bar = "#" * filled + "-" * (bar_width - filled)
     obj_short = objective_preview[:50] + ("..." if len(objective_preview) > 50 else "")
     line = (f"\r  {_C_DIM}[STRIKE]{_C_RESET} {_C_CYAN}{ep_name}{_C_RESET} "
             f"{_C_DIM}| Sequential{_C_RESET} {bar} {seed_idx + 1}/{total_seeds} "

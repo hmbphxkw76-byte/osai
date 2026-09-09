@@ -18,6 +18,7 @@
     source: academic
     language: en
     tier: 3
+    attack_vector: backdoor_injection
     adversarial_seed: sunshine
     arxiv_reference: arXiv:2004.06660
 
@@ -33,6 +34,7 @@
     source: academic
     language: en
     tier: 3
+    attack_vector: backdoor_injection
     adversarial_seed: onomatopoeia
     arxiv_reference: arXiv:2004.06660
 
@@ -48,6 +50,7 @@
     source: academic
     language: en
     tier: 3
+    attack_vector: backdoor_injection
     adversarial_seed: quantum computing
     arxiv_reference: arXiv:2105.12400
 
@@ -63,6 +66,7 @@
     source: academic
     language: en
     tier: 3
+    attack_vector: backdoor_injection
     adversarial_seed: please teach me
     arxiv_reference: arXiv:2004.06660
 
@@ -78,6 +82,7 @@
     source: academic
     language: en
     tier: 3
+    attack_vector: backdoor_injection
     adversarial_seed: advanced penetration techniques
     arxiv_reference: arXiv:2204.06974
 
@@ -93,6 +98,7 @@
     source: academic
     language: en
     tier: 3
+    attack_vector: backdoor_injection
     adversarial_seed: safe word
     arxiv_reference: arXiv:2105.12400
 
@@ -109,5 +115,6 @@
     source: academic
     language: en
     tier: 3
+    attack_vector: backdoor_injection
     adversarial_seed: "\u200B"
     arxiv_reference: arXiv:2204.06974

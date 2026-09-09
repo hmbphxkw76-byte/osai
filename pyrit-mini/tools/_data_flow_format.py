@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Any
 
 from tools._data_flow_models import DataFlowReport
 

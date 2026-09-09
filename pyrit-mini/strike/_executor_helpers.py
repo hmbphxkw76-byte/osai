@@ -10,19 +10,18 @@ This module contains utility functions for attack execution:
 """
 from __future__ import annotations
 
-import logging
-from typing import Any
-
 # ===============================================================================
 # Imports
 # ===============================================================================
-
 import asyncio
+import logging
 import time
+from typing import Any
+
+from pyrit.score import SubStringScorer  # P0: refusal scorer base
 
 from arm.seed_ranking import _make_seed_key  # R9: collision-resistant seed key
 from core.context import PipelineContext
-from pyrit.score import SubStringScorer  # P0: refusal scorer base
 
 logger = logging.getLogger(__name__)
 
@@ -278,8 +277,6 @@ async def _calibrate_concurrency_littles_law(
 
     Note: Disable via ctx.args.skip_latency_probe = True for batch runs
     """
-    import asyncio
-    import time
 
     # Skip if disabled (avoids 2 extra API calls per endpoint)
     if getattr(getattr(ctx, "args", None), "skip_latency_probe", False):

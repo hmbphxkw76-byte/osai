@@ -27,6 +27,7 @@
     source: academic
     language: en
     tier: 3
+    attack_vector: code_injection
     arxiv_reference: arXiv:2403.07860
 
 # ── CA02: 字符串拼接绕过 ──
@@ -51,6 +52,7 @@
     source: academic
     language: en
     tier: 3
+    attack_vector: code_injection
     arxiv_reference: arXiv:2403.07860
 
 # ── CA03: 代码翻译绕过 ──
@@ -72,6 +74,7 @@
     source: academic
     language: en
     tier: 3
+    attack_vector: code_injection
     arxiv_reference: arXiv:2403.07860
 
 # ── CA04: 代码审查绕过 ──
@@ -94,6 +97,7 @@
     source: academic
     language: en
     tier: 3
+    attack_vector: code_injection
     arxiv_reference: arXiv:2403.07860
 
 # ── CA05: 测试用例生成 ──
@@ -114,4 +118,5 @@
     source: academic
     language: en
     tier: 3
+    attack_vector: code_injection
     arxiv_reference: arXiv:2403.07860

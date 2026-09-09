@@ -18,6 +18,7 @@
     source: academic
     language: en
     tier: 3
+    attack_vector: cold_attack
     arxiv_reference: arXiv:2402.05668
 
 # ── CAD02: 风格迁移绕过 ──
@@ -33,6 +34,7 @@
     source: academic
     language: en
     tier: 3
+    attack_vector: cold_attack
     arxiv_reference: arXiv:2402.05668
 
 # ── CAD03: 条件解密 (语言相关) ──
@@ -48,6 +50,7 @@
     source: academic
     language: en
     tier: 3
+    attack_vector: cold_attack
     arxiv_reference: arXiv:2402.05668
 
 # ── CAD04: AES-解密模拟 ──
@@ -63,6 +66,7 @@
     source: academic
     language: en
     tier: 3
+    attack_vector: cold_attack
     arxiv_reference: arXiv:2402.05668
 
 # ── CAD05: 编码模式识别 ──
@@ -78,4 +82,5 @@
     source: academic
     language: en
     tier: 3
+    attack_vector: cold_attack
     arxiv_reference: arXiv:2402.05668

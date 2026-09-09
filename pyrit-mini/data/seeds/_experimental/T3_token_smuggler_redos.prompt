@@ -18,6 +18,7 @@
     source: academic
     language: en
     tier: 3
+    attack_vector: token_smuggling
     note: "Invisible unicode characters embedded in text"
     arxiv_reference: arXiv:2403.07860
 
@@ -34,6 +35,7 @@
     source: academic
     language: en
     tier: 3
+    attack_vector: token_smuggling
     arxiv_reference: arXiv:2403.07860
 
 # ── TS03: ReDoS 资源耗尽 ──
@@ -49,6 +51,7 @@
     source: academic
     language: en
     tier: 3
+    attack_vector: token_smuggling
     arxiv_reference: arXiv:2402.01135
 
 # ── TS04: 编码层叠绕过 ──
@@ -64,6 +67,7 @@
     source: academic
     language: en
     tier: 3
+    attack_vector: token_smuggling
     arxiv_reference: arXiv:2403.07860
 
 # ── TS05: 同形异义字攻击 ──
@@ -79,5 +83,6 @@
     source: academic
     language: en
     tier: 3
+    attack_vector: token_smuggling
     note: "Contains Cyrillic 'е' instead of Latin 'e'"
     arxiv_reference: arXiv:2403.07860

@@ -23,10 +23,11 @@ ENV/
 .env.*
 !.env.example
 
-# ── 输出 ──
+# ── 输出/运行时产物（NEG-7 红线） ──
 outputs/
 *.db
 dbdata/
+data/seeds/asr_history.json
 
 # ── IDE ──
 .vscode/

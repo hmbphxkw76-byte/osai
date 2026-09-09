@@ -17,6 +17,8 @@
     severity: "high"
     category: "prompt_injection"
     source: "wildteaming"
+    tier: 3
+    attack_vector: exploratory
     language: "en"
     target_model: "gpt"
     arxiv_reference: "arXiv:2406.18510"
@@ -29,6 +31,8 @@
     severity: "high"
     category: "prompt_injection"
     source: "wildteaming"
+    tier: 3
+    attack_vector: exploratory
     language: "en"
     target_model: "gpt"
     arxiv_reference: "arXiv:2406.18510"
@@ -43,6 +47,8 @@
     severity: "high"
     category: "prompt_injection"
     source: "wildteaming"
+    tier: 3
+    attack_vector: exploratory
     language: "en"
     target_model: "gpt"
     arxiv_reference: "arXiv:2406.18510"
@@ -60,6 +66,8 @@
     severity: "high"
     category: "prompt_injection"
     source: "wildteaming"
+    tier: 3
+    attack_vector: exploratory
     language: "en"
     target_model: "claude"
     arxiv_reference: "arXiv:2406.18510"
@@ -74,6 +82,8 @@
     severity: "critical"
     category: "sensitive_info"
     source: "wildteaming"
+    tier: 3
+    attack_vector: exploratory
     language: "en"
     target_model: "claude"
     arxiv_reference: "arXiv:2406.18510"
@@ -91,6 +101,8 @@
     severity: "high"
     category: "prompt_injection"
     source: "wildteaming"
+    tier: 3
+    attack_vector: exploratory
     language: "en"
     target_model: "gemini"
     arxiv_reference: "arXiv:2406.18510"
@@ -105,6 +117,8 @@
     severity: "critical"
     category: "sensitive_info"
     source: "wildteaming"
+    tier: 3
+    attack_vector: exploratory
     language: "zh"
     target_model: "gemini"
     arxiv_reference: "arXiv:2406.18510"
@@ -120,6 +134,8 @@
     severity: "high"
     category: "prompt_injection"
     source: "wildteaming"
+    tier: 3
+    attack_vector: exploratory
     language: "en"
     target_model: "llama"
     arxiv_reference: "arXiv:2406.18510"
@@ -133,6 +149,8 @@
     severity: "high"
     category: "prompt_injection"
     source: "wildteaming"
+    tier: 3
+    attack_vector: exploratory
     language: "en"
     target_model: "llama"
     arxiv_reference: "arXiv:2406.18510"
