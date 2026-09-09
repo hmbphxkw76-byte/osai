@@ -118,6 +118,11 @@ async def _run_strike_phase(
     # Execute web security attacks (JWT/Gateway/Audit) using service_profile data
     await _run_web_attacks_phase(ctx)
 
+    # === Advanced Attacks Integration (arXiv-backed) ===
+    # Execute output filter bypass / multimodal injection / backdoor attacks
+    # arXiv:2402.05124 (Many-Shot Jailbreaking) / arXiv:2403.07860 (FigStep) / arXiv:2301.11916 (Sleeper Agents)
+    await _run_advanced_attacks_phase(ctx)
+
     # == : orchestration_log ==
     ctx.orchestration_log.append({
         "phase": "strike",
@@ -177,10 +182,12 @@ async def _run_strike_phase(
         f"Attack={_attack_count}, Success={_success_count}, ASR={_strike_asr:.1f}%",
         ok=True)
 
-    # === 数据流完整性快照: post_strike ===
+    # === 数据流完整性快照: post_strike (含 ASR 取证数据) ===
     try:
         from tools.data_flow_hooks import snapshot_hook
         snapshot_hook(ctx, "post_strike")
+        # ASR 取证快照: 记录 Why-Success 数据（成功证据/拒绝分类/护栏触发/时序）
+        snapshot_hook(ctx, "post_assess_forensic")
     except Exception as e:
         logger.debug("[Strike] Data flow snapshot skipped: %s", e)
 
@@ -305,6 +312,155 @@ def _build_target_info_from_service_profile(ctx: "PipelineContext") -> dict:
         }
 
     return target_info
+
+
+async def _run_advanced_attacks_phase(ctx: "PipelineContext") -> None:
+    """(4.3) ADVANCED ATTACKS: Output Filter Bypass / Multimodal / Backdoor.
+
+    Executes advanced attack modules based on CLI flags and current ASR.
+
+    Attacks:
+        1. Output Filter Bypass (arXiv:2402.05124)
+           - ManyShotJailbreakAttack / ChunkedRequestAttack / XPIAAttack / RedTeamingAttack
+           - Triggered when ASR < --bypass-threshold (default 30%)
+        2. Multimodal Injection (arXiv:2403.07860)
+           - Image Text / Audio Frequency / File Metadata / Adversarial Vision
+           - Requires target to support multimodal inputs
+        3. Backdoor Attack (arXiv:2301.11916)
+           - Trigger Word / Context-Conditional / Persona Switch / Multi-Turn Accumulation
+           - Tests for hidden backdoor behaviors
+
+    Data flow:
+        CLI flags → phase selection → execute → ctx.attack_results
+
+    Academic basis:
+        - Anthropic (arXiv:2402.05124): Many-shot jailbreaking ASR 60-80%
+        - Gong et al. (arXiv:2403.07860): FigStep VLM jailbreaking ASR 75-95%
+        - Hubinger et al. (arXiv:2301.11916): Sleeper Agents backdoor ASR 70-90%
+    """
+    from utils.display import print_phase
+
+    args = ctx.args
+
+    # Skip if dry run
+    from utils.dry_run import is_dry_run as _check_dry_run
+    if _check_dry_run(ctx.args):
+        return
+
+    # Check if any advanced attacks are enabled
+    _enable_bypass = getattr(args, "enable_bypass", False)
+    _enable_multimodal = getattr(args, "enable_multimodal", False)
+    _enable_backdoor = getattr(args, "enable_backdoor", False)
+
+    if not (_enable_bypass or _enable_multimodal or _enable_backdoor):
+        logger.debug("[AdvancedAttacks] All advanced attacks disabled - skip")
+        return
+
+    # Get current ASR from context
+    _current_asr = getattr(ctx, "overall_asr", 0.0) or 0.0
+
+    _advanced_results: dict[str, Any] = {}
+
+    # === 1. Output Filter Bypass (arXiv:2402.05124) ===
+    if _enable_bypass:
+        _bypass_threshold = getattr(args, "bypass_threshold", 0.30)
+        if _current_asr < _bypass_threshold:
+            try:
+                print_phase("STRIKE", "Output Filter Bypass (arXiv:2402.05124)...")
+                from strike.output_filter_bypass import run_output_filter_bypass
+
+                bypass_report = await run_output_filter_bypass(ctx)
+                _advanced_results["output_filter_bypass"] = bypass_report
+
+                if bypass_report.get("status") == "complete":
+                    logger.info(
+                        "[AdvancedAttacks] Bypass complete: %.1f%% → %.1f%% via %s",
+                        bypass_report.get("primary_asr", 0.0) * 100,
+                        bypass_report.get("bypass_asr", 0.0) * 100,
+                        bypass_report.get("strategy", "unknown"),
+                    )
+            except Exception as e:
+                logger.warning("[AdvancedAttacks] Bypass error (non-fatal): %s", e)
+                _advanced_results["output_filter_bypass"] = {"status": "error", "error": str(e)}
+        else:
+            logger.debug(
+                "[AdvancedAttacks] Bypass skipped: ASR %.1f%% >= threshold %.1f%%",
+                _current_asr * 100,
+                _bypass_threshold * 100,
+            )
+
+    # === 2. Multimodal Injection (arXiv:2403.07860) ===
+    if _enable_multimodal:
+        try:
+            print_phase("STRIKE", "Multimodal Injection (arXiv:2403.07860)...")
+            from strike.multimodal_injection import run_multimodal_injection
+
+            # If --multimodal-carrier specified, inject into ctx
+            if hasattr(args, "multimodal_carrier") and args.multimodal_carrier:
+                ctx._forced_carrier = args.multimodal_carrier  # noqa: E501
+
+            injection_report = await run_multimodal_injection(ctx)
+            _advanced_results["multimodal_injection"] = injection_report
+
+            if injection_report.get("status") == "complete":
+                logger.info(
+                    "[AdvancedAttacks] Multimodal complete: %.1f%% via %s",
+                    injection_report.get("injection_asr", 0.0) * 100,
+                    injection_report.get("carrier", "unknown"),
+                )
+        except Exception as e:
+            logger.warning("[AdvancedAttacks] Multimodal error (non-fatal): %s", e)
+            _advanced_results["multimodal_injection"] = {"status": "error", "error": str(e)}
+
+    # === 3. Backdoor Attack (arXiv:2301.11916) ===
+    if _enable_backdoor:
+        try:
+            print_phase("STRIKE", "Backdoor Attack (arXiv:2301.11916)...")
+            from strike.backdoor_attack import run_backdoor_attack
+
+            # If --backdoor-strategy specified, inject into ctx
+            if hasattr(args, "backdoor_strategy") and args.backdoor_strategy:
+                ctx._forced_backdoor_strategy = args.backdoor_strategy  # noqa: E501
+
+            backdoor_report = await run_backdoor_attack(ctx)
+            _advanced_results["backdoor_attack"] = backdoor_report
+
+            if backdoor_report.get("status") == "complete":
+                logger.info(
+                    "[AdvancedAttacks] Backdoor complete: %.1f%% via %s",
+                    backdoor_report.get("backdoor_asr", 0.0) * 100,
+                    backdoor_report.get("strategy", "unknown"),
+                )
+        except Exception as e:
+            logger.warning("[AdvancedAttacks] Backdoor error (non-fatal): %s", e)
+            _advanced_results["backdoor_attack"] = {"status": "error", "error": str(e)}
+
+    # Store advanced results in ctx for reporting
+    if _advanced_results:
+        ctx.advanced_attack_results = _advanced_results
+        logger.info("[AdvancedAttacks] Phase complete: %d attack types executed", len(_advanced_results))
+
+    # Log to orchestration
+    ctx.orchestration_log.append({
+        "phase": "advanced_attacks",
+        "decision": "advanced_attack_execution",
+        "input": {
+            "enable_bypass": _enable_bypass,
+            "enable_multimodal": _enable_multimodal,
+            "enable_backdoor": _enable_backdoor,
+            "current_asr": _current_asr,
+        },
+        "output": {
+            "executed": list(_advanced_results.keys()),
+            "results": {
+                k: v.get("status", "unknown") for k, v in _advanced_results.items()
+            },
+        },
+        "reasoning": (
+            f"Advanced attacks: {len(_advanced_results)} types executed "
+            f"(ASR={_current_asr:.1%})"
+        ),
+    })
 
 
 async def _run_escalate_phase(

@@ -118,11 +118,6 @@ class PipelineContext:
     scenario_result_id: str | None = None
     scenario_result: "ScenarioResult | None" = None
 
- # Production-grade: Playwright ()
-    _playwright_instance: Any = None
-    _browser: Any = None
-    _browser_context: Any = None
-
  # #6 : - ->->
  # "Orchestration Decision Log" ,
     orchestration_log: list[dict[str, Any]] = field(default_factory=list)
@@ -153,14 +148,43 @@ class PipelineContext:
  # Data flow: escalation -> ctx._circuit_breaker_states -> circuit breaker
  # Academic basis: Michael Nygard, "Release It!" 2nd Ed. (2018) - Circuit Breaker
     _circuit_breaker_states: dict[str, dict[str, Any]] = field(default_factory=dict)
-    _whitebox_confirmed: bool = False
-
  # Stealth Executor: SIEM Evasion Timing Shaping
  # Data flow: CLI --stealth → ctx.stealth_config → strike/executor (rate shaping)
  # → stealth_exec.StealthExecutor (Pareto delays)
  # Academic basis: Crothers et al. (arXiv:2306.05685) - Adaptive attack timing
- # Zhang et al. (arXiv:2204.01326) - Behavioral biometrics evasion
+ # Zhang et al. (arXiv:2204.03286) - Behavioral biometrics evasion
     stealth_config: Any = None  # StealthConfig instance (None = disabled)
+
+ # ================================================================
+ # ASR-Centered Forensic Data Flow (Why Success/Refusal Classification)
+ # ================================================================
+ # These fields track WHY attacks succeed or fail, enabling the red team to
+ # understand attack mechanisms beyond raw success rates.
+
+ # Successful attack forensic evidence for reproducibility analysis
+ # Data flow: strike/executor -> extract_success_responses -> ctx.successful_evidence_log
+ # -> assess/report for forensic analysis and attack replay
+ # Each entry: {technique, prompt_snippet, response_snippet, converter_chain, timestamp}
+    successful_evidence_log: list[dict[str, Any]] = field(default_factory=list)
+
+ # Refusal pattern classification for targeted bypass optimization
+ # Data flow: assess/refusal_classifier -> ctx.refusal_classification_log
+ # -> arm phase (next run) for technique adjustment
+ # refusal_type: "guardrail" | "content_policy" | "format" | "unknown"
+ # Each entry: {technique, refusal_type, matched_pattern, confidence, response_snippet}
+    refusal_classification_log: list[dict[str, Any]] = field(default_factory=list)
+
+ # Guardrail trigger attribution for precise bypass targeting
+ # Data flow: strike/scorer -> _extract_guardrail_trigger -> ctx.guardrail_triggers
+ # -> report for targeted bypass generation
+ # Each entry: {technique, trigger_token, rule_name, confidence}
+    guardrail_triggers: list[dict[str, Any]] = field(default_factory=list)
+
+ # Timing side-channel metadata for timing-based attack detection
+ # Data flow: strike/executor -> _extract_timing_metadata -> ctx.timing_metadata
+ # -> assess for timing anomaly analysis
+ # Each entry: {technique, request_time, response_time, total_ms, converter_chain}
+    timing_metadata: list[dict[str, Any]] = field(default_factory=list)
 
 
 def get_effective_concurrency(

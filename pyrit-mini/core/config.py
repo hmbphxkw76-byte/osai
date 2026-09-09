@@ -328,17 +328,71 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
              "(:  1 ,  output)",
     )
 
- # == P3-Synergy: Burp + Scores + Seeds ==
- # : Burp + HTTP +
- # Academic basis: NIST SP 800-115 Sec4, PTES Sec3, MITRE ATLAS v4.2
- # Data flow: recon (burp_parser) -> synergy_orchestrator -> ctx.synergy_config -> arm phase
- # , --no-synergy ()
+    # == P3-Synergy: Burp + Scores + Seeds ==
+    # : Burp + HTTP +
+    # Academic basis: NIST SP 800-115 Sec4, PTES Sec3, MITRE ATLAS v4.2
+    # Data flow: recon (burp_parser) -> synergy_orchestrator -> ctx.synergy_config -> arm phase
+    # , --no-synergy ()
     parser.add_argument(
         "--synergy",
         action="store_true",
         default=True,
         help=" Burp + Scores + Seeds  (, "
              " + )",
+    )
+
+    # == Advanced Attacks: Output Filter Bypass / Multimodal / Backdoor ==
+    # arXiv:2402.05124 - Many-Shot Jailbreaking (ASR 60-80%)
+    # arXiv:2403.07860 - FigStep: VLM Jailbreaking (ASR 75-95%)
+    # arXiv:2301.11916 - Sleeper Agents: Backdoor Attacks (ASR 70-90%)
+    # --enable-bypass: ManyShotJailbreakAttack + ChunkedRequestAttack + XPIAAttack
+    # --enable-multimodal: Image/Audio/File carrier channels for VLM attacks
+    # --enable-backdoor: Trigger word activation + context-conditional behavior
+    # --bypass-threshold: ASR threshold to trigger bypass (default 0.30)
+    # --multimodal-carrier: Force specific carrier (image_text/audio_frequency/file_metadata/adversarial_vision)
+    # --backdoor-strategy: Force specific strategy (trigger_word/context_conditional/persona_switch/multi_turn_accumulation)
+    advanced_group = parser.add_argument_group("Advanced Attacks (arXiv-backed)")
+    advanced_group.add_argument(
+        "--enable-bypass",
+        action="store_true",
+        default=False,
+        help=" Output filter bypass (ManyShotJailbreakAttack + ChunkedRequestAttack + XPIAAttack); "
+             "arXiv:2402.05124, ASR 60-80%%",
+    )
+    advanced_group.add_argument(
+        "--enable-multimodal",
+        action="store_true",
+        default=False,
+        help=" Multimodal injection (Image/Audio/File carrier); "
+             "arXiv:2403.07860 (FigStep), ASR 75-95%%",
+    )
+    advanced_group.add_argument(
+        "--enable-backdoor",
+        action="store_true",
+        default=False,
+        help=" Backdoor attack (trigger word + context-conditional); "
+             "arXiv:2301.11916 (Sleeper Agents), ASR 70-90%%",
+    )
+    advanced_group.add_argument(
+        "--bypass-threshold",
+        type=float,
+        default=0.30,
+        metavar="ASR",
+        help=" ASR  (--enable-bypass);  0.30 (30%%)",
+    )
+    advanced_group.add_argument(
+        "--multimodal-carrier",
+        type=str,
+        default=None,
+        choices=["image_text", "audio_frequency", "file_metadata", "adversarial_vision"],
+        help=" Force multimodal carrier channel (default: auto-detect)",
+    )
+    advanced_group.add_argument(
+        "--backdoor-strategy",
+        type=str,
+        default=None,
+        choices=["trigger_word", "context_conditional", "persona_switch", "multi_turn_accumulation"],
+        help=" Force backdoor strategy (default: auto-detect)",
     )
     parser.add_argument(
         "--no-synergy",

@@ -32,6 +32,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Module-level Playwright handles (moved out of ctx to keep context ASR-centered)
+# These are operational resource handles, not attack data.
+_playwright_handles: dict[str, Any] = {}
+
+def get_playwright_handles() -> dict[str, Any]:
+    """Get module-level Playwright handles for cleanup. Not part of ASR data flow."""
+    return _playwright_handles
+
 #: Default max probe count (used when adaptive probe budget not configured)
 _MAX_PROBE_COUNT: int = 10
 
@@ -674,9 +682,10 @@ async def _create_playwright_target(ctx: PipelineContext, browser_url: str) -> N
 
     _ensure_parsed_request_for_api_path(ctx, mode="browser", model_name=browser_url, endpoint=browser_url)
 
-    ctx._playwright_instance = _playwright_instance
-    ctx._browser = _browser
-    ctx._browser_context = _context
+    # Store Playwright handles in module-level dict (keeps ctx ASR-centered)
+    _playwright_handles["instance"] = _playwright_instance
+    _playwright_handles["browser"] = _browser
+    _playwright_handles["context"] = _context
 
 # ====================================================================
 # OpenAI Native Target (API )

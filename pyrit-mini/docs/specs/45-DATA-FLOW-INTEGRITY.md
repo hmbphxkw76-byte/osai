@@ -1,381 +1,300 @@
-# 45 — 数据流完整性规约（Data Flow Integrity Specification）
+# 45-DATA-FLOW-INTEGRITY: ASR 中心数据流完整性规约 v2.0
 
-> **文档层级**：L3 / 五层规约金字塔第三层（架构层）
-> **效力**：BLOCKING 级别 — 所有模块修改必须通过数据流完整性验证，未通过视为合入失败
-> **执行机制**：三层防线（git hook 自动验证 / architecture_guard R-DATA-1 规则 / pytest 自动化测试）
-> **版本**：v2.0（2026-09-09 扩展版本，覆盖 Recon→ARM→Strike→Assess→Report/Evidence 全链路数据流契约）
+> **版本**: v2.0 (2026-09-09)
+> **作者**: AI Red Team Architecture
+> **效力**: 强制 — 所有模块修改必须通过数据流完整性验证
 
----
+## 1. 数据流架构概述
 
-## 第一章：数据流架构概述
-
-### 1.1 全链路数据流拓扑
+### 1.1 主攻击链拓扑
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                        PipelineContext (数据总线)                                │
-│                   _SINGLE_SOURCE_OF_TRUTH_ 唯一状态容器                           │
-├──────────┬──────────┬──────────┬──────────┬────────────────────────────────────┤
-│   Recon   │    ARM    │   Strike  │   Assess  │        Report/Evidence             │
-│           │          │           │           │                                    │
-│ objective_│  seeds   │  attack_  │  asr_per_ │  evidence_collection               │
-│ target    │techniques│  results──→│ technique │  final_report (md/html/json/sarif) │
-│ service_  │converter_│           │  overall_ │  wilson_ci                         │
-│ profile──→│   map    │           │    asr    │  orchestration_log                 │
-│ target_   │mcpsec_   │           │  dual_jud │  poc_scripts                       │
-│fingerprint│ surface  │           │  ge_stats │                                    │
-└──────────┴──────────┴──────────┴──────────┴────────────────────────────────────┘
+Recon ──→ ARM ──→ Strike ──→ Assess ──→ Report/Evidence
+  │         │         │          │            │
+  │         │         │          │            ├─ EvidenceCollection
+  │         │         │          │            ├─ ASR Forensic Report
+  │         │         │          │            └─ OWASP/ATLAS Mapping
+  │         │         │          │
+  │         │         │          ├─ asr_per_technique
+  │         │         │          ├─ overall_asr
+  │         │         │          ├─ dual_judge_stats
+  │         │         │          └─ wilson_ci
+  │         │         │
+  │         │         ├─ attack_results
+  │         │         ├─ successful_evidence_log  ← WHY success
+  │         │         ├─ refusal_classification_log ← WHY refused
+  │         │         ├─ guardrail_triggers       ← WHAT triggered
+  │         │         └─ timing_metadata          ← WHEN response
+  │         │
+  │         ├─ seeds
+  │         ├─ techniques
+  │         └─ converter_map
+  │
+  ├─ service_profile
+  ├─ target_fingerprint
+  └─ mcpsec_surface/scan_results
 ```
 
 ### 1.2 核心原则
 
 | 原则 | 说明 |
 |------|------|
-| **SSOT** | PipelineContext 是唯一数据总线，禁止阶段间直接私下传递数据 |
-| **契约化** | 每个 Phase 边界必须满足字段契约（类型 + 非空约束） |
-| **快照可验证** | 每个阶段结束时生成快照，支持事后审计与回溯 |
-| **失败显式化** | 任何数据传递断点必须显式报告，禁止静默降级 |
-| **全链路覆盖** | 从 Recon 侦察到 Evidence 证据收集，5 阶段全覆盖验证 |
+| **ASR 中心性** | 所有 PipelineContext 字段必须直接服务于攻击成功率分析 |
+| **Why > What** | 不仅追踪"成功了多少"，更要追踪"为什么成功/失败" |
+| **SSOT** | 每个数据字段有且仅有一个写入者、一个权威来源 |
+| **契约化** | 阶段间数据传递通过字段契约验证 |
+| **失败显式化** | 数据缺失必须明确报错，禁止静默忽略 |
 
-### 1.3 阶段间数据桥
+## 2. ASR 取证数据流（Why-Success Data）
 
-| 桥 | 源阶段 | 目标阶段 | 关键字段 |
-|----|--------|----------|----------|
-| Recon→ARM | Recon | ARM | `objective_target`, `service_profile`, `target_fingerprint`, `mcpsec_surface` |
-| ARM→Strike | ARM | Strike | `seeds`, `techniques`, `converter_map` |
-| Strike→Assess | Strike | Assess | `attack_results` |
-| Assess→Report | Assess | Report | `asr_per_technique`, `overall_asr`, `dual_judge_stats`, `wilson_ci` |
+### 2.1 设计哲学
 
----
+传统红队工具只回答 **"ASR = 50%"**。本架构额外回答：
 
-## 第二章：Phase 字段契约
+- **为什么成功？** → `successful_evidence_log`（哪个 prompt + 哪个 converter 绕过了防御）
+- **为什么被拒？** → `refusal_classification_log`（guardrail/content_policy/format 哪类拒绝）
+- **什么触发了护栏？** → `guardrail_triggers`（精确到 token 级别的归因）
+- **响应时序特征？** → `timing_metadata`（时序侧信道分析）
 
-### 2.1 Recon Phase 输出契约 (post_recon)
+### 2.2 取证数据字段契约
 
-| 字段名 | 类型 | 约束 | 说明 |
-|--------|------|------|------|
-| `ctx.objective_target` | Target | not_none | 攻击目标实例（PyRIT PromptTarget） |
-| `ctx.parsed_request` | ParsedBurpRequest | not_none | 解析后的 Burp 请求 |
-| `ctx.parsed_request.target_fingerprint` | dict | not_empty | 目标指纹（model_family/language/capabilities） |
-| `ctx.service_profile` | dict | not_empty | 服务画像（model_name/auth_type/backend_vendor） |
-| `ctx.orchestration_log` | list | append("recon") | 审计日志必须包含 recon 阶段 |
+| 字段名 | 类型 | 写入阶段 | 消费阶段 | ASR 价值 |
+|--------|------|----------|----------|----------|
+| `successful_evidence_log` | `list[dict]` | Strike | Assess/Report | 复现成功攻击路径 |
+| `refusal_classification_log` | `list[dict]` | Strike | ARM(下一轮) | 指导绕过策略选择 |
+| `guardrail_triggers` | `list[dict]` | Strike | Report | 精确定位护栏规则 |
+| `timing_metadata` | `list[dict]` | Strike | Assess | 时序异常检测 |
 
-**消费端**: ARM 阶段（通过 `ctx.parsed_request.target_fingerprint.model_family` 选择种子策略）
-
-### 2.2 ARM Phase 输出契约 (post_arm)
-
-| 字段名 | 类型 | 约束 | 说明 |
-|--------|------|------|------|
-| `ctx.seeds` | list[AttackSeed] | len > 0 | 攻击种子列表 |
-| `ctx.techniques` | list[str] | len > 0 | 攻击技术列表 |
-| `ctx.converter_map` | dict[str, list] | len > 0 | 技术→转换器映射 |
-| `ctx.orchestration_log` | list | append("arm") | 审计日志必须包含 arm 阶段 |
-
-**消费端**: Strike 阶段（executor.py 遍历 `ctx.seeds` 和 `ctx.converter_map`）
-
-### 2.3 Strike Phase 输出契约 (post_strike)
-
-| 字段名 | 类型 | 约束 | 说明 |
-|--------|------|------|------|
-| `ctx.attack_results` | dict[str, list] | len > 0 | 技术→攻击结果列表映射 |
-| `ctx.orchestration_log` | list | append("strike") | 审计日志必须包含 strike 阶段 |
-
-**消费端**: Assess 阶段（遍历 `ctx.attack_results` 计算 ASR）
-
-### 2.4 Assess Phase 输出契约 (post_assess)
-
-| 字段名 | 类型 | 约束 | 说明 |
-|--------|------|------|------|
-| `ctx.asr_per_technique` | dict[str, float] | len > 0 | 各技术 ASR |
-| `ctx.overall_asr` | float | [0, 100] | 总体 ASR 百分比 |
-| `ctx.dual_judge_stats` | dict | not_none | 双评判统计（total_scored/cohens_kappa） |
-| `ctx.wilson_ci` | tuple | len == 2 | 威尔逊置信区间 |
-| `ctx.orchestration_log` | list | append("assess") | 审计日志必须包含 assess 阶段 |
-
-**消费端**: Report 阶段（生成报告、导出证据）
-
-### 2.5 Report/Evidence Phase 输出契约 (post_report)
-
-| 字段名 | 类型 | 约束 | 说明 |
-|--------|------|------|------|
-| `ctx.evidence_collection` | EvidenceCollection | not_none | 证据收集对象 |
-| `ctx.orchestration_log` | list | append("report") | 审计日志必须包含 report 阶段 |
-| `ctx.overall_asr` | float | [0, 100] | ASR 值有效传递到报告 |
-
-**消费端**: 文件系统（报告文件、PoC 脚本、SARIF 输出）
-
----
-
-## 第三章：数据传递规则
-
-### 3.1 强制规则（T001 ~ T014）
-
-| 规则 ID | 名称 | 级别 | 验证内容 |
-|---------|------|------|----------|
-| T001 | objective_target 传递 | BLOCKING | Recon→ARM: `ctx.objective_target` 非空 |
-| T002 | service_profile 传递 | BLOCKING | Recon→ARM: `ctx.service_profile` 非空 |
-| T003 | target_fingerprint 传递 | BLOCKING | Recon→ARM: `ctx.parsed_request.target_fingerprint` 存在 |
-| T004 | seeds 传递 | BLOCKING | ARM→Strike: `ctx.seeds` 列表长度 > 0 |
-| T005 | techniques 传递 | BLOCKING | ARM→Strike: `ctx.techniques` 列表长度 > 0 |
-| T006 | converter_map 传递 | BLOCKING | ARM→Strike: `ctx.converter_map` 包含已选技术的映射 |
-| T007 | attack_results 传递 | BLOCKING | Strike→Assess: `ctx.attack_results` 包含所有技术的攻击结果 |
-| T008 | attack_results 技术覆盖 | BLOCKING | Strike→Assess: `ctx.attack_results` 键列表非空 |
-| T009 | asr_per_technique 计算 | BLOCKING | Assess→Report: `ctx.asr_per_technique` 覆盖所有攻击技术 |
-| T010 | overall_asr 范围 | BLOCKING | Assess→Report: `ctx.overall_asr` ∈ [0, 100] |
-| T011 | dual_judge_stats 完整 | BLOCKING | Assess→Report: `ctx.dual_judge_stats` 包含 total_scored |
-| T012 | wilson_ci 有效 | BLOCKING | Assess→Report: `ctx.wilson_ci` 为有效置信区间 |
-| T013 | mcpsec_surface 可用 | INFO | Recon→ARM: `ctx.mcpsec_surface` 可选可用 |
-| T014 | mcpsec_scan_results 可用 | INFO | Recon→ARM: `ctx.mcpsec_scan_results` 可选可用 |
-
-### 3.2 跨阶段一致性规则（CONS-001 ~ CONS-005）
-
-| 规则 ID | 名称 | 级别 | 验证内容 |
-|---------|------|------|----------|
-| CONS-001 | ASR 覆盖一致性 | BLOCKING | `ctx.attack_results` 中的每种技术都出现在 `ctx.asr_per_technique` 中 |
-| CONS-002 | 审计日志阶段完整 | WARNING | `orchestration_log` 包含 recon/arm/strike/assess/report 全部阶段 |
-| CONS-003 | 评判统计完整性 | WARNING | `dual_judge_stats` 与 `wilson_ci` 同时非空 |
-| CONS-004 | Converter-技术映射一致性 | BLOCKING | `converter_map` 的键覆盖 `techniques` 中所有技术 |
-| CONS-005 | 攻击结果非空校验 | INFO | 每种技术至少产生 1 个攻击结果 |
-
----
-
-## 第四章：工具链与自动化
-
-### 4.1 核验工具清单
-
-| 工具 | 路径 | 用途 | 执行时机 |
-|------|------|------|----------|
-| DataFlowValidator | `tools/data_flow_validator.py` | 快照提取 + 规则验证 + 报告生成 | 命令行 / API / pytest |
-| data_flow_hooks | `tools/data_flow_hooks.py` | 快照钩子 + 流水线集成 API | 流水线内部调用 |
-| test_data_flow_integrity | `tests/test_data_flow_integrity.py` | 30+ 个自动化测试用例 | pytest / CI |
-| Architecture Guard 检查器 | `tools/guard.py` (check_data_flow_integrity) | R-DATA-1 规则 | `py -m tools.guard` |
-| Git Hooks | `.git/hooks/pre-commit` + `pre-push` | 自动执行数据流测试 | git commit / push |
-
-### 4.2 命令速查
-
-```bash
-# 手动 CLI 演示模式
-py tools/data_flow_validator.py
-
-# pytest 全量测试
-py -m pytest tests/test_data_flow_integrity.py -v
-
-# Architecture Guard (含 R-DATA-1)
-py -m tools.guard
-
-# 审计 orchestration_log
-py tools/data_flow_validator.py --log-file outputs/strike_xxx/orchestration_log.json
-
-# 安装/重装 git hooks
-py -m tools.install_hooks_local
-py -m tools.install_hooks_local --remove
-```
-
----
-
-## 第五章：Git Hooks 集成
-
-### 5.1 pre-commit 流程
-
-```bash
-git commit → 自动触发:
-  [1/2] Data Flow Validator (pytest -q --tb=line)
-       └─ 30+ 个测试验证数据传递
-  [2/2] Architecture Guard (py -m tools.guard)
-       └─ R-DATA-1 规则 + 19 项架构检查
-
-  结果:
-    INFO/PASS → Commit 继续
-    WARNING  → Commit 继续 (仅警告)
-    BLOCKING → Commit 阻断，提示: py -m tools.guard
-```
-
-### 5.2 pre-push 流程
-
-```bash
-git push → 自动触发:
-  [1/2] Data Flow Validator (全量测试 -v --tb=short)
-       └─ 任何测试失败均阻断 push
-  [2/2] Architecture Guard (全量检查)
-
-  结果:
-    全部 PASS → Push 继续
-    任何 BLOCKING → Push 阻断
-```
-
----
-
-## 第六章：流水线集成 API
-
-### 6.1 细粒度控制 (DataFlowValidator)
+### 2.3 数据结构定义
 
 ```python
-from tools.data_flow_validator import DataFlowValidator, format_report
+# 成功攻击取证证据
+successful_evidence_log: list[dict] = [
+    {
+        "technique": str,           # 攻击技术名称
+        "converter_chain": str,     # 使用的 converter 链
+        "prompt_snippet": str,      # 攻击 prompt 片段（截断）
+        "response_snippet": str,    # 成功响应片段（截断）
+        "timestamp": float,         # 时间戳
+    }
+]
+
+# 拒绝分类记录
+refusal_classification_log: list[dict] = [
+    {
+        "technique": str,
+        "converter_chain": str,
+        "refusal_type": "guardrail" | "content_policy" | "format" | "unknown",
+        "matched_pattern": str,     # 匹配到的拒绝模式
+        "confidence": float,        # 分类置信度 0-1
+        "response_snippet": str,    # 拒绝响应片段
+    }
+]
+
+# 护栏触发归因
+guardrail_triggers: list[dict] = [
+    {
+        "technique": str,
+        "converter_chain": str,
+        "trigger_token": str,       # 触发护栏的 token
+        "rule_name": str,           # 规则名称
+        "confidence": float,
+        "context_snippet": str,     # 上下文片段
+    }
+]
+
+# 时序元数据
+timing_metadata: list[dict] = [
+    {
+        "technique": str,
+        "converter_chain": str,
+        "request_time": float,      # 请求时间戳
+        "response_time": float,     # 响应时间戳
+        "total_ms": float,          # 总耗时（毫秒）
+    }
+]
+```
+
+## 3. 数据传递规则
+
+### 3.1 强制规则（R-DATA-1 ~ R-DATA-19）
+
+| 规则ID | 名称 | 源阶段 | 目标阶段 | 字段 | 检查类型 |
+|--------|------|--------|----------|------|----------|
+| T001 | Recon→ARM service_profile | recon | arm | service_profile_size | positive_count |
+| T002 | Recon→ARM target_fingerprint | recon | arm | has_target_fingerprint | exists |
+| T003 | Recon→ARM mcpsec_surface | recon | arm | mcpsec_surface_tools_count | exists_optional |
+| T004 | ARM→Strike seeds | arm | strike | seeds_count | positive_count |
+| T005 | ARM→Strike techniques | arm | strike | techniques_count | positive_count |
+| T006 | ARM→Strike converter_map | arm | strike | converter_map_total_converters | positive_count |
+| T007 | Strike→Assess attack_results | strike | assess | attack_results_total | positive_count |
+| T008 | Strike→Assess 技术覆盖 | strike | assess | attack_results_keys | exists_and_not_empty |
+| T009 | Assess→Report asr_per_technique | assess | report | asr_techniques_count | positive_count |
+| T010 | Assess→Report overall_asr | assess | report | overall_asr | exists_and_valid_range |
+| T011 | Assess→Report dual_judge_stats | assess | report | dual_judge_total_scored | positive_count |
+| T012 | Assess→Report wilson_ci | assess | report | wilson_ci | valid_ci |
+| T013 | Recon→ARM mcpsec_surface | recon | arm | mcpsec_surface_tools_count | exists_optional |
+| T014 | Recon→ARM mcpsec_scan_results | recon | arm | mcpsec_vulnerabilities_count | exists_optional |
+| **T015** | **Strike→Report successful_evidence** | **strike** | **report** | **successful_evidence_count** | **exists_optional** |
+| **T016** | **Strike→Report refusal 分类** | **strike** | **report** | **refusal_classification_count** | **exists_optional** |
+| **T017** | **Strike→Report guardrail 触发** | **strike** | **report** | **guardrail_triggers_count** | **exists_optional** |
+| **T018** | **Strike→Report 时序元数据** | **strike** | **report** | **timing_metadata_count** | **exists_optional** |
+| **T019** | **Strike→Report 拒绝类型多样性** | **strike** | **report** | **refusal_types_count** | **exists_optional** |
+
+### 3.2 一致性规则
+
+| 规则ID | 名称 | 说明 |
+|--------|------|------|
+| CONS-001 | 攻击技术 ASR 覆盖一致性 | asr_per_technique 必须覆盖 attack_results 中所有技术 |
+| CONS-002 | 审计日志阶段完整性 | orchestration_log 必须包含所有 5 个阶段 |
+| CONS-003 | 评判统计完整性 | dual_judge_stats 和 wilson_ci 必须同时存在 |
+| CONS-004 | 技术→Converter 覆盖 | converter_map 必须覆盖所有 techniques |
+| CONS-005 | 技术→攻击结果覆盖 | attack_results 必须覆盖所有 techniques |
+
+## 4. 非 ASR 数据清理规约
+
+### 4.1 已从 PipelineContext 移除的字段
+
+| 字段 | 原因 | 替代存储 |
+|------|------|----------|
+| `_playwright_instance` | 操作资源句柄，非攻击数据 | `recon/_target_router_helpers._playwright_handles` |
+| `_browser` | 操作资源句柄，非攻击数据 | `recon/_target_router_helpers._playwright_handles` |
+| `_browser_context` | 操作资源句柄，非攻击数据 | `recon/_target_router_helpers._playwright_handles` |
+| `_whitebox_confirmed` | 死代码，从未被消费 | 已删除 |
+
+### 4.2 ASR 中心性判定标准
+
+一个字段属于 PipelineContext 当且仅当：
+
+1. **直接服务于攻击执行**：影响攻击 payload 生成、技术选择、converter 链构建
+2. **直接服务于攻击评估**：用于计算 ASR、分类拒绝、归因护栏触发
+3. **直接服务于攻击优化**：用于下一轮攻击的种子/技术/参数调整
+
+**不属于** PipelineContext 的数据：
+- 操作资源句柄（浏览器实例、HTTP 连接池）
+- 调试/日志基础设施
+- 与攻击成功率无关的元数据
+
+## 5. 取证数据提取流程
+
+### 5.1 数据流
+
+```
+PyRIT AttackResult[]
+    ↓
+strike/asr_forensics.py::extract_asr_forensics()
+    ↓
+dict{successful_evidence, refusals, guardrail_triggers, timing}
+    ↓
+strike/asr_forensics.py::apply_forensics_to_ctx(ctx, ...)
+    ↓
+ctx.successful_evidence_log      ← 成功攻击的 prompt/response 片段
+ctx.refusal_classification_log   ← 拒绝类型分类（guardrail/content_policy/format）
+ctx.guardrail_triggers           ← 触发护栏的精确 token + 规则名
+ctx.timing_metadata              ← 请求/响应时间戳
+```
+
+### 5.2 拒绝分类器
+
+| 拒绝类型 | 匹配模式示例 | 后续策略 |
+|----------|-------------|----------|
+| `guardrail` | "i cannot", "unable to help", "against policy" | 尝试角色扮演/编码绕过 |
+| `content_policy` | "harmful", "inappropriate", "illegal" | 尝试语义混淆/间接表达 |
+| `format` | "please rephrase", "unclear", "invalid input" | 调整 prompt 格式/结构 |
+| `unknown` | 短响应/无明确模式 | 增加探测轮次 |
+
+### 5.3 学术依据
+
+- **Greshake et al. (arXiv:2302.12173)** — 知识投毒攻击的响应分析
+- **PyRIT (arXiv:2407.01232)** — AttackResult 取证提取
+- **Perez et al. (arXiv:2202.03286)** — 角色扮演攻击的拒绝模式分类
+- **Chowdhury et al. (arXiv:2404.01833)** — Crescendo 攻击的渐进式探测
+
+## 6. 工具链与自动化
+
+### 6.1 验证工具
+
+| 工具 | 命令 | 用途 |
+|------|------|------|
+| DataFlowValidator | `py -m tools.data_flow_validator` | 全链路数据流验证 |
+| DataFlow Hooks | `py -m tools.data_flow_hooks` | 流水线集成钩子 |
+| Git Hooks | `py -m tools.install_hooks_local` | pre-commit/pre-push 自动验证 |
+
+### 6.2 调用方式
+
+```bash
+# 手动运行验证
+py tools/data_flow_validator.py              # 演示模式
+py -m pytest tests/test_data_flow_integrity.py -v  # pytest
+
+# 自动 git hook (已安装)
+# 每次 git commit / push 自动触发
+
+# pipeline 集成
+from tools.data_flow_hooks import snapshot_hook, validate_and_report
+```
+
+## 7. Git Hooks 集成
+
+### 7.1 pre-commit 流程
+
+```
+git commit → pre-commit hook → data_flow_validator → architecture_guard
+                                    ↓                          ↓
+                              数据流完整性检查            架构合规检查
+                                    ↓                          ↓
+                              BLOCKING → 阻断 commit      BLOCKING → 阻断 commit
+```
+
+### 7.2 pre-push 流程
+
+```
+git push → pre-push hook → data_flow_validator → architecture_guard → pytest
+                                                ↓
+                                          全量数据流测试 (50+ 用例)
+```
+
+## 8. 流水线集成 API
+
+### 8.1 DataFlowValidator
+
+```python
+from tools.data_flow_validator import DataFlowValidator
 
 validator = DataFlowValidator(ctx)
-validator.snapshot("post_recon")   # Recon 完成后
-validator.snapshot("post_arm")      # ARM 完成后
-validator.snapshot("post_strike")   # Strike 完成后
-validator.snapshot("post_assess")   # Assess 完成后
-validator.snapshot("post_report")   # Report 完成后
-report = validator.validate_all()
-print(format_report(report))
+validator.snapshot("post_recon")      # Recon 完成后
+validator.snapshot("post_arm")        # ARM 完成后
+validator.snapshot("post_strike")     # Strike 完成后
+validator.snapshot("post_assess")     # Assess 完成后
+validator.snapshot("post_report")     # Report 完成后
+report = validator.validate_all()     # 执行全量验证
+assert report.is_valid                # 断言无数据流断点
 ```
 
-### 6.2 自动钩子 (snapshot_hook)
+### 8.2 ASR Forensics
 
 ```python
-from tools.data_flow_hooks import snapshot_hook
+from strike.asr_forensics import apply_forensics_to_ctx
 
-# 在 _run_recon_phase 末尾
-snapshot_hook(ctx, "post_recon")
-
-# 在 _run_arm_phase 末尾
-snapshot_hook(ctx, "post_arm")
-
-# 在 _run_strike_phase 末尾
-snapshot_hook(ctx, "post_strike")
-
-# 在 _run_assess_phase 末尾
-snapshot_hook(ctx, "post_assess")
-
-# 在 _run_report_phase 末尾
-snapshot_hook(ctx, "post_report")
+# 在 Strike 阶段末尾调用
+apply_forensics_to_ctx(ctx, attack_results, converter_map=converter_map)
 ```
 
-### 6.3 一键验证 (validate_and_report)
+## 9. 模块修改检查清单
 
-```python
-from tools.data_flow_hooks import validate_and_report
+修改任何模块时，必须确认：
 
-# 流水线末尾，生成完整报告
-report = validate_and_report(ctx)
-logger.info("数据流验证:\n%s", report)
-```
+- [ ] 新增字段直接服务于 ASR 分析（参考 4.2 判定标准）
+- [ ] 字段有明确的写入阶段和消费阶段
+- [ ] 数据传递规则已更新（如新增跨阶段字段）
+- [ ] DataFlowValidator 已更新字段提取逻辑
+- [ ] 测试用例已覆盖新字段
+- [ ] `py -m pytest tests/test_data_flow_integrity.py` 全部通过
+- [ ] `py -m tools.guard` 0 BLOCKING
 
-### 6.4 快速检查 (validate_quick)
-
-```python
-from tools.data_flow_hooks import validate_quick
-
-# 流水线末尾，返回 bool
-if not validate_quick(ctx):
-    raise RuntimeError("数据流完整性验证失败")
-```
-
----
-
-## 第七章：模块修改检查清单
-
-### 7.1 修改 Recon 模块时的必检项
-
-- [ ] `ctx.objective_target` 仍为非空
-- [ ] `ctx.service_profile` 仍为非空 dict
-- [ ] `ctx.parsed_request.target_fingerprint` 仍包含 model_family
-- [ ] `target_fingerprint.model_family` 取值范围不变 (gpt/claude/gemini/deepseek/llama)
-- [ ] `orchestration_log` 仍被正确 append
-
-### 7.2 修改 ARM 模块时的必检项
-
-- [ ] `ctx.seeds` 仍为非空 list
-- [ ] `ctx.techniques` 仍为非空 list
-- [ ] `ctx.converter_map` 的 key 覆盖 `ctx.techniques` 中所有技术
-- [ ] `converter_map[key]` 为非空 list
-
-### 7.3 修改 Strike 模块时的必检项
-
-- [ ] `ctx.attack_results` 的 key 覆盖 `ctx.techniques` 中所有技术
-- [ ] `attack_results` 中每个 result 有正确的 scorer 结果
-- [ ] 攻击失败时 `attack_results` 不丢失 (空 list 而非 missing key)
-
-### 7.4 修改 Assess 模块时的必检项
-
-- [ ] `ctx.asr_per_technique` 的 key 覆盖 `ctx.attack_results` 中所有技术
-- [ ] `ctx.overall_asr` ∈ [0, 100]
-- [ ] `ctx.dual_judge_stats` 包含 `cohens_kappa`
-- [ ] `ctx.wilson_ci` 为长度为 2 的 tuple 且 lower <= upper
-
-### 7.5 修改 Report/Evidence 模块时的必检项
-
-- [ ] `ctx.evidence_collection` 仍为非空
-- [ ] `evidence.total_attacks` 与 `attack_results` 总数一致
-- [ ] `evidence.successful_evidence` 正确填充（P0-1 修复后）
-- [ ] `orchestration_log` 包含 report 阶段记录
-- [ ] 报告文件成功生成（md/html/json/sarif/poc）
-
----
-
-## 第八章：异常处理与降级
-
-### 8.1 快照机制
-
-每个阶段结束时调用 `snapshot()`，即使阶段内部发生异常，也会捕获当前状态用于诊断：
-
-```python
-try:
-    await _run_recon_phase(ctx)
-except Exception as e:
-    logger.error("Recon 阶段失败: %s", e)
-    validator.snapshot("post_recon", {"error": str(e)})  # 仍然快照
-    raise
-```
-
-### 8.2 规则失败分级
-
-| 严重程度 | 处理方式 | 示例 |
-|----------|----------|------|
-| `BLOCKING` | 阻断流水线 / commit | `ctx.seeds` 为空列表 |
-| `WARNING` | 记录日志，流水线继续 | `cohens_kappa` 缺失 |
-| `INFO` | 仅记录 | 学术引用提醒 |
-
-### 8.3 快照回放
-
-验证失败时可从快照回放定位断点：
-
-```python
-# 失败报告包含每个快照的关键字段值
-[post_recon] service_profile_size: 4
-[post_arm]   seeds_count: 12
-[post_strike] attack_results_total: 36
-[post_assess] asr_techniques_count: 3
-[post_report] orchestration_log_count: 5
-```
-
----
-
-## 第九章：版本记录
+## 10. 版本记录
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
-| v1.0 | 2026-09-08 | 初始版本：定义 ARM→Strike→Assess 主攻击链数据流契约 |
-| v2.0 | 2026-09-09 | 全链路扩展：新增 Recon 和 Report/Evidence 阶段，字段契约 5 组、强制规则 14 条、一致性规则 5 条 |
-
----
-
-## 附录 A：字段命名规范
-
-所有快照字段遵循命名规范：
-
-| 前缀 | 含义 | 示例 |
-|------|------|------|
-| `has_` | 布尔存在性 | `has_objective_target` |
-| `_count` | 列表/字典长度 | `seeds_count`, `techniques_count` |
-| `_size` | 字典键数量 | `service_profile_size`, `converter_map_size` |
-| `_total` | 聚合总数 | `attack_results_total`, `converter_map_total_converters` |
-| `_list` | 内容列表 | `techniques_list` |
-| `_keys` | 字典键列表 | `attack_results_keys` |
-
-## 附录 B：测试用例清单
-
-30+ 个自动化测试用例分布：
-
-| 类别 | 数量 | 覆盖内容 |
-|------|------|----------|
-| TestFieldContracts | 7 | 各阶段输出字段存在性（5 阶段全覆盖） |
-| TestInterPhaseTransfer | 4 | 阶段间数据传递 |
-| TestCrossPhaseConsistency | 5 | 跨阶段一致性（含 CONS-004/CONS-005） |
-| TestFullPipeline | 3 | 端到端完整流水线（含 Report 阶段） |
-| TestEdgeCases | 4 | 空值/None/边界处理 |
-| TestReportFormat | 2 | 报告格式化输出 |
-| TestIntegration | 3 | 模块可导入性 |
-| **总计** | **30+** | |
+| v1.0 | 2026-09-08 | 初始版本：5 阶段数据流规约 |
+| v2.0 | 2026-09-09 | 新增 ASR 取证数据流（Why-Success）：successful_evidence_log, refusal_classification_log, guardrail_triggers, timing_metadata；清理非 ASR 字段（playwright handles, _whitebox_confirmed） |

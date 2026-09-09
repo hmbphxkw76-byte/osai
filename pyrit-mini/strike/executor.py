@@ -838,6 +838,19 @@ async def execute_attacks(ctx: PipelineContext) -> dict[str, list[Any]]:
  # v58: STRIKE DONE main.py print_strike_report_async ,
  # Ensure payload , .
  # executor elapsed time .
+    # === ASR Forensic Data Extraction (Why-Success Data) ===
+    # Extract WHY attacks succeed/fail for downstream analysis
+    # Data flow: ctx.attack_results -> asr_forensics -> ctx.*_log fields
+    try:
+        from strike.asr_forensics import apply_forensics_to_ctx
+        forensic_count = apply_forensics_to_ctx(
+            ctx, ctx.attack_results, converter_map=ctx.converter_map
+        )
+        if forensic_count > 0:
+            logger.info("[Strike] ASR Forensics: %d entries extracted", forensic_count)
+    except Exception as e:
+        logger.debug("ASR forensics extraction skipped: %s", e)
+
     # === Gap #2: Feedback Loop - Attack Success -> Re-Recon ===
     await _run_feedback_loop(ctx, all_results)
 

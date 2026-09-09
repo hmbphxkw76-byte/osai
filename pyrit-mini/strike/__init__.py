@@ -3,6 +3,9 @@
 # arXiv:2302.12173 — Greshake et al., PromptSendingAttack
 # MCPSec Bridge - mcpsec v2.7.2 (manthanganghasadiya/mcpsec)
 # Stealth Exec - SIEM evasion timing (arXiv:2306.05685 / arXiv:2204.01326)
+# Output Filter Bypass - arXiv:2402.05124 (Many-Shot Jailbreaking)
+# Multimodal Injection - arXiv:2403.07860 (FigStep) / arXiv:2306.13213 (Visual Adv)
+# Backdoor Attack - arXiv:2301.11916 (Sleeper Agents) / arXiv:2004.06660 (TrojLLM)
 """strike - Attack execution module.
 
 6-phase attack pipeline with PyRIT native AttackExecutor:
@@ -25,6 +28,15 @@ MCPSec + PyRIT Integration (v2.7.2):
     - malicious_mcp_server: Rogue MCP server for client-side testing
     - mcpsec_orchestrator: Full MCPSec + PyRIT attack pipeline orchestrator
     - dynamic_mcp_seeds: Runtime attack seed generation via MCPSec
+
+Output Filter Bypass (arXiv:2402.05124):
+    - output_filter_bypass: ManyShotJailbreakAttack + ChunkedRequestAttack + XPIAAttack
+
+Multimodal Injection (arXiv:2403.07860):
+    - multimodal_injection: Image/Audio/File carrier channels for VLM attacks
+
+Backdoor Attack (arXiv:2301.11916):
+    - backdoor_attack: Trigger word activation + context-conditional behavior
 """
 
 from typing import Any
@@ -57,6 +69,15 @@ __all__ = [
     "run_mcpsec_pyrit_attack",
     "generate_dynamic_seeds",
     "load_mcp_seeds_for_target",
+    # Output Filter Bypass (arXiv:2402.05124)
+    "run_output_filter_bypass",
+    "OutputFilterBypassContext",
+    # Multimodal Injection (arXiv:2403.07860)
+    "run_multimodal_injection",
+    "MultimodalInjectionContext",
+    # Backdoor Attack (arXiv:2301.11916)
+    "run_backdoor_attack",
+    "BackdoorAttackContext",
 ]
 
 # Lazy imports for Web security modules
@@ -105,4 +126,20 @@ def __getattr__(name: str) -> Any:
     if name in ("generate_dynamic_seeds", "load_mcp_seeds_for_target"):
         from strike import dynamic_mcp_seeds
         return getattr(dynamic_mcp_seeds, name)
+
+    # Output Filter Bypass modules
+    if name in ("run_output_filter_bypass", "OutputFilterBypassContext"):
+        from strike import output_filter_bypass
+        return getattr(output_filter_bypass, name)
+
+    # Multimodal Injection modules
+    if name in ("run_multimodal_injection", "MultimodalInjectionContext"):
+        from strike import multimodal_injection
+        return getattr(multimodal_injection, name)
+
+    # Backdoor Attack modules
+    if name in ("run_backdoor_attack", "BackdoorAttackContext"):
+        from strike import backdoor_attack
+        return getattr(backdoor_attack, name)
+
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

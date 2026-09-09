@@ -99,7 +99,7 @@ _SPEC_NATIVE_TARGET_CLASSES: dict[str, str] = {
     "TextTarget": "pyrit.target",
 }
 
-# PipelineContext 字段契约 (从 45-DATA-FLOW-INTEGRITY 提取)
+# PipelineContext 字段契约 (从 10-ARCHITECTURE.md 第四章提取，原 45-DATA-FLOW-INTEGRITY.md 已合并)
 _PIPELINE_CONTEXT_CONTRACTS: dict[str, list[str]] = {
     "recon": ["objective_target", "parsed_request", "service_profile", "target_fingerprint"],
     "arm": ["seeds", "techniques", "converter_map"],
@@ -270,7 +270,7 @@ class DriftDetector:
                     severity=DriftSeverity.WARNING,
                     dimension="spec_table",
                     message=f"规范引用模块已不存在: {module_rel_path}",
-                    spec_source="00-CONSTITUTION / 40-GUARDRAILS / 60-REDTEAM",
+                    spec_source="00-CONSTITUTION / 40-GUARDRAILS",
                     code_target=module_rel_path,
                     fix_hint=f"更新规范文档，删除对 {module_rel_path} 的引用",
                 ))
@@ -347,7 +347,7 @@ class DriftDetector:
                 severity=DriftSeverity.BLOCKING,
                 dimension="contract_drift",
                 message="core/context.py 不存在",
-                spec_source="45-DATA-FLOW-INTEGRITY.md",
+                spec_source="10-ARCHITECTURE.md",
                 code_target="core/context.py",
             ))
             return
@@ -374,7 +374,7 @@ class DriftDetector:
                         severity=DriftSeverity.INFO,
                         dimension="contract_drift",
                         message=f"PipelineContext 字段 '{field_name}' (Phase: {phase}) 可能未定义",
-                        spec_source="45-DATA-FLOW-INTEGRITY.md",
+                        spec_source="10-ARCHITECTURE.md",
                         code_target="core/context.py",
                         fix_hint=f"确认 {field_name} 字段在 PipelineContext 中定义",
                     ))

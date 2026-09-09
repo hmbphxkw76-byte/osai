@@ -3,7 +3,7 @@
 > **文档层级**：L4 / 五层规约金字塔第五层
 > **效力**：红线 = 绝对禁止，视同宪法级（裁决序见 00-CONSTITUTION 第二章）。质量门禁 = 完成任务的必要不充分条件。
 > **执行机制**：三层防线（静态 guard / 运行时 dry-run / git 钩子），继承 SKILL.md D2 条款并收编。
-> **版本**：v1.6（2026-09-09 REV-06：新增 R-DRIFT-1~R-DRIFT-5 规范漂移检测护栏；guard 检查器登记簿扩充至 29 项）
+> **版本**：v2.1（2026-09-09 新增 R-DATA-2 ASR 中心性红线 + R-DATA-3 取证数据字段红线；数据流完整性测试 50 项全覆盖）
 
 ---
 
@@ -24,7 +24,7 @@
 
 ### 1A-DATA. 数据流完整性红线（v1.4 新增）
 
-> 完整规约见 [45-DATA-FLOW-INTEGRITY.md](45-DATA-FLOW-INTEGRITY.md)
+> 完整规约见 [10-ARCHITECTURE.md 第四章](../specs/10-ARCHITECTURE.md)（原 45-DATA-FLOW-INTEGRITY.md 已合并）
 
 | # | 红线 | guard 检查器 | 级别 |
 |---|------|-------------|------|
@@ -34,6 +34,21 @@
 - ✅ PASS: 25/25 数据流测试通过 → INFO (不阻断)
 - ❌ FAIL: 任何字段契约违规或传递断点 → WARNING (提示修复)
 - 🔴 BLOCKING: 严重数据断点 → 阻断 commit (通过 pre-push 全量验证)
+
+### 1B-DATA. ASR 中心数据流完整性红线（v2.0 新增）
+
+| # | 红线 | guard 检查器 | 级别 |
+|---|------|-------------|------|
+| R-DATA-2 | PipelineContext 字段必须直接服务于 ASR（禁止操作资源句柄混入） | `check_ctx_asr_centered()` | WARNING |
+| R-DATA-3 | 取证数据字段必须存在且可被验证器提取 | `check_forensic_fields_exist()` | INFO |
+
+**R-DATA-2 判定**:
+- ✅ PASS: ctx 中无 `_playwright_*`, `_browser*`, `_whitebox_confirmed` 等非 ASR 字段
+- ❌ FAIL: 发现非 ASR 字段混入 → WARNING (提示移除)
+
+**R-DATA-3 判定**:
+- ✅ PASS: `successful_evidence_log`/`refusal_classification_log`/`guardrail_triggers`/`timing_metadata` 字段存在
+- ℹ️ INFO: 字段存在但为空列表（首次运行无数据，正常）
 
 ### 1A-TOOLS. 目录职责红线（v1.3 新增）
 
@@ -96,7 +111,7 @@
 
 ### 1E-DRIFT. 规范漂移检测护栏（v1.6 新增）
 
-> 完整规约见 [60-REDTEAM-DELIVERY-FRAMEWORK.md §11](60-REDTEAM-DELIVERY-FRAMEWORK.md)
+> 完整规约见本章 1E-DRIFT（原 60-REDTEAM-DELIVERY-FRAMEWORK.md §11 已合并入本文件）
 > 检测引擎：`tools/drift_detector.py`（独立于 `tools/guard.py`，专责「规范-代码」双向漂移）
 
 | # | 红线 | 级别 | 检查内容 | 检查器 |
@@ -261,10 +276,112 @@ py -m tools.guard > outputs/guard_baseline.json   # 记录当前违规基线
 | SKILL.md 失败模式表 | 评审培训材料，保留 |
 | `implementation_checklist.md` | 已于 2026-09-06 删除；其职能由 `specs/templates/task-spec.md` 接管（D-09 债务消除） |
 | `specs/50-ROADMAP.md` | 无门禁效力；其任务序列仅供领任务顺序参考（REV-02） |
+| `tools/watch_guard.py` | L1 静态检查的实时监视模式（开发时后台运行） |
+| `tools/quick_check.py` | 单文件快速验证工具（< 1秒响应） |
 
 ---
 
-## 第七章：OffSec AI-300 考试合规与证据完整性（v1.3 增补）
+## 第七章：交付验证清单（通用，v2.0 新增）
+
+> **效力**：每次代码修改后的标准交付检查清单。**通用适用**于任意包和任意功能优化。
+
+### 7A. 架构规则验证
+
+```markdown
+## 交付验证清单
+
+### 架构规则
+- [ ] `py -m tools.guard` → 0 BLOCKING
+- [ ] `py -m tools.drift_detector --full` → 0 BLOCKING
+- [ ] 新模块 < 850 行（R-SIZE）
+- [ ] 无跨层导入违规（R-DELIVERY-3）
+- [ ] 公共 API 在 `__init__.py` 导出
+```
+
+### 7B. 代码质量验证
+
+```markdown
+### 代码质量
+- [ ] `ruff check` → 0 errors
+- [ ] `py_compile` → 全部通过
+- [ ] 所有公共方法有类型注解
+- [ ] 新模块有 docstring 说明（模块功能 + 架构对齐 + 学术引用）
+```
+
+### 7C. 测试与集成验证
+
+```markdown
+### 测试覆盖
+- [ ] 单元测试: 全部通过
+- [ ] 新模块测试: `tests/test_<module>.py` 存在且通过
+- [ ] `python main.py --dry-run` → 无 ImportError/AttributeError
+
+### 集成点
+- [ ] 新模块在 `__init__.py` 导出
+- [ ] 消费者已更新（如需要）
+- [ ] PipelineContext 已更新（如需要）
+```
+
+### 7D. 自动化执行命令速查
+
+```bash
+# 运行全量架构检查
+py -m tools.guard
+py -m tools.guard -v
+
+# 运行漂移检测
+py -m tools.drift_detector          # 快速模式
+py -m tools.drift_detector --full   # 含版本锁定
+
+# 单文件快速验证 (< 1秒)
+py -m tools.quick_check report/evidence.py
+py -m tools.quick_check --all
+
+# 实时监视（开发时后台运行）
+py -m tools.watch_guard                        # 监视所有包
+py -m tools.watch_guard --package report       # 只监视特定包
+py -m tools.watch_guard --fast                 # 快速模式（只检查修改文件）
+```
+
+### 7E. .env.local 自动启动配置
+
+在项目根目录创建 `.env.local` 启用自动守卫：
+
+```bash
+# .env.local
+AUTO_GUARD_WATCH=1
+AUTO_GUARD_MODE=fast
+```
+
+**效果**：每次启动 `python main.py` 时自动在后台启动 watch_guard，无需手动执行。
+
+### 7F. Git Hooks 完整流程
+
+**Pre-commit**（每次 commit 自动执行）：
+```bash
+git commit -m "..."
+  ↓
+[1/3] Data flow validator... → [PASS] 25/25 tests OK
+[2/3] Architecture guard...  → [PASS] 0 BLOCKING
+[3/3] Quick check (modified files) → [PASS] All checks passed
+  ↓
+[PASS] Commit allowed.
+```
+
+**Pre-push**（每次 push 执行完整审计）：
+```bash
+git push origin main
+  ↓
+[1/3] Data flow validator (full)...
+[2/3] Architecture guard...
+[3/3] Drift detector (full)...
+  ↓
+[PASS] Push allowed.
+```
+
+---
+
+## 第八章：OffSec AI-300 考试合规与证据完整性（v1.3 增补）
 
 > **效力**：本章为考试场景的合规红线与证据完整性约束，视同 R-S* 安全合规红线级（宪法 C2 边界条款）。考试期间任何违反本章的行为 = 严重违宪。
 
@@ -341,3 +458,4 @@ py -m tools.guard > outputs/guard_baseline.json   # 记录当前违规基线
 | v1.4 | 2026-09-08 | REV-04 Glue 层专项护栏：① 新增第一章 1D Glue 层专项护栏（R-GLUE-1~R-GLUE-5：插件化隔离、PyRIT 原生委托、配置数据流、静默降级、学术留痕）；② 新增 Glue 层攻击向量白名单（JWT 混淆、向量 DB 投毒、HTTP 走私、审计日志注入、微调后门注入）；③ 1E 检查器登记簿新增 5 项 Glue 层检查器（总计 24 项） | 用户会话批准 | 
 | v1.5 | 2026-09-08 | REV-05 过度工程化清理（精简白名单）：① 白名单移除向量DB投毒和微调后门注入（黑盒HTTP不可测试）；② 适用范围移除已删除模块（vector_glue、finetuning_glue）；③ 护栏数量不变（R-GLUE-1~R-GLUE-5 仍适用保留的3个模块） | 用户会话批准 |
 | v1.6 | 2026-09-09 | REV-06 规范漂移检测系统：① 新增 1E-DRIFT 规范漂移检测护栏（R-DRIFT-1~R-DRIFT-5：PyRIT API 解析验证 BLOCKING / 规范表格-代码同步 WARNING / 版本变更锁定 BLOCKING / 契约消费验证 INFO / 原生模式违规 WARNING）；② 1F 检查器登记簿新增 5 项 Drift Detector 检查器（总计 29 项）；③ 调用方式：`pyrit-drift` / `py -m tools.drift_detector --full` | 用户会话批准 |
+| v2.0 | 2026-09-09 | REV-07 合并 60-REDTEAM-DELIVERY-FRAMEWORK.md：① 新增第七章"交付验证清单"（通用验证模板 + watch/quick 命令速查 + .env.local 配置 + Git Hooks 完整流程）；② 原第七章（考试合规）重命名为第八章；③ 删除冗余文档 `60-REDTEAM-DELIVERY-FRAMEWORK.md` | 用户会话批准 |

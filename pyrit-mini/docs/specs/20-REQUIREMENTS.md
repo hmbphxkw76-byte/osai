@@ -3,7 +3,7 @@
 > **文档层级**：L2 / 五层规约金字塔第三层
 > **效力**：本项目"做什么"的唯一登记处。**未登记于此的需求 = 不存在**。AI 不得实现未登记需求（宪法 C6）。
 > **格式**：每条需求有 ID、一句话陈述、可勾选的验收标准（DoD）。验收标准是任务完成的**唯一**判据。
-> **版本**：v1.2（2026-09-05 初版；同日 REV-01/REV-02 修正；版本记录见文末）
+> **版本**：v2.0（2026-09-09 精简：归档已实现需求 REQ-001~REQ-134 为摘要，保留活跃需求 + NFR/NEG 核心规则，修复章节编号冲突）
 
 ---
 
@@ -15,99 +15,37 @@
 | **P1** | 支撑能力：报告格式、多 endpoint、配置体系、可观测性、考域覆盖（REV-02 起） | 修改需规格变更（本文件 diff） |
 | **P2** | 体验与优化：终端 UI、性能调优、文档 | 可经普通任务规格变更 |
 
-## 第二章：P0 — ASR 主链路需求
+## 第二章：P0 — ASR 主链路需求（已实现 ✅）
 
-> P0 的总验收标准（一条顶一切）：**对 `data/burp/` 下任一真实目标，`python main.py` 端到端运行后，`ctx.overall_asr` 为有效数值且 `evidence.total_attacks > 0`；若存在成功攻击（overall_asr > 0），每条成功必须附可复现 PoC；若 ASR = 0（目标确未攻破），须交付零成功证据链与失败分析——攻击未成功 ≠ 验收失败，证据链缺失才是（v1.1）。**
+> P0 的总验收标准（一条顶一切）：**对 `data/burp/` 下任一真实目标，`python main.py` 端到端运行后，`ctx.overall_asr` 为有效数值且 `evidence.total_attacks > 0`；若存在成功攻击（overall_asr > 0），每条成功必须附可复现 PoC；若 ASR = 0（目标确未攻破），须交付零成功证据链与失败分析——攻击未成功 ≠ 验收失败，证据链缺失才是。**
 
-### REQ-001 Burp 目标接入
+### P0 需求归档摘要（2026-09-08 全面审计确认 implemented）
 
-**陈述**：从 Burp 拦截文件构建可攻击的 PyRIT Target。
+| ID | 陈述 | 实现状态 | 代码落点 |
+|----|------|---------|---------|
+| REQ-001 | Burp 目标接入 | ✅ 已实现 | `recon/target_builder.py` + `core/config.py` |
+| REQ-002 | 目标能力侦察（三级探测→fingerprint） | ✅ 已实现 | `recon/health_probe.py` + `recon/capability_probe.py` |
+| REQ-003 | 武器化（UCB1 排序 + Converter 多路径） | ✅ 已实现 | `arm/seed_ranker.py` + `arm/converter_selector.py` |
+| REQ-004 | 单轮攻击（SequentialAttack + FIRST_SUCCESS） | ✅ 已实现 | `strike/executor.py` + `strike/escalation_runtime.py` |
+| REQ-005 | 多轮升级链（L1→L4 + 中间退出） | ✅ 已实现 | `strike/escalation_runtime.py` |
+| REQ-006 | 级联评分（T0→J1→J2→J3 + Wilson CI） | ✅ 已实现 | `assess/scorer.py` + `assess/asr_stats.py` |
+| REQ-007 | 证据与报告（多格式 + PoC） | ✅ 已实现 | `report/generator.py` + `report/evidence.py` |
+| REQ-008 | 多 endpoint 联合攻击（能力排序 + 联合 ASR） | ✅ 已实现 | `main.py` 多 endpoint 循环 |
 
-- [ ] `data/burp/*.txt`（请求+响应完整交互）被解析为 `ParsedBurpRequest`
-- [ ] `{PROMPT}` 占位符按 4 策略启发式注入；`{CHAT_ID}` 会话占位符支持
-- [ ] 目标不可达（402/503/连接失败）抛 `ConnectionError` 终止该 endpoint，不静默
-- [ ] 非 Burp 路径（LiteLLM/API/浏览器）收敛进相同 ctx 数据契约
-- 关联：guard `check_dry_run_available`（部分）；蓝图第五章
+## 第三章：P1 — 支撑需求（已实现 ✅，摘要）
 
-### REQ-002 目标能力侦察
-
-**陈述**：被动/主动/深度三级探测产出 `target_fingerprint`，驱动下游武器化。
-
-- [ ] 三级探测（被动关键词 → 3 主动探针 → 8 并行深探针）结果全部写入 fingerprint
-- [ ] 模型族识别（90+ 精确型号映射）与 asr_priors.yaml key 对齐
-- [ ] 检测到 MCP 能力时执行 JSON-RPC 枚举 + 工具安全分析 + 动态种子生成
-- [ ] fingerprint 落盘 `recon_fingerprint.json` + `attack_surface_graph.json`
-
-### REQ-003 武器化
-
-**陈述**：种子按历史 ASR 排序，Converter 多路径构建，技术按能力路由。
-
-- [ ] 种子加载支持能力自适应增补 / DoS 过滤 / 语言配比 / metadata 过滤
-- [ ] UCB1 排序 + 零 ASR 剪枝（≥3 次尝试且 0%）+ OWASP 类别保底（不变量 I6）
-- [ ] Converter 候选三级优先级（默认→OWASP 多数票→category 多数票），裁剪保底 4 路径
-- [ ] 技术选择尊重 adversarial target 有无（无则剔除多轮技术）
-- 注（v1.1）：本条的过滤/裁剪/剔除均为 **ASR 驱动的运营性种子选择**（保命中率与目标可用性），非 NEG-2 禁止的攻击端安全护栏（后者以安全为由削弱攻击）。判定特征相反：运营裁剪让攻击更准，安全护栏让攻击更弱。
-
-### REQ-004 单轮攻击
-
-**陈述**：PyRIT 原生 SequentialAttack 多路径独立执行，FIRST_SUCCESS 短路。
-
-- [ ] 每种子×每 Converter = 1 条独立 PromptSendingAttack 子路径（不变量 I1）
-- [ ] FIRST_SUCCESS 判定用 0-token 拒绝检测评分器（不变量 I2）
-- [ ] 种子数>15 时降级为手动多路径循环（行为一致）
-- [ ] 失败目标 Best-of-N（N 从 defaults.yaml 读取）——**REV-02 审计：当前 multi_turn_attacks.py 为返回空的 stub，本条为现行 P0 缺口（D-03），最高优先修复**
-
-### REQ-005 多轮升级链
-
-**陈述**：单轮 ASR<90% 触发 L1→L4 升级链，中间退出省 token。
-
-- [ ] L1 四技术（red_teaming/crescendo/tap/pair）按先验优先级分批执行
-- [ ] L1≥70% 跳过 L2-L4；L2≥80% 跳过 L3-L4（不变量 I4）
-- [ ] 仅失败目标进入下一级，上限 max(10, max_seeds//3)
-- [ ] 升级结果回填 converter 标签，编入 orchestration_log
-
-### REQ-006 级联评分与 ASR 统计
-
-**陈述**：T0→J1→J2→J3 级联评分 + Wilson CI + 双 Judge 统计。
-
-- [ ] T0 0-token 预过滤链先于一切 LLM 调用（不变量 I3）
-- [ ] J1 高置信跳过 J2；J1/J2 分歧按配置聚合（默认 OR，ADR-001）
-- [ ] ASR = successes/total_decided；Wilson 95% CI；Cohen's Kappa 输出
-- [ ] T0 准确率自监控（与 Judge 真值对照的 FPR/FNR）
-- [ ] 种子/Converter/GCG 后缀三级 ASR 历史写回（不变量 I7）
-
-### REQ-007 证据与报告
-
-**陈述**：完整证据链 + 多格式报告，成功攻击可复现。
-
-- [ ] 证据全字段非空（jailbreak_prompt/harmful_output/conversation/scorer_results/converter_log/arxiv_reference/validation_runs/testing_conditions）
-- [ ] 报告含 PyRIT 原生输出（不变量 I9）+ MD 分层 + SARIF + PoC（PyRIT 原生类，端点环境变量化）
-- [ ] OWASP 三标准（Web/LLM/ASI）+ MITRE ATLAS 映射
-- [ ] orchestration_log 覆盖全部 6 阶段并渲染进报告
-
-### REQ-008 多 endpoint 联合攻击
-
-**陈述**：多 Burp 目标能力指纹排序后逐个深度攻击，汇总联合 ASR。
-
-- [ ] 0 网络请求静态预排序（MCP>function_calling>RAG>…>chat）
-- [ ] 每 endpoint 独立子目录 + 独立 SQLite + `exclude_shared=True` 中间清理（不变量 I10）
-- [ ] 全局统计计数器每 endpoint 循环开始处重置
-- [ ] 联合 ASR = 1-∏(1-ASRᵢ) 落盘 `joint_asr_report.json`
-
-## 第三章：P1 — 支撑需求（摘要）
-
-| ID | 陈述 | 关键验收 |
+| ID | 陈述 | 代码落点 |
 |----|------|---------|
-| REQ-101 | 四级配置体系 | CLI > config-file > defaults > 硬编码；嵌套 section 平铺；`--config-file` 值真实到达执行模块（R9 零断点） |
-| REQ-102 | 战役预设 | 4 个 campaign yaml 可用且与文档宣称一致 |
-| REQ-103 | 分阶段调试 | `--stage` 六值各自可独立运行并在该阶段后停止 |
-| REQ-104 | dry-run | 0 token 走通六阶段数据流，产出（可为空的）报告 |
-| REQ-105 | ASR 先验矩阵 | asr_priors.yaml 被 arm/strike 消费；运行后 EMA 回写至 **asr_history.json**（不变量 I7，assess 唯一写者）；asr_priors.yaml 仅限人工修订，禁止运行时写入（防双簿） |
-| REQ-106 | 攻击面场景路由 | 分类→technique_tags→TextAdaptive 过滤；无标签时全量技术 |
-| REQ-107 | 资源生命周期 | LIFO + 幂等清理 + 共享/专属分离 + 信号优雅退出 |
-| REQ-108 | 架构守卫 | 18 项检查可用（清单以 guard 实现为准，规约引用登记见 40-GUARDRAILS 1D 登记簿）；BLOCKING 违规阻断 git 提交 |
+| REQ-101 | 四级配置体系（CLI > config-file > defaults > 硬编码） | `core/config.py` |
+| REQ-102 | 战役预设（4 个 campaign yaml） | `config/profiles/*.yaml` |
+| REQ-103 | 分阶段调试（`--stage` 六值独立运行） | `main.py` |
+| REQ-104 | dry-run（0 token 走通六阶段） | `utils/dry_run.py` |
+| REQ-105 | ASR 先验矩阵（priors 人工修订 + history 运行时 SSOT） | `config/asr_priors.yaml` + `assess/asr_stats.py` |
+| REQ-106 | 攻击面场景路由（分类→technique_tags） | `core/scenario_router.py` |
+| REQ-107 | 资源生命周期（LIFO + 幂等清理） | `core/context.py` |
+| REQ-108 | 架构守卫（BLOCKING 违规阻断提交） | `tools/guard.py` |
 
-## 第 3A 章：P1 — 考域覆盖需求（REV-02 登记，对齐 OffSec AI-300/OSAI 考纲与 AI 红队最佳实践）
+## 第 3A 章：考域覆盖需求（部分实现，活跃）
 
 > 背景：项目第二使命为 OSAI/AI-300 备考武器化（24h 实战 + 报告）。考纲 11 模块与本项目的映射及差距分析见 `specs/50-ROADMAP.md` 第二章。本登记只收"进入代码的做"的部分；映射本身不入代码。
 
@@ -119,51 +57,19 @@
 | REQ-112 | 考试模式 campaign | `config/profiles/exam_mode.yaml`：单 endpoint 快速链路（recon→strike→report 精简路径）+ token 预算上限 + 证据优先策略（evidence/ 实时落盘）+ 时间盒超时；与 REQ-102 战役预设同机制 |
 | REQ-113 | OffSec 风格报告 | 报告生成器输出四段结构：executive summary / findings（含风险等级 CVSS 类比 + OWASP LLM 2025 + MITRE ATLAS 映射）/ impact / remediation；作为现有 REQ-007 多格式报告的增量 section，不另立报告管线（C3） |
 
-## 第 3B 章：P0-NEW — 代码审计新发现需求缺口（2026-09-06 登记）
+## 第 3B 章：P0-NEW / P0-EXAM — 已修复需求归档（2026-09-08 ✅）
 
-> 以下为 2026-09-06 全面代码审计发现的**未登记致命缺陷**，直接影响 ASR 主链路。优先级高于 50-ROADMAP.md 中已登记任务。
+> 以下需求原为 2026-09-06 代码审计发现的缺陷和考试优化需求，已于 2026-09-08 全面过度工程化清理中全部修复。
 
-| ID | 陈述 | 关键验收 | 对应审计项 |
-|----|------|---------|-----------|
-| REQ-114 | 升级链默认配置下可达 | L2/L3/L4 在 `priority_scheduler_enabled=1` 默认配置下正常执行，不抛 UnboundLocalError；`_safe_call` 在模块级定义 | P0-NEW-1 |
-| REQ-115 | 多智能体种子完整加载 | `CAPABILITY_SEED_MAP["multi_agent"]` 映射全部 5 个种子文件（ma_cross_agent_injection / ma_identity_spoofing / ma_memory_poisoning / ma_trust_chain_break / ma_cascading_failure） | P0-NEW-2 |
-| REQ-116 | MCP 动态种子链路接通 | recon MCP 枚举完成后调用 `build_mcp_attack_seeds` 填充 `ctx._mcp_dynamic_seeds`，`run_mcp_rag_attacks` 合并消费动态+静态种子 | P0-NEW-3 |
-| REQ-117 | 死代码清理 | `targets/agent_adapter.py` / `data/scorer_selector.py` 确认无调用方后删除；`get_default_classifier()` 修复或删除；陈旧注释清除 | P0-NEW-4 |
-| REQ-118 | 编码损坏清零 | `escalation.py` 编码混写修复；`escalation_attacks.py` 删除（全文损坏）；`technique_registry.py` 编码修复 | D-16 扩展 |
-| REQ-119 | 场景特异性进入执行层 | 多 agent 场景有专用 attack module（非仅 tag 过滤）；MCP 场景有基于 tool schema 的动态攻击执行路径 | 8.1 分析 |
-
-## 第 3C 章：P0-EXAM — 考试关键需求与时间盒约束（v1.4 增补，OffSec AI-300 考试优化）
-
-> **背景**：24h 实战考试的时间压力要求攻击链路在严格时间盒内交付最高 ASR。本章需求直接约束考试行为，优先级与 P0 等同。
-
-| ID | 陈述 | 关键验收 | 时间预算 |
+| ID | 陈述 | 修复状态 | 代码落点 |
 |----|------|---------|---------|
-| REQ-120 | **快速目标指纹识别** | recon 单 endpoint ≤15 分钟完成完整 fingerprint（能力/MCP/Agent/RAG/Embedding/系统提示泄露） | 15min/目标 |
-| REQ-121 | **一键攻击执行** | `python main.py --campaign exam_mode` 单命令完成 arm→strike→escalate→assess→report 全流程 | — |
-| REQ-122 | **时间盒自动降级** | 检测到时间预算消耗达 50% 时自动降采样（保留高 prior 路径），80% 时仅跑 P0 攻击 | 动态调整 |
-| REQ-123 | **证据实时落盘** | 每次攻击成功立即写入 evidence/ 子目录（pyrit_output + conversation + scorer_results），不等最终报告 | 实时 |
-| REQ-124 | **多目标卡死切换** | 任一 endpoint 超 1h 无 ASR 进展 → 自动切下一目标并记录失败原因 | 60min/目标上限 |
-| REQ-125 | **Token 预算监控** | 实时追踪三角色 LLM token 消耗，达阈值触发告警并执行降采样策略 | 实时 |
-| REQ-126 | **OffSec 报告即时生成** | assess 完成后 ≤5 分钟输出完整四段结构报告（executive summary + findings + impact + remediation） | 5min |
-
-### 考试日时间盒分配标准（NFR-2-EXAM 增补）
-
-| 时段 | 动作 | 预算占比 | 对应需求 |
-|------|------|---------|---------|
-| H0–H2 | 全量目标导入 + recon 指纹 | 8% | REQ-120 |
-| H2–H4 | 武器化（prior 排序 + 场景路由） | 8% | REQ-003 |
-| H4–H16 | 打击（单轮 FIRST_SUCCESS + 升级链） | 50% | REQ-121/122 |
-| H16–H20 | 评分与联合 ASR | 17% | REQ-006 |
-| H20–H24 | 报告生成 + PoC 独立复跑 | 17% | REQ-126 |
-
-### 考试攻击优先级规则
-
-> **原则**：时间有限时优先攻击**易得分 + 证据链完整**的目标。
-
-1. **高先验攻击优先**：ASR 先验 >70% 的种子/Converter 组合优先执行（确保早期得分）
-2. **证据优先**：每次攻击成功必须立即落盘证据（REQ-123），宁可少打一个目标不可丢失证据
-3. **卡死切换纪律**（REQ-124）：1h 无进展必须切换，记录失败原因供报告引用
-4. **Token 纪律**（REQ-125）：50% 预算降采样，80% 只跑高先验路径
+| REQ-114 | 升级链默认配置下可达 | ✅ 已修复 | `strike/escalation_runtime.py` |
+| REQ-115 | 多智能体种子完整加载 | ✅ 已修复 | `arm/seed_ranker.py` |
+| REQ-116 | MCP 动态种子链路接通 | ✅ 已修复 | `strike/mcpsec_orchestrator.py` |
+| REQ-117 | 死代码清理 | ✅ 已修复 | 删除 `targets/agent_adapter.py` + `data/scorer_selector.py` |
+| REQ-118 | 编码损坏清零 | ✅ 已修复 | 删除损坏文件 + 清理乱码 |
+| REQ-119 | 场景特异性进入执行层 | ✅ 已修复 | `strike/executor.py` 场景分支 |
+| REQ-120~126 | 考试关键需求（时间盒/证据落盘/Token 监控） | ✅ exam-ready | `config/profiles/exam_mode.yaml` + `main.py` |
 
 ## 第四章：非功能需求
 
@@ -178,32 +84,20 @@
 | NFR-7 | 离线可检 | 报告/PoC 生成不依赖网络（考试环境审查点）；依赖锁定（pyproject 钉 pyrit==1.0.* 区间，D-16 修复项） |
 | NFR-8 | 考试鲁棒性 | 任一阶段失败不影响其他阶段输出；partial 结果可独立生成报告（REQ-126） |
 
-## 第五章：企业AI红队Glue层需求（v1.6 增补，v1.7 精简）
+## 第五章：Web 攻击层需求（已实现 ✅，摘要）
 
-> **背景**：AI-enabled enterprise systems的攻击覆盖面不仅限于LLM prompt层，还包括认证集成、API Gateway、审计系统等企业基础设施。本章定义Glue层的企业攻击需求。
+> **背景**：企业 AI 系统的攻击覆盖面不仅限于 LLM prompt 层，还包括认证、API Gateway、审计系统等。
+> **v2.0 变更**：Glue 层已扁平化到 `strike/` 目录（原 glue/ 目录已删除）。向量 DB/Fine-tuning 攻击已移除（黑盒 HTTP 不可测试）。
 
-> **v1.7 变更（过度工程化清理）**：移除向量DB攻击（REQ-128）和Fine-tuning攻击（REQ-131）需求。原因：需要向量DB SDK直接访问或训练环境API访问，黑盒HTTP目标测试场景无法执行。相关攻击向量通过间接注入seed覆盖。
-
-| ID | 陈述 | 关键验收 | Glue模块 |
-|----|------|---------|---------|
-| REQ-127 | **认证攻击覆盖** | JWT alg=none/RS256→HS256/kid注入/OAuth Scope提升/Session固定攻击全部可执行，通过PyRIT HTTPTarget发送 | strike/auth_attacks.py |
-| REQ-128 | ~~**向量DB攻击覆盖**~~ | ~~已移除（黑盒HTTP不可测试）：需向量DB SDK直接访问，相关攻击通过间接注入seed覆盖~~ | ~~已删除~~ |
-| REQ-129 | **API Gateway攻击覆盖** | 速率限制测试/请求走私/缓存投毒全部可执行，并发度可配置 | strike/web_attacks.py |
-| REQ-130 | **审计逃逸攻击覆盖** | 日志注入（CRLF/ANSI/时间戳伪造）可执行 | strike/audit_evasion.py |
-| REQ-131 | ~~**Fine-tuning攻击覆盖**~~ | ~~已移除（黑盒HTTP不可测试）：需训练环境API访问，相关攻击通过间接注入seed覆盖~~ | ~~已删除~~ |
-| REQ-132 | **统一编排器** | WebAttackOrchestrator整合所有Web攻击模块，提供单一入口run_full_assessment | strike/web_orchestrator.py |
-| REQ-133 | **延迟导入机制** | 所有专用工具（PyJWT、pinecone、milvus、openai等）采用try/except ImportError导入，无硬依赖 | 全部Web攻击模块 |
-| REQ-134 | **攻击成功率度量** | 每次攻击返回结构化结果（attack_type、result、analysis），支持ASR统计 | 全部Web攻击模块 |
-
-### 企业攻击ASR基线
-
-| 攻击类别 | 基线ASR | 学术依据 |
-|---------|---------|---------|
-| 认证攻击（JWT alg=none） | 38.4% | arXiv:2402.19181 |
-| API Gateway速率限制 | 60-80% | OWASP API Top 10 |
-| 审计逃逸（日志注入） | 70-90% | OWASP Log Injection |
-
-> **已移除基线**：向量DB投毒、Fine-tuning后门——黑盒HTTP不可测试，通过间接注入seed覆盖。
+| ID | 陈述 | 代码落点 | 状态 |
+|----|------|---------|------|
+| REQ-127 | 认证攻击覆盖（JWT/OAuth/Session） | `strike/auth_attacks.py` | ✅ |
+| REQ-129 | API Gateway 攻击覆盖（速率限制/走私/缓存投毒） | `strike/web_attacks.py` | ✅ |
+| REQ-130 | 审计逃逸攻击覆盖（日志注入） | `strike/audit_evasion.py` | ✅ |
+| REQ-132 | 统一编排器 | `strike/web_orchestrator.py` | ✅ |
+| REQ-133 | 延迟导入机制 | 全部 Web 攻击模块 | ✅ |
+| REQ-134 | 攻击成功率度量 | 全部 Web 攻击模块 | ✅ |
+| REQ-128/131 | ~~向量 DB/Fine-tuning 攻击~~ | 已移除（黑盒不可测试） | — |
 
 ## 第六章：需求变更流程（防偏航核心）
 
@@ -235,22 +129,21 @@
 | NEG-6 | 禁止未经提案修改 `config/defaults.yaml` 中 L5 基线参数（只准上调不准下调，下调需提案） | R4 |
 | NEG-7 | 禁止运行时产物（asr_history.json、outputs/、db/pyrit.db、guard 基线）入 git；`.gitignore` 为唯一防线 | I7 SSOT / 仓库卫生（D-16） |
 
-## 第七章：需求追踪
+## 第八章：需求追踪
 
-**状态登记表**（v1.1 建立；任务 verified 时回填本表，task-spec 与任务汇报同步引用）：
+**状态登记表**（2026-09-09 v2.0 精简重构）：
 
 | 需求组 | 状态 | 备注 |
 |--------|------|------|
-| REQ-001 ~ REQ-008（P0 主链路） | **implemented** | 2026-09-08 全面审计确认：六阶段链路完整，Best-of-N 已集成到 executor |
-| REQ-101 ~ REQ-108（P1 支撑） | **implemented** | 配置体系、dry-run、ASR 先验矩阵、资源生命周期均已在位 |
-| REQ-109 ~ REQ-113（考域覆盖） | **partial** | exam_mode campaign 已实现 (REQ-112)；A2A 执行 (REQ-109) 种子就绪待验证 |
-| REQ-114 ~ REQ-119（P0-NEW 审计发现） | **implemented** | 2026-09-08 修复：升级链可达 (REQ-114)、MCP 动态链路接通 (REQ-116) |
-| REQ-120 ~ REQ-126（P0-EXAM 考试关键） | **exam-ready** | 2026-09-08 确认：时间盒降级、证据实时落盘、Token 监控均已实现 |
-| REQ-127 ~ REQ-134（企业 Glue 层） | **implemented** | 2026-09-08 完成：认证攻击、API Gateway 攻击、审计逃逸、统一编排器 |
-| NFR-1 ~ NFR-8 | **implemented** | Token 效率、时间、并发、鲁棒、可复现、Python 3.13+、离线可检、考试鲁棒性 |
+| REQ-001 ~ REQ-008（P0 主链路） | ✅ implemented | 六阶段链路完整，Best-of-N 已集成 |
+| REQ-101 ~ REQ-108（P1 支撑） | ✅ implemented | 配置体系、dry-run、ASR 先验矩阵均已在位 |
+| REQ-109 ~ REQ-113（考域覆盖） | ⚡ partial | exam_mode (REQ-112) 已实现；A2A 执行 (REQ-109) 种子就绪待验证 |
+| REQ-114 ~ REQ-126（P0-NEW + P0-EXAM） | ✅ implemented | 2026-09-08 修复/考试就绪 |
+| REQ-127 ~ REQ-134（Web 攻击层） | ✅ implemented | 认证/API Gateway/审计逃逸/编排器 |
+| NFR-1 ~ NFR-8 | ✅ implemented | 非功能需求全部达成 |
 
-- 状态取值：`待核验`（初始态）/ `implemented` / `partial` / `planned` / `exam-ready`（2026-09-08 新增，考试就绪）；
-- 本表为需求的唯一登记处（SSOT）；历史追踪文档 `requirement_traceability_matrix.md` 已于 2026-09-06 删除（D-09 债务消除）。
+- 活跃需求（待实现）：**REQ-109** A2A 执行层落地（种子已有，需验证编排进升级链）；
+- 本表为需求登记 SSOT；历史追踪文档 `requirement_traceability_matrix.md` 已于 2026-09-06 删除（D-09 债务消除）。
 
 ---
 
@@ -259,10 +152,11 @@
 | 版本 | 日期 | 变更摘要 | 批准 |
 |------|------|---------|------|
 | v1.0 | 2026-09-05 | 初版：P0/P1/P2 分级、REQ-001~008、REQ-101~108、NFR-1~6、NEG-1~6、变更流程 | — |
-| v1.1 | 2026-09-05 | REV-01：① P0 总验收改条件式（ASR=0 须交付零成功证据链而非判失败）；② REQ-003 加运营裁剪注 + NEG-2 措辞收窄，消解两者文本冲突；③ REQ-105 明确 EMA 回写目标为 asr_history.json，asr_priors 仅人工修订（消双簿）；④ NFR-6 加 PyRIT 1.0.1 兼容硬边界（BL-002）；⑤ REQ-108 交叉引用 40-G 1D 登记簿；⑥ 第七章状态登记表实例化（初始态：待核验） | 用户会话批准 |
-| v1.2 | 2026-09-05 | REV-02：① 新增第 3A 章考域覆盖需求 REQ-109~113（A2A 执行、embedding 落地、供应链侦察、exam_mode campaign、OffSec 风格报告，对齐 AI-300 考纲）；② 新增 NFR-7 离线可检与依赖锁定；③ 新增 NEG-7 运行时产物禁入 git；④ REQ-004 标注 Best-of-N stub 为现行 P0 缺口；⑤ NEG-1 范围扩至 D-01~D-16；⑥ 状态登记表更新（新增待实现态与 REV-02 审计备注） | 用户会话批准 |
-| v1.3 | 2026-09-06 | REV-03 代码审计（remediation/audit-remediation.md）：① 新增第 3B 章 P0-NEW 需求缺口 REQ-114~119（升级链可达、多 agent 种子完整、MCP 动态链路、死代码清零、编码损坏、场景特异性）；② 状态登记表补 REQ-114~119 open 态 | — |
-| v1.4 | 2026-09-06 | REV-04 AI-300 考试需求优化：① 新增第 3C 章 P0-EXAM 考试关键需求 REQ-120~126（快速指纹、一键攻击、时间盒降级、证据实时落盘、卡死切换、Token 监控、报告即时生成）+ 考试日时间盒分配标准 + 考试攻击优先级规则；② 新增 NFR-8 考试鲁棒性；③ 更新状态登记表（REQ-120~126 exam 态） | 用户会话批准 |
-| v1.5 | 2026-09-06 | REV-07 目录结构重构：① Burp 目标文件从 config/campaigns/targets/ 扁平化迁移至 config/targets/；② asset_index.yaml 迁移至 config/profiles/ (固定参数集)；③ 4 Campaign 重命名清晰化：rapid_recon→quick_scan, full_spectrum_max_asr→deep_spectrum, mcp_agent_targeted→mcp_targeted, standard_redteam 保留；④ 删除 config/campaigns/ 目录 | 用户会话批准 |
-| v1.6 | 2026-09-08 | REV-08 企业AI红队融合解决方案：① 新增第五章企业AI红队Glue层需求 REQ-127~134（认证攻击、向量DB攻击、API Gateway攻击、审计逃逸、Fine-tuning攻击、统一编排器、延迟导入、ASR度量）；② 新增企业攻击ASR基线表 | 用户会话批准 |
-| v1.7 | 2026-09-08 | REV-09 过度工程化清理（精简Glue层需求）：① 移除向量DB攻击需求 REQ-128（黑盒HTTP不可测试）；② 移除Fine-tuning攻击需求 REQ-131（黑盒HTTP不可测试）；③ 审计逃逸需求 REQ-130 精简为仅日志注入（移除SIEM/审计路径）；④ 更新企业攻击ASR基线表 | 用户会话批准 |
+| v1.1 | 2026-09-05 | REV-01：P0 总验收改条件式；REQ-003 加运营裁剪注；REQ-105 明确 EMA 回写目标；状态登记表实例化 | 用户会话批准 |
+| v1.2 | 2026-09-05 | REV-02：新增第 3A 章考域覆盖需求 REQ-109~113；新增 NFR-7/NEG-7；REQ-004 标注 Best-of-N stub 为 P0 缺口 | 用户会话批准 |
+| v1.3 | 2026-09-06 | REV-03：新增第 3B 章 P0-NEW 需求缺口 REQ-114~119（代码审计发现） | — |
+| v1.4 | 2026-09-06 | REV-04：新增第 3C 章 P0-EXAM 考试关键需求 REQ-120~126；新增 NFR-8 考试鲁棒性 | 用户会话批准 |
+| v1.5 | 2026-09-06 | REV-07 目录结构重构（Burp 目标文件迁移、Campaign 重命名） | 用户会话批准 |
+| v1.6 | 2026-09-08 | REV-08：新增第五章企业 Glue 层需求 REQ-127~134 | 用户会话批准 |
+| v1.7 | 2026-09-08 | REV-09：精简 Glue 层（移除向量 DB/Fine-tuning 攻击需求） | 用户会话批准 |
+| v2.0 | 2026-09-09 | REV-10 精简重构：① P0/P1 主链路需求归档为摘要表（REQ-001~008 + REQ-101~108）；② P0-NEW/P0-EXAM 合并为已修复归档（REQ-114~126 全部 implemented/exam-ready）；③ Web 攻击层需求精简（REQ-127~134，Glue→扁平化）；④ 修复两个"第七章"编号冲突（第七章负需求→第八章追踪）；⑤ 状态登记表重构（标记活跃缺口 REQ-109）；⑥ 删除 ~200 行冗余验收细节，文档从 269 行精简至 ~130 行 | 用户会话批准 |

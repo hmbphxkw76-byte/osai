@@ -133,6 +133,14 @@ class DataFlowValidator:
             "orchestration_log_count": "positive_count",  # 审计日志非空
             "overall_asr": "non_negative",                # ASR 值有效传递
         },
+        # === ASR Forensic 阶段输出契约 (Why-Success Data) ===
+        "post_assess_forensic": {
+            "successful_evidence_count": "non_negative",       # 成功证据已提取（可为 0）
+            "refusal_classification_count": "non_negative",    # 拒绝分类已提取
+            "refusal_types_count": "non_negative",             # 拒绝类型多样性
+            "guardrail_triggers_count": "non_negative",        # 护栏触发已归因
+            "timing_metadata_count": "non_negative",           # 时序元数据已采集
+        },
     }
 
     # 阶段间数据传递规则 (字段名称兼容 _extract_fields 输出)
@@ -252,6 +260,47 @@ class DataFlowValidator:
             "from": "recon",
             "to": "arm",
             "field": "mcpsec_vulnerabilities_count",
+            "check": "exists_optional",
+        },
+        # === ASR Forensic 桥 (Strike → Report/Evidence) ===
+        {
+            "id": "T015",
+            "name": "Strike → Report: successful_evidence 提取确认",
+            "from": "strike",
+            "to": "report",
+            "field": "successful_evidence_count",
+            "check": "exists_optional",
+        },
+        {
+            "id": "T016",
+            "name": "Strike → Report: refusal 分类确认",
+            "from": "strike",
+            "to": "report",
+            "field": "refusal_classification_count",
+            "check": "exists_optional",
+        },
+        {
+            "id": "T017",
+            "name": "Strike → Report: guardrail 触发归因确认",
+            "from": "strike",
+            "to": "report",
+            "field": "guardrail_triggers_count",
+            "check": "exists_optional",
+        },
+        {
+            "id": "T018",
+            "name": "Strike → Report: 时序元数据确认",
+            "from": "strike",
+            "to": "report",
+            "field": "timing_metadata_count",
+            "check": "exists_optional",
+        },
+        {
+            "id": "T019",
+            "name": "Strike → Report: 拒绝类型多样性",
+            "from": "strike",
+            "to": "report",
+            "field": "refusal_types_count",
             "check": "exists_optional",
         },
     ]
@@ -454,6 +503,38 @@ class DataFlowValidator:
             fields["evidence_findings_count"] = 0
             fields["evidence_has_owasp"] = False
 
+        # ==================== ASR Forensic Data (Why Success/Refusal) ====================
+        # These fields are ASR-centered: they explain WHY attacks succeed or fail
+
+        _successful_log = getattr(ctx, "successful_evidence_log", []) or []
+        fields["successful_evidence_count"] = len(_successful_log) if isinstance(_successful_log, list) else 0
+
+        _refusal_log = getattr(ctx, "refusal_classification_log", []) or []
+        fields["refusal_classification_count"] = len(_refusal_log) if isinstance(_refusal_log, list) else 0
+        # Classify refusal types distribution
+        if isinstance(_refusal_log, list) and _refusal_log:
+            _refusal_types = {}
+            for entry in _refusal_log:
+                _rtype = entry.get("refusal_type", "unknown")
+                _refusal_types[_rtype] = _refusal_types.get(_rtype, 0) + 1
+            fields["refusal_type_distribution"] = _refusal_types
+            fields["refusal_types_count"] = len(_refusal_types)
+        else:
+            fields["refusal_type_distribution"] = {}
+            fields["refusal_types_count"] = 0
+
+        _guardrail_triggers = getattr(ctx, "guardrail_triggers", []) or []
+        fields["guardrail_triggers_count"] = len(_guardrail_triggers) if isinstance(_guardrail_triggers, list) else 0
+
+        _timing_meta = getattr(ctx, "timing_metadata", []) or []
+        fields["timing_metadata_count"] = len(_timing_meta) if isinstance(_timing_meta, list) else 0
+        # Compute average response time if available
+        if isinstance(_timing_meta, list) and _timing_meta:
+            _times = [e.get("total_ms", 0) for e in _timing_meta if isinstance(e, dict)]
+            fields["avg_response_time_ms"] = sum(_times) / len(_times) if _times else 0.0
+        else:
+            fields["avg_response_time_ms"] = 0.0
+
         return fields
 
     def validate_all(self) -> DataFlowReport:
@@ -468,15 +549,27 @@ class DataFlowValidator:
         # 执行字段契约验证
         for phase, contract in self.FIELD_CONTRACTS.items():
             if phase not in self.snapshots:
-                self.results.append(ValidationResult(
-                    rule_id="MISS",
-                    rule_name=f"快照缺失: {phase}",
-                    passed=False,
-                    phase_from=phase,
-                    phase_to="N/A",
-                    message=f"缺少 {phase} 阶段的数据快照，请确认 snapshot('{phase}') 已被调用",
-                    severity="error",
-                ))
+                # 可选阶段（如 post_assess_forensic）缺失不报 error，仅 info
+                if phase == "post_assess_forensic":
+                    self.results.append(ValidationResult(
+                        rule_id="MISS",
+                        rule_name=f"快照缺失: {phase}",
+                        passed=True,  # 可选阶段，不阻断
+                        phase_from=phase,
+                        phase_to="N/A",
+                        message=f"可选阶段 {phase} 未快照（不影响主流程）",
+                        severity="info",
+                    ))
+                else:
+                    self.results.append(ValidationResult(
+                        rule_id="MISS",
+                        rule_name=f"快照缺失: {phase}",
+                        passed=False,
+                        phase_from=phase,
+                        phase_to="N/A",
+                        message=f"缺少 {phase} 阶段的数据快照，请确认 snapshot('{phase}') 已被调用",
+                        severity="error",
+                    ))
                 continue
             self._validate_contract(phase, contract)
 

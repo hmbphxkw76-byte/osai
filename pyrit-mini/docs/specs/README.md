@@ -4,22 +4,118 @@
 
 > **双使命**：① 产品使命 = Burp 黑盒目标 ASR 最大化 + 可复现证据链；② 认证使命 = OffSec AI-300/OSAI 备考武器化（24h 实战 + 24h 报告）。
 
+---
+
+## 🎯 三元组开发规范（最精简记忆）
+
+> **记忆口诀**：开发必看 → 开发必跑 → 开发必验
+
+| 阶段 | 触发词 | 别名 | AI 自动执行 | 覆盖内容 |
+|------|--------|------|------------|---------|
+| **开发前** | **`开发规范`** | **开发必看** | 查看文档 | 宪法 / 蓝图 / 需求 / 红线 |
+| **开发中** | **`开发验证`** | **开发必跑** | 跑检查 + 自动修复 | guard → ruff → test → dry-run → drift → dataflow |
+| **开发后** | **`开发交付`** | **开发必验** | 跑验收清单 | 40-GUARDRAILS 第七章交付标准 |
+
+> **同义词**：
+> - `"开发必看"` = `"开发规范"`（开发前必看）
+> - `"开发必跑"` = `"开发验证"` = `"完整验证"` = `"规范对齐"`（开发中必跑）
+> - `"开发必验"` = `"开发交付"` = `"交付标准"`（开发后必验）
+
+### 📋 开发规范覆盖的文档（开发前必看）
+
+| 文档 | 内容 | 作用 |
+|------|------|------|
+| `00-CONSTITUTION` | AI 行为宪法、裁决序、C1-C12 | 了解 AI 行为边界 |
+| `10-ARCHITECTURE` | 分层依赖、ctx 契约、不变量 | 了解架构设计 |
+| `20-REQUIREMENTS` | P0/P1/P2 需求、NFR、NEG | 了解需求状态 |
+| `30-TASKS` | 任务生命周期、八步协议 | 了解任务执行流程 |
+| `40-GUARDRAILS` | 红线清单、四步门禁、三层防线 | 了解红线与门禁 |
+| `50-ROADMAP` | 任务序列、会话模型 | 了解开发路线 |
+| `55-ATTACK-GAP` | 攻击缺口闭环状态 | 了解攻击覆盖 |
+
+### 🔧 开发验证覆盖的工具（开发中必跑）
+
+| 工具/命令 | 作用 | 通过标准 |
+|-----------|------|---------|
+| `py -m tools.guard` | 架构守卫静态检查 | 0 BLOCKING |
+| `ruff check .` | 代码风格检查 | 0 errors |
+| `pytest tests/` | 全量测试 | 0 failed |
+| `python main.py --dry-run` | 运行时数据流验证 | 无异常 |
+| `py -m tools.drift_detector --full` | 规范漂移检测 | 0 BLOCKING |
+| `pytest tests/test_data_flow_integrity.py` | 数据流完整性 | 全部通过 |
+
+### 📝 开发交付覆盖的标准（开发后必验）
+
+| 标准 | 来源 | 格式 |
+|------|------|------|
+| 交付验证清单 | 40-GUARDRAILS 第七章 | 架构规则+代码质量+测试覆盖+集成点 |
+| 任务验收标准 | templates/task-spec.md | 任务规格验收 |
+| 待办闭环 | backlog.md | BL-xxx 状态更新 |
+
+---
+
+## 🚀 完整验证（一键触发）
+
+> **触发词**：**"完整验证"** / **"规范对齐"** / **"开发验证"** / **"开发必跑"**
+
+当用户对 AI 说出触发词时，自动执行以下 6 步验证 + 修复所有问题 + 汇报最终结果：
+
+| 步骤 | 命令 | 通过标准 | 自动修复 |
+|------|------|---------|---------|
+| 1 | `py -m tools.guard` | 0 BLOCKING | 修复 BLOCKING 违规 |
+| 2 | `ruff check .` | 0 errors | `ruff check --fix` 自动修复 |
+| 3 | `pytest tests/ -v --tb=short` | 0 failed | 分析并修复 |
+| 4 | `python main.py --dry-run --max-seeds 1` | 无异常 | 修复数据流断点 |
+| 5 | `py -m tools.drift_detector --full` | 0 BLOCKING | 同步文档/代码 |
+| 6 | `pytest tests/test_data_flow_integrity.py -v` | 全部通过 | 修复契约违规 |
+
+**详细规则文档**: `tools/__init__.py` — 【完整验证触发规则】
+
+---
+
+## 🎯 开发规范触发词汇总
+
+| 类别 | 触发词 | AI 自动执行 |
+|------|--------|------------|
+| **核心操作** | `"完整验证"` / `"规范对齐"` / `"开发验证"` / `"开发必跑"` | 6 步全流程验证 + 修复 |
+| | `"门禁"` | 四步质量门禁 |
+| | `"守卫"` | 架构守卫静态检查 |
+| | `"漂移"` | 规范漂移检测 |
+| | `"数据流"` | 数据流完整性验证 |
+| | `"交付标准"` / `"开发交付"` / `"开发必验"` | 按 40-GUARDRAILS 第七章生成验收清单 |
+| **开发流程** | `"开发规范"` / `"开发必看"` | 查看 宪法/蓝图/需求/红线 |
+| | `"领任务"` | 从 50-ROADMAP 查看下一个任务 |
+| | `"任务规格"` | 生成 TASK-xxx 规格文件 |
+| | `"宪法"` | 查看 00-CONSTITUTION 核心条款 |
+| | `"蓝图"` | 查看 10-ARCHITECTURE 架构设计 |
+| | `"需求"` | 查看 20-REQUIREMENTS 需求状态 |
+| | `"红线"` | 查看 40-GUARDRAILS 红线清单 |
+| **快速检查** | `"lint"` | ruff check . 代码风格检查 |
+| | `"dry-run"` | python main.py --dry-run 运行时验证 |
+| | `"测试"` | pytest tests/ 运行测试 |
+| | `"backlog"` | 查看/登记待办池 |
+| | `"hooks"` | 安装/检查 git hooks |
+| **考试场景** | `"考试模式"` | 切换为 OffSec AI-300 考试流程 |
+| | `"考试合规"` | 运行 7D 定期自检 |
+| | `"模板"` | 查看攻击模板速查表 (TPL-*) |
+
+---
+
 | 层 | 文件 | 职责 | 版本 |
 |----|------|------|------|
 | L0 | [00-CONSTITUTION.md](00-CONSTITUTION.md) | AI 行为宪法：使命 / 裁决序 / C1-C13 / 违宪症状 / 制宪配套 / 考试专项附录 | v1.9 |
-| L1 | [10-ARCHITECTURE.md](10-ARCHITECTURE.md) | 技术蓝图：分层依赖 / ctx 契约 / 不变量 / ADR / 债务簿 / PyRIT攻击引擎 / Glue层 | v2.1 |
-| L2 | [20-REQUIREMENTS.md](20-REQUIREMENTS.md) | 需求登记：P0/P1/P0-NEW/P0-EXAM / NFR / NEG / 企业Glue需求 / 状态登记表 | v1.7 |
-| L3 | [30-TASKS.md](30-TASKS.md) | 任务协议：生命周期 / 粒度上限 / 八步协议 / STOP-REPORT / 考试变体 | v1.3 |
-| L4 | [40-GUARDRAILS.md](40-GUARDRAILS.md) | 红线 R-L / R-H / R-S / R-WEB / R-DRIFT / 四步门禁 / 三层防线 / 登记簿 (29项) / 考试合规 | v1.6 |
+| L1 | [10-ARCHITECTURE.md](10-ARCHITECTURE.md) | 技术蓝图：分层依赖 / ctx 契约 / 不变量 / ADR / 债务簿 / PyRIT攻击引擎 / Web攻击层 + 数据流完整性 (第四章) | v2.3 |
+| L2 | [20-REQUIREMENTS.md](20-REQUIREMENTS.md) | 需求登记：P0 (已实现 ✅) / P1 (已实现 ✅) / 活跃需求 / NFR / NEG | v2.0 |
+| L3 | [30-TASKS.md](30-TASKS.md) | 任务协议：生命周期 / 粒度上限 / 八步协议 / STOP-REPORT / 考试速查 | v2.0 |
+| L4 | [40-GUARDRAILS.md](40-GUARDRAILS.md) | 红线 R-L / R-H / R-S / R-WEB / R-DRIFT / 四步门禁 / 三层防线 / 登记簿 (29项) / 交付验证清单 / 考试合规 | v2.0 |
+| L5 | [45-DATA-FLOW-INTEGRITY.md](45-DATA-FLOW-INTEGRITY.md) | ASR 中心数据流完整性规约：Recon→ARM→Strike→Assess→Report 全链路 Why-Success 追踪 / 取证数据契约 / 非 ASR 数据清理 | v2.0 |
 | 配套 | [50-ROADMAP.md](50-ROADMAP.md) | 路线图：AI-300 考纲映射 / 红队实践 / 任务序列 / 会话模型 / Runbook | v1.3 |
-| 配套 | [60-REDTEAM-DELIVERY-FRAMEWORK.md](60-REDTEAM-DELIVERY-FRAMEWORK.md) | 红队交付保障框架：R-DELIVERY 规则 / 实时监视 (watch/quick) / 自动启动 / Git hooks | v2.2 |
-| 配套 | [45-DATA-FLOW-INTEGRITY.md](45-DATA-FLOW-INTEGRITY.md) | 数据流完整性规约：Phase 字段契约 / 数据传递规则 / Git hooks | v1.0 |
 | 配套 | [templates/task-spec.md](templates/task-spec.md) | 任务规格模板 + 考试变体 | v1.1 |
 | 配套 | [templates/change-proposal.md](templates/change-proposal.md) | 变更提案模板 | v1.0 |
-| 配套 | [backlog.md](backlog.md) | 唯一待办池 | v1.2 |
-| 配套 | [templates/task-spec.md](templates/task-spec.md) | 任务规格模板 + **考试快速任务变体**（宪法 C6、30-TASKS 第四/九章） | v1.1 |
-| 配套 | [templates/change-proposal.md](templates/change-proposal.md) | 变更提案模板（宪法 C12、20-REQUIREMENTS 第五章） | v1.0 |
-| 配套 | [backlog.md](backlog.md) | 唯一待办池（宪法 C4 豁免通道） | v1.2 |
+
+> **已归档文件**：`60-REDTEAM-DELIVERY-FRAMEWORK.md` → 合并入 `40-GUARDRAILS.md` 第七章。原独立文档不再维护，验证工具链仍正常运行。
+
+---
 
 ## AI 会话标准动线（30-TASKS 第四章八步协议的入口）
 
@@ -35,7 +131,9 @@
 2. 读 50-ROADMAP 第八章（8A 评分卡确认就绪等级 ≥ B）；
 3. 目标下发后：recon fingerprint → 查 00-7B 攻击匹配表选模板（TPL-*）；
 4. 按 50-ROADMAP 8C Playbook 执行四步压缩协议（S1→S4）；
-5. 每 4h 跑 40-第七章 7D 定期自检（目标/工具/证据/密钥/时间盒）。
+5. 每 4h 跑 40-第八章 7D 定期自检（目标/工具/证据/密钥/时间盒）。
+
+---
 
 ## 变更流程
 
@@ -44,23 +142,23 @@
 - **路线图**：阶段与任务序列变更走 change-proposal（规格变更流程）；
 - **模板与索引**：随其服务层级变更，同批更新本表版本号。
 
+---
+
 ## 项目使命（一切裁决的终极问题）
 
 对 Burp 拦截的、基于 LLM 开发的 AI 应用（黑盒 HTTP 目标），以攻击成功率（ASR）为首要度量，交付可复现的完整攻击证据链——**这个决定让 ASR 变高还是变低？**（仅限 R-S1~R-S5 授权边界之内，见宪法 C2 边界条款）
 
 第二使命（REV-02 登记）：OffSec AI-300/OSAI 备考武器化——本项目作为考试合法工具链（允许 PyRIT/Burp/自写脚本/个人笔记），映射与规划见 50-ROADMAP。
 
-## 交叉引用：整改中心
+---
 
-代码审计与整改已独立至 [remediation/](../remediation/) 目录：
+## 项目级资产（docs/ 根目录）
 
-| 目录 | 职责 | 关联 |
+| 文件 | 职责 | 关联 |
 |------|------|------|
-| [remediation/](../remediation/) | 整改中心：审计问题登记 / 整改验收标准 / P0-NEW 致命缺陷跟踪 | 整改任务必须引用本金字塔的 REQ ID + 宪法条款 + 不变量 |
+| [backlog.md](../backlog.md) | 唯一待办池（宪法 C4 豁免通道） | 任务 BL-xxx 登记 → 转化为 REQ / DEBT / 任务规格 |
 
-**双向引用规则**：
-- `remediation/audit-remediation.md` 每条整改项引用本目录的 REQ/C/I 条款
-- 整改完成后必须同步更新 `20-REQUIREMENTS.md` 状态与本目录 `backlog.md`
+---
 
 ## CLI 命令速查 (tools/)
 
@@ -79,8 +177,16 @@
 
 **别名规律**：`py -m tools.xxx` = `pyrit-xxx`（entry_points 注册）
 
+---
+
 ## 边界说明
 
 - 本目录**只含规约层文档**。被治理的代码库位于 github.com/hmbphxkw76-byte/osai/pyrit-mini。
 - 规约文件被修改时，**必须**同步更新：文件头版本号、文末版本记录表、本索引版本列。
-- 已删除文档：35-MULTIMODAL_ASSESSMENT.md / 36-LLM06_SANDBOX_ESCAPE_OPTIMIZATION.md / MIGRATION.md（2026-09-09 清理）。
+- **已删除文档**（2026-09-09 清理）：
+  - `35-MULTIMODAL_ASSESSMENT.md`
+  - `36-LLM06_SANDBOX_ESCAPE_OPTIMIZATION.md`
+  - `MIGRATION.md`
+  - `60-REDTEAM-DELIVERY-FRAMEWORK.md`（合并入 40-GUARDRAILS.md）
+  - `tasks/TASK-A2A-001.md` / `tasks/TASK-A2A-002.md`（stale 任务规格）
+  - `remediation/` 目录（历史审计报告已闭环）

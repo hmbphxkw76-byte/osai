@@ -77,33 +77,30 @@ async def cleanup_resources(
     ctx.objective_target = None  #
 
  # 4. Playwright (browser )
- # Data flow: target_router._create_playwright_target -> ctx._browser_context/_browser/_playwright_instance
+ # Data flow: target_router._create_playwright_target -> _playwright_handles (module-level)
  # -> cleanup_resources -> browser.close() + playwright.stop()
- # : , finally
-    _browser_context = getattr(ctx, "_browser_context", None)
-    _browser = getattr(ctx, "_browser", None)
-    _playwright_instance = getattr(ctx, "_playwright_instance", None)
+ # Note: Playwright state stored in recon._target_router_handles module, not ctx
+    from recon._target_router_helpers import get_playwright_handles
+    handles = get_playwright_handles()
     try:
-        if _browser_context is not None:
-            await _browser_context.close()
-            ctx._browser_context = None  # :
+        if handles.get("context") is not None:
+            await handles["context"].close()
             logger.debug("Closed Playwright browser context")
     except Exception as e:
         logger.debug("Playwright browser context close failed (non-fatal): %s", e)
     try:
-        if _browser is not None:
-            await _browser.close()
-            ctx._browser = None  # :
+        if handles.get("browser") is not None:
+            await handles["browser"].close()
             logger.debug("Closed Playwright browser")
     except Exception as e:
         logger.debug("Playwright browser close failed (non-fatal): %s", e)
     try:
-        if _playwright_instance is not None:
-            await _playwright_instance.stop()
-            ctx._playwright_instance = None  # :
+        if handles.get("instance") is not None:
+            await handles["instance"].stop()
             logger.debug("Stopped Playwright instance")
     except Exception as e:
         logger.debug("Playwright instance stop failed (non-fatal): %s", e)
+    handles.clear()
 
  # 5. adversarial_target / scoring_target OpenAIChatTarget ( httpx client )
  # RateLimitedTarget , cleanup
@@ -128,12 +125,14 @@ async def cleanup_resources(
     )
 
 def has_residual_resources(ctx: "PipelineContext") -> bool:
-    """ ctx Target """
+    """Check if pipeline context has residual resources needing cleanup."""
+    from recon._target_router_helpers import get_playwright_handles
+    handles = get_playwright_handles()
     return (
         getattr(ctx, "objective_target", None) is not None
         or getattr(ctx, "adversarial_target", None) is not None
         or getattr(ctx, "scoring_target", None) is not None
         or getattr(ctx, "converter_target", None) is not None
-        or getattr(ctx, "_browser", None) is not None
-        or getattr(ctx, "_playwright_instance", None) is not None
+        or handles.get("browser") is not None
+        or handles.get("instance") is not None
     )
