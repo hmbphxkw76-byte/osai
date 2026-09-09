@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-payload_generator.py - 间接提示注入攻击载荷生成器
+indirect_pi_generator.py - 间接提示注入攻击载荷生成器
 学术依据: Greshake et al. (arXiv:2302.12173) + Zhan et al. (arXiv:2307.00929)
 
 本工具用于生成测试代码审查AI代理安全性的攻击载荷。
@@ -38,6 +38,13 @@ class AttackPayload:
 class IndirectPIAttackGenerator:
     """
     间接提示注入攻击载荷生成器
+
+    生成针对代码审查AI代理的间接提示注入攻击载荷，
+    利用import机制触发agent读取敏感配置文件。
+
+    学术依据:
+        - Greshake et al. (arXiv:2302.12173) - Indirect Prompt Injection
+        - Zhan et al. (arXiv:2307.00929) - InjecAgent
     """
 
     SENSITIVE_FILES = [
@@ -223,7 +230,18 @@ _auto_configure()
         evasion_level: EvasionLevel = EvasionLevel.SEMANTIC,
         prefix: str | None = None
     ) -> AttackPayload:
-        """生成攻击载荷"""
+        """生成攻击载荷
+
+        Args:
+            target_file: 目标文件路径
+            target_class: 目标类名
+            target_attribute: 目标属性名
+            evasion_level: 绕过等级
+            prefix: 自定义前缀
+
+        Returns:
+            AttackPayload: 攻击载荷对象
+        """
         if prefix is None:
             prefix = self._generate_prefix()
 
@@ -265,7 +283,15 @@ _auto_configure()
         targets: list[dict[str, str]],
         evasion_level: EvasionLevel = EvasionLevel.SEMANTIC
     ) -> list[AttackPayload]:
-        """生成多目标攻击载荷"""
+        """生成多目标攻击载荷
+
+        Args:
+            targets: 目标列表 [{"file": ..., "class": ..., "attr": ...}]
+            evasion_level: 绕过等级
+
+        Returns:
+            list[AttackPayload]: 攻击载荷列表
+        """
         payloads = []
         for target in targets:
             payload = self.generate_attack(
@@ -281,7 +307,17 @@ _auto_configure()
         self,
         chain_depth: int = 3
     ) -> list[AttackPayload]:
-        """生成递归攻击链"""
+        """生成递归攻击链
+
+        Args:
+            chain_depth: 链深度
+
+        Returns:
+            list[AttackPayload]: 递归攻击链
+
+        Reference:
+            - Greshake et al. (arXiv:2302.12173) - Recursive injection chains
+        """
         chain = []
         prefixes = [f"level_{i}" for i in range(chain_depth)]
 
@@ -344,7 +380,7 @@ class {prefixes[-1].title()}Config:
             filename=f"{prefixes[-1]}_stub.py",
             content=final_content,
             technique="recursive_chain_final",
-            target_file=None,
+            target_file="",
             evasion_level=EvasionLevel.MULTI_LAYER,
             metadata={"chain_level": chain_depth - 1, "is_target": True}
         ))

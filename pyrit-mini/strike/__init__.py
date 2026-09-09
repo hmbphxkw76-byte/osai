@@ -13,6 +13,10 @@
 
 6-phase attack pipeline with PyRIT native AttackExecutor:
 
+Indirect Prompt Injection (arXiv:2302.12173):
+    - indirect_pi_generator: Generate indirect prompt injection payloads
+      via import chains and dependency injection patterns
+
 Core modules:
     - executor: PromptSendingAttack execution (FIRST_SUCCESS)
     - arm/converter_selector: Converter selection + OWASP mapping (arm/)
@@ -92,6 +96,20 @@ __all__ = [
     "generate_pdf_with_payload",
     "generate_docx_with_payload",
     "generate_markdown_with_watermark",
+    # Indirect Prompt Injection (arXiv:2302.12173)
+    "IndirectPIAttackGenerator",
+    "AttackPayload",
+    "EvasionLevel",
+    # Link Evasion (arXiv:2407.16924)
+    "LinkEvasionResult",
+    "generate_link_evasion_payloads",
+    "generate_display_url_mismatch",
+    "generate_legitimate_framing",
+    "generate_gradual_injection_chain",
+    "generate_shortened_url_payload",
+    "generate_homograph_link_payload",
+    "generate_homograph_domain",
+    "get_available_techniques",
 ]
 
 # Lazy imports for Web security modules
@@ -161,5 +179,19 @@ def __getattr__(name: str) -> Any:
                 "generate_docx_with_payload", "generate_markdown_with_watermark"):
         from strike import document_poisoner
         return getattr(document_poisoner, name)
+
+    # Indirect PI Generator module (arXiv:2302.12173)
+    if name in ("IndirectPIAttackGenerator", "AttackPayload", "EvasionLevel"):
+        from strike import indirect_pi_generator
+        return getattr(indirect_pi_generator, name)
+
+    # Link Evasion module (arXiv:2407.16924)
+    if name in ("LinkEvasionResult", "generate_link_evasion_payloads",
+                "generate_display_url_mismatch", "generate_legitimate_framing",
+                "generate_gradual_injection_chain", "generate_shortened_url_payload",
+                "generate_homograph_link_payload", "generate_homograph_domain",
+                "get_available_techniques"):
+        from strike import link_evasion
+        return getattr(link_evasion, name)
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
