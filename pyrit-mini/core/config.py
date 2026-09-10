@@ -297,6 +297,40 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="  ( = 10.0)",
     )
 
+    # == Target & Strike: Unified attack surface + strategy routing ==
+    # --target: Attack surface selection (a2a, mcp, rag, session, memory, web, model)
+    # --strike: Attack strategy (prompt_sending, crescendo, tap, pair, gcg, native)
+    # Academic basis: NIST SP 800-115 Sec4 (attack surface enumeration)
+    # Usage:
+    #   py main.py --target a2a --strike prompt_sending --converters base64
+    #   py main.py --target mcp --strike crescendo
+    #   py main.py --target rag --strike tap --converters l5_optimal
+    target_strike_group = parser.add_argument_group("Target & Strike Routing (Unified)")
+    target_strike_group.add_argument(
+        "--target",
+        type=str,
+        default=None,
+        choices=["a2a", "mcp", "rag", "session", "memory", "web", "model"],
+        metavar="SURFACE",
+        help="Attack surface: a2a (multi-agent), mcp (model context protocol), "
+             "rag (retrieval-augmented), session (auth/session), memory (agent memory), "
+             "web (browser/injection), model (direct LLM)",
+    )
+    target_strike_group.add_argument(
+        "--strike",
+        type=str,
+        default=None,
+        choices=[
+            "prompt_sending", "crescendo", "tap", "pair", "gcg", "native",
+            "first_success", "many_shot", "figstep", "sleeper",
+        ],
+        metavar="STRATEGY",
+        help="Attack strategy: prompt_sending (single-turn), crescendo (multi-turn escalation), "
+             "tap (Tree of Attacks with Pruning), pair (black-box iterative), "
+             "gcg (gradient-based), native (PyRIT native), first_success (stop on first hit), "
+             "many_shot (arXiv:2402.05124), figstep (arXiv:2403.07860), sleeper (arXiv:2301.11916)",
+    )
+
     # == A2A Multi-Agent Attack Vectors (v4.0: Direct exploitation) ==
     # Attack modules: workflow, sql_injection, rogue_agent, card_spoofing, data_poisoning
     # Reference: docs/specs/56-A2A-MULTI-AGENT-ATTACK-OPTIMIZATION.md

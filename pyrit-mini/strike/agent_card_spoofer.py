@@ -266,8 +266,6 @@ class AgentCardSpoofer:
 
         if method == "hosts_file":
             # Generate hosts file entry
-            import urllib.parse
-            parsed = urllib.parse.urlparse(spoof_url)
             ip_placeholder = "192.168.50.100"  # Attacker IP
             result.spoof_url = f"{ip_placeholder} {target_agent}"
             result.success = True  # Payload generated successfully

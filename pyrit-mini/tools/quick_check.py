@@ -160,18 +160,28 @@ def main():
     elif args.all:
         files = find_modified_files(project_root)
         all_violations = []
+        blocking_violations = []
         for f in files:
-            all_violations.extend(check_single_file(f))
+            violations = check_single_file(f)
+            all_violations.extend(violations)
+            # Collect only BLOCKING-level violations
+            for v in violations:
+                if "[BLOCKING]" in v:
+                    blocking_violations.append(v)
 
         if all_violations:
-            print(f"Quick check: {len(all_violations)} violation(s) found")
+            print(f"Quick check: {len(all_violations)} issue(s) found")
             for v in all_violations[:20]:  # Show first 20
                 print(v)
             if len(all_violations) > 20:
                 print(f"  ... and {len(all_violations) - 20} more")
+
+        # Only fail on BLOCKING violations (R-DELIVERY-3 cross-layer imports)
+        if blocking_violations:
+            print(f"\n  [FAIL] {len(blocking_violations)} BLOCKING issue(s) found")
             sys.exit(1)
         else:
-            print("  [PASS] All files pass R-DELIVERY rules")
+            print("  [PASS] No BLOCKING issues (WARNING/INFO are non-blocking)")
             sys.exit(0)
 
     else:

@@ -537,10 +537,7 @@ class TestAttackModulesIntegration:
         """Test workflow attacker with defense profile integration."""
         attacker = create_a2a_workflow_attacker()
         # Simulate defense-aware bypass selection
-        defense_capabilities = {
-            "has_link_scanning": True,
-            "has_url_filtering": False,
-        }
+        # defense_capabilities profile: link scanning present, no URL filtering
         # Should select format_exploit when link scanning is present
         prompt = attacker.generate_review_skip_prompt(
             "Generate report",

@@ -231,6 +231,23 @@ async def run(argv: list[str] | None = None) -> None:
     # R11: Scenario router integration - Pass router to orchestrator, Enable target-aware attack chain
     get_router()
 
+    # R12: Target + Strike routing (--target / --strike → strike/dispatcher.py)
+    # When --target or --strike is specified, configure dispatcher seed categories
+    _target = getattr(args, "target", None)
+    _strike = getattr(args, "strike", None)
+    if _target or _strike:
+        from strike.dispatcher import create_dispatcher
+        ctx.dispatcher = create_dispatcher(target=_target, strike=_strike)
+        if _target:
+            # Override seed categories based on target
+            ctx.dispatcher_seed_categories = ctx.dispatcher.get_seed_categories()
+            _logger.info(
+                "[MAIN] Target routing: target=%s, seeds=%s",
+                _target, ctx.dispatcher_seed_categories,
+            )
+        if _strike:
+            _logger.info("[MAIN] Strike routing: strategy=%s", _strike)
+
     # R1: Pipeline integrity verification - Ensure model_family data flow through to load_seeds
     # Before orchestration delegation, First extract model_family and inject into ctx, Ensure accessible in arm phase
     _model_family = getattr(args, "model_family", None)
