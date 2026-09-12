@@ -128,7 +128,7 @@ class MCPVersionFingerprinter:
 
         # 3. Generate fingerprint hash
         fingerprint_data = f"{result.server_software}:{result.server_version}:{result.implementation_family}"
-        result.fingerprint_hash = hashlib.md5(fingerprint_data.encode()).hexdigest()[:12]
+        result.fingerprint_hash = hashlib.sha256(fingerprint_data.encode()).hexdigest()[:12]
 
         return result
 

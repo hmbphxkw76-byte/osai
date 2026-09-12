@@ -638,10 +638,10 @@ class FileWatcher:
         self.pending_check: bool = False
 
     def _compute_file_hash(self, filepath: Path) -> str:
-        """Compute MD5 hash of a file."""
+        """Compute SHA-256 hash of a file (change-detection only; MD5 retired per CWE-327)."""
         try:
             content = filepath.read_bytes()
-            return hashlib.md5(content).hexdigest()
+            return hashlib.sha256(content).hexdigest()
         except OSError:
             return ""
 

@@ -22,6 +22,7 @@ Academic basis:
 
 from __future__ import annotations
 
+import ast
 import re
 
 from tools._audit_base import Finding, Severity, iter_source_files, project_root, run_audit
@@ -32,10 +33,9 @@ _SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"AKIA[0-9A-Z]{16}"), "AWS_ACCESS_KEY"),
 ]
 
-# 危险调用（WARNING）
+# 危险调用（WARNING）。注意：eval/exec 改由 AST 精确识别真实调用，避免误报
+# 字符串字面量（如 JS 样例中的 eval(code)）或函数名（如 _exec）中的子串。
 _DANGER_PATTERNS: list[tuple[str, str]] = [
-    ("eval(", "EVAL_USAGE"),
-    ("exec(", "EXEC_USAGE"),
     ("os.system(", "OS_SYSTEM"),
     ("shell=True", "SUBPROCESS_SHELL"),
     ("yaml.load(", "YAML_LOAD_UNSAFE"),
@@ -51,9 +51,17 @@ _INJECTION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"cursor\.execute\(\s*f[\"']"), "SQL_FSTRING"),
 ]
 
-# 凭证字面量（INFO，排除明显占位符以降低误报）
+# 凭证字面量（INFO，排除明显占位符与枚举/标签值以降低误报）
 _CRED_LITERAL = re.compile(r"(?i)(api[_-]?key|secret|password|passwd|token)\s*=\s*['\"]([^'\"]+)['\"]")
-_PLACEHOLDER = re.compile(r"(?i)(attacker|example|changeme|dummy|xxxx|placeholder|your[-_ ]?|todo|admin|test)")
+_PLACEHOLDER = re.compile(
+    r"(?i)(attacker|example|changeme|dummy|xxxx|placeholder|your[-_ ]?|todo|admin|test"
+    r"|demo|exempt|audit|fake|sample|do[-_]?not[-_]?use|non[-_]?real)"
+)
+# 形如 `API_KEY = "api_key"` 的枚举/标签值本身即关键字，绝非密钥
+_NON_SECRET_VALUES = frozenset(
+    {"api_key", "apikey", "api-key", "token", "secret", "password", "passwd",
+     "basic_auth", "oauth2", "oauth", "jwt", "saml", "bearer"}
+)
 
 
 def _collect() -> list[Finding]:
@@ -62,10 +70,27 @@ def _collect() -> list[Finding]:
 
     for path in iter_source_files(root):
         try:
-            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
         rel = str(path.relative_to(root))
+        lines = text.splitlines()
+
+        # AST 精确识别真实 eval()/exec() 调用（排除字符串字面量与标识符如 _exec）
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            tree = None
+        if tree is not None:
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id in ("eval", "exec")
+                ):
+                    loc = f"{rel}:{node.lineno}"
+                    rule = "EVAL_USAGE" if node.func.id == "eval" else "EXEC_USAGE"
+                    findings.append(Finding(rule, Severity.WARNING, f"检测到危险调用: {node.func.id}(", loc))
 
         for i, line in enumerate(lines, 1):
             loc = f"{rel}:{i}"
@@ -85,7 +110,7 @@ def _collect() -> list[Finding]:
             m = _CRED_LITERAL.search(line)
             if m:
                 val = m.group(2)
-                if len(val) >= 6 and not _PLACEHOLDER.search(val):
+                if len(val) >= 6 and val.lower() not in _NON_SECRET_VALUES and not _PLACEHOLDER.search(val):
                     findings.append(
                         Finding("HARDCODED_CRED", Severity.INFO, f"硬编码凭证字面量: {m.group(1)}", loc)
                     )
