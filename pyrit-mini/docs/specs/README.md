@@ -74,11 +74,11 @@ python -c "from core.registry import get_registry; print(get_registry().keys())"
 
 门禁若只靠"记得跑"必然漂移。本项目用三层强制，使**不合规的变更无法进入仓库**：
 
-1. **本地钩子（个人强制）**：`pre-commit` 跑 `tools.gate --stage commit`（ruff+guard+registry），`pre-push` 跑 `--stage push`（再 + drift + data-flow）。任一阻塞项直接中止提交/推送。绕过须显式 `git commit --no-verify`，而**绕过门禁本身即 C10 违例**，须登记 STOP-REPORT。
-2. **CI（团队强制）**：`.github/workflows/spec-gate.yml` 在每次 push/PR 执行全量 `tools.gate`；CI 红灯 = 禁止合并。
+1. **本地钩子（个人强制）**：由 `tools/hooks.py` 安装（运行 `python -m tools.hooks` 自动写入真实仓库根的 `.git/hooks/`，并定位 `pyrit-mini` 子目录）。`pre-commit` 跑 `tools.gate --stage commit`（ruff+guard+registry），`pre-push` 跑 `--stage push`（再 + drift + data-flow）。任一阻塞项直接中止提交/推送。绕过须显式 `git commit --no-verify`，而**绕过门禁本身即 C10 违例**，须登记 STOP-REPORT。
+2. **CI（团队强制）**：仓库根 `.github/workflows/spec-gate.yml`（`working-directory: pyrit-mini`）在每次 push/PR 执行全量 `tools.gate`；CI 红灯 = 禁止合并。
 3. **规范漂移回看（周期强制）**：见 §6 / backlog，定期跑 `python -m tools.drift_detector --full` 复核 SSOT 是否仍与代码一致。
 
-> 钩子文件位于 `.git/hooks/`；CI 位于 `.github/workflows/`。两者命令**只许调用 `tools.gate`**，不得各自抄写明细（C3）。
+> 钩子通过 `python -m tools.hooks` 安装（勿手改 `.git/hooks/`）；CI 位于仓库根 `.github/workflows/`。两者命令**只许调用 `tools.gate`**，不得各自抄写明细（C3）。
 
 ---
 

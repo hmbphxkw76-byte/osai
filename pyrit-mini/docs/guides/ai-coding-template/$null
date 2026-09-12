@@ -1,3 +1,0 @@
-usage: init.py [-h] [--config CONFIG] [--output OUTPUT]
-               [--template-dir TEMPLATE_DIR] [--dry-run]
-init.py: error: unrecognized arguments: ; echo --- assets copied into output/docs ---; dir d:\temp\tpl_verify\docs; echo --- now removing originals ---; Remove-Item d:\ÎÄµµ\GitHub\osai\pyrit-mini\docs\guides\ai-dev-guides.md,d:\ÎÄµµ\GitHub\osai\pyrit-mini\docs\guides\ai-dev-audit.md; echo removed; rmdir /s /q d:\temp\tpl_verify; echo cleaned

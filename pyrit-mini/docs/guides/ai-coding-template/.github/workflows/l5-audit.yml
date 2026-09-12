@@ -11,12 +11,8 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install dependencies
-        run: pip install -e ".[dev]"   # 改为项目实际依赖安装方式
-      - name: Architecture guard
+        # 模板运行时仅需 PyYAML（可选）；实际项目依赖请改为你的安装方式
+        run: pip install pyyaml
+      - name: Unified Dev Gate (stage=all)
+        # 单一事实源：所有关卡经 tools.gate 编排，工具缺失自动 SKIP（详见 docs/ai-dev-guides.md §5）
         run: ${GUARD_CMD}
-      - name: Lint
-        run: ${LINT_CMD}
-      - name: Tests
-        run: ${TEST_CMD}
-      - name: Drift detection
-        run: ${DRIFT_CMD}

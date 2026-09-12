@@ -12,7 +12,9 @@ ai-coding-template/
 ├── audit_config.yaml.example      # 运行时审计配置（完整参考，含阈值/模块/跨模型）
 ├── tools/
 │   ├── gate.py                    # 通用 guard 参考实现（零依赖，开箱即跑）
+│   ├── install_hooks.py           # 把 hooks/ 装成 git hooks（幂等）
 │   └── __init__.py
+├── .gitignore                     # 生产仓库基础忽略项
 ├── specs/                         # 规范分层骨架（核心产出）
 │   ├── README.md
 │   ├── 00-CONSTITUTION.md         # L0 宪法
@@ -53,7 +55,7 @@ ai-coding-template/
 ## 之后做什么
 
 - 按 `ai-dev-guides.md` §2「5 分钟快速入门」补全使命 / 红线 / 验证 / backlog。
-- （可选）把 `hooks/` 安装为 git hooks（`python tools/install_hooks.py` 或手动 `cp hooks/pre-commit .git/hooks/`）。
+- （推荐）把 `hooks/` 安装为 git hooks：`python tools/install_hooks.py`（幂等，自动委派给统一门禁的快检/全量阶段）。
 - （可选）启用 `.github/workflows/l5-audit.yml` 做 CI 审计。
 
 ## 依赖

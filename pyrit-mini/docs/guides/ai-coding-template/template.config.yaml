@@ -61,6 +61,8 @@ targets:
   - audit_config.yaml
   - tools/gate.py
   - tools/__init__.py
+  - tools/install_hooks.py
+  - .gitignore
 
 # ---------------------------------------------------------------------
 # 原样复制的资产（不替换占位符）。此处把方法论文档一并带进新项目。
