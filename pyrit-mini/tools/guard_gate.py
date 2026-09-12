@@ -121,6 +121,28 @@ def register_gate_checks(guard_cls) -> None:
                     )
                     break
 
+    def check_checks_registered(self) -> None:
+        """R-GATE-4: 检查器注册失败必须暴露（BL-067，禁止静默吞 ImportError）。
+
+        若 `tools/guard_extended.py` 或本模块导入失败，守卫会"静默少跑一批检查"，
+        与 E-01（门禁静默少跑步骤）同一病根 —— 必须以 BLOCKING 暴露。
+        """
+        try:
+            from tools.guard import _FAILED_REGISTRATIONS  # 延迟导入，避免模块级循环
+        except Exception:
+            return
+        for failure in _FAILED_REGISTRATIONS:
+            self.violations.append(
+                Violation(
+                    rule="R-GATE-4",
+                    severity=Severity.BLOCKING,
+                    file="tools/guard.py",
+                    line=0,
+                    description=f"检查器注册失败（守卫静默少跑检查）: {failure}",
+                    fix_hint="修复对应模块的 ImportError；禁止用 logger.debug 吞掉",
+                )
+            )
+
     def check_hooks_installed(self) -> None:
         """R-GATE-3: Git 钩子必须已安装（README §2.1 三层防线的 L3）。
 
@@ -147,4 +169,5 @@ def register_gate_checks(guard_cls) -> None:
 
     guard_cls.check_gate_stage_parity = check_gate_stage_parity
     guard_cls.check_gate_no_silent_skip = check_gate_no_silent_skip
+    guard_cls.check_checks_registered = check_checks_registered
     guard_cls.check_hooks_installed = check_hooks_installed
