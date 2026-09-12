@@ -30,6 +30,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+
 def _resolve_class(class_name: str) -> type | None:
     """imports PyRIT
 
@@ -45,7 +46,7 @@ def _resolve_class(class_name: str) -> type | None:
     Returns:
         ,  None ()
     """
- #
+    #
     search_paths = [
         "pyrit.orchestrator.initializers",
         "pyrit.scenario.initializers",
@@ -73,6 +74,7 @@ def _resolve_class(class_name: str) -> type | None:
 
     logger.warning("Initializer class '%s' not found in any search path", class_name)
     return None
+
 
 def register_initializers(
     specs: list[dict[str, Any]],
@@ -116,7 +118,7 @@ def register_initializers(
             continue
 
         try:
-         #
+            #
             instance = cls(**kwargs) if kwargs else cls()
             instances.append(instance)
             logger.info(
@@ -125,10 +127,10 @@ def register_initializers(
                 kwargs,
             )
 
- # ctx ( register )
+            # ctx ( register )
             if ctx is not None:
                 if hasattr(instance, "register_async"):
-                 # event loop
+                    # event loop
                     logger.debug(
                         "Initializer %s has register_async, deferred to caller",
                         class_name,
@@ -161,11 +163,12 @@ def register_initializers(
 
     return instances
 
+
 async def register_initializers_async(
     specs: list[dict[str, Any]],
     ctx: Any,
 ) -> list[Any]:
-    """ Initializer - register_async
+    """Initializer - register_async
 
     Args:
         specs: Initializer spec
@@ -176,7 +179,7 @@ async def register_initializers_async(
     """
     instances = register_initializers(specs, ctx=ctx)
 
- #
+    #
     for instance in instances:
         if hasattr(instance, "register_async"):
             try:

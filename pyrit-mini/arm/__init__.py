@@ -7,22 +7,35 @@ Attack pipeline steps 2-3:
         - Decomposition: DrAttack (arXiv:2402.14266) - Decompose & reconstruct ASR 40-60%
         - Selective encoding: Wei et al. (arXiv:2307.15043) - Partial obfuscation ASR 25-35%
 
-Core modules:
-    - seed_ranker: Seed loading + ASR sorting + language adaptation (SSOT facade)
-    - seed_ranking: ASR ranking implementation + UCB + MTOS multi-turn scoring
-    - seed_auto_expander: VariationConverter-based seed expansion
-    - converter_chains: PyRIT native converter chain definitions
-    - converter_presets: l5_optimal preset + build_converter_map
-    - technique_picker: Attack technique selection (single/multi-turn/adaptive)
-    - converter_selector: Converter candidate selection + OWASP priority + ASR pruning
-    - steganography_encoder: LSB/Unicode steganographic payload encoding
-    - unicode_code_obfuscator: Programming language identifier obfuscation
-    - attack_surface_mapper: Unified multi-agent attack surface enumeration
+Module hierarchy (3 tiers):
+    ┌─────────────────────────────────────────────────────────────────┐
+    │ TIER 1 — Public Facade (SSOT entry points)                      │
+    │   seed_ranker    : load_seeds() — single entry for all seed ops │
+    │   converter_presets: build_converter_map() — converter config   │
+    │   technique_picker : select_techniques() — technique selection  │
+    ├─────────────────────────────────────────────────────────────────┤
+    │ TIER 2 — Internal Implementation (consumed by Tier 1 only)      │
+    │   seed_ranking   : ASR ranking algo + UCB + MTOS scoring        │
+    │   converter_selector: OWASP priority + ASR pruning logic        │
+    │   converter_chains : PyRIT native converter chain definitions   │
+    ├─────────────────────────────────────────────────────────────────┤
+    │ TIER 3 — Utility / Enhancement (optional, lazy-loaded)          │
+    │   seed_auto_expander: VariationConverter-based seed expansion   │
+    │   attack_surface_mapper: Multi-agent attack surface enumeration │
+    │   steganography_encoder: LSB/Unicode steganographic encoding    │
+    │   unicode_code_obfuscator: Programming language ID obfuscation  │
+    └─────────────────────────────────────────────────────────────────┘
+
+SSOT boundary (IMPORTANT):
+    seed_ranker.py is the ONLY public interface for seed operations.
+    seed_ranking.py must NOT be imported directly outside arm/.
+    If you need seed ranking, use: from arm import load_seeds
 
 Design principles:
     - Arm phase is side-effect-free: no file I/O, no network calls, no temp files
     - All deferred execution (PDF/Word generation) handled in strike phase
-    - SSOT pattern: seed_ranker is the public facade, others are internal
+    - SSOT pattern: Tier 1 modules are the public facade, Tier 2/3 are internal
+    - File size monitoring: converter_chains.py approaching 900-line threshold
 """
 
 from arm.attack_surface_mapper import (
@@ -52,13 +65,16 @@ __all__ = [
     "create_obfuscated_code",
 ]
 
+
 # Lazy imports for new modules (C1: Glue/Enhancement only)
 def __getattr__(name: str):
     """Lazy import for steganography and obfuscation modules."""
     if name == "create_steganographic_payload":
         from arm.steganography_encoder import create_steganographic_payload
+
         return create_steganographic_payload
     if name == "create_obfuscated_code":
         from arm.unicode_code_obfuscator import create_obfuscated_code
+
         return create_obfuscated_code
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

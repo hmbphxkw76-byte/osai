@@ -1,13 +1,16 @@
-""" STRIKE + ESCALADE .
+"""STRIKE + ESCALADE .
 
 Academic basis:
     - Greshake et al. (arXiv:2302.12173) - converter(s)
     - PyRIT (arXiv:2407.01232) - PromptSendingAttack
     - Shafran et al. (arXiv:2402.07967) - AI-300  OffSec
+    - arXiv:2402.14266 - SkeletonKeyAttack (adversarial prefix injection)
 """
+
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -15,9 +18,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-async def _run_strike_phase(
-        ctx: "PipelineContext") -> None:
-    """(4) STRIKE : + """
+
+async def _run_strike_phase(ctx: "PipelineContext") -> None:
+    """(4) STRIKE : +"""
     from utils.display import (
         _is_success,
         print_phase,
@@ -27,25 +30,22 @@ async def _run_strike_phase(
     )
 
     args = ctx.args
-    print_phase(
-        "STRIKE", " PyRIT ...")
+    print_phase("STRIKE", " PyRIT ...")
 
     # == P2: Guardrail/Stealth ==
-    _has_guardrail = ctx.guardrail_report.get(
-        "has_guardrail", False) if ctx.guardrail_report else False
-    _guardrail_severity = ctx.guardrail_report.get(
-        "severity", "none") if ctx.guardrail_report else "none"
-    _guardrail_type = ctx.guardrail_report.get(
-        "guardrail_type", "unknown") if ctx.guardrail_report else "unknown"
-    _stealth_name = ctx.stealth_policy.get(
-        "name", "balanced") if ctx.stealth_policy else "balanced"
+    _has_guardrail = ctx.guardrail_report.get("has_guardrail", False) if ctx.guardrail_report else False
+    _guardrail_severity = ctx.guardrail_report.get("severity", "none") if ctx.guardrail_report else "none"
+    _guardrail_type = ctx.guardrail_report.get("guardrail_type", "unknown") if ctx.guardrail_report else "unknown"
+    _stealth_name = ctx.stealth_policy.get("name", "balanced") if ctx.stealth_policy else "balanced"
 
     # MCPSec v2.7.2: Check for MCP surface data
     _has_mcpsec = bool(ctx.mcpsec_surface.get("tools")) if ctx.mcpsec_surface else False
     if _has_mcpsec:
         _mcp_tools_count = len(ctx.mcpsec_surface.get("tools", []))
         _mcp_vulns_count = len(ctx.mcpsec_scan_results.get("vulnerabilities", [])) if ctx.mcpsec_scan_results else 0
-        logger.info("[Strike] MCPSec surface data: %d tools, %d vulnerabilities available", _mcp_tools_count, _mcp_vulns_count)
+        logger.info(
+            "[Strike] MCPSec surface data: %d tools, %d vulnerabilities available", _mcp_tools_count, _mcp_vulns_count
+        )
 
     if _has_guardrail:
         logger.info(
@@ -57,17 +57,12 @@ async def _run_strike_phase(
 
     #
     try:
-        _ep_idx = getattr(
-            ctx, "_current_endpoint_idx", None)
+        _ep_idx = getattr(ctx, "_current_endpoint_idx", None)
         _total_eps = None
-        _burp_list = getattr(
-            args, "_burp_list", None)
-        if _burp_list and len(
-                _burp_list) >= 1:
-            _total_eps = len(
-                _burp_list)
-            print_strike_start_banner(
-                ctx, total_endpoints=_total_eps, current_endpoint_idx=_ep_idx)
+        _burp_list = getattr(args, "_burp_list", None)
+        if _burp_list and len(_burp_list) >= 1:
+            _total_eps = len(_burp_list)
+            print_strike_start_banner(ctx, total_endpoints=_total_eps, current_endpoint_idx=_ep_idx)
     except Exception:
         pass
 
@@ -82,37 +77,46 @@ async def _run_strike_phase(
         #
         try:
             if args.techniques == "adaptive":
-                print_phase(
-                    "STRIKE", "TextAdaptive (e-)...")
-                from strike.adaptive_executor import execute_text_adaptive
-                await execute_text_adaptive(ctx)
+                print_phase("STRIKE", "TextAdaptive (e-)...")
+                # W0 fix: `strike.adaptive_executor` never existed (the module lives at
+                # strike/common/adaptive_executor.py) and `execute_text_adaptive` is not
+                # implemented anywhere in this tree. Surface that explicitly (C9 honest
+                # reporting) instead of letting ImportError fall into the generic except.
+                logger.warning(
+                    "[Strike] --techniques adaptive requested, but execute_text_adaptive is not "
+                    "implemented. Falling back to standard multi-path attack."
+                )
+                from strike.common.executor import execute_attacks
+
+                await execute_attacks(ctx)
             else:
-                from strike.executor import execute_attacks
+                from strike.common.executor import execute_attacks
+
                 await execute_attacks(ctx)
         except Exception as e:
-            logger.error(
-                ": %s - ", e)
-            print_phase(
-                "STRIKE", f": {e}")
+            logger.error(": %s - ", e)
+            print_phase("STRIKE", f": {e}")
 
     # == MCPSec IntegRAG/MCP Attacks (Dynamic Seeds) ==
     # Uses MCPSec bridge for dynamic seed generation when target is MCP-enabled
     if _has_mcpsec:
         try:
             print_phase("STRIKE", "MCPSec MCP/RAG Attack (Dynamic Seeds)...")
-            from strike.mcp_rag_attack import run_mcp_rag_attacks
+            from strike.mcp.rag_attack import run_mcp_rag_attacks
+
             mcp_results = await run_mcp_rag_attacks(ctx, [])
             if mcp_results:
                 ctx.attack_results.update(mcp_results)
-                logger.info("[Strike] MCPSec MCP/RAG attacks completed: %d results", sum(len(v) for v in mcp_results.values()))
+                logger.info(
+                    "[Strike] MCPSec MCP/RAG attacks completed: %d results", sum(len(v) for v in mcp_results.values())
+                )
         except Exception as e:
             logger.warning("[Strike] MCPSec MCP/RAG attacks failed: %s", e)
 
     # == AI300 Gap : OffSec AI-300 ==
     # arXiv:2402.07967 (Shafran) / arXiv:2106.09685 (Hu LoRA) /
     # arXiv:2307.14924 (Shu Backdoor) / arXiv:2301.11916 (Hubinger Sleeper) /
-    _attack_count_before_escalation = sum(
-        len(v) for v in ctx.attack_results.values())
+    _attack_count_before_escalation = sum(len(v) for v in ctx.attack_results.values())
 
     # === Web Page Injection Integration (arXiv:2302.12173) ===
     # Execute CSS hidden content injection for browser-based AI agents
@@ -132,73 +136,271 @@ async def _run_strike_phase(
     # arXiv:2302.12173 (Greshake Indirect Injection) / arXiv:2406.04245 (PoisonedRAG)
     await _run_file_upload_phase(ctx)
 
+    # === plan Wave 3：有状态跨组件攻击链 ===
+    # 在单组件攻击之后执行：先用 ComponentGraph 规划 DAG 链，再由状态机推进，
+    # 步骤间通过 ChainState.acquired 传递产出（跨组件、有状态、可 checkpoint）。
+    await _run_stateful_chain_phase(ctx)
+
+    # == Phase Contract: Read ARM outputs (seeds, techniques, converter_map) ==
+    # These values are set by the ARM phase and consumed by Strike phase
+    _strike_seeds = ctx.seeds if hasattr(ctx, "seeds") else []
+    _strike_techniques = ctx.techniques if hasattr(ctx, "techniques") else []
+    _strike_converter_map = ctx.converter_map if hasattr(ctx, "converter_map") else {}
+
     # == : orchestration_log ==
-    ctx.orchestration_log.append({
-        "phase": "strike",
-        "decision": "attack_execution",
-        "input": {
-            "techniques": getattr(ctx, "techniques", []),
-            "converter_count": len(getattr(ctx, "converter_map", {})),
-            "seed_count": len(getattr(ctx, "seeds", [])),
-            "dry_run": is_dry_run(args),
-            "has_guardrail": _has_guardrail,
-            "guardrail_severity": _guardrail_severity,
-            "mcpsec_tools": _mcp_tools_count if _has_mcpsec else 0,
-            "mcpsec_vulnerabilities": _mcp_vulns_count if _has_mcpsec else 0,
-        },
-        "output": {
-            "total_attacks": _attack_count_before_escalation,
-            "results": {
-                technique: len(results)
-                for technique, results in ctx.attack_results.items()
+    ctx.orchestration_log.append(
+        {
+            "phase": "strike",
+            "decision": "attack_execution",
+            "input": {
+                "techniques": _strike_techniques,
+                "converter_count": len(_strike_converter_map),
+                "seed_count": len(_strike_seeds),
+                "dry_run": is_dry_run(args),
+                "has_guardrail": _has_guardrail,
+                "guardrail_severity": _guardrail_severity,
+                "mcpsec_tools": _mcp_tools_count if _has_mcpsec else 0,
+                "mcpsec_vulnerabilities": _mcp_vulns_count if _has_mcpsec else 0,
             },
-        },
-        "reasoning": (
-            f" + {_attack_count_before_escalation} "
-        ),
-    })
+            "output": {
+                "total_attacks": _attack_count_before_escalation,
+                "results": {technique: len(results) for technique, results in ctx.attack_results.items()},
+            },
+            "reasoning": (f" + {_attack_count_before_escalation} "),
+        }
+    )
 
     # === : 2  ===
-    _success_count = sum(
-        1
-        for results in ctx.attack_results.values()
-        for r in results
-        if _is_success(r)
-    )
+    _success_count = sum(1 for results in ctx.attack_results.values() for r in results if _is_success(r))
 
-    _attack_count = sum(
-        len(v) for v in ctx.attack_results.values())
+    _attack_count = sum(len(v) for v in ctx.attack_results.values())
 
-    _strike_asr = (
-        _success_count / _attack_count * 100
-        if _attack_count > 0
-        else 0.0
-    )
+    _strike_asr = _success_count / _attack_count * 100 if _attack_count > 0 else 0.0
+    ctx.overall_asr = _strike_asr
+
+    # == Component Bridge: Stamp component_type metadata on attack results ==
+    # Ensures downstream scoring (component_router) and reporting (component_reports)
+    # can classify results by component type (MCP/A2A/Model/RAG/Session/Web)
+    try:
+        from core.phases._component_bridge import stamp_component_metadata
+
+        # 传入 RECON 识别出的组件图作为最优先的分类来源（plan Wave 6 / CB-2）
+        stamp_component_metadata(ctx.attack_results, component_graph=getattr(ctx, "component_graph", None))
+        logger.debug("[Strike] Component metadata stamped on attack results")
+    except Exception as e:
+        logger.debug("[Strike] Component bridge skipped: %s", e)
 
     # attack_results -> Score
     from assess.score_pipeline import precompute_outcomes_async
+
     try:
-        await precompute_outcomes_async(
-            ctx.attack_results, score_all=True, reset_stats=True, ctx=ctx)
+        await precompute_outcomes_async(ctx.attack_results, score_all=True, reset_stats=True, ctx=ctx)
     except Exception as e:
         logger.debug(": %s", e)
 
-    print_strike_phase_summary(
-        asr=_strike_asr, attack_count=_attack_count)
+    # == plan Wave 2.5（C2 合规）：补齐 ESCALATE 调用点 ==
+    # `_run_escalate_phase` 此前**零调用点** —— 宪法 C2「单轮 ASR < 90% 必须可触发升级链」
+    # 在运行时从不成立，Crescendo / TAP / SkeletonKey 三类多轮对抗能力完全不可达。
+    # 触发判据用评分后的 ASR（上面的 precompute 已落 outcome），阈值走 C7 链路
+    # （config/defaults.yaml:escalation_asr_threshold → args.escalate_threshold）。
+    _escalation_report: dict[str, Any] = {}
+    try:
+        _success_count = sum(1 for results in ctx.attack_results.values() for r in results if _is_success(r))
+        _attack_count = sum(len(v) for v in ctx.attack_results.values())
+        _scored_asr = _success_count / _attack_count * 100 if _attack_count > 0 else 0.0
+        ctx.overall_asr = _scored_asr
+        _escalation_report = await _run_escalate_phase(ctx, current_asr_pct=_scored_asr)
+    except Exception as e:
+        logger.warning("[Strike] Escalation phase error (non-fatal): %s", e)
+        _escalation_report = {"status": "error", "error": str(e)}
 
-    print_status(
-        "STRIKE", "DONE",
-        f"Attack={_attack_count}, Success={_success_count}, ASR={_strike_asr:.1f}%",
-        ok=True)
+    if _escalation_report.get("adopted_results"):
+        # 升级产出并入主结果集后需补盖章 + 补评分。已评分结果会被 precompute 跳过
+        # （`_precomputed_outcome` 存在即 continue），因此这里只对新结果产生真实开销。
+        try:
+            from core.phases._component_bridge import stamp_component_metadata
+
+            stamp_component_metadata(ctx.attack_results, component_graph=getattr(ctx, "component_graph", None))
+        except Exception as e:
+            logger.debug("[Strike] Re-stamp after escalation skipped: %s", e)
+        try:
+            await precompute_outcomes_async(ctx.attack_results, score_all=True, reset_stats=False, ctx=ctx)
+        except Exception as e:
+            logger.warning("[Strike] Post-escalation scoring failed: %s", e)
+
+    # 升级可能新增结果 → 终值在此统一重算，保证摘要 / ASSESS / 报告口径一致（C3）
+    _success_count = sum(1 for results in ctx.attack_results.values() for r in results if _is_success(r))
+    _attack_count = sum(len(v) for v in ctx.attack_results.values())
+    _strike_asr = _success_count / _attack_count * 100 if _attack_count > 0 else 0.0
+    ctx.overall_asr = _strike_asr
+
+    # W0 修复：按 print_strike_phase_summary(ctx, *, total_results, total_success, elapsed_seconds)
+    # 的实际契约传参。此前误传 (asr=..., attack_count=...) → TypeError，
+    # 在 STRIKE 阶段收尾处中断，导致后续组件盖章/报告全部拿不到结果。
+    print_strike_phase_summary(
+        ctx,
+        total_results=_attack_count,
+        total_success=_success_count,
+        elapsed_seconds=float(getattr(ctx, "phase_elapsed", 0.0) or 0.0),
+    )
+
+    # == plan Wave 4：PyRIT 原生终端输出（C1 R-NATIVE-6）==
+    # print_native_attack_result / print_native_scenario_result 已正确封装，但长期零调用点，
+    # 终端上永远看不到 PyRIT 原生渲染的攻击证据。此处接通。
+    await _emit_native_strike_report(ctx)
+
+    print_status("STRIKE", "DONE", f"Attack={_attack_count}, Success={_success_count}, ASR={_strike_asr:.1f}%", ok=True)
 
     # === 数据流完整性快照: post_strike (含 ASR 取证数据) ===
     try:
-        from tools.data_flow_hooks import snapshot_hook
+        from tools.dataflow.hooks import snapshot_hook
+
         snapshot_hook(ctx, "post_strike")
         # ASR 取证快照: 记录 Why-Success 数据（成功证据/拒绝分类/护栏触发/时序）
         snapshot_hook(ctx, "post_assess_forensic")
     except Exception as e:
         logger.debug("[Strike] Data flow snapshot skipped: %s", e)
+
+
+async def _emit_native_strike_report(ctx: "PipelineContext") -> None:
+    """接通 PyRIT 原生攻击/场景输出（plan Wave 4.1 / R-NATIVE-6）。
+
+    `utils/display.py:631 print_strike_report_async` 内部已正确调度
+    `output_attack_async` / `output_scenario_async`，但长期零调用点。
+    本函数是其唯一接线点，由 `_run_strike_phase` 末尾调用。
+
+    C7：开关与展示条数来自 `config/defaults.yaml` → `ctx.args`。
+    """
+    if not getattr(ctx.args, "native_output_enabled", True):
+        logger.debug("[Strike] PyRIT 原生输出已由配置关闭（native_output_enabled=false）")
+        return
+    try:
+        from utils.display import print_strike_report_async
+
+        await print_strike_report_async(ctx)
+    except Exception as e:
+        # 展示层失败不得影响攻击结果，但必须留痕（C9 诚实汇报）
+        logger.warning("[Strike] PyRIT 原生输出失败（不影响结果）: %s", e)
+
+
+async def _emit_native_escalate_report(ctx: "PipelineContext") -> None:
+    """接通升级阶段的 PyRIT 原生输出（`print_escalate_report_async` 曾零调用点）。"""
+    if not getattr(ctx.args, "native_output_enabled", True):
+        return
+    try:
+        from utils.display import print_escalate_report_async
+
+        await print_escalate_report_async(ctx)
+    except Exception as e:
+        logger.warning("[Escalation] PyRIT 原生输出失败（不影响结果）: %s", e)
+
+
+async def _run_stateful_chain_phase(ctx: "PipelineContext") -> None:
+    """plan Wave 3：基于 ComponentGraph 的有状态跨组件攻击链执行。
+
+    前置：RECON 阶段已产出 `ctx.component_graph`。
+    后置：`ctx.attack_chain`（含 ChainState.acquired）供 ASSESS/REPORT 消费。
+
+    设计要点：
+        - 关闭开关 / 无组件图 / dry-run 均**显式留痕**，不静默跳过
+        - 每步预算受 `BudgetController` 约束，裁剪原因写入 orchestration_log
+        - checkpoint 落 `output_dir/attack_chain_checkpoint.json`，支持 --resume
+    """
+    enabled = getattr(ctx.args, "chain_enabled", True)
+    graph = getattr(ctx, "component_graph", None)
+
+    if not enabled:
+        logger.info("[Chain] 有状态攻击链已由配置关闭（chain_enabled=false）")
+        return
+    if graph is None or not getattr(graph, "nodes", None):
+        logger.info("[Chain] 无组件拓扑图（组件识别未产出），跳过有状态攻击链")
+        return
+
+    try:
+        from utils.dry_run import is_dry_run
+    except Exception:
+        is_dry_run = lambda args: False  # noqa: E731
+    if is_dry_run(ctx.args):
+        logger.info("[Chain] dry-run 模式：仅规划不执行")
+        return
+
+    # 预算控制器（与接线同批落地的安全阀）
+    if getattr(ctx, "budget", None) is None:
+        try:
+            from strike.common.budget import BudgetController
+
+            ctx.budget = BudgetController.from_ctx(ctx)
+        except Exception as e:
+            logger.warning("[Chain] 预算控制器不可用，链将在无预算约束下执行: %s", e)
+
+    try:
+        from strike.common.chain_planner import ChainPlanner
+
+        chain = ChainPlanner.from_ctx(ctx).plan(
+            graph,
+            budget=ctx.budget,
+            a2a_plan=getattr(ctx, "a2a_attack_plan", None),
+        )
+    except Exception as e:
+        logger.warning("[Chain] 攻击链规划失败（不阻塞主链路）: %s", e)
+        return
+
+    if not chain.steps:
+        logger.warning("[Chain] 规划结果为空链，跳过执行")
+        return
+
+    ctx.attack_chain = chain
+
+    checkpoint_path = None
+    if getattr(ctx, "output_dir", None) and getattr(ctx.args, "checkpoint_enabled", True):
+        checkpoint_path = Path(ctx.output_dir) / "attack_chain_checkpoint.json"
+
+    from core.state_machine import ChainStateMachine
+
+    sm = ChainStateMachine(
+        chain,
+        checkpoint_path=checkpoint_path,
+        checkpoint_enabled=checkpoint_path is not None,
+        continue_on_step_failure=bool(getattr(ctx.args, "continue_on_step_failure", True)),
+    )
+
+    from strike.common.chain_executor import execute_step
+
+    async def _exec(step: Any, state: Any) -> dict[str, Any]:
+        return await execute_step(step, state, ctx=ctx)
+
+    try:
+        result = await sm.run(_exec)
+    except Exception as e:
+        logger.warning("[Chain] 攻击链执行异常（不阻塞主链路）: %s", e)
+        return
+
+    # 反静默：链执行结果 + 裁剪原因全部入 orchestration_log（DoD 要求出现在报告中）
+    ctx.orchestration_log.append(
+        {
+            "phase": "strike",
+            "decision": "stateful_attack_chain",
+            "input": {
+                "components": chain.components(),
+                "steps": [s.id for s in chain.steps],
+                "entry_points": list(getattr(graph, "entry_points", []) or []),
+            },
+            "output": {
+                **result.to_dict(),
+                "budget": ctx.budget.remaining().to_dict() if ctx.budget is not None else None,
+                "budget_trims": ctx.budget.trim_report() if ctx.budget is not None else [],
+            },
+            "reasoning": f"有状态跨组件攻击链：{result.succeeded}/{result.total_steps} 步成功",
+        }
+    )
+
+    logger.info(
+        "[Chain] 攻击链完成: %d/%d 步成功, %d 步失败, 产出 %d 个状态键",
+        result.succeeded,
+        result.total_steps,
+        result.failed,
+        len(result.acquired_keys),
+    )
 
 
 async def _run_web_injection_phase(ctx: "PipelineContext") -> None:
@@ -235,6 +437,7 @@ async def _run_web_injection_phase(ctx: "PipelineContext") -> None:
 
     # Skip if dry run
     from utils.dry_run import is_dry_run as _check_dry_run
+
     if _check_dry_run(ctx.args):
         return
 
@@ -254,7 +457,7 @@ async def _run_web_injection_phase(ctx: "PipelineContext") -> None:
         print_phase("STRIKE", "Web Page Injection (CSS Hidden Content)...")
 
         # Import web page injector
-        from strike.web_page_injector import (
+        from strike.web.page_injector import (
             AdvancedInjectionScenarios,
             WebPageInjector,
         )
@@ -269,9 +472,7 @@ async def _run_web_injection_phase(ctx: "PipelineContext") -> None:
             # Use predefined template
             injector = WebPageInjector(default_strategy=_strategy)
             visible_content = _get_default_visible_content(_template)
-            malicious_page = injector.generate_from_template(
-                _template, visible_content
-            )
+            malicious_page = injector.generate_from_template(_template, visible_content)
         else:
             # Use advanced scenario
             if _template == "research_assistant":
@@ -305,24 +506,23 @@ async def _run_web_injection_phase(ctx: "PipelineContext") -> None:
         )
 
         # Log to orchestration
-        ctx.orchestration_log.append({
-            "phase": "web_injection",
-            "decision": "css_hidden_injection",
-            "input": {
-                "target": _web_target,
-                "strategy": _strategy,
-                "template": _template,
-                "browse_endpoint": _browse_endpoint,
-            },
-            "output": {
-                "html_size": len(malicious_page.html_content),
-                "anti_extraction": malicious_page.anti_extraction,
-            },
-            "reasoning": (
-                f"CSS hidden injection: {_strategy} strategy, "
-                f"{_template} template, arXiv:2302.12173"
-            ),
-        })
+        ctx.orchestration_log.append(
+            {
+                "phase": "web_injection",
+                "decision": "css_hidden_injection",
+                "input": {
+                    "target": _web_target,
+                    "strategy": _strategy,
+                    "template": _template,
+                    "browse_endpoint": _browse_endpoint,
+                },
+                "output": {
+                    "html_size": len(malicious_page.html_content),
+                    "anti_extraction": malicious_page.anti_extraction,
+                },
+                "reasoning": (f"CSS hidden injection: {_strategy} strategy, {_template} template, arXiv:2302.12173"),
+            }
+        )
 
     except Exception as e:
         logger.warning("[WebInjection] Web injection phase error (non-fatal): %s", e)
@@ -394,6 +594,7 @@ async def _run_web_attacks_phase(ctx: "PipelineContext") -> None:
 
     # Skip if dry run (v2.0+: 使用 utils/dry_run.py)
     from utils.dry_run import is_dry_run as _check_dry_run
+
     if _check_dry_run(ctx.args):
         return
 
@@ -417,7 +618,7 @@ async def _run_web_attacks_phase(ctx: "PipelineContext") -> None:
         target_info = _build_target_info_from_service_profile(ctx)
 
         # Initialize web orchestrator
-        from strike.web_orchestrator import WebAttackOrchestrator
+        from strike.web.orchestrator import WebAttackOrchestrator
 
         # Get endpoint URL
         _parsed = getattr(ctx, "parsed_request", None)
@@ -523,6 +724,7 @@ async def _run_advanced_attacks_phase(ctx: "PipelineContext") -> None:
 
     # Skip if dry run
     from utils.dry_run import is_dry_run as _check_dry_run
+
     if _check_dry_run(ctx.args):
         return
 
@@ -546,7 +748,7 @@ async def _run_advanced_attacks_phase(ctx: "PipelineContext") -> None:
         if _current_asr < _bypass_threshold:
             try:
                 print_phase("STRIKE", "Output Filter Bypass (arXiv:2402.05124)...")
-                from strike.output_filter_bypass import run_output_filter_bypass
+                from strike.model.filter_bypass import run_output_filter_bypass
 
                 bypass_report = await run_output_filter_bypass(ctx)
                 _advanced_results["output_filter_bypass"] = bypass_report
@@ -572,7 +774,7 @@ async def _run_advanced_attacks_phase(ctx: "PipelineContext") -> None:
     if _enable_multimodal:
         try:
             print_phase("STRIKE", "Multimodal Injection (arXiv:2403.07860)...")
-            from strike.multimodal_injection import run_multimodal_injection
+            from strike.model.multimodal import run_multimodal_injection
 
             # If --multimodal-carrier specified, inject into ctx
             if hasattr(args, "multimodal_carrier") and args.multimodal_carrier:
@@ -595,7 +797,7 @@ async def _run_advanced_attacks_phase(ctx: "PipelineContext") -> None:
     if _enable_backdoor:
         try:
             print_phase("STRIKE", "Backdoor Attack (arXiv:2301.11916)...")
-            from strike.backdoor_attack import run_backdoor_attack
+            from strike.model.backdoor import run_backdoor_attack
 
             # If --backdoor-strategy specified, inject into ctx
             if hasattr(args, "backdoor_strategy") and args.backdoor_strategy:
@@ -620,26 +822,23 @@ async def _run_advanced_attacks_phase(ctx: "PipelineContext") -> None:
         logger.info("[AdvancedAttacks] Phase complete: %d attack types executed", len(_advanced_results))
 
     # Log to orchestration
-    ctx.orchestration_log.append({
-        "phase": "advanced_attacks",
-        "decision": "advanced_attack_execution",
-        "input": {
-            "enable_bypass": _enable_bypass,
-            "enable_multimodal": _enable_multimodal,
-            "enable_backdoor": _enable_backdoor,
-            "current_asr": _current_asr,
-        },
-        "output": {
-            "executed": list(_advanced_results.keys()),
-            "results": {
-                k: v.get("status", "unknown") for k, v in _advanced_results.items()
+    ctx.orchestration_log.append(
+        {
+            "phase": "advanced_attacks",
+            "decision": "advanced_attack_execution",
+            "input": {
+                "enable_bypass": _enable_bypass,
+                "enable_multimodal": _enable_multimodal,
+                "enable_backdoor": _enable_backdoor,
+                "current_asr": _current_asr,
             },
-        },
-        "reasoning": (
-            f"Advanced attacks: {len(_advanced_results)} types executed "
-            f"(ASR={_current_asr:.1%})"
-        ),
-    })
+            "output": {
+                "executed": list(_advanced_results.keys()),
+                "results": {k: v.get("status", "unknown") for k, v in _advanced_results.items()},
+            },
+            "reasoning": (f"Advanced attacks: {len(_advanced_results)} types executed (ASR={_current_asr:.1%})"),
+        }
+    )
 
 
 async def _run_file_upload_phase(ctx: "PipelineContext") -> None:
@@ -667,6 +866,7 @@ async def _run_file_upload_phase(ctx: "PipelineContext") -> None:
 
     # Skip if dry run
     from utils.dry_run import is_dry_run as _check_dry_run
+
     if _check_dry_run(ctx.args):
         return
 
@@ -681,7 +881,7 @@ async def _run_file_upload_phase(ctx: "PipelineContext") -> None:
     try:
         print_phase("STRIKE", "File Upload Attack (Document Injection)...")
 
-        from strike.file_upload_executor import run_file_upload_attack
+        from strike.injection.file_upload_executor import run_file_upload_attack
 
         upload_report = await run_file_upload_attack(ctx)
 
@@ -704,35 +904,141 @@ async def _run_file_upload_phase(ctx: "PipelineContext") -> None:
         logger.warning("[FileUpload] File upload phase error (non-fatal): %s", e)
 
 
+def _asr_as_percent(explicit_pct: float | None, ctx: "PipelineContext") -> float:
+    """把 ASR 归一到**百分比** 0–100（plan Wave 2.5 量纲唯一换算入口）。
+
+    `ctx.overall_asr` 在仓库中历史上既被写入过百分比（`assess.py` compute_overall_asr、
+    `report_sections.py`）也被写入过小数（`escalation_runtime`、部分测试 fixture），
+    导致阈值比较在不同量纲间静默失效。此处按显式入参优先，其次按量级判定：
+    `<= 1.0` 视为小数并乘 100（真实 ASR 恰为 1% 的误差在此场景可忽略且留痕）。
+
+    Args:
+        explicit_pct: 调用方已按百分比算好的 ASR，最可信。
+        ctx: 用于兜底推导的流水线上下文。
+
+    Returns:
+        百分比制 ASR（0–100）。
+    """
+    if explicit_pct is not None:
+        return float(explicit_pct)
+
+    raw = getattr(ctx, "overall_asr", None)
+    if raw is None:
+        from utils.attack_utils import _is_success  # SSOT（plan Wave 4.4 / R-H3）
+
+        results = getattr(ctx, "attack_results", {}) or {}
+        total = sum(len(v) for v in results.values())
+        if total == 0:
+            return 0.0
+        ok = sum(1 for rs in results.values() for r in rs if _is_success(r))
+        return ok / total * 100.0
+
+    raw_f = float(raw)
+    if raw_f <= 1.0:
+        logger.debug("[Escalation] ctx.overall_asr=%.4f 判定为小数制，换算为 %.2f%%", raw_f, raw_f * 100)
+        return raw_f * 100.0
+    return raw_f
+
+
+def _adopt_escalation_results(ctx: "PipelineContext", strategy: str) -> int:
+    """把升级链产出的 PyRIT 原生 AttackResult 并入 `ctx.attack_results`。
+
+    升级链的执行结果此前只落到 `ctx.escalation_context`（序列化字典），
+    不进 `ctx.attack_results` → 不计入 ASR、不进 evidence、不进报告，
+    升级在统计意义上完全空转（C2「ASR 至上」名存实亡）。
+
+    Args:
+        ctx: 流水线上下文（读 `escalation_results`，写 `attack_results`）。
+        strategy: 升级策略名，用作 attack_results 的技术键。
+
+    Returns:
+        实际并入的结果条数。
+    """
+    pending = list(getattr(ctx, "escalation_results", None) or [])
+    if not pending:
+        return 0
+
+    adopted = [r for r in pending if r is not None]
+    if not adopted:
+        return 0
+
+    key = f"escalation_{strategy}" if strategy else "escalation"
+    bucket = ctx.attack_results.setdefault(key, [])
+    bucket.extend(adopted)
+    ctx.escalation_results = []
+    logger.info("[Escalation] %d 条升级结果并入 ctx.attack_results['%s']", len(adopted), key)
+    return len(adopted)
+
+
 async def _run_escalate_phase(
-        ctx: "PipelineContext") -> None:
+    ctx: "PipelineContext",
+    current_asr_pct: float | None = None,
+) -> dict[str, Any]:
     """(4.5) ESCALADE :  + crescendo
 
     Crescende,  ASR
+
+    plan Wave 2.5：此前本函数**零调用点**，C2「单轮 ASR < 90% 必须可触发升级链」
+    在运行时从不成立。现由 `_run_strike_phase` 在计算出本轮 ASR 后调用。
+
+    量纲约定（本函数为唯一换算边界）：
+        - 外部（ctx.overall_asr / 报告 / 日志）一律 **百分比** 0–100
+        - `strike.common.escalation_runtime` 内部一律 **小数** 0.0–1.0
+      二者在此转换，杜绝此前「30.0（百分比）与 0.90（小数）直接比较」导致的
+      `escalated_asr > _current_asr` 恒 False、升级收益永不回写的静默失效。
+
+    Args:
+        ctx: 流水线上下文。
+        current_asr_pct: 本轮已算出的 ASR（百分比）。为 None 时从 ctx 推导。
+
+    Returns:
+        升级报告 dict；未触发或被禁用时返回 `{"status": ...}` 说明原因（禁止静默）。
     """
     from utils.display import print_phase
 
     args = ctx.args
 
+
     # escalate
     if not getattr(args, "escalation", True):
         logger.info("[Escalation] Disabled by user (--no-escalation)")
-        return
+        return {"status": "disabled", "reason": "--no-escalation"}
 
-    _escalate_threshold = getattr(args, "escalate_threshold", 30.0)
-    _current_asr = getattr(ctx, "overall_asr", 0.0)
+    # C7：阈值唯一来源 config/defaults.yaml:escalation_asr_threshold（默认 90）。
+    _escalate_threshold = getattr(args, "escalate_threshold", None)
+    if _escalate_threshold is None:
+        _escalate_threshold = 90.0
+        logger.warning(
+            "[Escalation] escalate_threshold 未从 defaults.yaml 注入（C7 断链），回退 %s%%",
+            _escalate_threshold,
+        )
+
+    _current_asr = _asr_as_percent(current_asr_pct, ctx)
 
     if _current_asr >= _escalate_threshold:
         logger.info(
             "[Escalation] Current ASR (%.1f%%) >= threshold (%.1f%%) - escalation skipped",
-            _current_asr, _escalate_threshold)
-        return
+            _current_asr,
+            _escalate_threshold,
+        )
+        return {"status": "skipped", "threshold": _escalate_threshold, "asr": _current_asr}
 
     # === Gap #5: Escalation Chain Implementation ===
     # Replaces deferred placeholder with real multi-turn escalation
     try:
-        from strike.escalation_runtime import run_escalation_chain
-        esc_report = await run_escalation_chain(ctx)
+        from strike.common.escalation_runtime import run_escalation_chain
+
+        # 量纲边界：升级链内部按小数消费 ctx.overall_asr，调用期间临时换算。
+        _outer_asr = getattr(ctx, "overall_asr", None)
+        try:
+            ctx.overall_asr = _current_asr / 100.0
+            esc_report = await run_escalation_chain(ctx)
+        finally:
+            if _outer_asr is not None:
+                ctx.overall_asr = _outer_asr
+
+        # 升级产出（PyRIT 原生 AttackResult）回流主结果集，否则升级收益不进 ASR/报告
+        _adopted = _adopt_escalation_results(ctx, esc_report.get("strategy", "escalation"))
 
         if esc_report.get("status") == "complete":
             logger.info(
@@ -748,19 +1054,31 @@ async def _run_escalate_phase(
                 f"via {esc_report.get('strategy', 'unknown')}",
             )
 
-            # If escalation improved ASR, update context
-            escalated_asr = esc_report.get("escalated_asr", 0.0)
-            if escalated_asr > _current_asr:
-                ctx.overall_asr = max(ctx.overall_asr, escalated_asr)
+            # 量纲边界：escalated_asr 为小数，统一换算为百分比后再回写
+            escalated_pct = (esc_report.get("escalated_asr", 0.0) or 0.0) * 100.0
+            if escalated_pct > _current_asr:
                 logger.info(
-                    "[Escalation] ASR updated: %.1f%% → %.1f%%",
-                    _current_asr, ctx.overall_asr,
+                    "[Escalation] ASR improved: %.1f%% → %.1f%% (adopted %d results)",
+                    _current_asr,
+                    escalated_pct,
+                    _adopted,
                 )
+                if not _adopted:
+                    # 未并入主结果集时（无有效 AttackResult）仍需回写，否则升级收益丢失。
+                    ctx.overall_asr = escalated_pct
+            # 已并入时 ctx.overall_asr 由调用方在重算 attack_results 后统一赋值，
+            # 避免与 ASSESS 阶段 `compute_overall_asr` 形成双轨口径（C3）。
         else:
             logger.info(
                 "[Escalation] No escalation needed: %s",
                 esc_report.get("reason", "saturated"),
             )
+        esc_report["adopted_results"] = _adopted
+        _report: dict[str, Any] = esc_report
     except Exception as e:
         logger.warning("[Escalation] Escalation chain error: %s", e)
+        _report = {"status": "error", "error": str(e)}
 
+    # == plan Wave 4：升级阶段的 PyRIT 原生输出（print_escalate_report_async 曾零调用点）==
+    await _emit_native_escalate_report(ctx)
+    return _report

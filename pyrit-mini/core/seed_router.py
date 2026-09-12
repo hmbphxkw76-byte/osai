@@ -3,16 +3,27 @@
 Routes seeds to optimal PyRIT converters and attack techniques based on
 seed metadata (attack_vector, suitable_for, category) and target capabilities.
 
+Component Coverage:
+    - MCP: Tool Registration Manipulation, Message Injection, Schema Poisoning
+    - A2A: Cross-Agent Injection, Identity Spoofing, Lifecycle Attacks
+    - Model: Prompt Injection, Jailbreak, Backdoor Trigger, Filter Bypass
+    - RAG: Retrieval Poisoning, Context Injection, Vector DB Contamination
+    - Session: Context Leakage, Memory Poisoning, Session Boundary Violation
+    - Web: Auth Bypass, Rate Limit Evasion, Request Smuggling, Gateway Bypass
+
 Academic basis:
     - Wei et al. (arXiv:2307.15043): >2 layer serial stacking ASR degradation
     - Zeng et al. (arXiv:2402.19181): Authority endorsement ASR 38.4%
     - Chao et al. (arXiv:2310.08419): PAIR iterative optimization
     - Zou et al. (arXiv:2307.15043): GCG adversarial attacks
+    - Xiang et al. (arXiv:2402.07867): RAG poisoning taxonomy
+    - OWASP API Top 2023: API attack patterns
 
 Integration:
     - arm/seed_ranker.py: Matches seeds after loading
     - strike/executor.py: Queries router during attack execution
     - core/phases/arm.py: ARM phase router integration
+    - assess/component_scorers.py: Component-specific T0 scoring
 """
 
 from __future__ import annotations
@@ -93,6 +104,26 @@ _ATTACK_VECTOR_CONVERTER_MAP: dict[str, list[str]] = {
     "personalized_extraction": [
         "PersuasionConverter:authority_endorsement",
     ],
+    # RAG components
+    "rag_retrieval_poisoning": [],
+    "rag_context_injection": [],
+    "rag_vector_contamination": [],
+    "rag_ranking_manipulation": [],
+    "rag_payload_hiding": [],
+    # Session/Memory components
+    "session_context_leakage": [],
+    "session_memory_poisoning": [],
+    "session_boundary_violation": [],
+    "session_cross_user_leakage": [],
+    "context_persistence_exploit": [],
+    # Web/API components
+    "web_auth_bypass": [],
+    "web_jwt_tampering": [],
+    "web_rate_limit_evasion": [],
+    "web_request_smuggling": [],
+    "web_cache_poisoning": [],
+    "web_gateway_bypass": [],
+    "api_scope_escalation": [],
 }
 
 # ── Seed Category -> Optimal Technique Mapping ──
@@ -151,6 +182,24 @@ _CATEGORY_TECHNIQUE_MAP: dict[str, list[str]] = {
     # RAG
     "rag_knowledge_extraction": ["prompt_sending"],
     "vector_db_poisoning": ["prompt_sending"],
+    "rag_retrieval_poisoning": ["prompt_sending", "context_compliance"],
+    "rag_context_injection": ["prompt_sending"],
+    "rag_vector_contamination": ["prompt_sending"],
+    "rag_ranking_manipulation": ["prompt_sending"],
+    # Session/Memory
+    "session_context_leakage": ["prompt_sending", "crescendo_simulated"],
+    "session_memory_poisoning": ["context_compliance", "crescendo_simulated"],
+    "session_boundary_violation": ["prompt_sending"],
+    "session_cross_user_leakage": ["prompt_sending", "crescendo_simulated"],
+    "context_persistence_exploit": ["context_compliance"],
+    # Web/API
+    "web_auth_bypass": ["prompt_sending"],
+    "web_jwt_tampering": ["prompt_sending"],
+    "web_rate_limit_evasion": ["prompt_sending"],
+    "web_request_smuggling": ["prompt_sending"],
+    "web_cache_poisoning": ["prompt_sending"],
+    "web_gateway_bypass": ["prompt_sending"],
+    "api_scope_escalation": ["prompt_sending", "context_compliance"],
     # Personalized
     "personalized_attack": ["prompt_sending", "skeleton_key"],
     "personalized_targeted_attack": ["context_compliance", "skeleton_key"],
@@ -430,9 +479,11 @@ def get_seed_router(ctx: Any) -> SeedRouter:
 # ── Internal helper for fallback ──
 def _create_default_router() -> SeedRouter:
     """Create a SeedRouter with default settings (no context)."""
+
     class _DefaultCtx:
         capabilities = {}
         args = None
+
     return SeedRouter(_DefaultCtx())
 
 

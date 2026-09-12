@@ -1,4 +1,4 @@
-""" - imports main.py Target
+"""- imports main.py Target
 
 Production-grade - Ensure all Target
  httpx.AsyncClient DB
@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from core.context import PipelineContext
 
 logger = logging.getLogger(__name__)
+
 
 async def cleanup_resources(
     ctx: "PipelineContext",
@@ -63,24 +64,25 @@ async def cleanup_resources(
         except Exception as e:
             logger.debug("Cleanup %s failed (non-fatal): %s", label, e)
 
- # 1. extra_objective_targets (port_expander )
+    # 1. extra_objective_targets (port_expander )
     for port, extra_target in getattr(ctx, "extra_objective_targets", {}).items():
         await _cleanup_target(extra_target, f"extra_objective_target[port={port}]")
     ctx.extra_objective_targets = {}  #
 
- # 2. multi_turn_target ( objective_target , cleaned )
+    # 2. multi_turn_target ( objective_target , cleaned )
     await _cleanup_target(getattr(ctx, "multi_turn_target", None), "multi_turn_target")
     ctx.multi_turn_target = None  #
 
- # 3. objective_target ()
+    # 3. objective_target ()
     await _cleanup_target(getattr(ctx, "objective_target", None), "objective_target")
     ctx.objective_target = None  #
 
- # 4. Playwright (browser )
- # Data flow: target_router._create_playwright_target -> _playwright_handles (module-level)
- # -> cleanup_resources -> browser.close() + playwright.stop()
- # Note: Playwright state stored in recon._target_router_handles module, not ctx
+    # 4. Playwright (browser )
+    # Data flow: target_router._create_playwright_target -> _playwright_handles (module-level)
+    # -> cleanup_resources -> browser.close() + playwright.stop()
+    # Note: Playwright state stored in recon._target_router_handles module, not ctx
     from recon._target_router_helpers import get_playwright_handles
+
     handles = get_playwright_handles()
     try:
         if handles.get("context") is not None:
@@ -102,12 +104,12 @@ async def cleanup_resources(
         logger.debug("Playwright instance stop failed (non-fatal): %s", e)
     handles.clear()
 
- # 5. adversarial_target / scoring_target OpenAIChatTarget ( httpx client )
- # RateLimitedTarget , cleanup
- # Target ( _create_adversarial_target )
- # endpoint (exclude_shared=True): Skip targets,
+    # 5. adversarial_target / scoring_target OpenAIChatTarget ( httpx client )
+    # RateLimitedTarget , cleanup
+    # Target ( _create_adversarial_target )
+    # endpoint (exclude_shared=True): Skip targets,
     if not exclude_shared:
-     # 5a. extra_adversarial_targets ( LLM)
+        # 5a. extra_adversarial_targets ( LLM)
         for i, extra_adv in enumerate(getattr(ctx, "extra_adversarial_targets", [])):
             await _cleanup_target(extra_adv, f"extra_adversarial_target[{i}]")
         ctx.extra_adversarial_targets = []  #
@@ -124,9 +126,11 @@ async def cleanup_resources(
         exclude_shared,
     )
 
+
 def has_residual_resources(ctx: "PipelineContext") -> bool:
     """Check if pipeline context has residual resources needing cleanup."""
     from recon._target_router_helpers import get_playwright_handles
+
     handles = get_playwright_handles()
     return (
         getattr(ctx, "objective_target", None) is not None

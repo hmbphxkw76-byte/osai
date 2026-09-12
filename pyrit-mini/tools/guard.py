@@ -6,18 +6,28 @@ R-SIZE / R-CONV / R-IMPORT / R-STACK 静态架构检查 (19+ 规则)
 调用方式:
     py -m tools.guard              # 运行全量检查
     py -m tools.guard -v           # 详细输出
+    py -m tools.guard --quick file.py  # 单文件快速检查
+    py -m tools.guard --watch      # 实时文件监视
 
 Academic basis:  (clean architecture, god object anti-pattern)
 
 迁移自: core/architecture_guard.py (2026-09-08 目录职责优化)
+合并自: tools/quick_check.py, tools/watch_guard.py (2026-09-10 功能合并)
 """
+
 from __future__ import annotations
 
+import argparse
+import hashlib
 import logging
 import re
+import subprocess
+import sys
+import time
 from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import Path
+from typing import Dict, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -110,21 +120,22 @@ _SIZE_BYPASS_WHITELIST = {
     "report/owasp_mapping.py",  # 351行
     "report/pyrit_native_output.py",  # 473行
     "report/report_sections.py",  # 423行
-     "report/_poc_templates.py",  # 446行
-     "tools/hooks.py",  # 304行
-     "strike/_executor_attack_paths.py",  # 324行 - executor内部攻击路径
+    "report/_poc_templates.py",  # 446行
+    "tools/hooks.py",  # 304行
+    "strike/_executor_attack_paths.py",  # 324行 - executor内部攻击路径
 }
 
 # ===============================================================================
 
+
 class Severity(IntEnum):
-    BLOCKING = 0      # 阻塞 CI / commit
-    WARNING = 1       # 警告
-    INFO = 2          # 信息
+    BLOCKING = 0  # 阻塞 CI / commit
+    WARNING = 1  # 警告
+    INFO = 2  # 信息
+
 
 @dataclass
 class Violation:
-
     rule: str
     severity: Severity
     file: str
@@ -132,9 +143,8 @@ class Violation:
     description: str
     fix_hint: str = ""
 
+
 class ArchitectureGuard:
-
-
     def __init__(self, project_root: Path) -> None:
         self.root = project_root
         self.violations: list[Violation] = []
@@ -146,9 +156,17 @@ class ArchitectureGuard:
             return self._source_files
 
         exclude_dirs = {
-            "outputs", ".venv", "__pycache__", ".pytest_cache",
-            ".ruff_cache", "node_modules", ".git", ".assistant_pyrit",
-            ".idea", ".vscode", "pyrit_strike.egg-info"
+            "outputs",
+            ".venv",
+            "__pycache__",
+            ".pytest_cache",
+            ".ruff_cache",
+            "node_modules",
+            ".git",
+            ".assistant_pyrit",
+            ".idea",
+            ".vscode",
+            "pyrit_strike.egg-info",
         }
         self._source_files = []
         for path in self.root.rglob("*.py"):
@@ -156,7 +174,6 @@ class ArchitectureGuard:
                 continue
             self._source_files.append(path)
         return self._source_files
-
 
     def check_size_escape(self) -> None:
         """R-SIZE: 检测超过行数阈值的文件"""
@@ -175,23 +192,27 @@ class ArchitectureGuard:
                 continue
 
             if line_count >= _SIZE_BLOCKING_THRESHOLD:
-                self.violations.append(Violation(
-                    rule="R-SIZE",
-                    severity=Severity.BLOCKING,
-                    file=rel_path,
-                    line=1,
-                    description=f"God Object 逃离: {path.name} {line_count} 行 (超过 +{_SIZE_BLOCKING_THRESHOLD})",
-                    fix_hint=f"拆分至 <{_SIZE_WARNING_THRESHOLD} 行: 优先抽取到 core/phases/ 或 assess/ 子模块",
-                ))
+                self.violations.append(
+                    Violation(
+                        rule="R-SIZE",
+                        severity=Severity.BLOCKING,
+                        file=rel_path,
+                        line=1,
+                        description=f"God Object 逃离: {path.name} {line_count} 行 (超过 +{_SIZE_BLOCKING_THRESHOLD})",
+                        fix_hint=f"拆分至 <{_SIZE_WARNING_THRESHOLD} 行: 优先抽取到 core/phases/ 或 assess/ 子模块",
+                    )
+                )
             elif line_count >= _SIZE_WARNING_THRESHOLD:
-                self.violations.append(Violation(
-                    rule="R-SIZE",
-                    severity=Severity.WARNING,
-                    file=rel_path,
-                    line=1,
-                    description=f"文件膨胀警告: {path.name} {line_count} 行 (超过 +{_SIZE_WARNING_THRESHOLD})",
-                    fix_hint="建议拆分: 优先抽取到 core/phases/ 或 assess/ 子模块",
-                ))
+                self.violations.append(
+                    Violation(
+                        rule="R-SIZE",
+                        severity=Severity.WARNING,
+                        file=rel_path,
+                        line=1,
+                        description=f"文件膨胀警告: {path.name} {line_count} 行 (超过 +{_SIZE_WARNING_THRESHOLD})",
+                        fix_hint="建议拆分: 优先抽取到 core/phases/ 或 assess/ 子模块",
+                    )
+                )
 
     def check_serial_stacking(self) -> None:
         """R-CONV-1: 检测 ConverterConfiguration 串联超过阈值"""
@@ -216,14 +237,16 @@ class ArchitectureGuard:
                     comma_count = inner.count(",")
 
                     if comma_count > 2:
-                        self.violations.append(Violation(
-                            rule="R-CONV-1",
-                            severity=Severity.BLOCKING,
-                            file=str(path.relative_to(self.root)),
-                            line=i,
-                            description=f"Converter 串联违规: {path.name}:{i} 包含 {comma_count + 1} 个 converter",
-                            fix_hint="最多 2 个 converter 串联: 使用 chained_selective 模式",
-                        ))
+                        self.violations.append(
+                            Violation(
+                                rule="R-CONV-1",
+                                severity=Severity.BLOCKING,
+                                file=str(path.relative_to(self.root)),
+                                line=i,
+                                description=f"Converter 串联违规: {path.name}:{i} 包含 {comma_count + 1} 个 converter",
+                                fix_hint="最多 2 个 converter 串联: 使用 chained_selective 模式",
+                            )
+                        )
 
     def check_forbidden_custom_classes(self) -> None:
         """R-IMPORT-1: 检测禁止使用的第三方库"""
@@ -243,14 +266,16 @@ class ArchitectureGuard:
             for pattern, fix in forbidden_patterns:
                 for i, line in enumerate(content.split("\n"), 1):
                     if re.search(pattern, line) and not line.strip().startswith("#"):
-                        self.violations.append(Violation(
-                            rule="R-IMPORT-1",
-                            severity=Severity.WARNING,
-                            file=str(path.relative_to(self.root)),
-                            line=i,
-                            description=f"禁止依赖: {line.strip()[:60]}",
-                            fix_hint=fix,
-                        ))
+                        self.violations.append(
+                            Violation(
+                                rule="R-IMPORT-1",
+                                severity=Severity.WARNING,
+                                file=str(path.relative_to(self.root)),
+                                line=i,
+                                description=f"禁止依赖: {line.strip()[:60]}",
+                                fix_hint=fix,
+                            )
+                        )
 
     def check_cli_location(self) -> None:
         """R-TOOLS-1: CLI 工具必须放在 tools/ 目录
@@ -261,7 +286,7 @@ class ArchitectureGuard:
         - 允许: 根目录 main.py, tools/*.py, tests/*.py (测试)
         - 忽略: 在 docstring/字符串模板内的 __main__ 引用 (如 PoC 模板)
         """
-        _ALLOWED_MAIN_DIRS = {"tools", "tests"}
+        _ALLOWED_MAIN_DIRS = {"tools", "tests", "scripts"}  # scripts/ 允许维护脚本入口
         _ALLOWED_ROOT_FILES = {"main.py"}
 
         for path in self.source_files:
@@ -285,33 +310,38 @@ class ArchitectureGuard:
             if len(parts) == 1:
                 if parts[0] in _ALLOWED_ROOT_FILES:
                     continue
-                self.violations.append(Violation(
-                    rule="R-TOOLS-1",
-                    severity=Severity.BLOCKING,
-                    file=rel_path,
-                    line=real_main_lines[0],
-                    description=f"根目录非法 CLI 入口: {rel_path} (应迁移到 tools/ 目录)",
-                    fix_hint=f"将 {rel_path} 迁移到 tools/ 目录，或删除 __main__ 块",
-                ))
+                self.violations.append(
+                    Violation(
+                        rule="R-TOOLS-1",
+                        severity=Severity.BLOCKING,
+                        file=rel_path,
+                        line=real_main_lines[0],
+                        description=f"根目录非法 CLI 入口: {rel_path} (应迁移到 tools/ 目录)",
+                        fix_hint=f"将 {rel_path} 迁移到 tools/ 目录，或删除 __main__ 块",
+                    )
+                )
                 continue
 
             # 子目录文件
             top_dir = parts[0]
             if top_dir not in _ALLOWED_MAIN_DIRS:
-                self.violations.append(Violation(
-                    rule="R-TOOLS-1",
-                    severity=Severity.BLOCKING,
-                    file=rel_path,
-                    line=real_main_lines[0],
-                    description=f"CLI 入口位置违规: {rel_path} (CLI 工具必须放在 tools/ 目录)",
-                    fix_hint=f"将 {rel_path} 迁移到 tools/{path.name}",
-                ))
+                self.violations.append(
+                    Violation(
+                        rule="R-TOOLS-1",
+                        severity=Severity.BLOCKING,
+                        file=rel_path,
+                        line=real_main_lines[0],
+                        description=f"CLI 入口位置违规: {rel_path} (CLI 工具必须放在 tools/ 目录)",
+                        fix_hint=f"将 {rel_path} 迁移到 tools/{path.name}",
+                    )
+                )
 
     @staticmethod
     def _extract_real_main_lines(content: str) -> list[int]:
-        """提取不在三引号 docstring 内的 `if __main__` 所在行号
+        """提取不在三引号字符串模板内的 `if __main__` 所在行号
 
-        返回行号列表, 如果全部在 docstring 内则返回空列表
+        返回行号列表, 如果全部在三引号内则返回空列表。
+        支持检测行中/行尾开始的三引号 (如 f'''...''')
         """
         lines = content.split("\n")
         in_triple_quote: str | None = None
@@ -320,23 +350,27 @@ class ArchitectureGuard:
         for i, line in enumerate(lines):
             stripped = line.strip()
 
-            # 检测三引号开关
+            # 检测三引号开关 (支持行中开始的三引号)
             if in_triple_quote is None:
-                if stripped.startswith('"""') or stripped.startswith("'''"):
-                    quote = stripped[:3]
-                    # 单行三引号
-                    if stripped.count(quote) >= 2 and stripped.endswith(quote):
-                        continue
-                    in_triple_quote = quote
+                # 查找行中第一个三引号
+                tq_pos = -1
+                for quote in ('"""', "'''"):
+                    pos = stripped.find(quote)
+                    if pos != -1 and (tq_pos == -1 or pos < tq_pos):
+                        tq_pos = pos
+                        in_triple_quote = quote
+
+                if in_triple_quote is not None:
+                    # 检查同一行是否也关闭了三引号
+                    after_open = stripped[tq_pos + 3 :]
+                    if in_triple_quote in after_open:
+                        # 单行三引号字符串，状态不变
+                        in_triple_quote = None
                     continue
-                # 检查多行模式下的引号
-                if '"""' in stripped or "'''" in stripped:
-                    # 简单处理: 检查是否包含 if __name__ 且不在三引号后
-                    pass
             else:
                 if in_triple_quote in stripped:
                     in_triple_quote = None
-                continue
+                    continue
 
             # 不在三引号内
             if in_triple_quote is None and "if __name__" in stripped and "__main__" in stripped:
@@ -357,10 +391,18 @@ class ArchitectureGuard:
         # 运行 pytest 测试数据流完整性 (仅运行快速测试集)
         try:
             result = subprocess.run(
-                [sys.executable, "-m", "pytest",
-                 "tests/test_data_flow_integrity.py",
-                 "-v", "--tb=short", "-q",
-                 "--no-header", "-p", "no:cacheprovider"],
+                [
+                    sys.executable,
+                    "-m",
+                    "pytest",
+                    "tests/common/test_data_flow_integrity.py",
+                    "-v",
+                    "--tb=short",
+                    "-q",
+                    "--no-header",
+                    "-p",
+                    "no:cacheprovider",
+                ],
                 capture_output=True,
                 text=True,
                 timeout=60,
@@ -372,51 +414,61 @@ class ArchitectureGuard:
                 output_lines = result.stdout.strip().split("\n")[-10:] if result.stdout else []
                 "\n".join(output_lines) if output_lines else "pytest 执行失败"
 
-                self.violations.append(Violation(
+                self.violations.append(
+                    Violation(
+                        rule="R-DATA-1",
+                        severity=Severity.WARNING,
+                        file="tools/data_flow_validator.py",
+                        line=1,
+                        description=f"数据流完整性验证失败: {result.returncode} 个测试未通过",
+                        fix_hint="运行 pytest tests/common/test_data_flow_integrity.py -v 查看详细结果",
+                    )
+                )
+            else:
+                # 记录通过信息 (INFO 级别)
+                self.violations.append(
+                    Violation(
+                        rule="R-DATA-1",
+                        severity=Severity.INFO,
+                        file="tools/data_flow_validator.py",
+                        line=1,
+                        description="全链路数据流完整性验证通过: Recon→ARM→Strike→Assess→Report/Evidence 无断点",
+                        fix_hint="",
+                    )
+                )
+        except subprocess.TimeoutExpired:
+            self.violations.append(
+                Violation(
                     rule="R-DATA-1",
                     severity=Severity.WARNING,
                     file="tools/data_flow_validator.py",
                     line=1,
-                    description=f"数据流完整性验证失败: {result.returncode} 个测试未通过",
-                    fix_hint="运行 pytest tests/test_data_flow_integrity.py -v 查看详细结果",
-                ))
-            else:
-                # 记录通过信息 (INFO 级别)
-                self.violations.append(Violation(
+                    description="数据流验证超时 (>60s)",
+                    fix_hint="检查是否有死循环或网络调用",
+                )
+            )
+        except FileNotFoundError:
+            self.violations.append(
+                Violation(
                     rule="R-DATA-1",
                     severity=Severity.INFO,
                     file="tools/data_flow_validator.py",
                     line=1,
-                    description="全链路数据流完整性验证通过: Recon→ARM→Strike→Assess→Report/Evidence 无断点",
+                    description="pytest 跳过 (未安装或测试文件缺失)",
                     fix_hint="",
-                ))
-        except subprocess.TimeoutExpired:
-            self.violations.append(Violation(
-                rule="R-DATA-1",
-                severity=Severity.WARNING,
-                file="tools/data_flow_validator.py",
-                line=1,
-                description="数据流验证超时 (>60s)",
-                fix_hint="检查是否有死循环或网络调用",
-            ))
-        except FileNotFoundError:
-            self.violations.append(Violation(
-                rule="R-DATA-1",
-                severity=Severity.INFO,
-                file="tools/data_flow_validator.py",
-                line=1,
-                description="pytest 跳过 (未安装或测试文件缺失)",
-                fix_hint="",
-            ))
+                )
+            )
         except Exception as e:
-            self.violations.append(Violation(
-                rule="R-DATA-1",
-                severity=Severity.INFO,
-                file="tools/data_flow_validator.py",
-                line=1,
-                description=f"数据流验证跳过: {type(e).__name__}",
-                fix_hint="",
-            ))
+            self.violations.append(
+                Violation(
+                    rule="R-DATA-1",
+                    severity=Severity.INFO,
+                    file="tools/data_flow_validator.py",
+                    line=1,
+                    description=f"数据流验证跳过: {type(e).__name__}",
+                    fix_hint="",
+                )
+            )
 
     def check_all(self) -> list[Violation]:
         self.violations.clear()
@@ -434,8 +486,10 @@ class ArchitectureGuard:
         # 通过 register_extended_checks() 在模块级别注册
         for attr_name in dir(self):
             if attr_name.startswith("check_") and attr_name not in (
-                "check_size_escape", "check_serial_stacking",
-                "check_forbidden_custom_classes", "check_all",
+                "check_size_escape",
+                "check_serial_stacking",
+                "check_forbidden_custom_classes",
+                "check_all",
                 "check_data_flow_integrity",
             ):
                 method = getattr(self, attr_name, None)
@@ -447,21 +501,354 @@ class ArchitectureGuard:
 
         return self.violations
 
-def main() -> None:
-    import argparse
 
+# === Quick Check 功能 (合并自 tools/quick_check.py) ===
+_MAX_LINE_LIMIT = 300  # R-DELIVERY-1
+_MODULE_DOCSTRING_REQUIRED = True  # R-DELIVERY-5
+
+# Forbidden cross-layer imports (R-DELIVERY-3)
+_FORBIDDEN_CROSS_LAYER = {
+    "report": ["strike"],
+    "utils": ["strike", "recon", "arm", "assess", "report"],
+}
+
+
+def _check_file_size(filepath: Path) -> list[str]:
+    """R-DELIVERY-1: Check module line count."""
+    violations = []
+    try:
+        content = filepath.read_text(encoding="utf-8", errors="replace")
+        lines = len(content.splitlines())
+        if lines > _MAX_LINE_LIMIT:
+            violations.append(f"  R-DELIVERY-1 [WARNING] {filepath.name}: {lines} lines (limit: {_MAX_LINE_LIMIT})")
+    except OSError:
+        pass
+    return violations
+
+
+def _check_docstring(filepath: Path) -> list[str]:
+    """R-DELIVERY-5: Check module docstring."""
+    violations = []
+    try:
+        content = filepath.read_text(encoding="utf-8", errors="replace")
+        lines = content.splitlines()
+        has_docstring = False
+        for line in lines[:10]:
+            stripped = line.strip()
+            if stripped.startswith(('"""', "'''")):
+                has_docstring = True
+                break
+            elif stripped and not stripped.startswith("#"):
+                break
+        if not has_docstring and len(lines) > 5:
+            violations.append(f"  R-DELIVERY-5 [INFO] {filepath.name}: missing module docstring")
+    except OSError:
+        pass
+    return violations
+
+
+def _check_cross_layer_imports(filepath: Path) -> list[str]:
+    """R-DELIVERY-3: Check forbidden cross-layer imports."""
+    violations = []
+    rel_path = str(filepath).replace("\\", "/")
+
+    # Determine which layer this file belongs to
+    src_layer = None
+    for layer in _FORBIDDEN_CROSS_LAYER:
+        if f"/{layer}/" in rel_path or rel_path.startswith(f"{layer}/"):
+            src_layer = layer
+            break
+
+    if not src_layer:
+        return violations
+
+    try:
+        content = filepath.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return violations
+
+    for dst_layer in _FORBIDDEN_CROSS_LAYER.get(src_layer, []):
+        pattern = rf"from\s+{dst_layer}\.|import\s+{dst_layer}\."
+        if re.search(pattern, content):
+            violations.append(f"  R-DELIVERY-3 [BLOCKING] {filepath.name}: cross-layer import from '{dst_layer}'")
+
+    return violations
+
+
+def run_quick_check(filepath: Path) -> list[str]:
+    """Run all quick checks on a single file."""
+    if not filepath.exists():
+        print(f"Error: {filepath} not found")
+        return []
+
+    if not filepath.suffix == ".py":
+        print(f"Error: {filepath} is not a Python file")
+        return []
+
+    all_violations = []
+    all_violations.extend(_check_file_size(filepath))
+    all_violations.extend(_check_docstring(filepath))
+    all_violations.extend(_check_cross_layer_imports(filepath))
+    return all_violations
+
+
+def run_quick_check_all(project_root: Path) -> tuple[list[str], list[str]]:
+    """Run quick checks on all files in core packages."""
+    files = []
+    dirs = ["strike", "recon", "arm", "assess", "core", "report", "utils"]
+    for d in dirs:
+        d_path = project_root / d
+        if d_path.exists():
+            for f in d_path.rglob("*.py"):
+                if f.name != "__init__.py":
+                    files.append(f)
+
+    all_violations = []
+    blocking_violations = []
+    for f in files:
+        violations = run_quick_check(f)
+        all_violations.extend(violations)
+        for v in violations:
+            if "[BLOCKING]" in v:
+                blocking_violations.append(v)
+
+    return all_violations, blocking_violations
+
+
+# === Watch Guard 功能 (合并自 tools/watch_guard.py) ===
+_WATCHED_DIRS = ["strike", "recon", "arm", "assess", "core", "report", "utils", "tools"]
+_CHECK_INTERVAL = 2  # seconds between scans
+_DEBOUNCE_SECONDS = 1  # wait before checking after change
+
+
+class FileWatcher:
+    """Watches Python files for changes and triggers architecture checks."""
+
+    def __init__(self, project_root: Path, package: str = None, fast: bool = False):
+        self.project_root = project_root
+        self.target_dirs = [project_root / package] if package else [project_root / d for d in _WATCHED_DIRS]
+        self.fast = fast
+        self.file_hashes: Dict[str, str] = {}
+        self.last_change_time: float = 0
+        self.pending_check: bool = False
+
+    def _compute_file_hash(self, filepath: Path) -> str:
+        """Compute MD5 hash of a file."""
+        try:
+            content = filepath.read_bytes()
+            return hashlib.md5(content).hexdigest()
+        except OSError:
+            return ""
+
+    def _get_all_py_files(self) -> list[Path]:
+        """Get all Python files to watch."""
+        files = []
+        for d in self.target_dirs:
+            if d.exists():
+                for f in d.rglob("*.py"):
+                    if f.name != "__init__.py" or not self.fast:
+                        files.append(f)
+        return files
+
+    def _scan_for_changes(self) -> list[Path]:
+        """Scan files and return list of changed files."""
+        changed = []
+        current_files: Set[str] = set()
+
+        for filepath in self._get_all_py_files():
+            rel_path = str(filepath.relative_to(self.project_root))
+            current_files.add(rel_path)
+
+            new_hash = self._compute_file_hash(filepath)
+            old_hash = self.file_hashes.get(rel_path)
+
+            if old_hash is None:
+                self.file_hashes[rel_path] = new_hash
+            elif old_hash != new_hash:
+                changed.append(filepath)
+                self.file_hashes[rel_path] = new_hash
+
+        for rel_path in list(self.file_hashes.keys()):
+            if rel_path not in current_files:
+                del self.file_hashes[rel_path]
+
+        return changed
+
+    def _run_full_guard(self) -> Tuple[bool, str]:
+        """Run full architecture guard."""
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "tools.guard"],
+                capture_output=True,
+                text=True,
+                cwd=self.project_root,
+                timeout=30,
+            )
+            output = result.stdout + result.stderr
+            return result.returncode == 0, output
+        except subprocess.TimeoutExpired:
+            return False, "Guard timeout (30s)"
+        except Exception as e:
+            return False, f"Guard error: {e}"
+
+    def run(self):
+        """Main watch loop."""
+        print("=" * 60)
+        print("  Architecture Guard - Real-time Watcher")
+        print("=" * 60)
+        print()
+        print(f"  Watching: {[d.name for d in self.target_dirs if d.exists()]}")
+        print(f"  Interval: {_CHECK_INTERVAL}s")
+        print(f"  Mode: {'Fast (modified files only)' if self.fast else 'Full (all rules)'}")
+        print()
+        print("  Press Ctrl+C to stop")
+        print("-" * 60)
+        print()
+
+        # Initial scan
+        print("[1/2] Running initial check...")
+        ok, output = self._run_full_guard()
+        if ok:
+            print("  [PASS] Initial check passed")
+        else:
+            print(f"  [INFO] Found issues: {output.strip().split(chr(10))[-1] if output else 'unknown'}")
+
+        print("[2/2] Starting file watcher...")
+        print()
+
+        try:
+            while True:
+                time.sleep(_CHECK_INTERVAL)
+
+                changed = self._scan_for_changes()
+                if not changed:
+                    continue
+
+                time.sleep(_DEBOUNCE_SECONDS)
+                changed = self._scan_for_changes()
+
+                now = time.strftime("%H:%M:%S")
+                print(f"[{now}] Changed: {[f.name for f in changed]}")
+
+                ok, output = self._run_full_guard()
+
+                if ok:
+                    print("  [PASS] All checks passed")
+                else:
+                    lines = output.strip().split("\n")
+                    if lines:
+                        last_line = lines[-1] if lines else ""
+                        print(f"  [WARN] {last_line}")
+                        rdelivery_lines = [line for line in lines if "R-DELIVERY" in line]
+                        if rdelivery_lines:
+                            print("  R-DELIVERY violations:")
+                            for line in rdelivery_lines[:3]:
+                                print(f"    {line.strip()}")
+
+                print()
+
+        except KeyboardInterrupt:
+            print()
+            print("-" * 60)
+            print("  Watcher stopped.")
+            print("-" * 60)
+
+
+def run_watch_guard(project_root: Path, package: str = None, fast: bool = False) -> None:
+    """Run real-time file watcher."""
+    watcher = FileWatcher(project_root, package=package, fast=fast)
+    watcher.run()
+
+
+# === CLI 入口 ===
+def main() -> None:
     parser = argparse.ArgumentParser(description="Architecture Guard - 静态架构检查")
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--verbose", "-v", action="store_true")
+    parser.add_argument("--quick", type=str, default=None, help="Quick check a single file")
+    parser.add_argument("--quick-all", action="store_true", help="Quick check all files")
+    parser.add_argument("--watch", action="store_true", help="Real-time file watcher")
+    parser.add_argument("--watch-package", type=str, default=None, help="Watch specific package")
+    parser.add_argument("--watch-fast", action="store_true", help="Fast watch mode")
+    parser.add_argument("--component-purity", action="store_true", help="Component purity & coverage validation")
+    parser.add_argument("--min-purity", type=float, default=0.90, help="Minimum purity threshold (0.0-1.0)")
+    parser.add_argument("--min-coverage", type=float, default=0.60, help="Minimum coverage threshold (0.0-1.0)")
 
     args = parser.parse_args()
 
     if not args.verbose:
         logging.basicConfig(level=logging.WARNING)
 
+    # Quick check mode
+    if args.quick:
+        filepath = Path(args.quick)
+        if not filepath.is_absolute():
+            filepath = args.root / filepath
+        violations = run_quick_check(filepath)
+        if violations:
+            print(f"Quick check: {filepath.name}")
+            for v in violations:
+                print(v)
+            print()
+            sys.exit(1)
+        else:
+            print(f"  [PASS] {filepath.name}: All R-DELIVERY rules passed")
+            sys.exit(0)
+
+    if args.quick_all:
+        all_violations, blocking_violations = run_quick_check_all(args.root)
+        if all_violations:
+            print(f"Quick check: {len(all_violations)} issue(s) found")
+            for v in all_violations[:20]:
+                print(v)
+            if len(all_violations) > 20:
+                print(f"  ... and {len(all_violations) - 20} more")
+        if blocking_violations:
+            print(f"\n  [FAIL] {len(blocking_violations)} BLOCKING issue(s) found")
+            sys.exit(1)
+        else:
+            print("  [PASS] No BLOCKING issues (WARNING/INFO are non-blocking)")
+            sys.exit(0)
+
+    # Component purity mode
+    if args.component_purity:
+        from tools.component_purity import ComponentPurityValidator
+
+        validator = ComponentPurityValidator(args.root)
+        results = validator.validate_all()
+
+        blocking_count = 0
+        warning_count = 0
+
+        for category, components in results.items():
+            for name, report in sorted(components.items()):
+                if report.purity_score < args.min_purity:
+                    print(f"  [FAIL] {category}/{name}: purity {report.purity_score:.2%} < {args.min_purity:.2%}")
+                    blocking_count += 1
+                if report.coverage_score < args.min_coverage:
+                    print(f"  [WARN] {category}/{name}: coverage {report.coverage_score:.2%} < {args.min_coverage:.2%}")
+                    warning_count += 1
+                for finding in report.findings:
+                    if finding.severity == "error":
+                        print(f"  [ERR] {category}/{name}: {finding.message}")
+                    elif finding.severity == "warning":
+                        print(f"  [WRN] {category}/{name}: {finding.message}")
+
+        print(f"\n 组件纯粹性报告: {blocking_count} 阻塞 / {warning_count} 警告")
+
+        if blocking_count > 0:
+            raise SystemExit(1)
+        print("  [PASS] 组件纯粹性检查通过")
+        sys.exit(0)
+
+    # Watch mode
+    if args.watch or args.watch_package or args.watch_fast:
+        run_watch_guard(args.root, package=args.watch_package, fast=args.watch_fast)
+        return
+
+    # Full guard mode
     guard = ArchitectureGuard(args.root)
     violations = guard.check_all()
-
 
     blocking = [v for v in violations if v.severity == Severity.BLOCKING]
     warnings = [v for v in violations if v.severity == Severity.WARNING]
@@ -487,12 +874,13 @@ def main() -> None:
 
     if blocking:
         raise SystemExit(1)
-    return None
+
 
 # === 注册扩展检查 (R-PIPE / R-IMPORT / R-REDTEAM / R-EVID / R-REPORT) ===
 def _register_all_extended_checks() -> None:
     try:
         from tools.guard_extended import register_extended_checks
+
         register_extended_checks(ArchitectureGuard)
     except ImportError as e:
         logger.debug("Extended checks not available: %s", e)

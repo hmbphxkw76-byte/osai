@@ -26,12 +26,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from recon.api_classifier import detect_api_category
 from recon.fingerprint import (
     extract_ai_framework_fingerprint,
     extract_ai_sdk_from_request_headers,
 )
-from recon.prompt_injector import (
+from recon.model.api_classifier import detect_api_category
+from recon.model.prompt_injector import (
     build_full_url,
     detect_and_inject_chat_id_placeholder,
     extract_chat_id_from_response,
@@ -50,9 +50,10 @@ logger = logging.getLogger(__name__)
 # 2024-2025 Python AI
 # ====================================================================
 
+
 @dataclass
 class TargetFingerprint:
-    """ - Schema,
+    """- Schema,
 
     :
         Phase 1 (parse-time):  ''burp_parser._parse_raw_http''
@@ -64,7 +65,7 @@ class TargetFingerprint:
      ''fp["key"]'' ,  attribute
     """
 
- # == Phase 1: HTTP (, _extract_fingerprint ) ==
+    # == Phase 1: HTTP (, _extract_fingerprint ) ==
     framework: str = "Unknown"
     api_path: str = ""
     host: str = ""
@@ -73,21 +74,21 @@ class TargetFingerprint:
     app_type: str = "Web Application"
     api_category: str = "chat"
 
- # == Phase 1: HTTP (, _parse_raw_http ) ==
+    # == Phase 1: HTTP (, _parse_raw_http ) ==
     ai_framework: str | None = None
     ai_framework_category: str | None = None
     chat_id: str | None = None
     burp_model_name: str | None = None
     has_model_list: bool = False
 
- # == Phase 2: (capability_detector / target_router ) ==
+    # == Phase 2: (capability_detector / target_router ) ==
     language: str | None = None
     model_family: str | None = None
     capabilities: list[str] = field(default_factory=list)
     probe_count: int = 0
     probe_duration_seconds: float = 0.0
 
- # == Phase 2: (target_router ) ==
+    # == Phase 2: (target_router ) ==
     mcp_tools: list[str] = field(default_factory=list)
     mcp_resources: list[str] = field(default_factory=list)
     mcp_prompts: list[str] = field(default_factory=list)
@@ -99,7 +100,7 @@ class TargetFingerprint:
     original_prompt: str | None = None
     session_type: str | None = None
 
- # == (, ) ==
+    # == (, ) ==
     extra: dict[str, Any] = field(default_factory=dict)
 
     def get(self, key: str, default: Any = None) -> Any:
@@ -132,9 +133,10 @@ class TargetFingerprint:
         # Filter None/empty/False/zero values for compact output
         return {k: v for k, v in result.items() if v not in (None, "", [], False, 0, 0.0)}
 
+
 @dataclass
 class ParsedBurpRequest:
-    """ Burp """
+    """Burp"""
 
     method: str
     url: str
@@ -159,12 +161,14 @@ class ParsedBurpRequest:
     # 会话枚举攻击计划 (ASI09): 当非 None 时启用枚举模式
     enumeration_plan: dict[str, Any] | None = None
 
+
 # ====================================================================
 #
 # ====================================================================
 
+
 def parse_burp_request(file_path: str | Path) -> ParsedBurpRequest:
-    """ Burp HTTP
+    """Burp HTTP
 
     ::
 
@@ -190,8 +194,9 @@ def parse_burp_request(file_path: str | Path) -> ParsedBurpRequest:
     raw = Path(file_path).read_text(encoding="utf-8", errors="replace")
     return _parse_raw_http(raw)
 
+
 def build_raw_http_request(parsed: ParsedBurpRequest) -> str:
-    """ HTTP (CRLF )"""
+    """HTTP (CRLF )"""
     lines = [f"{parsed.method} {parsed.path} {parsed.http_version}"]
 
     for key, value in parsed.raw_headers:
@@ -209,12 +214,14 @@ def build_raw_http_request(parsed: ParsedBurpRequest) -> str:
         request += "\r\n\r\n"
     return request
 
+
 # ====================================================================
 #
 # ====================================================================
 
+
 def _parse_raw_http(raw: str) -> ParsedBurpRequest:
-    """ HTTP
+    """HTTP
 
     L5 v19 :  Burp  header  body ,
      body  header
@@ -239,7 +246,7 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
     path = request_line[1]
     http_version = request_line[2]
 
- # header ( + )
+    # header ( + )
     headers: dict[str, str] = {}
     raw_headers: list[tuple[str, str]] = []
     body_from_headers: list[str] = []
@@ -255,9 +262,7 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
             continue
         if ":" in line:
             potential_key = line.split(":", 1)[0].strip()
-            if potential_key and all(
-                c.isalnum() or c in "-_" for c in potential_key
-            ):
+            if potential_key and all(c.isalnum() or c in "-_" for c in potential_key):
                 key, value = line.split(":", 1)
                 raw_headers.append((key.strip(), value.strip()))
                 headers[key.strip().lower()] = value.strip()
@@ -276,7 +281,7 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
     use_tls = infer_tls(path, headers)
     full_url = build_full_url(path, host, use_tls)
 
- # SSE (3 Layer)
+    # SSE (3 Layer)
     accept_header = headers.get("accept", "")
     is_sse = "text/event-stream" in accept_header
     if not is_sse and body:
@@ -295,10 +300,10 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
                 is_sse = True
                 break
 
- # API ( api_classifier)
+    # API ( api_classifier)
     api_category = detect_api_category(path, body)
 
- # prompt ()
+    # prompt ()
     original_prompt_value: str | None = None
     if api_category == "chat" and body and "{PROMPT}" not in body:
         original_prompt_value = extract_original_prompt_value(body)
@@ -308,7 +313,7 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
                 original_prompt_value[:80],
             )
 
- # +
+    # +
     has_placeholder = "{PROMPT}" in body or "{PROMPT}" in path
     if not has_placeholder and body and api_category == "chat":
         body = inject_prompt_placeholder(body)
@@ -320,17 +325,17 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
             path,
         )
 
- # ( fingerprint )
+    # ( fingerprint )
     fingerprint = _extract_fingerprint(headers, path, host, response_section)
     fingerprint.api_category = api_category
 
- # Response ID
+    # Response ID
     chat_id: str | None = None
     chat_id_field: str | None = None
     has_chat_id_placeholder = False
     initial_chat_id_from_body: str | None = None
 
- # Burp Response
+    # Burp Response
     burp_model_name: str | None = None
     burp_model_list: str | None = None
 
@@ -348,7 +353,7 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
             logger.info("Extracted model list from Burp Response (length=%d)", len(burp_model_list))
             fingerprint.extra["burp_model_list"] = "yes"
 
- # Request body ID and inject into {CHAT_ID}
+    # Request body ID and inject into {CHAT_ID}
     if body:
         try:
             orig_body_data = json.loads(body)
@@ -401,6 +406,7 @@ def _parse_raw_http(raw: str) -> ParsedBurpRequest:
         enumeration_plan=enumeration_plan,
     )
 
+
 def _extract_fingerprint(
     headers: dict[str, str],
     path: str,
@@ -436,7 +442,7 @@ def _extract_fingerprint(
 
     content_type = headers.get("content-type", "unknown")
 
- #
+    #
     path_lower = path.lower()
     if "/challenges/" in path_lower or "/scenarios/" in path_lower or "/arena/" in path_lower:
         app_type = "Testing/Arena"
@@ -449,7 +455,7 @@ def _extract_fingerprint(
     else:
         app_type = "Web Application"
 
- # AI /SDK ( fingerprint )
+    # AI /SDK ( fingerprint )
     ai_fw: str | None = None
     ai_fw_cat: str | None = None
     if response_section:
@@ -469,10 +475,11 @@ def _extract_fingerprint(
         ai_framework_category=ai_fw_cat,
     )
 
-def _split_request_response(normalized: str) -> tuple[str, str | None]:
-    """ Burp HTTP Request Response
 
-     ''HTTP/<digit>''  Response
+def _split_request_response(normalized: str) -> tuple[str, str | None]:
+    """Burp HTTP Request Response
+
+    ''HTTP/<digit>''  Response
     """
     lines = normalized.split("\n")
 
@@ -496,15 +503,31 @@ def _split_request_response(normalized: str) -> tuple[str, str | None]:
 
     return request_section, response_section
 
+
 # ID ()
-_CHAT_ID_FIELD_NAMES = frozenset({
-    "chatid", "chat_id", "chatidvalue", "chatsessionid", "chat_session_id",
-    "sessionid", "session_id", "sessionidvalue",
-    "conversationid", "conversation_id", "convid", "conv_id",
-    "dialogid", "dialog_id",
-    "threadid", "thread_id",
-    "req_id", "requestid", "request_id",
-})
+_CHAT_ID_FIELD_NAMES = frozenset(
+    {
+        "chatid",
+        "chat_id",
+        "chatidvalue",
+        "chatsessionid",
+        "chat_session_id",
+        "sessionid",
+        "session_id",
+        "sessionidvalue",
+        "conversationid",
+        "conversation_id",
+        "convid",
+        "conv_id",
+        "dialogid",
+        "dialog_id",
+        "threadid",
+        "thread_id",
+        "req_id",
+        "requestid",
+        "request_id",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -514,28 +537,24 @@ _ENUMERATION_ARGS: dict[str, Any] = {}
 
 
 def set_enumeration_args(args: dict[str, Any]) -> None:
-    """ CLI ( main.py )."""
+    """CLI ( main.py )."""
     global _ENUMERATION_ARGS
     _ENUMERATION_ARGS = args
 
 
 def _build_enumeration_plan(chat_id_field: str | None) -> dict[str, Any] | None:
-    """  (CLI ).
+    """(CLI ).
 
-     None  。
+    None  。
     """
     if not _ENUMERATION_ARGS.get("enabled"):
         return None
 
     plan: dict[str, Any] = {
-        "pattern_template": _ENUMERATION_ARGS.get(
-            "pattern_template", "MC-{date:%Y%m%d}-{counter:04d}"
-        ),
+        "pattern_template": _ENUMERATION_ARGS.get("pattern_template", "MC-{date:%Y%m%d}-{counter:04d}"),
         "days_back": _ENUMERATION_ARGS.get("days_back", 14),
         "counter_max": _ENUMERATION_ARGS.get("counter_max", 20),
-        "extraction_prompt": _ENUMERATION_ARGS.get(
-            "extraction_prompt", "What notes do I have saved?"
-        ),
+        "extraction_prompt": _ENUMERATION_ARGS.get("extraction_prompt", "What notes do I have saved?"),
         "max_concurrency": _ENUMERATION_ARGS.get("max_concurrency", 1),
         "request_delay": _ENUMERATION_ARGS.get("request_delay", 2.0),
         "session_field": chat_id_field or "session_id",

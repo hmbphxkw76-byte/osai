@@ -167,44 +167,37 @@ def align_reviews(reviews: list[dict]) -> dict:
     输出: 对齐后的差异分析
     """
     all_findings = union_all_findings(reviews)
-    
+
     aligned = {
-        "confirmed": [],      # ≥2 模型发现
-        "single_model": [],   # 仅 1 模型发现
-        "disputed": [],       # 模型判定分歧
+        "confirmed": [],  # ≥2 模型发现
+        "single_model": [],  # 仅 1 模型发现
+        "disputed": [],  # 模型判定分歧
     }
-    
+
     for finding in all_findings:
         found_by = [m for m in reviews if finding in m.findings]
-        
+
         if len(found_by) >= 2:
-            aligned["confirmed"].append({
-                "finding": finding,
-                "confirmed_by": [m.model for m in found_by],
-                "status": "auto_accept"
-            })
+            aligned["confirmed"].append(
+                {"finding": finding, "confirmed_by": [m.model for m in found_by], "status": "auto_accept"}
+            )
         elif severity_disagreement(found_by):
-            aligned["disputed"].append({
-                "finding": finding,
-                "disagreements": [(m.model, m.severity) for m in found_by]
-            })
+            aligned["disputed"].append({"finding": finding, "disagreements": [(m.model, m.severity) for m in found_by]})
         else:
-            aligned["single_model"].append({
-                "finding": finding,
-                "found_by": found_by[0].model,
-                "status": "needs_arbitration"
-            })
-    
+            aligned["single_model"].append(
+                {"finding": finding, "found_by": found_by[0].model, "status": "needs_arbitration"}
+            )
+
     # 一致性统计
     kappa = fleiss_kappa(reviews)
-    
+
     return {
         "aligned_findings": aligned,
         "consistency": {
             "overall_kappa": kappa,
             "agreement_rate": len(aligned["confirmed"]) / len(all_findings),
-            "needs_arbitration": len(aligned["disputed"]) + len(aligned["single_model"])
-        }
+            "needs_arbitration": len(aligned["disputed"]) + len(aligned["single_model"]),
+        },
     }
 ```
 

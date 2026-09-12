@@ -8,6 +8,7 @@ Contains:
     - _adaptive_or_and_aggregate: Calibrated OR-AND aggregation
     - _DISAGREEMENT_RATE_THRESHOLD / _MIN_SAMPLES_FOR_CALIBRATION: Calibration constants
 """
+
 from __future__ import annotations
 
 import logging
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 # Threshold for switching from OR to stricter AND when disagreement rate is high
 _DISAGREEMENT_RATE_THRESHOLD = 0.30  # 30% disagreement triggers stricter policy
-_MIN_SAMPLES_FOR_CALIBRATION = 10     # minimum samples before calibration kicks in
+_MIN_SAMPLES_FOR_CALIBRATION = 10  # minimum samples before calibration kicks in
 
 
 def _adaptive_or_and_aggregate(
@@ -74,7 +75,9 @@ def _adaptive_or_and_aggregate(
             # → downgrade to failure to reduce false positive
             logger.debug(
                 "P0-C: Disagreement rate=%.2f > %.2f, J1 confidence=%.2f < 0.75 → downgrade to failure",
-                disagreement_rate, _DISAGREEMENT_RATE_THRESHOLD, j1_confidence,
+                disagreement_rate,
+                _DISAGREEMENT_RATE_THRESHOLD,
+                j1_confidence,
             )
             return "failure"
 

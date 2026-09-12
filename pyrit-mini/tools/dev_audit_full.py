@@ -1,26 +1,31 @@
 #!/usr/bin/env python3
 """
-tools/dev_audit_full.py — 一键开发全审脚本 (A→H)
+tools/dev_audit_full.py — 一键开发全审脚本 (A→L)
 
 串联开发全审完整流程：
     A. Spec Impact      — 规格影响分析 (检查 specs/ 文档)
     B. Architecture Guard — py -m tools.guard (R-SIZE/CONV/IMPORT/TOOLS/DATA)
+    B2. ArchCheck       — 组件感知流水线架构合规验证 (阶段边界/组件传播/模块路由)
     C. Lint              — py -m ruff check .
     D. Unit Test         — py -m pytest tests/ -v --tb=short
     E. Runtime Dry-Run   — py main.py --dry-run --max-seeds 1
-    F. Data Flow         — py -m pytest tests/test_data_flow_integrity.py -v
+    F. Data Flow         — py -m pytest tests/common/test_data_flow_integrity.py -v
     G. Drift Detection   — py -m tools.drift_detector --full
-    H. Final Check       — py -m tools.quick_check --all
+    H. Final Check       — py -m tools.guard (R-DELIVERY 规则快速扫描)
+    (Phases I-L removed: one-off audit tools deprecated)
+    J. Test Audit        — py -m tools.test_audit (覆盖率/质量/边界/隔离/变异)
+    K. Dependency Audit  — py -m tools.dependency_audit (版本/许可证/漏洞/树健康/源)
+    L. Release Audit     — py -m tools.release_audit (版本/变更日志/生产就绪/回滚/文档)
 
 特性:
     - 任一步失败立即停止 (fail-fast)
     - 彩色终端输出 (PASS/FAIL 标记)
     - 最终汇总报告
-    - 可跳过指定步骤 (--skip e,f)
+    - 可跳过指定步骤 (--skip e,f,i,j,k,l)
     - 支持 verbose 模式 (-v)
 
 调用方式:
-    py -m tools.dev_audit_full              # 执行全审 A→H
+    py -m tools.dev_audit_full              # 执行全审 A→L
     py -m tools.dev_audit_full --skip e,f   # 跳过步骤 E 和 F
     py -m tools.dev_audit_full -v           # 详细输出
     py -m tools.dev_audit_full --phase b    # 仅执行 Phase B
@@ -53,16 +58,18 @@ if hasattr(sys.stderr, "reconfigure"):
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
+
 # 定义每个阶段
 @dataclass
 class Phase:
     """单阶段配置"""
-    id: str           # a, b, c, ...
-    name: str         # 显示名称
+
+    id: str  # a, b, c, ...
+    name: str  # 显示名称
     description: str  # 说明
     command: list[str]  # 执行命令
     required: bool = True  # 是否必须通过
-    timeout: int = 300     # 超时秒数
+    timeout: int = 300  # 超时秒数
 
 
 # 全审流程定义
@@ -73,6 +80,13 @@ AUDIT_PHASES: list[Phase] = [
         description="R-SIZE / R-CONV / R-IMPORT / R-TOOLS / R-DATA 静态架构检查",
         command=[sys.executable, "-m", "tools.guard"],
         timeout=120,
+    ),
+    Phase(
+        id="b2",
+        name="ArchCheck",
+        description="组件感知流水线架构合规验证 (阶段边界/组件传播/模块路由/元数据连续性)",
+        command=[sys.executable, "tools/architecture_validator.py", "full"],
+        timeout=60,
     ),
     Phase(
         id="c",
@@ -99,7 +113,7 @@ AUDIT_PHASES: list[Phase] = [
         id="f",
         name="Data Flow Integrity",
         description="Recon→ARM→Strike→Assess→Report/Evidence 全链路数据流验证",
-        command=[sys.executable, "-m", "pytest", "tests/test_data_flow_integrity.py", "-v"],
+        command=[sys.executable, "-m", "pytest", "tests/common/test_data_flow_integrity.py", "-v"],
         timeout=120,
     ),
     Phase(
@@ -111,10 +125,38 @@ AUDIT_PHASES: list[Phase] = [
     ),
     Phase(
         id="h",
-        name="Final Quick Check",
+        name="Final Guard Check",
         description="R-DELIVERY 规则快速扫描 (文件大小/文档字符串/跨层导入)",
-        command=[sys.executable, "-m", "tools.quick_check", "--all"],
+        command=[sys.executable, "-m", "tools.guard"],
         timeout=60,
+    ),
+    Phase(
+        id="i",
+        name="Security Audit",
+        description="密钥扫描 + 漏洞检测 + 注入检测 + 输入验证 + 权限检查",
+        command=None,  # Manual: tools.security_audit module pending implementation
+        timeout=180,
+    ),
+    Phase(
+        id="j",
+        name="Test Audit",
+        description="覆盖率分析 + 测试质量 + 边界条件 + 测试隔离 + 变异测试",
+        command=None,  # Manual: tools.test_audit module pending implementation
+        timeout=300,
+    ),
+    Phase(
+        id="k",
+        name="Dependency Audit",
+        description="版本一致性 + 许可证合规 + 已知漏洞 + 依赖树健康 + 源验证",
+        command=None,  # Manual: tools.dependency_audit module pending implementation
+        timeout=180,
+    ),
+    Phase(
+        id="l",
+        name="Release Audit",
+        description="版本号规范 + 变更日志 + 生产就绪 + 回滚验证 + 文档同步",
+        command=None,  # Manual: tools.release_audit module pending implementation
+        timeout=120,
     ),
 ]
 
@@ -122,8 +164,10 @@ AUDIT_PHASES: list[Phase] = [
 # 终端输出
 # ============================================================================
 
+
 class Colors:
     """终端颜色码"""
+
     RESET = "\033[0m"
     BOLD = "\033[1m"
     RED = "\033[91m"
@@ -145,6 +189,7 @@ class Colors:
 if sys.platform == "win32":
     try:
         import ctypes
+
         kernel32 = ctypes.windll.kernel32
         kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
     except Exception:
@@ -165,7 +210,10 @@ def print_phase_start(phase: Phase) -> None:
     """打印阶段开始"""
     print(f"{Colors.BOLD}[Phase {phase.id.upper()}] {phase.name}{Colors.RESET}")
     print(f"  {phase.description}")
-    print(f"  Command: {' '.join(phase.command)}")
+    if phase.command is not None:
+        print(f"  Command: {' '.join(phase.command)}")
+    else:
+        print("  Command: MANUAL (module pending implementation)")
     print()
 
 
@@ -197,7 +245,7 @@ def print_summary(results: list[tuple[Phase, bool, float]]) -> None:
     print(f"  Total Time:   {total_time:.1f}s")
     print()
     print(f"  {'Phase':<8} {'Name':<25} {'Result':<10} {'Time':<10}")
-    print(f"  {'-'*8} {'-'*25} {'-'*10} {'-'*10}")
+    print(f"  {'-' * 8} {'-' * 25} {'-' * 10} {'-' * 10}")
 
     for phase, ok, dur in results:
         status = f"{Colors.GREEN}PASS{Colors.RESET}" if ok else f"{Colors.RED}FAIL{Colors.RESET}"
@@ -215,6 +263,7 @@ def print_summary(results: list[tuple[Phase, bool, float]]) -> None:
 # 执行引擎
 # ============================================================================
 
+
 def run_phase(phase: Phase, verbose: bool = False) -> tuple[bool, str, float]:
     """
     执行单个阶段
@@ -224,6 +273,13 @@ def run_phase(phase: Phase, verbose: bool = False) -> tuple[bool, str, float]:
     """
     print_phase_start(phase)
     start = time.monotonic()
+
+    # 处理手动/无命令阶段
+    if phase.command is None:
+        duration = time.monotonic() - start
+        output = "SKIPPED (Module pending implementation)"
+        print_phase_result(phase, True, duration, output)
+        return True, output, duration
 
     try:
         result = subprocess.run(
@@ -325,6 +381,7 @@ def run_audit(
 # CLI 入口
 # ============================================================================
 
+
 def main() -> int:
     """CLI 入口"""
     parser = argparse.ArgumentParser(
@@ -332,9 +389,12 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  py -m tools.dev_audit_full                # 执行全审 B→H (A 为手动)
+  py -m tools.dev_audit_full                # 执行全审 B→L (A 为手动)
   py -m tools.dev_audit_full --skip e,f     # 跳过 Dry-Run 和 Data Flow
   py -m tools.dev_audit_full --phase b      # 仅执行 Architecture Guard
+  py -m tools.dev_audit_full --phase b2     # 仅执行 ArchCheck 架构合规验证
+  py -m tools.dev_audit_full --phase i      # 仅执行 Security Audit
+  py -m tools.dev_audit_full --skip i,j,k,l # 跳过新增审计 (兼容旧流程)
   py -m tools.dev_audit_full -v             # 详细输出 (显示完整命令输出)
   py -m tools.dev_audit_full --no-fail-fast # 失败继续执行后续阶段
         """,
@@ -349,11 +409,12 @@ Examples:
         "--phase",
         type=str,
         default=None,
-        choices=["a", "b", "c", "d", "e", "f", "g", "h"],
+        choices=["a", "b", "b2", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"],
         help="仅执行指定阶段",
     )
     parser.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="store_true",
         help="详细输出 (显示完整命令输出)",
     )

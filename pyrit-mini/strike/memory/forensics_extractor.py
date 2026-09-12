@@ -26,6 +26,7 @@ Constitution compliance:
     - C2: 不添加攻击端过滤
     - R-S3: 敏感数据自动脱敏
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -40,36 +41,39 @@ logger = logging.getLogger(__name__)
 
 class EvidenceType(str, Enum):
     """证据类型"""
-    DATA_LEAK = "data_leak"               # 数据泄露
-    IDOR_PROOF = "idor_proof"             # IDOR 利用证明
-    PRIV_ESCALATION = "priv_escalation"   # 权限提升
+
+    DATA_LEAK = "data_leak"  # 数据泄露
+    IDOR_PROOF = "idor_proof"  # IDOR 利用证明
+    PRIV_ESCALATION = "priv_escalation"  # 权限提升
     INJECTION_CONFIRMED = "injection_confirmed"  # 注入确认
-    CONFIG_EXPOSURE = "config_exposure"   # 配置泄露
+    CONFIG_EXPOSURE = "config_exposure"  # 配置泄露
 
 
 @dataclass
 class ForensicsConfig:
     """取证配置"""
-    max_sample_length: int = 500          # 证据样本最大长度
-    include_timestamps: bool = True       # 包含时间戳
-    redact_secrets: bool = True           # 自动脱敏密钥
-    hash_evidence: bool = True            # 计算证据哈希 (完整性)
-    extract_affected_users: bool = True   # 提取受影响用户数
+
+    max_sample_length: int = 500  # 证据样本最大长度
+    include_timestamps: bool = True  # 包含时间戳
+    redact_secrets: bool = True  # 自动脱敏密钥
+    hash_evidence: bool = True  # 计算证据哈希 (完整性)
+    extract_affected_users: bool = True  # 提取受影响用户数
 
 
 @dataclass
 class ForensicEvidence:
     """取证证据"""
+
     evidence_id: str = ""
     evidence_type: EvidenceType = EvidenceType.DATA_LEAK
-    severity: str = "medium"              # critical/high/medium/low/info
+    severity: str = "medium"  # critical/high/medium/low/info
     title: str = ""
     description: str = ""
     affected_sessions: int = 0
     injections_made: int = 0
-    data_sample: str = ""                 # 脱敏后的数据样本
-    data_hash: str = ""                   # SHA-256 hash (完整性验证)
-    verification: str = ""                # 验证状态
+    data_sample: str = ""  # 脱敏后的数据样本
+    data_hash: str = ""  # SHA-256 hash (完整性验证)
+    verification: str = ""  # 验证状态
     attack_path: list[str] = field(default_factory=list)
     timeline: list[dict[str, str]] = field(default_factory=list)
     recommendations: list[str] = field(default_factory=list)
@@ -78,9 +82,7 @@ class ForensicEvidence:
 
     def __post_init__(self):
         if not self.evidence_id:
-            self.evidence_id = hashlib.sha256(
-                f"{self.title}{time.time()}".encode()
-            ).hexdigest()[:16]
+            self.evidence_id = hashlib.sha256(f"{self.title}{time.time()}".encode()).hexdigest()[:16]
         if not self.collected_at:
             self.collected_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -189,9 +191,7 @@ class ForensicsExtractor:
 
         # 计算完整性 hash
         if self.config.hash_evidence:
-            evidence.data_hash = hashlib.sha256(
-                evidence.data_sample.encode()
-            ).hexdigest()[:16]
+            evidence.data_hash = hashlib.sha256(evidence.data_sample.encode()).hexdigest()[:16]
 
         return evidence
 
@@ -230,9 +230,7 @@ class ForensicsExtractor:
         if not valid_sessions:
             return None
 
-        success_rate = (
-            len(valid_sessions) / total_attempts if total_attempts > 0 else 0
-        )
+        success_rate = len(valid_sessions) / total_attempts if total_attempts > 0 else 0
 
         return ForensicEvidence(
             evidence_type=EvidenceType.DATA_LEAK,
@@ -331,8 +329,7 @@ class ForensicsExtractor:
             severity=max_severity,
             title="Aggregate: Agent Memory Attack Campaign",
             description=(
-                f"Total campaign: {len(evidences)} unique data leak vulnerabilities "
-                f"affecting {total_affected} sessions"
+                f"Total campaign: {len(evidences)} unique data leak vulnerabilities affecting {total_affected} sessions"
             ),
             affected_sessions=total_affected,
             recommendations=[
@@ -345,6 +342,7 @@ class ForensicsExtractor:
     def _redact_sensitive(self, text: str) -> str:
         """脱敏敏感数据"""
         import re
+
         redacted = text
         for pattern, replacement in self.SENSITIVE_PATTERNS:
             redacted = re.sub(pattern, replacement, redacted)
@@ -373,9 +371,5 @@ def generate_forensics_summary(
         "total_affected_sessions": affected,
         "evidence_types": list(set(e.evidence_type.value for e in evidences)),
         "all_evidence_ids": [e.evidence_id for e in evidences],
-        "recommendations": list({
-            rec
-            for e in evidences
-            for rec in e.recommendations
-        }),
+        "recommendations": list({rec for e in evidences for rec in e.recommendations}),
     }

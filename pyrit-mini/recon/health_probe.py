@@ -26,6 +26,7 @@ Design Principles:
     4. Rate-limited: Semaphore-controlled concurrency + stealth integration
     5. Generic: All values dynamically extracted, no hardcoded assumptions
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -49,6 +50,7 @@ _TLS_VERIFY = _get_tls_verify_from_config()
 # ServiceProfile - Structured Reconnaissance Output
 # ====================================================================
 
+
 @dataclass
 class HealthEndpointInfo:
     """Discovered health/status endpoint information.
@@ -61,12 +63,14 @@ class HealthEndpointInfo:
         body_raw: Raw response body preview
         service_metadata: Extracted service metadata fields
     """
+
     path: str
     status_code: int = 200
     content_type: str = ""
     body_parsed: dict[str, Any] = field(default_factory=dict)
     body_raw: str = ""
     service_metadata: dict[str, Any] = field(default_factory=dict)
+
 
 @dataclass
 class DiscoveredEndpoint:
@@ -87,6 +91,7 @@ class DiscoveredEndpoint:
         existence: Existence confidence level (confirmed/protected/probable/nonexistent)
         auth_hint: Auth type detected from 401 WWW-Authenticate header
     """
+
     path: str
     method: str = "GET"
     status_code: int = 200
@@ -94,6 +99,7 @@ class DiscoveredEndpoint:
     is_api: bool = False
     existence: str = "confirmed"
     auth_hint: str = ""
+
 
 @dataclass
 class OpenAIValidationResult:
@@ -107,12 +113,14 @@ class OpenAIValidationResult:
         usage_info: Token usage information if available
         sample_response: Preview of response structure
     """
+
     is_compatible: bool = False
     endpoint_path: str = "/v1/chat/completions"
     model_name: str = ""
     response_structure_valid: bool = False
     usage_info: dict[str, Any] = field(default_factory=dict)
     sample_response: dict[str, Any] = field(default_factory=dict)
+
 
 @dataclass
 class ServiceProfile:
@@ -136,6 +144,7 @@ class ServiceProfile:
         probe_count: Total number of probes executed
         probe_duration_seconds: Total probe duration
     """
+
     host: str = ""
     server: str = ""
     x_powered_by: str = ""
@@ -196,8 +205,7 @@ class ServiceProfile:
             "x_rag_provider": self.x_rag_provider,
             "custom_headers": self.custom_headers,
             "health_endpoints": [
-                {"path": h.path, "status": h.status_code, "metadata": h.service_metadata}
-                for h in self.health_endpoints
+                {"path": h.path, "status": h.status_code, "metadata": h.service_metadata} for h in self.health_endpoints
             ],
             "discovered_endpoints": [
                 {
@@ -217,6 +225,7 @@ class ServiceProfile:
             "probe_duration_seconds": self.probe_duration_seconds,
         }
 
+
 # ====================================================================
 # Built-in API Wordlist (probing tool, not target-specific)
 # ====================================================================
@@ -225,28 +234,63 @@ class ServiceProfile:
 # These exist on ~60% of enterprise AI deployments
 _AUTH_ENDPOINT_PATHS: list[str] = [
     # Auth flows
-    "/auth", "/login", "/logout", "/sso", "/sso/callback",
-    "/oauth", "/oauth/token", "/oauth/authorize", "/oauth/callback",
-    "/token", "/token/refresh", "/token/revoke",
-    "/register", "/signup", "/password-reset",
-    "/api/auth", "/api/login", "/api/token",
-    "/api/v1/auth", "/api/v1/token", "/api/v1/login",
-    "/api/v2/auth", "/api/v2/token", "/api/v2/login",
+    "/auth",
+    "/login",
+    "/logout",
+    "/sso",
+    "/sso/callback",
+    "/oauth",
+    "/oauth/token",
+    "/oauth/authorize",
+    "/oauth/callback",
+    "/token",
+    "/token/refresh",
+    "/token/revoke",
+    "/register",
+    "/signup",
+    "/password-reset",
+    "/api/auth",
+    "/api/login",
+    "/api/token",
+    "/api/v1/auth",
+    "/api/v1/token",
+    "/api/v1/login",
+    "/api/v2/auth",
+    "/api/v2/token",
+    "/api/v2/login",
     # API key management
-    "/api-keys", "/api/key", "/api/key/rotate",
-    "/admin/api-keys", "/admin/tokens",
+    "/api-keys",
+    "/api/key",
+    "/api/key/rotate",
+    "/admin/api-keys",
+    "/admin/tokens",
     # JWT/OIDC discovery
-    "/.well-known/jwks.json", "/.well-known/openid-configuration",
-    "/oauth2/v2.0/authorize", "/oauth2/v2.0/token",
+    "/.well-known/jwks.json",
+    "/.well-known/openid-configuration",
+    "/oauth2/v2.0/authorize",
+    "/oauth2/v2.0/token",
     # Session management
-    "/session", "/sessions", "/session/refresh",
+    "/session",
+    "/sessions",
+    "/session/refresh",
     # Admin/management
-    "/admin", "/admin/login", "/admin/dashboard",
-    "/management", "/management/config",
+    "/admin",
+    "/admin/login",
+    "/admin/dashboard",
+    "/management",
+    "/management/config",
     # Account/billing (discovered in previous recon analysis)
-    "/account", "/accounts", "/billing", "/subscription",
-    "/user", "/users", "/profile", "/settings",
-    "/team", "/organization", "/workspace",
+    "/account",
+    "/accounts",
+    "/billing",
+    "/subscription",
+    "/user",
+    "/users",
+    "/profile",
+    "/settings",
+    "/team",
+    "/organization",
+    "/workspace",
 ]
 
 # Generic AI service endpoint paths for enumeration
@@ -359,6 +403,7 @@ _HEALTH_ENDPOINT_PATHS: list[str] = [
 # Layer 1: HTTP Header Analysis (Passive)
 # ====================================================================
 
+
 async def _analyze_http_headers(
     session: aiohttp.ClientSession,
     url: str,
@@ -397,18 +442,18 @@ async def _analyze_http_headers(
 
             # Capture ALL X-* custom headers (generic, no hardcoded names)
             for key, value in headers.items():
-                if key.startswith("x-") and key not in (
-                    "x-powered-by", "x-ai-backend", "x-rag-provider"
-                ):
+                if key.startswith("x-") and key not in ("x-powered-by", "x-ai-backend", "x-rag-provider"):
                     profile.custom_headers[key] = value
 
             logger.debug("Headers extracted: server=%s, custom=%d", profile.server, len(profile.custom_headers))
     except Exception as e:
         logger.debug("Header analysis failed: %s", e)
 
+
 # ====================================================================
 # Layer 2: Health Endpoint Probing (Passive)
 # ====================================================================
+
 
 def _extract_service_metadata(body: dict[str, Any]) -> dict[str, Any]:
     """Extract service metadata from health check JSON response.
@@ -430,9 +475,17 @@ def _extract_service_metadata(body: dict[str, Any]) -> dict[str, Any]:
 
     # Known metadata field patterns (expanded dynamically from response)
     known_fields = [
-        "model", "models", "version", "status", "service",
-        "mcp_enabled", "rag_enabled", "agent_enabled",
-        "framework", "provider", "backend",
+        "model",
+        "models",
+        "version",
+        "status",
+        "service",
+        "mcp_enabled",
+        "rag_enabled",
+        "agent_enabled",
+        "framework",
+        "provider",
+        "backend",
     ]
 
     for field_name in known_fields:
@@ -445,6 +498,7 @@ def _extract_service_metadata(body: dict[str, Any]) -> dict[str, Any]:
             metadata[key] = value
 
     return metadata
+
 
 async def _probe_single_health_endpoint(
     session: aiohttp.ClientSession,
@@ -466,7 +520,9 @@ async def _probe_single_health_endpoint(
     url = f"{base_url}{path}"
     async with semaphore:
         try:
-            async with session.get(url, allow_redirects=True, ssl=_TLS_VERIFY, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            async with session.get(
+                url, allow_redirects=True, ssl=_TLS_VERIFY, timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
                 info = HealthEndpointInfo(
                     path=path,
                     status_code=resp.status,
@@ -489,6 +545,7 @@ async def _probe_single_health_endpoint(
         except Exception as e:
             logger.debug("Health probe failed for %s: %s", path, e)
             return None
+
 
 async def _probe_health_endpoints(
     session: aiohttp.ClientSession,
@@ -515,12 +572,16 @@ async def _probe_health_endpoints(
     # Stealth: sequential probing with delays (avoids burst detection)
     if stealth_mode:
         from recon.stealth_timing import StealthTimer
+
         timer = StealthTimer(base_delay=3.0, enable_logging=False)
 
         for path in _HEALTH_ENDPOINT_PATHS:
             await timer.next_request()
             result = await _probe_single_health_endpoint(
-                session, base_url, path, asyncio.Semaphore(1),
+                session,
+                base_url,
+                path,
+                asyncio.Semaphore(1),
             )
             if result is not None:
                 profile.health_endpoints.append(result)
@@ -529,10 +590,7 @@ async def _probe_health_endpoints(
     else:
         # Legacy burst mode (for CTF / low-security targets)
         semaphore = asyncio.Semaphore(max_concurrent)
-        tasks = [
-            _probe_single_health_endpoint(session, base_url, path, semaphore)
-            for path in _HEALTH_ENDPOINT_PATHS
-        ]
+        tasks = [_probe_single_health_endpoint(session, base_url, path, semaphore) for path in _HEALTH_ENDPOINT_PATHS]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         for result in results:
@@ -541,9 +599,11 @@ async def _probe_health_endpoints(
 
     logger.debug("Health endpoints discovered: %d", len(profile.health_endpoints))
 
+
 # ====================================================================
 # Layer 3: API Wordlist Enumeration (Passive)
 # ====================================================================
+
 
 async def _enumerate_api_endpoints(
     session: aiohttp.ClientSession,
@@ -584,7 +644,9 @@ async def _enumerate_api_endpoints(
     async def _probe_one(path: str) -> DiscoveredEndpoint | None:
         url = f"{base_url}{path}"
         try:
-            async with session.head(url, allow_redirects=True, ssl=_TLS_VERIFY, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+            async with session.head(
+                url, allow_redirects=True, ssl=_TLS_VERIFY, timeout=aiohttp.ClientTimeout(total=5)
+            ) as resp:
                 status = resp.status
                 content_type = resp.content_type or ""
                 is_api = "json" in content_type
@@ -628,6 +690,7 @@ async def _enumerate_api_endpoints(
     if stealth_mode:
         # Stealth: sequential probing with lognormal delays
         from recon.stealth_timing import StealthTimer
+
         timer = StealthTimer(base_delay=2.0, enable_logging=False)
 
         for path in endpoints_to_probe:
@@ -640,9 +703,11 @@ async def _enumerate_api_endpoints(
     else:
         # Legacy burst mode (for CTF / low-security targets)
         semaphore = asyncio.Semaphore(max_concurrent)
+
         async def _probe_with_sem(path: str) -> DiscoveredEndpoint | None:
             async with semaphore:
                 return await _probe_one(path)
+
         tasks = [_probe_with_sem(path) for path in endpoints_to_probe]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -653,9 +718,11 @@ async def _enumerate_api_endpoints(
     profile.probe_count += len(endpoints_to_probe)
     logger.debug("API endpoints discovered: %d", len(profile.discovered_endpoints))
 
+
 # ====================================================================
 # Layer 4: OpenAI Compatibility Validation (Active)
 # ====================================================================
+
 
 async def _validate_openai_compatibility(
     session: aiohttp.ClientSession,
@@ -698,7 +765,9 @@ async def _validate_openai_compatibility(
         headers["Authorization"] = f"Bearer {api_key}"
 
     try:
-        async with session.post(url, json=payload, headers=headers, ssl=_TLS_VERIFY, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+        async with session.post(
+            url, json=payload, headers=headers, ssl=_TLS_VERIFY, timeout=aiohttp.ClientTimeout(total=30)
+        ) as resp:
             validation.is_compatible = resp.status == 200
 
             if resp.content_type and "json" in resp.content_type:
@@ -715,22 +784,24 @@ async def _validate_openai_compatibility(
                         if "usage" in body:
                             validation.usage_info = body["usage"]
                         # Store sample response (truncated)
-                        validation.sample_response = {
-                            k: v for k, v in list(body.items())[:5]
-                        }
+                        validation.sample_response = {k: v for k, v in list(body.items())[:5]}
                 except Exception:
                     logger.debug("Failed to parse OpenAI validation response")
 
             logger.info(
                 "OpenAI validation: compatible=%s, status=%d, path=%s",
-                validation.is_compatible, resp.status, endpoint_path,
+                validation.is_compatible,
+                resp.status,
+                endpoint_path,
             )
     except Exception as e:
         logger.debug("OpenAI compatibility validation failed: %s", e)
 
+
 # ====================================================================
 # Main Entry Point
 # ====================================================================
+
 
 async def run_health_probe(
     host: str,
@@ -801,13 +872,20 @@ async def run_health_probe(
 
         # Layer 2: Health Endpoint Probing (stealth-enhanced)
         await _probe_health_endpoints(
-            session, base_url, profile, stealth_mode=stealth_mode,
+            session,
+            base_url,
+            profile,
+            stealth_mode=stealth_mode,
         )
 
         # Layer 3: API Wordlist Enumeration (stealth-enhanced)
         await _enumerate_api_endpoints(
-            session, base_url, profile, wordlist,
-            max_concurrent=max_concurrent, stealth_mode=stealth_mode,
+            session,
+            base_url,
+            profile,
+            wordlist,
+            max_concurrent=max_concurrent,
+            stealth_mode=stealth_mode,
         )
 
         # === Gap #4: Recursive Endpoint Expansion (after Layer 3) ===
@@ -815,10 +893,13 @@ async def run_health_probe(
         # then probe sub-paths to discover deeper attack surface
         if profile.discovered_endpoints:
             try:
-                from recon.recursive_expander import execute_recursive_expansion
+                from recon.api.recursive_expander import execute_recursive_expansion
+
                 original_count = len(profile.discovered_endpoints)
                 expanded = await execute_recursive_expansion(
-                    session, base_url, profile.discovered_endpoints,
+                    session,
+                    base_url,
+                    profile.discovered_endpoints,
                 )
                 if expanded:
                     # Deduplicate: avoid re-adding already-discovered endpoints
@@ -826,9 +907,10 @@ async def run_health_probe(
                     new_endpoints = [ep for ep in expanded if ep.path not in existing_paths]
                     profile.discovered_endpoints.extend(new_endpoints)
                     logger.info(
-                        "[Gap #4] Recursive expansion: +%d endpoints "
-                        "(from %d initial, %d after dedup)",
-                        len(new_endpoints), original_count, len(expanded),
+                        "[Gap #4] Recursive expansion: +%d endpoints (from %d initial, %d after dedup)",
+                        len(new_endpoints),
+                        original_count,
+                        len(expanded),
                     )
             except Exception as e:
                 logger.debug("[Gap #4] Recursive expansion non-fatal: %s", e)
@@ -843,8 +925,17 @@ async def run_health_probe(
 
     logger.info(
         "Health probe complete: host=%s, fp=%s, endpoints=%d, duration=%.2fs",
-        host, profile.service_fingerprint, len(profile.discovered_endpoints),
+        host,
+        profile.service_fingerprint,
+        len(profile.discovered_endpoints),
         profile.probe_duration_seconds,
     )
 
     return profile
+
+
+# ====================================================================
+# Backwards Compatibility Aliases
+# HealthProbeResult was renamed to ServiceProfile in v2.0 refactoring.
+# ====================================================================
+HealthProbeResult = ServiceProfile

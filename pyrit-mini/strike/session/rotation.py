@@ -12,6 +12,7 @@
 Academic basis:
     - Crothers et al. (arXiv:2306.05685) — Adaptive session lifecycle
 """
+
 from __future__ import annotations
 
 import logging
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class SessionInfo:
     """Session 元数据"""
+
     session_id: str
     turn_count: int = 0
     is_active: bool = True
@@ -151,10 +153,7 @@ class SessionRotationPolicy:
         Args:
             session_ids: 预建立的 session ID 列表
         """
-        self._session_pool = [
-            SessionInfo(session_id=sid)
-            for sid in session_ids[:self._config.pool_size]
-        ]
+        self._session_pool = [SessionInfo(session_id=sid) for sid in session_ids[: self._config.pool_size]]
         logger.info("Session pool initialized with %d sessions", len(self._session_pool))
 
     def should_rotate(self) -> bool:

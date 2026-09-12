@@ -1,0 +1,66 @@
+# config/components/gateway.yaml — LLM Gateway / 编排层（组件声明 SSOT）
+#
+# 【新增组件】plan §2.1 组件 [2]：模型网关/编排层——路由、prompt 模板、护栏(guardrail)。
+# 这是企业 LLM 应用的**中枢**：其上游是 web_api，下游分叉到 rag/mcp/a2a/session/model。
+# 因此它是组件组合体推断（ComponentGraph 边）的枢纽节点。
+
+schema_version: "1.0"
+component_key: llm_gateway
+id: gateway
+display_name: "LLM Gateway / Orchestration Layer"
+labels: [llm_gateway, gateway, orchestrator, guardrail]
+
+recon_dir: model
+strike_dir: model
+
+detection:
+  path_patterns: ["/gateway", "/route", "/orchestrat", "/pipeline", "/guardrail", "/moderation", "/policy"]
+  body_markers: ["guardrail", "moderation", "policy", "router", "template", "orchestrator", "system_prompt"]
+  active_probes: ["recon.guardrail_detector"]
+  signals: ["guardrail", "moderation", "system_prompt", "route", "orchestrator"]
+  min_confidence: 0.50
+
+recon_modules:
+  - recon.guardrail_detector
+  - recon.capability_detector
+  - recon.fingerprint
+  - recon.model.api_classifier
+service_profile_keys: ["guardrail_profile", "gateway_profile", "route_profile"]
+
+seed_sets:
+  - "data/seeds/_core/"
+seeds: []
+seed_suitable_for: ["llm_gateway", "model_behavior_shift"]
+converter_vectors: ["template_escape", "guardrail_word_split", "route_manipulation"]
+
+preferred_attack_class: "PromptSendingAttack"
+asr_prior: 0.75
+
+strike_modules:
+  - strike.model.filter_bypass
+  - strike.injection.indirect_pi
+  - strike.model.pair_tap
+playbooks: [gateway_guardrail_bypass, gateway_route_hijack]
+
+assess:
+  t0_check: "assess.component_scorers:t0_model_behavior_shift_check"
+  rubric: "data/scorers/component_scorers/model_behavior_shift.yaml"
+scorer: model_behavior_shift
+
+report_builder: "report.component_reports:_build_model_behavior_shift_sections"
+report_section: "report.component_reports.model"
+poc_template: "report.component_poc:model_poc"
+
+owasp: ["LLM01", "ASI01"]
+# 网关是枢纽：所有下游组件都由它分叉
+neighbors:
+  - model_behavior_shift
+  - rag_pipeline
+  - embedding
+  - mcp_tool_poisoning
+  - a2a_agent_integrity
+  - session_memory
+  - audit_evasion
+  - web_api
+
+cleanup: [restore_guardrail_policy]

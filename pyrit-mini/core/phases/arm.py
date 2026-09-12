@@ -1,10 +1,11 @@
-""" ARM  ( Seed  + Converter ).
+"""ARM  ( Seed  + Converter ).
 
 Academic basis:
     - Challita et al. (arXiv:2406.02062) - LLM  ()
     - Greshake et al. (arXiv:2302.12173) - converter(s)
     - PyRIT (arXiv:2407.01232) - PromptSendingAttack
 """
+
 from __future__ import annotations
 
 import logging
@@ -45,7 +46,7 @@ def _inject_mcpsec_tool_seeds(
 
     from pyrit.models import SeedDataset, SeedPrompt
 
-    from strike.dynamic_mcp_seeds import _generate_tool_specific_seeds
+    from strike.mcp.dynamic_seeds import _generate_tool_specific_seeds
 
     # Generate tool-specific seeds from MCPSec-discovered tools
     mcpsec_seed_dicts = _generate_tool_specific_seeds(mcpsec_tools, max_count=max_seeds)
@@ -82,17 +83,19 @@ def _inject_mcpsec_tool_seeds(
 
         # Orchestration log audit
         if hasattr(ctx, "orchestration_log"):
-            ctx.orchestration_log.append({
-                "phase": "arm",
-                "decision": "mcpsec_tool_seed_injection",
-                "input": {"mcpsec_tools_count": len(mcpsec_tools)},
-                "output": {
-                    "seeds_injected": injected,
-                    "total_seeds": len(ctx.seeds),
-                    "tool_names": [t.get("name", "") for t in mcpsec_tools[:5]],
-                },
-                "reasoning": f"MCPSec dynamic tool-aware seeds ({injected}) prepended",
-            })
+            ctx.orchestration_log.append(
+                {
+                    "phase": "arm",
+                    "decision": "mcpsec_tool_seed_injection",
+                    "input": {"mcpsec_tools_count": len(mcpsec_tools)},
+                    "output": {
+                        "seeds_injected": injected,
+                        "total_seeds": len(ctx.seeds),
+                        "tool_names": [t.get("name", "") for t in mcpsec_tools[:5]],
+                    },
+                    "reasoning": f"MCPSec dynamic tool-aware seeds ({injected}) prepended",
+                }
+            )
 
         logger.info(
             "[ARM] MCPSec dynamic seeds injected: %d tool-aware seeds (total: %d)",
@@ -103,9 +106,8 @@ def _inject_mcpsec_tool_seeds(
     return injected
 
 
-def _get_adaptive_max_seeds(
-        ctx: "PipelineContext", default_max: int = 25) -> int:
-    """ ctx.adaptive_probe_ctx["probe_budget"] max_seeds
+def _get_adaptive_max_seeds(ctx: "PipelineContext", default_max: int = 25) -> int:
+    """ctx.adaptive_probe_ctx["probe_budget"] max_seeds
 
     P4 :  probe_budget () -> Load
     probe_budget () -> Load,  token
@@ -123,30 +125,29 @@ def _get_adaptive_max_seeds(
         max_seeds  (
             clamp  [5, 50])
     """
-    probe_ctx = getattr(
-        ctx, "adaptive_probe_ctx", None) or {}
-    budget_raw = probe_ctx.get(
-        "probe_budget")
+    probe_ctx = getattr(ctx, "adaptive_probe_ctx", None) or {}
+    budget_raw = probe_ctx.get("probe_budget")
 
     # probe_budget
-    if not isinstance(
-            budget_raw, int) or budget_raw <= 0:
+    if not isinstance(budget_raw, int) or budget_raw <= 0:
         return default_max
 
     # : probe_budget -> max_seeds
     import math
-    calculated = min(
-        50, max(5, int(math.sqrt(budget_raw) * 3.5)))
+
+    calculated = min(50, max(5, int(math.sqrt(budget_raw) * 3.5)))
 
     logger.debug(
         "[Adaptive] probe_budget=%d -> adaptive max_seeds=%d (default=%d)",
-        budget_raw, calculated, default_max,
+        budget_raw,
+        calculated,
+        default_max,
     )
     return calculated
 
-def _is_converter_allowed(
-        converter: Any, allowed_list: list[str]) -> bool:
-    """ converter stealth policy
+
+def _is_converter_allowed(converter: Any, allowed_list: list[str]) -> bool:
+    """converter stealth policy
 
     Args:
         converter: converter
@@ -160,12 +161,12 @@ def _is_converter_allowed(
         return True
 
     # Extract converter name from object or string
-    c_name = converter if isinstance(converter, str) else getattr(
-        converter, "converter_name", None)
+    c_name = converter if isinstance(converter, str) else getattr(converter, "converter_name", None)
     if c_name is None:
         # , ()
         return True
     return c_name in allowed_list
+
 
 async def _run_arm_phase(
     ctx: "PipelineContext",
@@ -184,8 +185,7 @@ async def _run_arm_phase(
     )
 
     args = ctx.args
-    print_phase(
-        "ARM", " ARM : Seed  + Converter ...")
+    print_phase("ARM", " ARM : Seed  + Converter ...")
 
     from core.phases._helpers import (
         _extract_target_profile,
@@ -208,6 +208,7 @@ async def _run_arm_phase(
 
     seed_file = getattr(ctx.args, "seeds", "elite_jailbreaks")
     from arm.seed_ranker import load_seeds
+
     ctx.seeds = load_seeds(
         seed_file=seed_file,
         max_seeds=max_seeds,
@@ -229,7 +230,8 @@ async def _run_arm_phase(
     # Attack value: exploit known document titles, chunk IDs, retrieval formula
     _rag_kb_map = ctx.service_profile.get("rag_kb_map") if hasattr(ctx, "service_profile") else None
     if _rag_kb_map and _rag_kb_map.get("document_count", 0) > 0:
-        from strike.rag_targeted_consumer import inject_rag_targeted_seeds
+        from strike.rag.targeted_consumer import inject_rag_targeted_seeds
+
         rag_seeds_count = inject_rag_targeted_seeds(ctx, _rag_kb_map, max_seeds=15)
         if rag_seeds_count > 0:
             logger.info(
@@ -241,18 +243,26 @@ async def _run_arm_phase(
     # Academic basis: Zeng et al. (arXiv:2402.19181): Enterprise AI attack surfaces
     # Maps entry/processing/exit/persistence points into prioritized attack plan
     from arm.attack_surface_mapper import AttackSurfaceMapper
+
     attack_mapper = AttackSurfaceMapper(ctx)
     ctx.attack_plan = attack_mapper.generate_attack_plan()
     if hasattr(ctx, "orchestration_log"):
-        ctx.orchestration_log.append({
-            "phase": "arm",
-            "decision": "attack_surface_mapping",
-            "output": ctx.attack_plan.summary(),
-            "reasoning": "Systematic enumeration of entry/processing/exit/persistence vectors",
-        })
+        ctx.orchestration_log.append(
+            {
+                "phase": "arm",
+                "decision": "attack_surface_mapping",
+                "output": ctx.attack_plan.summary(),
+                "reasoning": "Systematic enumeration of entry/processing/exit/persistence vectors",
+            }
+        )
+    # W0 修复：print_status 的契约是 (phase, status, message, ok=...)，
+    # 此处此前只传了两个位置参数（原文案当 phase、摘要当 status），
+    # → TypeError: missing 1 required positional argument: 'message'，ARM 阶段末尾中断。
     print_status(
-        "Attack surface mapped",
-        f"vectors={ctx.attack_plan.summary()}",
+        "ARM",
+        "DONE",
+        f"Attack surface mapped: vectors={ctx.attack_plan.summary()}",
+        ok=True,
     )
 
     # == Technique selection (SSOT: arm.technique_picker) ==
@@ -261,6 +271,7 @@ async def _run_arm_phase(
     # - Greshake et al. (arXiv:2302.12173) - Capability-aware technique augmentation
     # Data flow: ctx.args.techniques + detected capabilities -> select_techniques + augment -> ctx.techniques
     from arm.technique_picker import augment_techniques_by_capability, select_techniques
+
     techniques = select_techniques(
         mode=getattr(ctx.args, "techniques", "auto"),
         has_adversarial=getattr(ctx.args, "adversarial", True),
@@ -268,82 +279,80 @@ async def _run_arm_phase(
     ctx.techniques = augment_techniques_by_capability(techniques, target_capabilities)
 
     #
-    has_adversarial = getattr(
-        ctx.args, "adversarial", False)
+    has_adversarial = getattr(ctx.args, "adversarial", False)
 
     #
     _stealth_policy = getattr(ctx, "stealth_policy", None) or {}
     _has_guardrail = bool(getattr(ctx, "guardrail_report", None))
     _guardrail_severity = "none"
     if _has_guardrail:
-        from recon.guardrail_detector import get_guardrail_severity
-        _guardrail_severity = get_guardrail_severity(ctx.guardrail_report)
+        # W0 fix: `recon.guardrail_detector.get_guardrail_severity` does not exist. Read the
+        # severity straight off the report (which may be a dataclass or a dict) instead.
+        _gr = ctx.guardrail_report
+        _guardrail_severity = (
+            _gr.get("severity") if isinstance(_gr, dict) else getattr(_gr, "severity", "none")
+        ) or "none"
 
         #
         _original_count = len(ctx.techniques)
 
         # stealth_policy.disabled_techniques
-        _disabled_techniques = _stealth_policy.get(
-            "disabled_techniques", [])
-        if isinstance(
-                _disabled_techniques, list) and _disabled_techniques:
-            ctx.techniques = [
-                t for t in ctx.techniques if t not in _disabled_techniques]
+        _disabled_techniques = _stealth_policy.get("disabled_techniques", [])
+        if isinstance(_disabled_techniques, list) and _disabled_techniques:
+            ctx.techniques = [t for t in ctx.techniques if t not in _disabled_techniques]
 
             # stealth_policy.recommended_techniques
-            _recommended_techniques = _stealth_policy.get(
-                "recommended_techniques", [])
-            if isinstance(
-                    _recommended_techniques, list) and _recommended_techniques:
+            _recommended_techniques = _stealth_policy.get("recommended_techniques", [])
+            if isinstance(_recommended_techniques, list) and _recommended_techniques:
                 for _rec_tech in _recommended_techniques:
                     if _rec_tech not in ctx.techniques:
-                        ctx.techniques.append(
-                            _rec_tech)
+                        ctx.techniques.append(_rec_tech)
 
                         #
                         # :
                         # stealth_first
                         # ()
-                        if _has_guardrail and _guardrail_severity in (
-                                "high", "critical"):
+                        if _has_guardrail and _guardrail_severity in ("high", "critical"):
                             # stealth
                             # (skeleton_key,
                             # context_compliance)
-                            _stealth_priority = {
-                                "skeleton_key", "context_compliance", "role_play_persuasion"}
-                            ctx.techniques.sort(
-                                key=lambda t: (
-                                    0 if t in _stealth_priority else 1, t)
-                            )
+                            _stealth_priority = {"skeleton_key", "context_compliance", "role_play_persuasion"}
+                            ctx.techniques.sort(key=lambda t: (0 if t in _stealth_priority else 1, t))
 
                             _new_count = len(ctx.techniques)
                             if _original_count != _new_count:
                                 logger.info(
                                     "[Adaptive] Technique selection adjusted by guardrail/stealth: "
                                     "%d -> %d (guardrail=%s, severity=%s)",
-                                    _original_count, _new_count, _has_guardrail, _guardrail_severity,
+                                    _original_count,
+                                    _new_count,
+                                    _has_guardrail,
+                                    _guardrail_severity,
                                 )
 
-                            ctx.orchestration_log.append({
-                                "phase": "arm",
-                                "decision": "technique_selection",
-                                "input": {
-                                    "mode": args.techniques,
-                                    "has_adversarial": has_adversarial,
-                                    "capabilities": target_capabilities or "",
-                                    "guardrail_severity": _guardrail_severity if _has_guardrail else "none",
-                                },
-                                "output": {"techniques": ctx.techniques},
-                                "reasoning": (
-                                    f" + guardrail/stealth "
-                                    f"(capabilities={target_capabilities or 'none'}, guardrail={_has_guardrail})"
-                                ),
-                            })
+                            ctx.orchestration_log.append(
+                                {
+                                    "phase": "arm",
+                                    "decision": "technique_selection",
+                                    "input": {
+                                        "mode": args.techniques,
+                                        "has_adversarial": has_adversarial,
+                                        "capabilities": target_capabilities or "",
+                                        "guardrail_severity": _guardrail_severity if _has_guardrail else "none",
+                                    },
+                                    "output": {"techniques": ctx.techniques},
+                                    "reasoning": (
+                                        f" + guardrail/stealth "
+                                        f"(capabilities={target_capabilities or 'none'}, guardrail={_has_guardrail})"
+                                    ),
+                                }
+                            )
 
     # == RAG Metadata Consumer: Technique optimization based on KB analysis ==
     # Academic basis: Zou et al. (arXiv:2406.04245) PoisonedRAG technique mapping
     if _rag_kb_map and _rag_kb_map.get("document_count", 0) > 0:
-        from strike.rag_targeted_consumer import recommend_techniques_for_rag
+        from strike.rag.targeted_consumer import recommend_techniques_for_rag
+
         _original_techniques = list(ctx.techniques)
         ctx.techniques = recommend_techniques_for_rag(
             _rag_kb_map,
@@ -363,7 +372,8 @@ async def _run_arm_phase(
     # Attack value: exploit query_rewriting=false / BM25 keyword matching weakness
     _rag_typo_fuzz = ctx.service_profile.get("rag_typo_fuzz") if hasattr(ctx, "service_profile") else None
     if _rag_typo_fuzz and _rag_typo_fuzz.get("total_tests", 0) > 0:
-        from strike.rag_targeted_consumer import inject_typo_aware_seeds
+        from strike.rag.targeted_consumer import inject_typo_aware_seeds
+
         typo_seeds_count = inject_typo_aware_seeds(ctx, _rag_typo_fuzz, max_seeds=10)
         if typo_seeds_count > 0:
             logger.info(
@@ -401,14 +411,14 @@ async def _run_arm_phase(
     elif args.converters == "auto":
         chain_names = ["l5_optimal"]
     else:
-        chain_names = args.converters.split(
-            ",")
+        chain_names = args.converters.split(",")
 
     _target_fingerprint = None
     if ctx.parsed_request:
         _target_fingerprint = ctx.parsed_request.target_fingerprint
 
     from arm.converter_presets import build_converter_map
+
     ctx.converter_map = build_converter_map(
         technique_names=ctx.techniques,
         chain_names=chain_names,
@@ -416,8 +426,7 @@ async def _run_arm_phase(
         model_family=target_model_family,
         target_type=target_type,
         target_fingerprint=_target_fingerprint,
-        converter_overrides=getattr(
-            args, "converter_overrides", None),
+        converter_overrides=getattr(args, "converter_overrides", None),
         seeds=ctx.seeds,
     )
 
@@ -435,14 +444,16 @@ async def _run_arm_phase(
     )
 
     print_status(
-        "ARM", "DONE",
+        "ARM",
+        "DONE",
         f"Seed={len(ctx.seeds)}, Technique={len(ctx.techniques)}, Converter={len(ctx.converter_map)}",
         ok=True,
     )
 
     # === 数据流完整性快照: post_arm ===
     try:
-        from tools.data_flow_hooks import snapshot_hook
+        from tools.dataflow.hooks import snapshot_hook
+
         snapshot_hook(ctx, "post_arm")
     except Exception as e:
         logger.debug("[ARM] Data flow snapshot skipped: %s", e)
@@ -531,9 +542,7 @@ def _inject_steganographic_seeds(ctx: Any, *, max_seeds: int = 5) -> int:
             break
 
         # Encode payload using zero-width characters
-        encoded_payload = create_steganographic_payload(
-            payload, carrier_type="unicode_zero_width"
-        )
+        encoded_payload = create_steganographic_payload(payload, carrier_type="unicode_zero_width")
 
         # Wrap in benign carrier text (appears normal to scanners)
         carrier_prefix = f"[Document Section {i + 1}] "
@@ -562,21 +571,24 @@ def _inject_steganographic_seeds(ctx: Any, *, max_seeds: int = 5) -> int:
 
         # Orchestration log audit
         if hasattr(ctx, "orchestration_log"):
-            ctx.orchestration_log.append({
-                "phase": "arm",
-                "decision": "steganographic_seed_injection",
-                "input": {"max_seeds": max_seeds},
-                "output": {
-                    "seeds_injected": injected,
-                    "total_seeds": len(ctx.seeds),
-                    "technique": "zero_width_unicode_encoding",
-                },
-                "reasoning": f"Steganographic seeds ({injected}) injected for content scanner bypass",
-            })
+            ctx.orchestration_log.append(
+                {
+                    "phase": "arm",
+                    "decision": "steganographic_seed_injection",
+                    "input": {"max_seeds": max_seeds},
+                    "output": {
+                        "seeds_injected": injected,
+                        "total_seeds": len(ctx.seeds),
+                        "technique": "zero_width_unicode_encoding",
+                    },
+                    "reasoning": f"Steganographic seeds ({injected}) injected for content scanner bypass",
+                }
+            )
 
         logger.info(
             "[ARM-Stego] Injected %d steganographic seeds (total: %d)",
-            injected, len(ctx.seeds),
+            injected,
+            len(ctx.seeds),
         )
 
     return injected
@@ -721,21 +733,24 @@ def _inject_unicode_obfuscated_seeds(ctx: Any, *, max_seeds: int = 5) -> int:
 
         # Orchestration log audit
         if hasattr(ctx, "orchestration_log"):
-            ctx.orchestration_log.append({
-                "phase": "arm",
-                "decision": "unicode_code_obfuscation_seed_injection",
-                "input": {"max_seeds": max_seeds},
-                "output": {
-                    "seeds_injected": injected,
-                    "total_seeds": len(ctx.seeds),
-                    "techniques": ["python_identifier_substitution", "javascript_unicode_escape"],
-                },
-                "reasoning": f"Unicode obfuscated seeds ({injected}) injected for code scanner bypass",
-            })
+            ctx.orchestration_log.append(
+                {
+                    "phase": "arm",
+                    "decision": "unicode_code_obfuscation_seed_injection",
+                    "input": {"max_seeds": max_seeds},
+                    "output": {
+                        "seeds_injected": injected,
+                        "total_seeds": len(ctx.seeds),
+                        "techniques": ["python_identifier_substitution", "javascript_unicode_escape"],
+                    },
+                    "reasoning": f"Unicode obfuscated seeds ({injected}) injected for code scanner bypass",
+                }
+            )
 
         logger.info(
             "[ARM-Obfuscation] Injected %d Unicode-obfuscated seeds (total: %d)",
-            injected, len(ctx.seeds),
+            injected,
+            len(ctx.seeds),
         )
 
     return injected

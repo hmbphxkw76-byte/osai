@@ -37,6 +37,7 @@ class ClassificationResult:
         confidence: Classification confidence [0.0, 1.0]
         evidence: List of evidence indicators
     """
+
     attack_surface: str
     confidence: float
     evidence: list[str] = field(default_factory=list)
@@ -44,14 +45,14 @@ class ClassificationResult:
 
 class ScenarioRouter:
     """
-        - imports config/defaults.yaml Load scenario_technique_filters
-        -  ClassificationResult
-        -  (--scenario)
+       - imports config/defaults.yaml Load scenario_technique_filters
+       -  ClassificationResult
+       -  (--scenario)
 
-     v59 :
-        - Load scenarios.yaml
-        -  seeds/converters/scorer
-        - ->technique_tags
+    v59 :
+       - Load scenarios.yaml
+       -  seeds/converters/scorer
+       - ->technique_tags
     """
 
     def __init__(self, config_path: Path | None = None):
@@ -97,6 +98,7 @@ class ScenarioRouter:
         try:
             if self._config_path.exists():
                 import yaml
+
                 with open(self._config_path, encoding="utf-8") as f:
                     config = yaml.safe_load(f)
                 if isinstance(config, dict):
@@ -111,10 +113,7 @@ class ScenarioRouter:
                     for surface_name, surface_cfg in scenario_filters.items():
                         if isinstance(surface_cfg, dict):
                             self._scenario_filters[surface_to_name.get(surface_name, surface_name)] = {
-                                "description": surface_cfg.get(
-                                    "description",
-                                    f"{surface_name} scenario"
-                                ),
+                                "description": surface_cfg.get("description", f"{surface_name} scenario"),
                                 "triggers": {
                                     "attack_surface": surface_name,
                                     "min_confidence": 0.6,
@@ -157,7 +156,9 @@ class ScenarioRouter:
             if self._matches_trigger(classification, config):
                 logger.info(
                     "Auto-selected scenario: %s (attack_surface=%s, confidence=%.2f, technique_tags=%s)",
-                    name, classification.attack_surface, classification.confidence,
+                    name,
+                    classification.attack_surface,
+                    classification.confidence,
                     config.get("technique_tags"),
                 )
                 return name, config
@@ -202,12 +203,14 @@ class ScenarioRouter:
         """
         result = []
         for name, config in self._scenario_filters.items():
-            result.append({
-                "name": name,
-                "description": config.get("description", ""),
-                "triggers": config.get("triggers", {}),
-                "technique_tags": config.get("technique_tags"),
-            })
+            result.append(
+                {
+                    "name": name,
+                    "description": config.get("description", ""),
+                    "triggers": config.get("triggers", {}),
+                    "technique_tags": config.get("technique_tags"),
+                }
+            )
         return result
 
     def _validate_scenario(self, name: str) -> bool:
@@ -255,20 +258,25 @@ class ScenarioRouter:
             tags = sc.get("technique_tags")
             tags_str = ", ".join(tags) if tags else "all (no filter)"
 
-            lines.extend([
-                "||                                                                              ||",
-                f"||  {i}. {sc['name']:<68}||",
-                f"||     Description: {sc['description'][:50]:<52}||",
-                f"||     Triggers: surface={surface}, min_conf={min_conf:<36}||",
-                f"||     Technique Tags: {tags_str[:48]:<50}||",
-            ])
+            lines.extend(
+                [
+                    "||                                                                              ||",
+                    f"||  {i}. {sc['name']:<68}||",
+                    f"||     Description: {sc['description'][:50]:<52}||",
+                    f"||     Triggers: surface={surface}, min_conf={min_conf:<36}||",
+                    f"||     Technique Tags: {tags_str[:48]:<50}||",
+                ]
+            )
 
-        lines.extend([
-            "||                                                                              ||",
-            "+==============================================================================+",
-        ])
+        lines.extend(
+            [
+                "||                                                                              ||",
+                "+==============================================================================+",
+            ]
+        )
 
         return "\n".join(lines)
+
 
 def apply_scenario_overrides(ctx: Any, scenario_config: dict[str, Any], args: Any) -> None:
     """Apply scenario-specific overrides to context.
@@ -291,9 +299,7 @@ def apply_scenario_overrides(ctx: Any, scenario_config: dict[str, Any], args: An
     if not hasattr(args, "adaptive_technique_filter") or args.adaptive_technique_filter is None:
         if technique_tags is not None:
             ctx.args.adaptive_technique_filter = technique_tags
-            logger.info(
-                "Applied scenario technique filter: %s", technique_tags
-            )
+            logger.info("Applied scenario technique filter: %s", technique_tags)
     # technique_tags is None means no filtering (use all techniques)
 
     logger.info(
@@ -301,10 +307,12 @@ def apply_scenario_overrides(ctx: Any, scenario_config: dict[str, Any], args: An
         getattr(ctx.args, "adaptive_technique_filter", "not set (use all)"),
     )
 
+
 # ==============================================================================
 # Singleton
 # ==============================================================================
 _default_router: ScenarioRouter | None = None
+
 
 def get_router() -> ScenarioRouter:
     """Get or create default ScenarioRouter singleton.
@@ -317,6 +325,7 @@ def get_router() -> ScenarioRouter:
         _default_router = ScenarioRouter()
     return _default_router
 
+
 def reset_router() -> None:
     """Reset the default router singleton.
 
@@ -325,9 +334,11 @@ def reset_router() -> None:
     global _default_router
     _default_router = None
 
+
 # ==============================================================================
 # Synergy (v61 data/synergy_orchestrator.py )
 # ==============================================================================
+
 
 @dataclass
 class SynergyConfig:
@@ -338,6 +349,7 @@ class SynergyConfig:
 
     v61: imports data/synergy_orchestrator.py  core/scenario_router.py.
     """
+
     burp_profile: str
     attack_surface: str
     confidence: float
@@ -370,6 +382,7 @@ class SynergyConfig:
             f"  synergy_enabled={self.synergy_enabled}\n"
             f")"
         )
+
 
 # CLI : --list-scenarios
 # ==============================================================================

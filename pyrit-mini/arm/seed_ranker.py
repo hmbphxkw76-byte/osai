@@ -1,4 +1,13 @@
-"""Seed loading + ASR ranking.
+"""seed_ranker — Seed loading + ASR ranking (PUBLIC FACADE, Tier 1).
+
+This is the SSOT (Single Source of Truth) entry point for all seed operations.
+    External code should ALWAYS import from this module:
+        from arm.seed_ranker import load_seeds
+    or via the package facade:
+        from arm import load_seeds
+
+WARNING: Do NOT import directly from arm.seed_ranking (Tier 2 internal).
+    The internal implementation may change without notice.
 
 Load PyRIT native SeedPrompt YAML format seed files, rank by historical ASR.
 """
@@ -36,95 +45,200 @@ logger = logging.getLogger(__name__)
 
 # Capability -> seed file mapping
 # When deep probing detects specific capabilities, auto-augment targeted seed files
-# v3 (2026-09-08): Added new P0/P1 seed files for full OWASP LLM+ASI coverage
+# v4 (2026-09-10): Updated to align with new component-based seed directory structure
+# 与 data/seeds/ 和 strike/ recon/ 目录结构对齐
 CAPABILITY_SEED_MAP: dict[str, list[str]] = {
-    # MCP attacks - full surface coverage in subdirectory
+    # MCP attacks - full surface coverage (seeds/_attack_surface/T1_ASI02_mcp_full_surface/)
     "mcp": [
         "_attack_surface/T1_ASI02_mcp_full_surface/mcp_tool_enum",
         "_attack_surface/T1_ASI02_mcp_full_surface/mcp_server_injection",
         "_attack_surface/T1_ASI02_mcp_full_surface/mcp_tool_hijack",
-        "_attack_surface/T1_agent_protocol_fuzzing",  # NEW: MCP protocol fuzzing
+        "_attack_surface/T1_ASI02_mcp_full_surface/mcp_context_poisoning",
     ],
     "mcp_protocol": [
         "_attack_surface/T1_ASI02_mcp_full_surface/mcp_tool_enum",
         "_attack_surface/T1_ASI02_mcp_full_surface/mcp_server_injection",
-        "_attack_surface/T1_agent_protocol_fuzzing",  # NEW: Protocol-level attacks
+        "_attack_surface/T1_ASI06-09_multi_agent/a2a_agent_card_spoofing",
     ],
-    # RAG attacks
+    # RAG attacks (seeds/_attack_surface/T1_LLM08_rag_full_surface/)
     "rag": [
         "_attack_surface/T1_LLM08_rag_full_surface/rag_full_attack_surface",
-        "_attack_surface/T1_LLM08_rag_advanced_seeds",  # NEW: Advanced RAG seeds
+        "_attack_surface/T1_LLM08_rag_advanced_seeds",
+        "_attack_surface/T1_LLM08_vector_db_poisoning",
     ],
     # Function calling
     "function_calling": ["_core/T1_ASI02_function_call_exploit"],
     # Tool hijack
     "tool_hijack": ["_core/T1_ASI02_tool_hijack"],
-    # Multi-agent attacks - full surface coverage
+    # Multi-agent attacks (seeds/a2a/)
     "multi_agent": [
-        "_attack_surface/T1_ASI06-09_multi_agent/ma_cross_agent_injection",
-        "_attack_surface/T1_ASI06-09_multi_agent/ma_identity_spoofing",
-        "_attack_surface/T1_agent_protocol_fuzzing",  # NEW: Cross-agent protocol
+        "a2a/a2a_cross_agent_injection",
+        "a2a/a2a_identity_spoofing",
+        "a2a/agent_card_spoofing",
     ],
     # Workflow
     "workflow": ["_core/T1_ASI03_workflow_escalation"],
-    # Session auth
-    "session_auth": ["_core/T1_ASI09_session_auth_bypass"],
-    # Token smuggling / memory
-    "memory": ["_encoding_evasion/T1_LLM01_token_smuggling_evasion"],
-    # Multi-tenant - tenant privilege escalation
+    # Session auth (seeds/session/)
+    "session_auth": [
+        "_core/T1_ASI09_session_auth_bypass",
+        "session/session_id_enumeration",
+    ],
+    # Token smuggling / memory (seeds/memory/)
+    "memory": [
+        "_encoding_evasion/T1_LLM01_token_smuggling_evasion",
+        "memory/memory_injection",
+    ],
+    # Multi-tenant
     "multi_tenant": ["_core/T1_ASI09_session_auth_bypass"],
-    # A2A protocol
+    # A2A protocol (seeds/a2a/)
     "a2a_protocol": [
-        "_attack_surface/T1_ASI06-09_multi_agent/ma_cross_agent_injection",
+        "a2a/a2a_cross_agent_injection",
+        "a2a/agent_card_spoofing",
         "_core/T1_ASI02_tool_hijack",
-        "_attack_surface/T1_agent_protocol_fuzzing",  # NEW: Protocol fuzzing
     ],
     "a2a": [
-        "_attack_surface/T1_ASI06-09_multi_agent/ma_cross_agent_injection",
+        "a2a/a2a_cross_agent_injection",
+        "a2a/agent_card_spoofing",
         "_core/T1_ASI02_tool_hijack",
-        "_attack_surface/T1_agent_protocol_fuzzing",  # NEW: Protocol fuzzing
     ],
-    # Embedding RAG
+    # Embedding RAG (seeds/rag/)
     "embedding_rag": [
-        "_attack_surface/T1_LLM08_rag_full_surface/rag_full_attack_surface",
-        "_attack_surface/T1_LLM08_rag_advanced_seeds",  # NEW
+        "rag/rag_full_attack_surface",
+        "rag/rag_advanced_seeds",
     ],
-    # NEW v3: Model extraction / theft (LLM10)
-    "model_api": [
-        "_attack_surface/T1_LLM10_model_theft",
-    ],
-    "model_extraction": [
-        "_attack_surface/T1_LLM10_model_theft",
-    ],
-    # NEW v3: Multimodal attack carriers
-    "multimodal": [
-        "_experimental/T1_multimodal_injection",
-    ],
-    "vision_model": [
-        "_experimental/T1_multimodal_injection",
-    ],
-    "file_upload": [
-        "_experimental/T1_multimodal_injection",
-    ],
-    # NEW v3: Supply chain attacks
-    "supply_chain": [
-        "_experimental/T1_LLM05_supply_chain_poisoning",
-    ],
-    "dependency": [
-        "_experimental/T1_LLM05_supply_chain_poisoning",
-    ],
-    # NEW v3: Misinformation / deepfake
-    "content_generation": [
-        "_experimental/T1_LLM09_misinformation_chains",
-    ],
-    # NEW v3: GCG/adversarial optimization (arXiv:2302.12173 - Zou et al., 2023)
-    "adversarial": [
-        "_experimental/T2_gcg_adversarial_templates",
-    ],
-    "gradient_free": [
-        "_experimental/T2_gcg_adversarial_templates",
-    ],
+    # Model extraction / theft (seeds/model/)
+    "model_api": ["model/model_theft"],
+    "model_extraction": ["model/model_theft"],
+    # Multimodal attack carriers
+    "multimodal": ["_experimental/T1_multimodal_injection"],
+    "vision_model": ["_experimental/T1_multimodal_injection"],
+    "file_upload": ["_experimental/T1_multimodal_injection"],
+    # Supply chain attacks
+    "supply_chain": ["_experimental/T1_LLM05_supply_chain_poisoning"],
+    "dependency": ["_experimental/T1_LLM05_supply_chain_poisoning"],
+    # Misinformation / deepfake
+    "content_generation": ["_experimental/T1_LLM09_misinformation_chains"],
+    # GCG/adversarial optimization (arXiv:2302.12173 - Zou et al., 2023)
+    "adversarial": ["_experimental/T2_gcg_adversarial_templates"],
+    "gradient_free": ["_experimental/T2_gcg_adversarial_templates"],
 }
+
+
+def _read_seed_yaml(path: Any) -> list[Any] | None:
+    """读取种子文件并返回种子列表；格式不合法时返回 None。
+
+    种子文件是**多文档 YAML**：首个文档为元数据头（name/category/tags…），
+    其后以 `---` 分隔多个种子文档。此前统一使用 `yaml.safe_load()`，
+    它只解析**第一个文档**——遇到 `---` 便抛 ComposerError，
+    导致 `_core/` 下绝大多数种子文件无法加载（ARM 阶段直接中断）。
+    改用 `safe_load_all` 并合并全部文档中的列表项。
+    """
+    try:
+        import yaml
+
+        text = path.read_text(encoding="utf-8")
+        docs = [d for d in yaml.safe_load_all(text) if d is not None]
+    except Exception as e:
+        logger.warning("[SeedRanker] 解析种子文件失败 %s: %s", path, e)
+        return None
+
+    if not docs:
+        return None
+
+    merged: list[Any] = []
+    for doc in docs:
+        if isinstance(doc, list):
+            merged.extend(doc)
+        elif isinstance(doc, dict) and "seeds" in doc:
+            inner = doc.get("seeds")
+            if isinstance(inner, list):
+                merged.extend(inner)
+    if not merged:
+        return None
+    return merged
+
+
+def _read_raw_seed(path: Any) -> list[dict[str, Any]] | None:
+    """把「散文/HTML 形式」的 .prompt 文件整体作为一条原始种子（兜底解析）。
+
+    `data/seeds/` 实际混有两种格式：
+        - 规范 YAML 列表（`{"value": ..., "metadata": {...}}`）
+        - 人类撰写的攻击文档（正文 + HTML 载荷，用 `---` 作章节分隔符）
+
+    后者并非合法 YAML（`T1_LLM01_web_injection.prompt` 第 42 行起为裸 HTML）。
+    直接判为「格式非法」会**静默丢弃一整个有效的攻击种子**，因此这里退化为
+    原始文本种子：整篇正文作为 payload，元数据标注来源与解析方式，
+    保证「种子不丢失」且解析降级在报告/日志中可见（C9 反静默）。
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except Exception as e:
+        logger.warning("[SeedRanker] 原始读取失败 %s: %s", path, e)
+        return None
+
+    body = text.strip()
+    if not body:
+        return None
+
+    return [
+        {
+            "value": body,
+            "metadata": {
+                "source": "raw_prompt_document",
+                "file": getattr(path, "name", str(path)),
+                "parse_mode": "raw_fallback",
+                "category": "prompt_injection",
+                "tier": 2,
+            },
+        }
+    ]
+
+
+def _as_items(value: Any) -> list[str]:
+    """把 `str | list | tuple | set` 归一化为字符串列表。
+
+    用于消除「同一字段在链路上游是 list[str]、下游按逗号串解析」的类型错配
+    （`TargetFingerprint.capabilities` 即典型：声明 list[str]，调用方却 `.split`）。
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",")]
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [str(v) for v in value]
+    return [str(value)]
+
+
+def _expand_legacy_seed_names(names: list[str]) -> list[str]:
+    """把旧别名（`elite_jailbreaks` 等）展开为真实种子路径。
+
+    别名表的唯一事实源是 `core/seed_loader.LEGACY_NAME_MAP`；本函数只做查表，
+    不另立一份映射（C3：禁止同一语义多处定义）。查表失败时原样返回，
+    由后续的「文件不存在」分支给出显式告警（不静默吞掉）。
+    """
+    try:
+        from core.seed_loader import LEGACY_NAME_MAP
+    except Exception as e:  # 别名表不可用时退化为原样，不影响显式路径
+        logger.debug("[SeedRanker] 别名表不可用，跳过别名展开: %s", e)
+        return names
+
+    out: list[str] = []
+    for name in names:
+        mapped = LEGACY_NAME_MAP.get(name.strip())
+        if mapped:
+            logger.info("[SeedRanker] 别名展开: %s -> %s", name, mapped)
+            out.extend(mapped)
+        else:
+            out.append(name)
+    # 去重保序，保证可复现
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for n in out:
+        if n not in seen:
+            seen.add(n)
+            deduped.append(n)
+    return deduped
+
 
 def load_seeds(
     seed_file: str,
@@ -189,10 +303,21 @@ def load_seeds(
     if not seed_files:
         seed_files = [seed_file]
 
+    # C3 修复：别名展开 —— 与 core/seed_loader.LEGACY_NAME_MAP 对齐。
+    # 历史上 `--seeds elite_jailbreaks,asi_top10,owasp_full_coverage` 是 CLI 默认值，
+    # 但旧别名只被 core/seed_loader 识别，本函数直接按文件名查找 →
+    # 三个文件全部 "not found" → FileNotFoundError，ARM 阶段必然中断。
+    # 复用同一张别名表，避免"两个种子加载器两套解析规则"的双轨漂移。
+    seed_files = _expand_legacy_seed_names(seed_files)
+
     # Fixed #1: Auto-augment targeted seed files based on capability tags
     added_by_capability: list[str] = []
     if capabilities:
-        cap_list = [c.strip().lower() for c in capabilities.split(",") if c.strip()]
+        # W0 类型错配修复：`capabilities` 在 RECON 链路里来自
+        # `TargetFingerprint.capabilities`，声明为 **list[str]**；本函数却按
+        # 逗号分隔字符串处理（`.split(",")`）→ AttributeError。
+        # 这里对 str / list / tuple 统一归一化。
+        cap_list = [c.strip().lower() for c in _as_items(capabilities) if c.strip()]
         for cap in cap_list:
             mapped_seeds = CAPABILITY_SEED_MAP.get(cap, [])
             for ms in mapped_seeds:
@@ -222,9 +347,16 @@ def load_seeds(
                 continue
             logger.info("Directory scan: %s -> %d seed files found", sf, len(dir_files))
             for dir_file in dir_files:
-                import yaml
-                data = yaml.safe_load(dir_file.read_text(encoding="utf-8"))
-                if not isinstance(data, list):
+                data = _read_seed_yaml(dir_file)
+                if data is None:
+                    # 非 YAML 的散文/HTML 攻击文档：退化为原始种子，不丢弃
+                    data = _read_raw_seed(dir_file)
+                    if data is not None:
+                        logger.warning(
+                            "[SeedRanker] %s 非 YAML 格式，已按原始文本种子加载（parse_mode=raw_fallback）",
+                            dir_file.name,
+                        )
+                if data is None:
                     logger.warning("Invalid seed file format for %s: expected list, skipping", dir_file.name)
                     continue
                 all_raw_seeds.extend(data)
@@ -248,10 +380,15 @@ def load_seeds(
                     logger.warning("Seed file not found: %s, skipping", sf)
                     continue
 
-        import yaml
-
-        data = yaml.safe_load(file_path.read_text(encoding="utf-8"))
-        if not isinstance(data, list):
+        data = _read_seed_yaml(file_path)
+        if data is None:
+            # 非 YAML 的散文/HTML 攻击文档：退化为原始种子，不丢弃
+            data = _read_raw_seed(file_path)
+            if data is not None:
+                logger.warning(
+                    "[SeedRanker] %s 非 YAML 格式，已按原始文本种子加载（parse_mode=raw_fallback）", sf
+                )
+        if data is None:
             logger.warning("Invalid seed file format for %s: expected list, skipping", sf)
             continue
 
@@ -279,9 +416,8 @@ def load_seeds(
     if target_language:
         all_raw_seeds = _filter_by_language(all_raw_seeds, target_language)
         logger.info(
-            "Language-adaptive filtering: target=%s, %d seeds after filter",
-            target_language,
-            len(all_raw_seeds))
+            "Language-adaptive filtering: target=%s, %d seeds after filter", target_language, len(all_raw_seeds)
+        )
 
     # Incremental: Seed metadata filtering (--seed-filters KEY=VALUE)
     # Borrowed from pyrit_scan's --seed-filters: Precise seed filtering by metadata KEY=VALUE
@@ -296,18 +432,18 @@ def load_seeds(
             len(all_raw_seeds),
         )
 
- # Build AttackSeedGroup
+    # Build AttackSeedGroup
     seed_groups = _build_seed_groups(all_raw_seeds)
 
- # Rank by ASR
+    # Rank by ASR
     asr_history = _load_asr_history()
 
- # Fix: Use model_family to load ASR priors and merge into asr_history
- # Academic basis: Chao et al. (arXiv:2402.01135) - Cross-model ASR transfer
- # Different model families have different safety strategies;
- # model-specific ASR priors can improve seed ranking accuracy
- # Data flow: recon (model_identity probe) -> target_fingerprint["model_family"]
- # -> load_seeds (model_family) -> load_asr_priors -> asr_history merge
+    # Fix: Use model_family to load ASR priors and merge into asr_history
+    # Academic basis: Chao et al. (arXiv:2402.01135) - Cross-model ASR transfer
+    # Different model families have different safety strategies;
+    # model-specific ASR priors can improve seed ranking accuracy
+    # Data flow: recon (model_identity probe) -> target_fingerprint["model_family"]
+    # -> load_seeds (model_family) -> load_asr_priors -> asr_history merge
     if model_family:
         priors = load_asr_priors(model_family)
         if priors:
@@ -327,8 +463,7 @@ def load_seeds(
                             if _seed_key not in asr_history:
                                 asr_history[_seed_key] = float(asr_val)
             logger.info(
-                "Model-specific ASR priors loaded for model_family=%s "
-                "(asr_history entries: %d)",
+                "Model-specific ASR priors loaded for model_family=%s (asr_history entries: %d)",
                 model_family,
                 len(asr_history),
             )
@@ -358,6 +493,7 @@ def load_seeds(
 
     logger.info("Loaded %d seeds from %s (max=%d, files=%d)", len(seed_groups), seed_file, max_seeds, len(loaded_files))
     return seed_groups
+
 
 def _filter_dos_seeds(seeds: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Filter high token-cost seeds (DoS / Unbounded Consumption / T3).
@@ -409,6 +545,7 @@ def _filter_dos_seeds(seeds: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return False
 
     return [seed for seed in seeds if not _is_high_cost(seed)]
+
 
 def _prune_zero_asr_seeds(
     seed_groups: list[AttackSeedGroup],
@@ -474,7 +611,8 @@ def _prune_zero_asr_seeds(
             prune_indices.add(i)
             logger.debug(
                 "L5 v40: Pruning zero-ASR seed '%s...' (attempts=%d, ASR=0%%)",
-                objective_text[:40], attempts,
+                objective_text[:40],
+                attempts,
             )
 
     if not prune_indices:
@@ -526,12 +664,14 @@ def _prune_zero_asr_seeds(
     # Execute pruning
     pruned = [g for i, g in enumerate(seed_groups) if i not in prune_indices]
     logger.info(
-        "L5 v40: Pruned %d zero-ASR seeds (attempts>=%d, ASR=0%%), %d remaining "
-        "(%d categories preserved)",
-        len(prune_indices), _MIN_ATTEMPTS_FOR_PRUNE, len(pruned),
+        "L5 v40: Pruned %d zero-ASR seeds (attempts>=%d, ASR=0%%), %d remaining (%d categories preserved)",
+        len(prune_indices),
+        _MIN_ATTEMPTS_FOR_PRUNE,
+        len(pruned),
         len(category_counts),
     )
     return pruned
+
 
 def _filter_by_language(
     seeds: list[dict[str, Any]],
@@ -572,6 +712,7 @@ def _filter_by_language(
     result = target_seeds[:target_count] + other_seeds[:other_count]
     return result
 
+
 def _filter_by_metadata(
     seeds: list[dict[str, Any]],
     filters: dict[str, str],
@@ -610,12 +751,9 @@ def _filter_by_metadata(
                 match_all = False
                 break
 
- # List value: Any element match
+            # List value: Any element match
             if isinstance(seed_val, list):
-                found = any(
-                    filter_val.lower() in str(v).lower()
-                    for v in seed_val
-                )
+                found = any(filter_val.lower() in str(v).lower() for v in seed_val)
                 if not found:
                     match_all = False
                     break
@@ -638,6 +776,7 @@ def _filter_by_metadata(
         return seeds
 
     return filtered
+
 
 def _build_seed_groups(raw_seeds: list[dict[str, Any]]) -> list[AttackSeedGroup]:
     """Build AttackSeedGroup list from YAML data.
@@ -665,6 +804,7 @@ def _build_seed_groups(raw_seeds: list[dict[str, Any]]) -> list[AttackSeedGroup]
 
     return groups
 
+
 def _load_asr_history() -> dict[str, float]:
     """Load ASR history file."""
     if not _ASR_HISTORY_PATH.exists():
@@ -675,5 +815,6 @@ def _load_asr_history() -> dict[str, float]:
     except (json.JSONDecodeError, KeyError) as e:
         logger.warning("Failed to load ASR history: %s", e)
         return {}
+
 
 # == L5 v13: ASR priors + MTOS selection - kept in seed_ranking.py - ==

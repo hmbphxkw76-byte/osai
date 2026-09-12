@@ -38,6 +38,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+
 def _conv(name: str) -> type:
     """EURu?PyRIT Converter?
 
@@ -56,7 +57,9 @@ def _conv(name: str) -> type:
         raise AttributeError(f"PyRIT Converter '{name}' not found")
     return cls
 
+
 # EUREUR 5 ?Converter ?EUREUR
+
 
 # NOTE (L5 v42): encoding_bypass and multi_encoding removed from _build_chain_builders.
 # Reasons: 3-4 layer stack violates Wei et al. (arXiv:2307.15043) decay law (ASR <4%).
@@ -71,6 +74,7 @@ def stealth_evasion() -> list[Any]:
     return [
         _conv("UnicodeSubstitutionConverter")(),
     ]
+
 
 def persuasion(converter_target: Any | None = None) -> list[Any]:
     """Persuasion + Tone ?(EUR converter_target)?
@@ -95,30 +99,36 @@ def persuasion(converter_target: Any | None = None) -> list[Any]:
 
         converters: list[Any] = []
 
- # Authority endorsement ?ASR EUR?(Zeng et al.)
+        # Authority endorsement ?ASR EUR?(Zeng et al.)
         try:
-            converters.append(PersuasionConverter(
-                converter_target=converter_target,
-                persuasion_technique="authority_endorsement",
-            ))
+            converters.append(
+                PersuasionConverter(
+                    converter_target=converter_target,
+                    persuasion_technique="authority_endorsement",
+                )
+            )
         except (TypeError, ValueError, FileNotFoundError) as e:
             logger.warning("PersuasionConverter(authority_endorsement) failed: %s", e)
 
- # Logical appeal ?
+        # Logical appeal ?
         try:
-            converters.append(PersuasionConverter(
-                converter_target=converter_target,
-                persuasion_technique="logical_appeal",
-            ))
+            converters.append(
+                PersuasionConverter(
+                    converter_target=converter_target,
+                    persuasion_technique="logical_appeal",
+                )
+            )
         except (TypeError, ValueError, FileNotFoundError) as e:
             logger.warning("PersuasionConverter(logical_appeal) failed: %s", e)
 
- # Academic tone ??
+        # Academic tone ??
         try:
-            converters.append(ToneConverter(
-                converter_target=converter_target,
-                tone="academic",
-            ))
+            converters.append(
+                ToneConverter(
+                    converter_target=converter_target,
+                    tone="academic",
+                )
+            )
         except (TypeError, ValueError) as e:
             logger.warning("ToneConverter(academic) failed: %s", e)
 
@@ -130,6 +140,7 @@ def persuasion(converter_target: Any | None = None) -> list[Any]:
         logger.warning("Persuasion chain build failed: %s", e)
         return []
 
+
 def format_injection() -> list[Any]:
     """AsciiArt ?
 
@@ -138,6 +149,7 @@ def format_injection() -> list[Any]:
     L5 : +ya (AsciiArt  JSON )?
     """
     return [_conv("AsciiArtConverter")()]
+
 
 # NOTE (L5 v42): encoding_bypass and multi_encoding removed from _build_chain_builders.
 # Reasons: 3-4 layer stack violates Wei et al. (arXiv:2307.15043) decay law (ASR <4%).
@@ -175,22 +187,21 @@ def decomposition(converter_target: Any | None = None) -> list[Any]:
     try:
         DecompositionConverter = _conv("DecompositionConverter")
 
- # L5 v25: _MIN_RECALL ?0.1 ( try/finally)
- # [: DrAttack (arXiv:2402.14266) 4.3 ?recall EUR ASR ?
- # recall=0.8 ?ASR <5% (EUR, )
- # recall=0.2 ?ASR 30-40% (eng, BEUR?
- # recall=0.1 ?ASR 40-60% (EUR, e)
- # : DecompositionConverter._decompose_prompt u"?
- # _MIN_RECALL , try/finally ?build engEUR?
- # ?0.1 ?DecompositionConverter EUR?
+        # L5 v25: _MIN_RECALL ?0.1 ( try/finally)
+        # [: DrAttack (arXiv:2402.14266) 4.3 ?recall EUR ASR ?
+        # recall=0.8 ?ASR <5% (EUR, )
+        # recall=0.2 ?ASR 30-40% (eng, BEUR?
+        # recall=0.1 ?ASR 40-60% (EUR, e)
+        # : DecompositionConverter._decompose_prompt u"?
+        # _MIN_RECALL , try/finally ?build engEUR?
+        # ?0.1 ?DecompositionConverter EUR?
         import pyrit.converter.decomposition_converter as decomp_mod
 
-        original_recall = getattr(decomp_mod, '_MIN_RECALL', 0.8)
+        original_recall = getattr(decomp_mod, "_MIN_RECALL", 0.8)
         if original_recall > 0.1:
             decomp_mod._MIN_RECALL = 0.1
             logger.info(
-                "L5 v25: Decomposition _MIN_RECALL permanently lowered: %.2f ?0.1 "
-                "(DrAttack recall=0.1 ?ASR 40-60%%)",
+                "L5 v25: Decomposition _MIN_RECALL permanently lowered: %.2f ?0.1 (DrAttack recall=0.1 ?ASR 40-60%%)",
                 original_recall,
             )
 
@@ -202,10 +213,10 @@ def decomposition(converter_target: Any | None = None) -> list[Any]:
     except Exception as e:
         logger.warning("Decomposition chain build failed: %s", e)
 
- # L5 v26: Fallback ?B?PersuasionConverter(authority)
- # [: DrAttack (arXiv:2402.14266) B? EUR?
- # Zeng et al. (arXiv:2402.19181) ?authority_endorsement ASR 38.4%
- # '?l5_optimal() keYoEUR?
+        # L5 v26: Fallback ?B?PersuasionConverter(authority)
+        # [: DrAttack (arXiv:2402.14266) B? EUR?
+        # Zeng et al. (arXiv:2402.19181) ?authority_endorsement ASR 38.4%
+        # '?l5_optimal() keYoEUR?
         try:
             PersuasionConverter = _conv("PersuasionConverter")
             fallback = PersuasionConverter(
@@ -213,13 +224,13 @@ def decomposition(converter_target: Any | None = None) -> list[Any]:
                 persuasion_technique="authority_endorsement",
             )
             logger.info(
-                "L5 v26: Decomposition fallback ?PersuasionConverter(authority) "
-                "(ASR 38.4%, maintains path count)"
+                "L5 v26: Decomposition fallback ?PersuasionConverter(authority) (ASR 38.4%, maintains path count)"
             )
             return [fallback]
         except Exception as e2:
             logger.warning("L5 v26: Decomposition fallback also failed: %s", e2)
             return []
+
 
 def variation(converter_target: Any | None = None) -> list[Any]:
     """Variation (EUR converter_target)?
@@ -249,6 +260,7 @@ def variation(converter_target: Any | None = None) -> list[Any]:
         logger.warning("Variation chain build failed: %s", e)
         return []
 
+
 def flip() -> list[Any]:
     """Flip ?
 
@@ -261,8 +273,9 @@ def flip() -> list[Any]:
     """
     return [_conv("FlipConverter")()]
 
+
 def semantic_evasion() -> list[Any]:
-    """ ?ROT13 + RandomCapitalLetters?
+    """?ROT13 + RandomCapitalLetters?
 
     [: Zeng et al. (arXiv:2402.19181) ??ASR 30-40% >> izu?8-12%?
     Wei et al. (arXiv:2307.15043) ?EUR?
@@ -277,14 +290,14 @@ def semantic_evasion() -> list[Any]:
     """
     converters: list[Any] = []
 
- # ROT13: ?( security_audit EUR?
+    # ROT13: ?( security_audit EUR?
     try:
         converters.append(_conv("ROT13Converter")())
         logger.info("Semantic evasion: ROT13Converter added (keyword obfuscation)")
     except Exception as e:
         logger.warning("Semantic evasion: ROT13Converter failed: %s", e)
 
- # RandomCapitalLetters: u (")
+    # RandomCapitalLetters: u (")
     try:
         converters.append(_conv("RandomCapitalLettersConverter")())
         logger.info("Semantic evasion: RandomCapitalLettersConverter added (pattern disruption)")
@@ -293,28 +306,29 @@ def semantic_evasion() -> list[Any]:
 
     return converters
 
+
 def translation_multilingual(converter_target: Any | None = None) -> list[Any]:
     """TranslationConverter + RandomTranslationConverter ?PyRIT uEUR?
 
-    [:
-        - Andriushchenko et al. (arXiv:2402.09185) ?EURiu
- #? ASR 15-25% (), 25-35% (eng)
-        - PyRIT (arXiv:2407.01232) ?TranslationConverter ?PyRIT
-          LLM  converter, + converter_target uEUR
+       [:
+           - Andriushchenko et al. (arXiv:2402.09185) ?EURiu
+    #? ASR 15-25% (), 25-35% (eng)
+           - PyRIT (arXiv:2407.01232) ?TranslationConverter ?PyRIT
+             LLM  converter, + converter_target uEUR
 
-    PyRIT  (Rule 2: ):
-        - TranslationConverter:  payload EUR (?leetspeak)
-        - RandomTranslationConverter: , ?
-        - yoEUR LLM (converter_target) , ?
-        - ?VariationConverter (EUR) -: uEUR?
+       PyRIT  (Rule 2: ):
+           - TranslationConverter:  payload EUR (?leetspeak)
+           - RandomTranslationConverter: , ?
+           - yoEUR LLM (converter_target) , ?
+           - ?VariationConverter (EUR) -: uEUR?
 
-    L5 v38: ?l5_optimal() ?(?
-        - RandomTranslationConverter: ASR 25-35%, EUReng
-        - TranslationConverter(leetspeak): ASR 15-25%,  leetspeak
-        -  FIRST_SUCCESS ?
+       L5 v38: ?l5_optimal() ?(?
+           - RandomTranslationConverter: ASR 25-35%, EUReng
+           - TranslationConverter(leetspeak): ASR 15-25%,  leetspeak
+           -  FIRST_SUCCESS ?
 
-    Args:
-        converter_target: LLM  (EUR? ke+)?
+       Args:
+           converter_target: LLM  (EUR? ke+)?
     """
     if converter_target is None:
         logger.info("Translation chain skipped: no converter_target available")
@@ -322,35 +336,40 @@ def translation_multilingual(converter_target: Any | None = None) -> list[Any]:
 
     converters: list[Any] = []
 
- # RandomTranslationConverter: eng (ASR 25-35%)
- # [: Andriushchenko et al. (arXiv:2402.09185) ?eng
- # ? EUR?
+    # RandomTranslationConverter: eng (ASR 25-35%)
+    # [: Andriushchenko et al. (arXiv:2402.09185) ?eng
+    # ? EUR?
     try:
         RandomTranslationConverter = _conv("RandomTranslationConverter")
         AllWordsSelectionStrategy = _conv("AllWordsSelectionStrategy")
-        converters.append(RandomTranslationConverter(
-            converter_target=converter_target,
-            languages=["Spanish", "French", "German", "leetspeak"],
-            word_selection_strategy=AllWordsSelectionStrategy(),
-        ))
+        converters.append(
+            RandomTranslationConverter(
+                converter_target=converter_target,
+                languages=["Spanish", "French", "German", "leetspeak"],
+                word_selection_strategy=AllWordsSelectionStrategy(),
+            )
+        )
         logger.info("Translation chain: RandomTranslationConverter added (multi-language partial, ASR 25-35%)")
     except Exception as e:
         logger.warning("RandomTranslationConverter failed: %s", e)
 
- # TranslationConverter(leetspeak): leetspeak (ASR 15-25%)
- # [: PyRIT (arXiv:2407.01232) ?TranslationConverter
- # leetspeak "#"
+    # TranslationConverter(leetspeak): leetspeak (ASR 15-25%)
+    # [: PyRIT (arXiv:2407.01232) ?TranslationConverter
+    # leetspeak "#"
     try:
         TranslationConverter = _conv("TranslationConverter")
-        converters.append(TranslationConverter(
-            converter_target=converter_target,
-            language="leetspeak",
-        ))
+        converters.append(
+            TranslationConverter(
+                converter_target=converter_target,
+                language="leetspeak",
+            )
+        )
         logger.info("Translation chain: TranslationConverter(leetspeak) added (ASR 15-25%)")
     except Exception as e:
         logger.warning("TranslationConverter(leetspeak) failed: %s", e)
 
     return converters
+
 
 def smoothllm_bypass() -> list[Any]:
     """SmoothLLM Converter ?feryaEUR?
@@ -370,14 +389,14 @@ def smoothllm_bypass() -> list[Any]:
     """
     converters: list[Any] = []
 
- # UnicodeSubstitution: Unicode (f?
+    # UnicodeSubstitution: Unicode (f?
     try:
         converters.append(_conv("UnicodeSubstitutionConverter")())
         logger.info("SmoothLLM bypass: UnicodeSubstitutionConverter added")
     except Exception as e:
         logger.warning("SmoothLLM bypass: UnicodeSubstitutionConverter failed: %s", e)
 
- # RandomCapitalLetters: u (")
+    # RandomCapitalLetters: u (")
     try:
         converters.append(_conv("RandomCapitalLettersConverter")())
         logger.info("SmoothLLM bypass: RandomCapitalLettersConverter added")
@@ -386,7 +405,9 @@ def smoothllm_bypass() -> list[Any]:
 
     return converters
 
+
 # EUREUR L5 v36: SelectiveTextConverter ?? PyRIT 1.0.1 EUR?EUREUR
+
 
 def selective_encoding() -> list[Any]:
     """x?? 30% ?Base64, .
@@ -419,13 +440,13 @@ def selective_encoding() -> list[Any]:
         )
         converters.append(converter)
         logger.info(
-            "Selective encoding: SelectiveTextConverter(Base64, 30%% words) "
-            "built (ASR 25-35%%, vs full-text 7%%)"
+            "Selective encoding: SelectiveTextConverter(Base64, 30%% words) built (ASR 25-35%%, vs full-text 7%%)"
         )
     except Exception as e:
         logger.warning("Selective encoding chain build failed: %s", e)
 
     return converters
+
 
 def selective_obfuscation() -> list[Any]:
     """f?? 20% ?Leetspeak, .
@@ -453,14 +474,12 @@ def selective_obfuscation() -> list[Any]:
             preserve_tokens=True,
         )
         converters.append(converter)
-        logger.info(
-            "Selective obfuscation: SelectiveTextConverter(Leetspeak, 20%% words) "
-            "built (ASR 20-30%%)"
-        )
+        logger.info("Selective obfuscation: SelectiveTextConverter(Leetspeak, 20%% words) built (ASR 20-30%%)")
     except Exception as e:
         logger.warning("Selective obfuscation chain build failed: %s", e)
 
     return converters
+
 
 def chained_selective() -> list[Any]:
     """??EURx?30%, ROT13.
@@ -489,7 +508,7 @@ def chained_selective() -> list[Any]:
         WordProportionSelectionStrategy = _conv("WordProportionSelectionStrategy")
         TokenSelectionStrategy = _conv("TokenSelectionStrategy")
 
- # ? ?Base64 (30% words, preserve_tokens=True)
+        # ? ?Base64 (30% words, preserve_tokens=True)
         first = SelectiveTextConverter(
             sub_converter=Base64Converter(),
             selection_strategy=WordProportionSelectionStrategy(proportion=0.3),
@@ -497,7 +516,7 @@ def chained_selective() -> list[Any]:
         )
         converters.append(first)
 
- # ? ? ?ROT13 (TokenSelectionStrategy EUR?
+        # ? ? ?ROT13 (TokenSelectionStrategy EUR?
         second = SelectiveTextConverter(
             sub_converter=ROT13Converter(),
             selection_strategy=TokenSelectionStrategy(),
@@ -505,14 +524,12 @@ def chained_selective() -> list[Any]:
         )
         converters.append(second)
 
-        logger.info(
-            "Chained selective: 2 SelectiveTextConverter built "
-            "(Base64 30%% + ROT13 on  tokens, ASR 30-40%%)"
-        )
+        logger.info("Chained selective: 2 SelectiveTextConverter built (Base64 30%% + ROT13 on  tokens, ASR 30-40%%)")
     except Exception as e:
         logger.warning("Chained selective chain build failed: %s", e)
 
     return converters
+
 
 def keyword_replacement() -> list[Any]:
     """???SearchReplaceConverter ?
@@ -552,14 +569,12 @@ def keyword_replacement() -> list[Any]:
             ],
         )
         converters.append(converter)
-        logger.info(
-            "Keyword replacement: SearchReplaceConverter built "
-            "(9 sensitive words ?10 safe synonyms, 0 token)"
-        )
+        logger.info("Keyword replacement: SearchReplaceConverter built (9 sensitive words ?10 safe synonyms, 0 token)")
     except Exception as e:
         logger.warning("Keyword replacement chain build failed: %s", e)
 
     return converters
+
 
 def code_chameleon(converter_target: Any | None = None) -> list[Any]:
     """CodeChameleon ? + .
@@ -597,6 +612,7 @@ def code_chameleon(converter_target: Any | None = None) -> list[Any]:
 
     return converters
 
+
 def policy_puppetry(converter_target: Any | None = None) -> list[Any]:
     """PolicyPuppetry ?eng.
 
@@ -626,6 +642,7 @@ def policy_puppetry(converter_target: Any | None = None) -> list[Any]:
         logger.warning("PolicyPuppetry chain build failed: %s", e)
 
     return converters
+
 
 def token_smuggling() -> list[Any]:
     """Unicode Tag ??Unicode payload.
@@ -659,6 +676,7 @@ def token_smuggling() -> list[Any]:
 
     return converters
 
+
 def template_segment() -> list[Any]:
     """Ceng ??payload a.
 
@@ -685,7 +703,9 @@ def template_segment() -> list[Any]:
 
     return converters
 
+
 # EUREUR L5 v36: File Converters ? PyRIT 1.0.1 File Converters EUREUR
+
 
 def pdf_direct_generation() -> list[Any]:
     """PDF ??payload PDF .
@@ -716,14 +736,12 @@ def pdf_direct_generation() -> list[Any]:
             page_height=297,
         )
         converters.append(converter)
-        logger.info(
-            "PDF direct generation: PDFConverter built (no template, A4, "
-            "payload ?PDF file)"
-        )
+        logger.info("PDF direct generation: PDFConverter built (no template, A4, payload ?PDF file)")
     except Exception as e:
         logger.warning("PDF direct generation chain build failed: %s", e)
 
     return converters
+
 
 def pdf_injection() -> list[Any]:
     """PDF with injection points for indirect prompt injection.
@@ -741,6 +759,7 @@ def pdf_injection() -> list[Any]:
     # The executor will create the PDF file when this converter is actually used
     logger.info("PDF injection: deferred to execution phase (no side effects in arm)")
     return []
+
 
 def word_doc_direct_generation() -> list[Any]:
     """Word ??payload .docx .
@@ -765,14 +784,12 @@ def word_doc_direct_generation() -> list[Any]:
         WordDocConverter = _conv("WordDocConverter")
         converter = WordDocConverter()  # " (a?
         converters.append(converter)
-        logger.info(
-            "Word doc direct generation: WordDocConverter built (no template, "
-            "payload ?.docx file)"
-        )
+        logger.info("Word doc direct generation: WordDocConverter built (no template, payload ?.docx file)")
     except Exception as e:
         logger.warning("Word doc direct generation chain build failed: %s", e)
 
     return converters
+
 
 def word_doc_placeholder_injection() -> list[Any]:
     """Word template with placeholder for indirect prompt injection.
@@ -791,8 +808,10 @@ def word_doc_placeholder_injection() -> list[Any]:
     logger.info("Word doc placeholder injection: deferred to execution phase (no side effects in arm)")
     return []
 
+
 # === NEW: Document Poisoning, Steganography, and Code Obfuscation Chain Builders ===
 # Added 2026-09-09 — Closes advanced attack carrier gap (arXiv:2302.12173 / arXiv:2306.13254)
+
 
 def document_poisoning() -> list[Any]:
     """Document poisoning converter chain for indirect injection attacks.
@@ -844,10 +863,12 @@ def steganographic_encoding() -> list[Any]:
 
     # AsciiSmuggler: Unicode Tag smuggling (ASR 20-30%)
     try:
-        converters.append(_conv("AsciiSmugglerConverter")(
-            action="encode",
-            unicode_tags=True,
-        ))
+        converters.append(
+            _conv("AsciiSmugglerConverter")(
+                action="encode",
+                unicode_tags=True,
+            )
+        )
         logger.info("Steganographic: AsciiSmugglerConverter added")
     except Exception as e:
         logger.warning("Steganographic: AsciiSmugglerConverter failed: %s", e)
@@ -880,9 +901,11 @@ def code_obfuscation(encrypt_type: str = "reverse") -> list[Any]:
     converters: list[Any] = []
 
     try:
-        converters.append(_conv("CodeChameleonConverter")(
-            encrypt_type=encrypt_type,
-        ))
+        converters.append(
+            _conv("CodeChameleonConverter")(
+                encrypt_type=encrypt_type,
+            )
+        )
         logger.info("Code obfuscation: CodeChameleonConverter added (encrypt=%s)", encrypt_type)
     except Exception as e:
         logger.warning("Code obfuscation: CodeChameleonConverter failed: %s", e)
@@ -902,5 +925,6 @@ def __getattr__(name: str):
     """EURts?CHAIN_BUILDERS ()?"""
     if name == "CHAIN_BUILDERS":
         from arm.converter_presets import _get_chain_builders
+
         return _get_chain_builders()
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

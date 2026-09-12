@@ -26,6 +26,7 @@ Constitution compliance:
 Data Flow:
     steganography_encoder → encoded_payload → PyRIT AsciiSmugglerConverter → Attack
 """
+
 from __future__ import annotations
 
 import logging
@@ -190,9 +191,7 @@ def encode_audio_frequency_marker(
         "payload": payload,
         "frequency_hz": frequency,
         "encoding": "ultrasonic_binary",
-        "description": (
-            f"Text: '{base_text}' | Ultrasonic @ {frequency}Hz encodes: {payload[:50]}..."
-        ),
+        "description": (f"Text: '{base_text}' | Ultrasonic @ {frequency}Hz encodes: {payload[:50]}..."),
     }
 
 

@@ -18,15 +18,23 @@ tools/poc.py - PoC 生成器 CLI
 
 from __future__ import annotations
 
-import asyncio
 import sys
 
 
 def main() -> None:
-    """CLI entry point for PoC generation."""
-    from report.poc_generator import run_poc
-    success = asyncio.run(run_poc())
-    sys.exit(0 if success else 1)
+    """CLI entry point for PoC generation.
+
+    W0 fix: `from report.poc_generator import run_poc` could never succeed - both definitions
+    of `run_poc` in that module are nested inside the generator, so the symbol is not
+    importable and the console script died with ImportError. Report the real state instead
+    of shipping a broken entry point.
+    """
+    sys.stderr.write(
+        "pyrit-poc is unavailable: report.poc_generator has no module-level run_poc().\n"
+        "PoC scripts are emitted by the report phase via generate_poc_script(evidence)\n"
+        "or generate_component_poc(evidence).\n"
+    )
+    sys.exit(1)
 
 
 if __name__ == "__main__":

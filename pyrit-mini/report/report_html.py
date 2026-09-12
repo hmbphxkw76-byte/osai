@@ -3,6 +3,8 @@
 P1-4: Jinja2 dependency removed - using pure Python string formatting.
 """
 
+import dataclasses
+import logging
 from typing import Any
 
 from report.evidence import EvidenceCollection, VulnerabilityEvidence
@@ -10,6 +12,8 @@ from report.evidence import EvidenceCollection, VulnerabilityEvidence
 # P0-2: report_utils 薄代理层移除，直接导入底层函数
 from report.generator import _OWASP_ALL_CATEGORIES
 from report.report_sections import _build_heatmap_data, _finding_to_dict
+
+logger = logging.getLogger(__name__)
 
 
 def _get_owasp_category(owasp_id: str) -> str:
@@ -67,16 +71,22 @@ def _generate_html(evidence: EvidenceCollection, *, success_only: bool = False) 
 <h1>AI Red Team Assessment Report</h1>
 <p><strong>Assessment Type:</strong> Black-box (No API Key, No Target Model Info)</p>
 <p><strong>Generated:</strong> {evidence.timestamp}</p>
-<p><strong>Target:</strong> <code>{evidence.target_model}</code></p>
+<p><strong>Target:</strong> <code>{_esc(evidence.target_model)}</code></p>
 """)
 
     # Target Fingerprint
-    fingerprint = evidence.target_fingerprint or {}
+    # W0 类型错配修复：`evidence.target_fingerprint` 在真实链路上是
+    # `recon.burp_parser.TargetFingerprint` **dataclass 实例**（非 dict），
+    # 直接 `.items()` → AttributeError，报告在 HTML 渲染第一步即失败。
+    # 这里统一归一化为 dict（dataclass 走 asdict/to_dict，dict 原样使用）。
+    fingerprint = _as_mapping(evidence.target_fingerprint)
     if fingerprint:
-        html_parts.append('<h2>Target Fingerprint & Attack Surface</h2>\n<table>\n  <tr><th>Attribute</th><th>Value</th></tr>')
+        html_parts.append(
+            "<h2>Target Fingerprint & Attack Surface</h2>\n<table>\n  <tr><th>Attribute</th><th>Value</th></tr>"
+        )
         for k, v in fingerprint.items():
-            html_parts.append(f'  <tr><td>{k}</td><td><code>{v}</code></td></tr>')
-        html_parts.append('</table>')
+            html_parts.append(f"  <tr><td>{_esc(k)}</td><td><code>{_esc(v)}</code></td></tr>")
+        html_parts.append("</table>")
 
     # Executive Summary
     html_parts.append(f"""
@@ -92,34 +102,224 @@ def _generate_html(evidence: EvidenceCollection, *, success_only: bool = False) 
 """)
 
     # OWASP LLM Top 10
-    html_parts.append('<h2>OWASP LLM Top 10 Compliance Matrix</h2>\n<table>\n  <tr><th>OWASP ID</th><th>Category</th><th>Tested</th><th>Success</th><th>Failed</th><th>ASR</th></tr>')
+    html_parts.append(
+        "<h2>OWASP LLM Top 10 Compliance Matrix</h2>\n<table>\n  <tr><th>OWASP ID</th><th>Category</th><th>Tested</th><th>Success</th><th>Failed</th><th>ASR</th></tr>"
+    )
     for owasp_id, stats in sorted(evidence.owasp_llm_compliance.items()):
         html_parts.append(
-            f'  <tr><td>{owasp_id}</td><td>{stats.get("category", "Unknown")}</td>'
-            f'<td>{stats.get("tested", 0)}</td><td>{stats.get("success", 0)}</td>'
-            f'<td>{stats.get("failed", 0)}</td><td>{stats.get("asr", 0.0)}%</td></tr>'
+            f"  <tr><td>{owasp_id}</td><td>{stats.get('category', 'Unknown')}</td>"
+            f"<td>{stats.get('tested', 0)}</td><td>{stats.get('success', 0)}</td>"
+            f"<td>{stats.get('failed', 0)}</td><td>{stats.get('asr', 0.0)}%</td></tr>"
         )
-    html_parts.append('</table>')
+    html_parts.append("</table>")
 
     # OWASP ASI Top 10
-    html_parts.append('<h2>OWASP Agentic AI Top 10 Compliance Matrix</h2>\n<table>\n  <tr><th>OWASP ID</th><th>Category</th><th>Tested</th><th>Success</th><th>Failed</th><th>ASR</th></tr>')
+    html_parts.append(
+        "<h2>OWASP Agentic AI Top 10 Compliance Matrix</h2>\n<table>\n  <tr><th>OWASP ID</th><th>Category</th><th>Tested</th><th>Success</th><th>Failed</th><th>ASR</th></tr>"
+    )
     for owasp_id, stats in sorted(evidence.owasp_asi_compliance.items()):
         html_parts.append(
-            f'  <tr><td>{owasp_id}</td><td>{stats.get("category", "Unknown")}</td>'
-            f'<td>{stats.get("tested", 0)}</td><td>{stats.get("success", 0)}</td>'
-            f'<td>{stats.get("failed", 0)}</td><td>{stats.get("asr", 0.0)}%</td></tr>'
+            f"  <tr><td>{owasp_id}</td><td>{stats.get('category', 'Unknown')}</td>"
+            f"<td>{stats.get('tested', 0)}</td><td>{stats.get('success', 0)}</td>"
+            f"<td>{stats.get('failed', 0)}</td><td>{stats.get('asr', 0.0)}%</td></tr>"
         )
-    html_parts.append('</table>')
+    html_parts.append("</table>")
+
+    # == plan Wave 6：组件专属分析章节（此前 HTML 从不消费 component_reports）==
+    # `component_reports` 已能产出 MCP 工具清单 / A2A 信任链 / 模型人格偏移等章节，
+    # 但只有 Markdown 链路在用；HTML 报告（交付主格式）一直缺失，构成 §9 交付缺口。
+    component_html = _render_component_sections(evidence)
+    if component_html:
+        html_parts.append(component_html)
+
+    # == plan Wave 6：影响链举证 / 攻击链 / 组件拓扑 / 预算 ==
+    combo_html = _render_combo_artifacts(evidence)
+    if combo_html:
+        html_parts.append(combo_html)
 
     # Evidence Cards
     if evidence_list:
-        html_parts.append('<h2>Evidence Cards</h2>')
+        html_parts.append("<h2>Evidence Cards</h2>")
         for ev in evidence_list:
-            html_parts.append(f'<h3>{ev.evidence_id} - {ev.owasp_id}: {ev.owasp_category}</h3>')
-            html_parts.append(f'<p><strong>Technique:</strong> {ev.technique_display_name} | <strong>ASR:</strong> {ev.asr}%</p>')
+            html_parts.append(
+                f"<h3>{_esc(ev.evidence_id)} - {_esc(ev.owasp_id)}: {_esc(ev.owasp_category)}</h3>"
+            )
+            html_parts.append(
+                f"<p><strong>Technique:</strong> {_esc(ev.technique_display_name)} | "
+                f"<strong>ASR:</strong> {ev.asr}%</p>"
+            )
+            component_type = (getattr(ev, "metadata", None) or {}).get("component_type")
+            if component_type:
+                html_parts.append(f"<p><strong>Component:</strong> <code>{_esc(component_type)}</code></p>")
+            if ev.objective:
+                html_parts.append(
+                    f"<p><strong>Objective:</strong> {_esc(ev.objective)}</p>"
+                )
+            if ev.harmful_output:
+                html_parts.append(
+                    f"<pre>{_esc(str(ev.harmful_output)[:4000])}</pre>"
+                )
 
-    html_parts.append('</body></html>')
-    return '\n'.join(html_parts)
+    html_parts.append("</body></html>")
+    return "\n".join(html_parts)
+
+
+def _as_mapping(value: Any) -> dict[str, Any]:
+    """把 dict / dataclass / 带 to_dict() 的对象统一归一化为 dict。
+
+    消除「同一字段在不同链路是 dict、另一处是 dataclass」的类型错配，
+    例如 `evidence.target_fingerprint`（`TargetFingerprint` dataclass）
+    却被当作 dict 调用 `.items()`。空值/不可转换对象返回 {}（IA-6：不崩溃）。
+    """
+    if not value:
+        return {}
+    if isinstance(value, dict):
+        return value
+    to_dict = getattr(value, "to_dict", None)
+    if callable(to_dict):
+        try:
+            result = to_dict()
+            if isinstance(result, dict):
+                return result
+        except Exception as e:
+            logger.debug("[HTML] to_dict() 失败，尝试 dataclass 转换: %s", e)
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        try:
+            return dataclasses.asdict(value)
+        except Exception as e:
+            logger.debug("[HTML] asdict() 失败: %s", e)
+    return {}
+
+
+def _esc(value: Any) -> str:
+    """HTML 转义（Wave 6：目标响应是攻击者可控内容，直接插值会破坏报告结构）。"""
+    if value is None:
+        return ""
+    text = str(value)
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
+
+
+def _render_combo_artifacts(evidence: EvidenceCollection) -> str:
+    """渲染「入口组件 → 业务影响」的影响链举证 + 攻击链 + 预算（plan Wave 6）。
+
+    举证不完整的缺口会**显式渲染出来**（而不是静默省略），满足「举证而非断言」。
+    """
+    chains = list(getattr(evidence, "impact_chains", []) or [])
+    gaps = list(getattr(evidence, "impact_gaps", []) or [])
+    graph = getattr(evidence, "component_graph", None) or {}
+    budget = getattr(evidence, "budget_report", None) or {}
+    manifest = getattr(evidence, "score_manifest", None) or {}
+
+    if not (chains or gaps or graph or budget):
+        return ""
+
+    parts = ['<h2>Impact Chain &amp; Combo Artifacts</h2>']
+
+    # 组件拓扑
+    if graph:
+        nodes = graph.get("nodes") or []
+        parts.append("<h3>Component Graph</h3>")
+        parts.append("<table>\n  <tr><th>Component</th><th>Confidence</th><th>Inferred</th></tr>")
+        for n in nodes:
+            attrs = n.get("attributes") or {}
+            parts.append(
+                f"  <tr><td><code>{_esc(n.get('component_key'))}</code></td>"
+                f"<td>{n.get('confidence', 0)}</td>"
+                f"<td>{'yes' if attrs.get('inferred') else 'no'}</td></tr>"
+            )
+        parts.append("</table>")
+        entries = graph.get("entry_points") or []
+        if entries:
+            parts.append(f"<p><strong>Entry points:</strong> <code>{_esc(', '.join(entries))}</code></p>")
+
+    # 影响链
+    if chains:
+        parts.append("<h3>Impact Chains</h3>")
+        for idx, c in enumerate(chains, 1):
+            nodes = c.get("nodes") or []
+            parts.append(f"<h4>Chain {idx} — severity: {_esc(c.get('max_severity', 'n/a'))}</h4>")
+            parts.append("<table>\n  <tr><th>Step</th><th>Component</th><th>Severity</th><th>Evidence</th></tr>")
+            for n in nodes:
+                parts.append(
+                    f"  <tr><td>{_esc(n.get('step_id'))}</td>"
+                    f"<td><code>{_esc(n.get('component_key'))}</code></td>"
+                    f"<td>{_esc(n.get('severity'))}</td>"
+                    f"<td>{_esc(', '.join(n.get('evidence_ids') or []) or '—')}</td></tr>"
+                )
+            parts.append("</table>")
+            if c.get("terminal_impact"):
+                parts.append(f"<p><strong>Business impact:</strong> {_esc(c['terminal_impact'])}</p>")
+
+    # 举证缺口（反静默）
+    if gaps:
+        parts.append('<h3 style="color:#b00">Causality Gaps (evidence incomplete)</h3>')
+        parts.append("<table>\n  <tr><th>Kind</th><th>Target</th><th>Detail</th></tr>")
+        for g in gaps:
+            parts.append(
+                f"  <tr><td>{_esc(g.get('kind'))}</td><td>{_esc(g.get('target'))}</td>"
+                f"<td>{_esc(g.get('detail'))}</td></tr>"
+            )
+        parts.append("</table>")
+
+    # 预算
+    if budget:
+        snap = budget.get("snapshot") or {}
+        parts.append("<h3>Budget</h3>")
+        parts.append(
+            "<table>\n  <tr><th>Metric</th><th>Value</th></tr>"
+            f"  <tr><td>Attacks used / remaining</td><td>{snap.get('attacks_used', 0)} / {snap.get('attacks_remaining', 0)}</td></tr>"
+            f"  <tr><td>Elapsed (s)</td><td>{snap.get('elapsed_seconds', 0)}</td></tr>"
+            f"  <tr><td>Exhausted reasons</td><td>{_esc(', '.join(snap.get('exhausted_reasons') or []) or 'none')}</td></tr>"
+            "</table>"
+        )
+        trims = budget.get("trims") or []
+        if trims:
+            parts.append("<p><strong>Trimmed (low ASR prior, budget exhausted):</strong></p><ul>")
+            for t in trims:
+                parts.append(f"  <li>{_esc(', '.join(t.get('dropped') or []))}</li>")
+            parts.append("</ul>")
+
+    # 可复现指纹
+    if manifest:
+        parts.append("<h3>Scoring Reproducibility</h3>")
+        parts.append(
+            "<table>\n  <tr><th>Item</th><th>Value</th></tr>"
+            f"  <tr><td>Random seed</td><td>{_esc(manifest.get('random_seed'))}</td></tr>"
+            f"  <tr><td>Judge models</td><td>{_esc(', '.join(manifest.get('judge_models') or []) or 'n/a')}</td></tr>"
+            f"  <tr><td>Aggregation</td><td>{_esc(manifest.get('aggregation'))}</td></tr>"
+            f"  <tr><td>Rubrics</td><td>{_esc(', '.join(manifest.get('rubric_paths') or []) or 'n/a')}</td></tr>"
+            "</table>"
+        )
+    return "\n".join(parts)
+
+
+def _render_component_sections(evidence: EvidenceCollection) -> str:
+    """渲染组件专属报告章节为 HTML 片段；无组件归属时返回空串（IA-6：不崩溃）。"""
+    try:
+        from report.component_reports import generate_component_sections
+
+        sections = generate_component_sections(evidence)
+    except Exception as e:
+        logger.warning("[HTML] 组件专属章节生成失败（已降级）: %s", e)
+        return ""
+
+    if not sections:
+        return ""
+
+    parts = ['<h2>Component-Specific Analysis</h2>']
+    for name, body in sections.items():
+        title = str(name).replace("_", " ").title()
+        parts.append(f"<h3>{_esc(title)}</h3>")
+        # 章节正文是 Markdown；以 <pre> 原样呈现，避免 Markdown→HTML 转换失真
+        parts.append(f"<pre>{_esc(body)}</pre>")
+    return "\n".join(parts)
+
 
 def _evidence_to_dict(evidence: EvidenceCollection, *, success_only: bool = False) -> dict[str, Any]:
     """Convert evidence collection to dictionary (for JSON serialization).
@@ -162,6 +362,7 @@ def _evidence_to_dict(evidence: EvidenceCollection, *, success_only: bool = Fals
         "cohens_kappa": getattr(evidence, "cohens_kappa", 0.0),
     }
 
+
 def _single_evidence_to_dict(ev: VulnerabilityEvidence) -> dict[str, Any]:
     """Convert single evidence to dictionary, handling converter(s) fallback.
 
@@ -194,21 +395,25 @@ def _single_evidence_to_dict(ev: VulnerabilityEvidence) -> dict[str, Any]:
     converter_log = ev.converter_log
     if not converter_log:
         obj = ev.objective or ""
-        converter_log = [{
-            "converter": "none (baseline)",
-            "original": obj[:200],
-            "transformed": obj[:200],
-        }]
+        converter_log = [
+            {
+                "converter": "none (baseline)",
+                "original": obj[:200],
+                "transformed": obj[:200],
+            }
+        ]
 
     # P0-4: score_details - single fallback (no pseudo validation_runs)
     # Moved outside the if-block to ensure score_details is always defined
     score_details = ev.score_details
     if not score_details:
-        score_details = [{
-            "scorer": "AttackOutcome",
-            "score_value": "success" if ev.is_success else "failure",
-            "rationale": "Determined by post-hoc scoring (no explicit scorer object attached)",
-        }]
+        score_details = [
+            {
+                "scorer": "AttackOutcome",
+                "score_value": "success" if ev.is_success else "failure",
+                "rationale": "Determined by post-hoc scoring (no explicit scorer object attached)",
+            }
+        ]
 
     return {
         "evidence_id": ev.evidence_id,

@@ -29,6 +29,7 @@ Constitution compliance:
     - Detection-only by default, no auto-exploit
     - operator decides whether to use leaked credentials
 """
+
 from __future__ import annotations
 
 import logging
@@ -81,10 +82,7 @@ class CredentialInventory:
         return {
             "jwt_present": self.jwt_token is not None,
             "jwt_expiry_unix": self.jwt_expiry,
-            "jwt_expiry_in_seconds": (
-                round(self.jwt_expiry - time.time(), 1)
-                if self.jwt_expiry else None
-            ),
+            "jwt_expiry_in_seconds": (round(self.jwt_expiry - time.time(), 1) if self.jwt_expiry else None),
             "jwt_tenant_id": self.jwt_tenant_id,
             "refresh_token_present": self.refresh_token is not None,
             "api_key_count": len(self.api_keys),
@@ -143,17 +141,18 @@ def check_and_alert_jwt_expiry(ctx: Any, inventory: CredentialInventory) -> None
 
     if inventory.is_jwt_expired():
         logger.warning(
-            "[Credential] JWT EXPIRED. Attacks may start returning 401. "
-            "Consider obtaining a fresh token.",
+            "[Credential] JWT EXPIRED. Attacks may start returning 401. Consider obtaining a fresh token.",
         )
         if hasattr(ctx, "orchestration_log"):
-            ctx.orchestration_log.append({
-                "phase": "credential_check",
-                "decision": "jwt_expired_alert",
-                "input": {"jwt_expiry": inventory.jwt_expiry},
-                "output": {"action": "operator_alert"},
-                "reasoning": "JWT expired — subsequent attacks may fail with 401",
-            })
+            ctx.orchestration_log.append(
+                {
+                    "phase": "credential_check",
+                    "decision": "jwt_expired_alert",
+                    "input": {"jwt_expiry": inventory.jwt_expiry},
+                    "output": {"action": "operator_alert"},
+                    "reasoning": "JWT expired — subsequent attacks may fail with 401",
+                }
+            )
     elif inventory.is_jwt_expiring_soon(within_seconds=300):
         remaining = inventory.jwt_expiry - time.time()
         logger.warning(
@@ -188,12 +187,14 @@ def analyze_token_scope(
         # If a different endpoint is "confirmed" but our original required auth,
         # the token scope may be wider than expected
         if existence == "protected" and path != original_endpoint:
-            mismatches.append({
-                "original_endpoint": original_endpoint,
-                "discovered_endpoint": path,
-                "signal": "may_accept_same_auth",
-                "attack_value": "high",  # Potential scope elevation
-            })
+            mismatches.append(
+                {
+                    "original_endpoint": original_endpoint,
+                    "discovered_endpoint": path,
+                    "signal": "may_accept_same_auth",
+                    "attack_value": "high",  # Potential scope elevation
+                }
+            )
 
     if mismatches:
         logger.info(
@@ -224,7 +225,8 @@ def generate_credential_report(ctx: Any) -> dict[str, Any]:
     protected_count = 0
     if service_profile:
         protected_count = sum(
-            1 for d in getattr(service_profile, "discovered_endpoints", [])
+            1
+            for d in getattr(service_profile, "discovered_endpoints", [])
             if getattr(d, "existence", "") == "protected"
         )
 
@@ -236,21 +238,13 @@ def generate_credential_report(ctx: Any) -> dict[str, Any]:
 
     # Operator guidance
     if inventory.is_jwt_expired():
-        report["recommendations"].append(
-            "JWT expired — obtain fresh token before continuing"
-        )
+        report["recommendations"].append("JWT expired — obtain fresh token before continuing")
     if inventory.api_keys:
-        report["recommendations"].append(
-            f"{len(inventory.api_keys)} API key(s) discovered — test scope manually"
-        )
+        report["recommendations"].append(f"{len(inventory.api_keys)} API key(s) discovered — test scope manually")
     if protected_count > 0:
-        report["recommendations"].append(
-            f"{protected_count} protected endpoints — test with discovered credentials"
-        )
+        report["recommendations"].append(f"{protected_count} protected endpoints — test with discovered credentials")
     if inventory.credential_mismatches:
-        report["recommendations"].append(
-            "Token scope may cover admin endpoints — verify with /admin probe"
-        )
+        report["recommendations"].append("Token scope may cover admin endpoints — verify with /admin probe")
 
     # Store report in ctx for downstream consumption
     ctx.credential_report = report

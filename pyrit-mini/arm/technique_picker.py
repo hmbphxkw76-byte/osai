@@ -72,6 +72,7 @@ _AVAILABLE_TECHNIQUES = {
     "pair",
 }
 
+
 def select_techniques(
     mode: str = "auto",
     has_adversarial: bool = True,
@@ -90,9 +91,9 @@ def select_techniques(
     Returns:
         EURuEUR?
     """
- # L5 v38: "adaptive" " ?PyRIT TextAdaptive
- # EUREUR, ["adaptive_text"] ,
- # main.py ?techniques=="adaptive" text_adaptive_executor.py
+    # L5 v38: "adaptive" " ?PyRIT TextAdaptive
+    # EUREUR, ["adaptive_text"] ,
+    # main.py ?techniques=="adaptive" text_adaptive_executor.py
     if mode == "adaptive":
         logger.info("Technique mode: adaptive (PyRIT native TextAdaptive scenario)")
         return ["adaptive_text"]
@@ -112,22 +113,23 @@ def select_techniques(
         _validate_techniques(MULTI_TURN_TECHNIQUES)
         return list(MULTI_TURN_TECHNIQUES)
 
- # EUR?()
+    # EUR?()
     techniques = [t.strip() for t in mode.split(",") if t.strip()]
     _validate_techniques(techniques)
     return techniques
+
 
 def _validate_techniques(techniques: list[str]) -> None:
     """EUR?PyRIT EUR?"""
     invalid = [t for t in techniques if t not in _AVAILABLE_TECHNIQUES]
     if invalid:
-     # INFO : pipeline.log, ()
+        # INFO : pipeline.log, ()
         logger.info(
-            "Techniques not in PyRIT native catalog (will be attempted): %s. "
-            "Available: %s",
+            "Techniques not in PyRIT native catalog (will be attempted): %s. Available: %s",
             invalid,
             sorted(_AVAILABLE_TECHNIQUES),
         )
+
 
 def is_multi_turn_technique(technique_name: str) -> bool:
     """yuEUR?
@@ -138,10 +140,11 @@ def is_multi_turn_technique(technique_name: str) -> bool:
     Returns:
         True EUR?
     """
- # L5 v38: "adaptive_text" EUR? ?TextAdaptive
+    # L5 v38: "adaptive_text" EUR? ?TextAdaptive
     if technique_name == "adaptive_text":
         return False
     return technique_name in MULTI_TURN_TECHNIQUES
+
 
 # Capability-specific technique augmentation
 # Maps capability tags to recommended techniques for targeted attack scenarios
@@ -159,6 +162,7 @@ _CAPABILITY_TECHNIQUE_MAP: dict[str, list[str]] = {
     "function_calling": ["context_compliance"],
     "tool_hijack": ["context_compliance"],
 }
+
 
 def augment_techniques_by_capability(
     techniques: list[str],

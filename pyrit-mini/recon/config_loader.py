@@ -33,6 +33,7 @@ _SSOT_PATH = Path(__file__).resolve().parent.parent / "config" / "defaults.yaml"
 # ()
 _cached_config: dict[str, Any] | None = None
 
+
 def _load_config() -> dict[str, Any]:
     """imports defaults.yaml Load (cache)"""
     global _cached_config
@@ -49,15 +50,14 @@ def _load_config() -> dict[str, Any]:
                 _cached_config = config
                 return config
     except Exception as e:
-        logger.warning(
-            "Failed to load defaults.yaml (using empty config): %s", e
-        )
+        logger.warning("Failed to load defaults.yaml (using empty config): %s", e)
 
     _cached_config = {}
     return _cached_config
 
+
 def get_tls_verify() -> bool | str:
-    """ TLS verify
+    """TLS verify
 
     Returns:
         - True:  SSL  ()
@@ -67,26 +67,26 @@ def get_tls_verify() -> bool | str:
     config = _load_config()
     tls_verify = config.get("tls_verify", True)
 
- #
+    #
     if isinstance(tls_verify, bool):
         return tls_verify
 
- # (CA bundle)
+    # (CA bundle)
     if isinstance(tls_verify, str):
         if tls_verify.lower() in ("true", "yes", "1"):
             return True
         if tls_verify.lower() in ("false", "no", "0"):
             return False
- # CA bundle
+        # CA bundle
         return tls_verify
 
- # True
+    # True
     logger.warning(
-        "Invalid tls_verify type in defaults.yaml (expected bool/str, got %s), "
-        "defaulting to True",
+        "Invalid tls_verify type in defaults.yaml (expected bool/str, got %s), defaulting to True",
         type(tls_verify).__name__,
     )
     return True
+
 
 def clear_config_cache() -> None:
     """cache ()"""

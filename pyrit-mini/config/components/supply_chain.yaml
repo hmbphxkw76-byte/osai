@@ -1,0 +1,50 @@
+# config/components/supply_chain.yaml — 插件 / 供应链（组件声明 SSOT）
+#
+# 【新增组件】plan §2.1 组件 [10]：第三方 skill、plugin、注册中心。
+# 特征：**侦察级组件**——仅做面枚举与风险标注，不计入 ASR 分母
+#       （无对应 strike 实现，留空即合法；validate_wiring 对此不报 BLOCKING）。
+
+schema_version: "1.0"
+component_key: supply_chain
+id: supply_chain
+display_name: "Plugin / Skill / Supply Chain"
+labels: [supply_chain, plugin, skill, registry]
+
+recon_dir: ""
+strike_dir: ""
+
+detection:
+  path_patterns: ["/plugins", "/skills", "/registry", "/marketplace", "/extensions", "/packages"]
+  body_markers: ["plugin", "skill", "manifest", "version", "registry", "package.json", "dependency"]
+  active_probes: ["recon.fingerprint"]
+  signals: ["plugin", "skill", "manifest", "registry", "package.json", "skill.md"]
+  min_confidence: 0.50
+
+recon_modules:
+  - recon.fingerprint
+service_profile_keys: ["supply_chain_profile"]
+
+seed_sets: []
+seeds: []
+seed_suitable_for: ["supply_chain"]
+converter_vectors: []
+
+preferred_attack_class: "PromptSendingAttack"
+asr_prior: 0.55
+
+strike_modules: []
+playbooks: []
+
+assess:
+  t0_check: null
+  rubric: null
+scorer: null
+
+report_builder: null
+report_section: null
+poc_template: null
+
+owasp: ["LLM03", "LLM05"]
+neighbors: ["mcp_tool_poisoning", "a2a_agent_integrity", "llm_gateway"]
+
+cleanup: []

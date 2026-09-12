@@ -37,6 +37,7 @@ _FORCE_REVIEW_CATEGORIES = {"LLM01", "ASI02", "ASI06"}  # High-change categories
 @dataclass
 class SeedPerformanceMetrics:
     """Tracks historical performance of a seed."""
+
     seed_hash: str
     category: str
     owasp_id: str
@@ -90,6 +91,7 @@ class SeedPerformanceMetrics:
 @dataclass
 class SeedHealthReport:
     """Comprehensive seed library health report."""
+
     total_seeds: int = 0
     active_seeds: int = 0
     warning_seeds: int = 0
@@ -187,7 +189,8 @@ class SeedQualityAssessor:
                 "asr": m.average_asr,
                 "attempts": m.total_attempts,
             }
-            for m in sorted_metrics[:5] if m.total_attempts > 0
+            for m in sorted_metrics[:5]
+            if m.total_attempts > 0
         ]
         report.worst_performing_seeds = [
             {
@@ -196,7 +199,8 @@ class SeedQualityAssessor:
                 "asr": m.average_asr,
                 "attempts": m.total_attempts,
             }
-            for m in sorted_metrics[-5:] if m.total_attempts > 0
+            for m in sorted_metrics[-5:]
+            if m.total_attempts > 0
         ]
 
         # Generate recommendations
@@ -232,17 +236,11 @@ class SeedQualityAssessor:
 
     def get_seeds_for_retirement(self) -> list[SeedPerformanceMetrics]:
         """Get list of seeds recommended for retirement."""
-        return [
-            m for m in self._metrics_cache.values()
-            if m.should_retire
-        ]
+        return [m for m in self._metrics_cache.values() if m.should_retire]
 
     def get_seeds_needing_review(self) -> list[SeedPerformanceMetrics]:
         """Get list of seeds needing manual review."""
-        return [
-            m for m in self._metrics_cache.values()
-            if m.needs_review and not m.should_retire
-        ]
+        return [m for m in self._metrics_cache.values() if m.needs_review and not m.should_retire]
 
     def export_report_to_json(self, output_path: Optional[str] = None) -> str:
         """Export health report to JSON file."""
@@ -356,40 +354,47 @@ class SeedQualityAssessor:
 
         # Coverage-based recommendations
         missing_owasp = {
-            "LLM01", "LLM02", "LLM03", "LLM04", "LLM05",
-            "LLM06", "LLM07", "LLM08", "LLM09", "LLM10",
+            "LLM01",
+            "LLM02",
+            "LLM03",
+            "LLM04",
+            "LLM05",
+            "LLM06",
+            "LLM07",
+            "LLM08",
+            "LLM09",
+            "LLM10",
         } - set(report.category_coverage.keys())
         if missing_owasp:
-            recommendations.append(
-                f"CRITICAL: Missing OWASP categories: {', '.join(sorted(missing_owasp))}"
-            )
+            recommendations.append(f"CRITICAL: Missing OWASP categories: {', '.join(sorted(missing_owasp))}")
 
         missing_asi = {
-            "ASI01", "ASI02", "ASI03", "ASI04", "ASI05",
-            "ASI06", "ASI07", "ASI08", "ASI09", "ASI10",
+            "ASI01",
+            "ASI02",
+            "ASI03",
+            "ASI04",
+            "ASI05",
+            "ASI06",
+            "ASI07",
+            "ASI08",
+            "ASI09",
+            "ASI10",
         } - set(report.category_coverage.keys())
         if missing_asi:
-            recommendations.append(
-                f"HIGH: Missing ASI categories: {', '.join(sorted(missing_asi))}"
-            )
+            recommendations.append(f"HIGH: Missing ASI categories: {', '.join(sorted(missing_asi))}")
 
         # Performance-based recommendations
         if report.overall_average_asr < 0.20:
-            recommendations.append(
-                "HIGH: Overall ASR below 20% — consider refreshing seed templates"
-            )
+            recommendations.append("HIGH: Overall ASR below 20% — consider refreshing seed templates")
 
         if report.retired_seeds > report.active_seeds * 0.3:
-            recommendations.append(
-                "MEDIUM: >30% seeds retired — seed library may need overhaul"
-            )
+            recommendations.append("MEDIUM: >30% seeds retired — seed library may need overhaul")
 
         # Category-specific recommendations
         for cat, asrs in category_asr.items():
             if asrs and sum(asrs) / len(asrs) < 0.15:
                 recommendations.append(
-                    f"MEDIUM: Category {cat} has low average ASR "
-                    f"({sum(asrs)/len(asrs):.1%}) — review templates"
+                    f"MEDIUM: Category {cat} has low average ASR ({sum(asrs) / len(asrs):.1%}) — review templates"
                 )
 
         if not recommendations:

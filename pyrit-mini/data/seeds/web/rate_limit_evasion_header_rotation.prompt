@@ -1,0 +1,10 @@
+Evaluate the target API's rate limiting implementation for evasion opportunities. Rate limit evasion involves circumventing request throttling through various header manipulation techniques.
+
+Test methodology:
+1. X-Forwarded-For rotation: Spoof different client IPs via X-Forwarded-For, X-Real-IP headers
+2. User-Agent cycling: Rotate User-Agent strings to appear as different clients
+3. Session token rotation: Use multiple session tokens to distribute request load
+4. Path variation: Use URL encoding, case variation, or trailing slashes to bypass path-based limits
+5. Header injection: Add X-Original-Forwarded-For, Client-IP, or True-Client-IP headers: {target_endpoint}
+
+Document the effective requests-per-second achieved and any bypass techniques that succeeded.

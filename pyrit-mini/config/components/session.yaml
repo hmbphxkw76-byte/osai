@@ -1,0 +1,64 @@
+# config/components/session.yaml — Session / Memory / Tenant（组件声明 SSOT）
+#
+# 覆盖：会话态、长期记忆、跨会话上下文、租户隔离。
+# 修 A.3 缺陷：`architecture_validator.py:83` session_memory 的 recon 清单曾为空数组 → 无法识别。
+
+schema_version: "1.0"
+component_key: session_memory
+id: memory_session_tenant
+display_name: "Session / Memory / Tenant Isolation"
+labels: [session_memory, memory_session_tenant, session, memory, tenant]
+
+recon_dir: session
+strike_dir: session
+
+detection:
+  path_patterns: ["/session", "/memory", "/history", "/conversation", "/threads", "/context"]
+  body_markers: ["session_id", "conversation_id", "thread_id", "memory", "chat_id", "tenant_id"]
+  active_probes: ["recon.session.session_id_analyzer"]
+  signals: ["session_id", "conversation_id", "thread_id", "chat_id", "tenant_id"]
+  min_confidence: 0.55
+
+recon_modules:
+  - recon.session.session_id_analyzer
+  - recon.session.session_token_extractor
+  - recon.session.session_auth_probe
+  - recon.session.session_fixation_detector
+service_profile_keys: ["session_state", "session_profile", "tenant_profile"]
+
+seed_sets:
+  - "data/seeds/session/"
+  - "data/seeds/memory/"
+  - "data/seeds/_attack_surface/T1_MEMORY/"
+seeds: ["data/seeds/session/*", "data/seeds/memory/*", "data/seeds/_attack_surface/T1_MEMORY/*"]
+seed_suitable_for: ["session_memory"]
+converter_vectors: ["memory_poisoning", "session_fixation", "context_leak"]
+
+preferred_attack_class: "CrescendoAttack"
+asr_prior: 0.72
+
+strike_modules:
+  - strike.session.session_manager
+  - strike.session.injection
+  - strike.session.extraction
+  - strike.session.idor_tester
+  - strike.session.rotation
+  - strike.session.enumerator
+  - strike.memory.memory_injector
+  - strike.memory.memory_reader
+  - strike.memory.forensics_extractor
+playbooks: [session_persist_poison, memory_cross_tenant_read]
+
+assess:
+  t0_check: "assess.component_scorers:t0_session_memory_check"
+  rubric: "data/scorers/component_scorers/session_memory.yaml"
+scorer: session_memory
+
+report_builder: "report.component_reports:_build_session_memory_sections"
+report_section: "report.component_reports.session"
+poc_template: "report.component_poc:session_poc"
+
+owasp: ["LLM06", "ASI08"]
+neighbors: ["web_api", "llm_gateway", "a2a_agent_integrity"]
+
+cleanup: [clear_injected_memory, revoke_session]

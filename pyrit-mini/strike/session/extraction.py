@@ -13,6 +13,7 @@ Academic basis:
     - Gao et al. (arXiv:2311.10536) — Response structure taxonomy
     - Karpukhin et al. (arXiv:2004.04906) — Structured response parsing
 """
+
 from __future__ import annotations
 
 import json
@@ -105,7 +106,8 @@ class SessionExtractor:
             if token:
                 logger.debug(
                     "Token '%s' extracted via fallback: %s",
-                    rule.name, fallback.get("method", "unknown"),
+                    rule.name,
+                    fallback.get("method", "unknown"),
                 )
                 return token
 

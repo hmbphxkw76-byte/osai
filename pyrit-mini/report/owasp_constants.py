@@ -184,16 +184,15 @@ _OWASP_ASI_CATEGORIES = {
 # EUREUR OWASP rax?(CVSS-like ) EUREUR
 _OWASP_SEVERITY_LEVELS = {
     "critical": {
-        "score_range": (
-            9.0, 10.0), "color": "#ff0000", "description": "Immediate exploitation risk, requires urgent remediation"}, "high": {
-                "score_range": (
-                    7.0, 8.9), "color": "#ff4444", "description": "Significant risk, remediate within 7 days"}, "medium": {
-                        "score_range": (
-                            4.0, 6.9), "color": "#ffaa00", "description": "Moderate risk, remediate within 30 days"}, "low": {
-                                "score_range": (
-                                    1.0, 3.9), "color": "#00aa00", "description": "Limited impact, remediate within 90 days"}, "info": {
-                                        "score_range": (
-                                            0.0, 0.9), "color": "#888888", "description": "Informational, no direct risk"}, }
+        "score_range": (9.0, 10.0),
+        "color": "#ff0000",
+        "description": "Immediate exploitation risk, requires urgent remediation",
+    },
+    "high": {"score_range": (7.0, 8.9), "color": "#ff4444", "description": "Significant risk, remediate within 7 days"},
+    "medium": {"score_range": (4.0, 6.9), "color": "#ffaa00", "description": "Moderate risk, remediate within 30 days"},
+    "low": {"score_range": (1.0, 3.9), "color": "#00aa00", "description": "Limited impact, remediate within 90 days"},
+    "info": {"score_range": (0.0, 0.9), "color": "#888888", "description": "Informational, no direct risk"},
+}
 
 # EUREUR OWASP LLM Top 10 BX EUREUR
 _OWASP_LLM_MITIGATIONS = {
@@ -388,15 +387,9 @@ _OWASP_WEB_MITIGATIONS = {
 }
 
 # EUREUR OWASP EUREUR
-OWASP_WEB_TOP10_REFERENCE = (
-    "OWASP Top 10 (2025) ?"
-    "https://owasp.org/www-project-top-10/"
-)
+OWASP_WEB_TOP10_REFERENCE = "OWASP Top 10 (2025) ?https://owasp.org/www-project-top-10/"
 OWASP_LLM_TOP10_REFERENCE = (
     "OWASP Top 10 for LLM Applications (2025 Edition) ?"
     "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
 )
-OWASP_ASI_TOP10_REFERENCE = (
-    "OWASP Agentic AI Top 10 ?"
-    "https://owasp.org/www-project-agent-security/"
-)
+OWASP_ASI_TOP10_REFERENCE = "OWASP Agentic AI Top 10 ?https://owasp.org/www-project-agent-security/"

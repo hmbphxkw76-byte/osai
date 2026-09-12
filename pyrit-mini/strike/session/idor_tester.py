@@ -28,6 +28,7 @@ Constitution compliance:
     - R-S1: 测试数据 (payload messages) 完全参数化
     - R-S5: 不鼓励未授权攻击 — 仅用于授权评估
 """
+
 from __future__ import annotations
 
 import logging
@@ -40,30 +41,33 @@ logger = logging.getLogger(__name__)
 
 class AccessType(str, Enum):
     """访问类型"""
-    READ = "read"           # 读取私有数据
-    WRITE = "write"         # 写入/修改数据
-    DELETE = "delete"       # 删除数据
-    ADMIN = "admin"         # 权限提升
+
+    READ = "read"  # 读取私有数据
+    WRITE = "write"  # 写入/修改数据
+    DELETE = "delete"  # 删除数据
+    ADMIN = "admin"  # 权限提升
     CROSS_TENANT = "cross_tenant"  # 跨租户访问
 
 
 class Severity(str, Enum):
     """漏洞严重级别"""
-    CRITICAL = "critical"   # 完全控制/数据泄露
-    HIGH = "high"           # 数据泄露/篡改
-    MEDIUM = "medium"       # 有限数据访问
-    LOW = "low"             # 信息泄露
-    INFO = "info"           # 配置问题
+
+    CRITICAL = "critical"  # 完全控制/数据泄露
+    HIGH = "high"  # 数据泄露/篡改
+    MEDIUM = "medium"  # 有限数据访问
+    LOW = "low"  # 信息泄露
+    INFO = "info"  # 配置问题
 
 
 @dataclass
 class IdorConfig:
     """IDOR 测试配置 (完全参数化)"""
-    session_field: str = "session_id"           # session 字段名
-    read_payloads: list[str] = field(default_factory=list)     # 读取操作 payloads
-    write_payloads: list[str] = field(default_factory=list)    # 写入操作 payloads
-    admin_payloads: list[str] = field(default_factory=list)    # 权限提升 payloads
-    data_indicators: list[str] = field(default_factory=list)   # 数据泄露指示符
+
+    session_field: str = "session_id"  # session 字段名
+    read_payloads: list[str] = field(default_factory=list)  # 读取操作 payloads
+    write_payloads: list[str] = field(default_factory=list)  # 写入操作 payloads
+    admin_payloads: list[str] = field(default_factory=list)  # 权限提升 payloads
+    data_indicators: list[str] = field(default_factory=list)  # 数据泄露指示符
     write_indicators: list[str] = field(default_factory=list)  # 写入成功指示符
     timeout_sec: float = 5.0
 
@@ -71,6 +75,7 @@ class IdorConfig:
 @dataclass
 class IdorResult:
     """IDOR 测试结果"""
+
     access_type: AccessType
     success: bool
     victim_session: str
@@ -169,9 +174,7 @@ class IdorTester:
                 description="Unsupported access type",
             )
 
-    async def test_all(
-        self, victim_session: str
-    ) -> list[IdorResult]:
+    async def test_all(self, victim_session: str) -> list[IdorResult]:
         """执行所有类型的 IDOR 测试"""
         results: list[IdorResult] = []
 
@@ -226,10 +229,7 @@ class IdorTester:
                 response = await self._send_with_session(payload, victim_session)
                 response_text = self._extract_text(response)
 
-                write_success = any(
-                    ind.lower() in response_text.lower()
-                    for ind in self.config.write_indicators
-                )
+                write_success = any(ind.lower() in response_text.lower() for ind in self.config.write_indicators)
 
                 if write_success:
                     return IdorResult(
@@ -289,9 +289,7 @@ class IdorTester:
         # 跨租户通过 session 访问检测
         return await self._test_read(victim_session)
 
-    async def _send_with_session(
-        self, message: str, session_id: str
-    ) -> Any:
+    async def _send_with_session(self, message: str, session_id: str) -> Any:
         """发送带指定 session 的请求"""
         payload = {
             "message": message,

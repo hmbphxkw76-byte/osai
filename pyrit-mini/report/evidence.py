@@ -31,6 +31,7 @@ Extraction fallback (3-layer):
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -77,6 +78,7 @@ from report.owasp_mapping import (  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass
 class VulnerabilityEvidence:
     """
@@ -94,16 +96,16 @@ class VulnerabilityEvidence:
 
     evidence_id: str
     attack_id: str
- # - results key
- # : "prompt_sending" / "encoded_injection" / "crescendo" / "tap" / "pair"
- # : , PyRIT Converter , MITRE ATLAS
+    # - results key
+    # : "prompt_sending" / "encoded_injection" / "crescendo" / "tap" / "pair"
+    # : , PyRIT Converter , MITRE ATLAS
     technique_name: str
- # - ( "Prompt Sending (Baseline)")
+    # - ( "Prompt Sending (Baseline)")
     technique_display_name: str
- # PyRIT Converter - Converter ( "Base64Converter, ROT13Converter")
- # PyRIT Converter ( encoded_injection),
- # ( "base64 (encoded_injection)")
- # "" Converter
+    # PyRIT Converter - Converter ( "Base64Converter, ROT13Converter")
+    # PyRIT Converter ( encoded_injection),
+    # ( "base64 (encoded_injection)")
+    # "" Converter
     converter_chain: str
     owasp_id: str
     owasp_category: str
@@ -126,18 +128,26 @@ class VulnerabilityEvidence:
     target_model: str = ""
     converter_log: list[dict[str, str]] = field(default_factory=list)
     score_details: list[dict[str, str]] = field(default_factory=list)
- # P0-2: MITRE ATLAS
- # MITRE ATLAS - ( "Execution", "Persistence")
+    # P0-2: MITRE ATLAS
+    # MITRE ATLAS - ( "Execution", "Persistence")
     mitre_tactic: str = ""
- # MITRE ATLAS - "AML.T0051" (LLM Prompt Injection)
+    # MITRE ATLAS - "AML.T0051" (LLM Prompt Injection)
     mitre_technique_id: str = ""
- # MITRE ATLAS - "LLM Prompt Injection" / "Data Poisoning"
- # : MITRE ATLAS , technique_name ()
+    # MITRE ATLAS - "LLM Prompt Injection" / "Data Poisoning"
+    # : MITRE ATLAS , technique_name ()
     mitre_technique_name: str = ""
- # MITRE ATLAS URL
+    # MITRE ATLAS URL
     mitre_url: str = ""
- # :
+    # :
     attack_result_ref: Any = None
+    # == plan Wave 6 / CB-2：组件元数据（修组件专属报告永不生成的断裂）==
+    # `report/component_reports.py` 通过 `getattr(ev, "metadata", {}).get("component_type")`
+    # 判定组件归属；此前本数据类无该字段 → 恒 {} → `_determine_dominant_component()`
+    # 恒 None → 组件专属章节永远不生成。
+    # 由 `core/phases/_component_bridge.stamp_component_metadata` 统一写入（规则 CB-1：
+    # 禁止其他模块直接写 `component_type`）。
+    metadata: dict[str, Any] = field(default_factory=dict)
+
 
 @dataclass
 class OWASPFinding:
@@ -166,6 +176,7 @@ class OWASPFinding:
     mitre_technique_name: str = ""
     results: list[dict[str, Any]] = field(default_factory=list)
 
+
 @dataclass
 class EvidenceCollection:
     """
@@ -193,23 +204,56 @@ class EvidenceCollection:
     owasp_standard_references: list[str] = field(default_factory=list)
     technique_distribution: dict[str, int] = field(default_factory=dict)
     failure_analysis: dict[str, Any] = field(default_factory=dict)
- # :
+    # :
     target_fingerprint: dict[str, str] = field(default_factory=dict)
- #
+    #
     attack_surface: dict[str, Any] = field(default_factory=dict)
- # L5 v8: Judge (single definition)
+    # L5 v8: Judge (single definition)
     dual_judge_stats: dict[str, Any] = field(default_factory=dict)
- # L5 v29: Wilson Score + Cohen's Kappa
+    # L5 v29: Wilson Score + Cohen's Kappa
     wilson_ci: tuple[float, float] = (0.0, 0.0)
     cohens_kappa: float = 0.0
- # P0-4: Findings
+    # P0-4: Findings
     findings: list[OWASPFinding] = field(default_factory=list)
- # "Orchestration Decision Log" (P2-07: audit trail of all pipeline decisions)
+    # "Orchestration Decision Log" (P2-07: audit trail of all pipeline decisions)
     orchestration_log: list[dict[str, Any]] = field(default_factory=list)
- # == : (pyrit_scan --memory-labels) ==
- # PipelineContext.memory_labels ,
- # : {"run_id": "r001", "target": "deepseek"}
+    # == plan Wave 6：组合体 / 攻击链 / 影响链 / 预算的可交付投影 ==
+    # 报告是交付物，识别与链执行的结果必须落到报告里，而不是只留在日志。
+    component_graph: dict[str, Any] = field(default_factory=dict)  # ComponentGraph.to_dict()
+    attack_chain: dict[str, Any] = field(default_factory=dict)  # StatefulAttackChain.to_dict()
+    impact_chains: list[dict[str, Any]] = field(default_factory=list)  # list[ImpactChain.to_dict()]
+    impact_gaps: list[dict[str, Any]] = field(default_factory=list)  # 因果链缺口（举证不完整项）
+    budget_report: dict[str, Any] = field(default_factory=dict)  # 预算快照 + 裁剪原因
+    score_manifest: dict[str, Any] = field(default_factory=dict)  # 评分运行清单（可复现指纹）
+    # == : (pyrit_scan --memory-labels) ==
+    # PipelineContext.memory_labels ,
+    # : {"run_id": "r001", "target": "deepseek"}
     memory_labels: dict[str, str] = field(default_factory=dict)
+
+
+def _extract_result_metadata(result: Any, *, technique_name: str = "") -> dict[str, Any]:
+    """从 AttackResult 读取组件元数据，供 `VulnerabilityEvidence.metadata` 落盘（CB-2）。
+
+    规则 CB-1：`component_type` 的写入权归 `core/phases/_component_bridge`。
+    本函数**只读不写**——若上游未盖章，返回空 dict，由组件报告走既有推断逻辑，
+    绝不在此伪造 component_type（C9 诚实汇报）。
+
+    Args:
+        result: PyRIT AttackResult
+        technique_name: 技术名（用于附加可观测上下文）
+
+    Returns:
+        元数据 dict（可能为空）。
+    """
+    meta = getattr(result, "metadata", None)
+    if not isinstance(meta, dict):
+        return {}
+    # 浅拷贝：避免证据对象与攻击结果共享可变状态（防状态污染）
+    out = {k: v for k, v in meta.items() if isinstance(k, str)}
+    if technique_name:
+        out.setdefault("technique_name", technique_name)
+    return out
+
 
 class EvidenceCollector:
     """
@@ -230,6 +274,30 @@ class EvidenceCollector:
     ) -> None:
         self._target_model = target_model
         self._target_fingerprint = target_fingerprint or {}
+        # W6: 采集器级单调序号 + 已发号集合，保证 EVD-* 全局唯一（证据文件不被覆盖）
+        self._evidence_seq = 0
+        self._issued_evidence_ids: set[str] = set()
+
+    def _next_evidence_id(self, attack_index: int, attack_id: Any) -> str:
+        """生成唯一 evidence_id。
+
+        基础编号保持可读（EVD-0001…）；一旦冲突，附加 attack_id 的稳定短哈希，
+        再冲突则递增后缀。任何情况下不重复发号。
+        """
+        base = f"EVD-{attack_index + 1:04d}"
+        if base not in self._issued_evidence_ids:
+            self._issued_evidence_ids.add(base)
+            return base
+
+        digest = hashlib.sha1(str(attack_id).encode("utf-8")).hexdigest()[:6].upper()
+        candidate = f"{base}-{digest}"
+        n = 2
+        while candidate in self._issued_evidence_ids:
+            candidate = f"{base}-{digest}-{n}"
+            n += 1
+        self._issued_evidence_ids.add(candidate)
+        logger.warning("[Evidence] evidence_id 冲突已消解: %s -> %s", base, candidate)
+        return candidate
 
     def collect(
         self,
@@ -316,25 +384,41 @@ class EvidenceCollector:
             "api_behavior": fp.get("api_behavior", {}),
             "vector_dbs": fp.get("vector_dbs", []),
             "mcp_tool_safety": fp.get("mcp_tool_safety", []),
-            "mcp_tool_safety_risky_count": sum(
-                1 for t in fp.get("mcp_tool_safety", []) if t.get("risks")
-            ),
+            "mcp_tool_safety_risky_count": sum(1 for t in fp.get("mcp_tool_safety", []) if t.get("risks")),
         }
 
- # OWASP
+        # OWASP
         owasp_web_stats: dict[str, dict[str, Any]] = {
-            k: {"tested": 0, "success": 0, "failed": 0, "asr": 0.0,
-                "category": v, "mitigations": _OWASP_WEB_MITIGATIONS.get(k, [])}
+            k: {
+                "tested": 0,
+                "success": 0,
+                "failed": 0,
+                "asr": 0.0,
+                "category": v,
+                "mitigations": _OWASP_WEB_MITIGATIONS.get(k, []),
+            }
             for k, v in _OWASP_WEB_CATEGORIES.items()
         }
         owasp_llm_stats: dict[str, dict[str, Any]] = {
-            k: {"tested": 0, "success": 0, "failed": 0, "asr": 0.0,
-                "category": v, "mitigations": _OWASP_LLM_MITIGATIONS.get(k, [])}
+            k: {
+                "tested": 0,
+                "success": 0,
+                "failed": 0,
+                "asr": 0.0,
+                "category": v,
+                "mitigations": _OWASP_LLM_MITIGATIONS.get(k, []),
+            }
             for k, v in _OWASP_LLM_CATEGORIES.items()
         }
         owasp_asi_stats: dict[str, dict[str, Any]] = {
-            k: {"tested": 0, "success": 0, "failed": 0, "asr": 0.0,
-                "category": v, "mitigations": _OWASP_ASI_MITIGATIONS.get(k, [])}
+            k: {
+                "tested": 0,
+                "success": 0,
+                "failed": 0,
+                "asr": 0.0,
+                "category": v,
+                "mitigations": _OWASP_ASI_MITIGATIONS.get(k, []),
+            }
             for k, v in _OWASP_ASI_CATEGORIES.items()
         }
 
@@ -357,14 +441,18 @@ class EvidenceCollector:
                 else:
                     fail_count += 1
 
+                # W6 fix: 原先用 `enumerate(results)` 的局部索引 i，导致**每个技术都从
+                # EVD-0001 重新编号** → EVD-0001 在多技术间重复 N 次，证据文件互相覆盖。
+                # 改为采集器级单调序号，并由 _next_evidence_id 做唯一性兜底。
                 evidence = self._build_evidence(
                     result=result,
                     technique_name=technique_name,
                     technique_display_name=technique_display_name,
                     technique_asr=technique_asr,
-                    attack_index=i,
+                    attack_index=self._evidence_seq,
                     is_success=is_success,
                 )
+                self._evidence_seq += 1
 
                 collection.evidence.append(evidence)
                 # Track successful evidence (P0-1 fix: was `pass`, now appends)
@@ -396,7 +484,7 @@ class EvidenceCollector:
                         else:
                             stats["failed"] += 1
 
- #
+                #
                 collection.technique_distribution[technique_name] = (
                     collection.technique_distribution.get(technique_name, 0) + 1
                 )
@@ -410,10 +498,10 @@ class EvidenceCollector:
         collection.owasp_llm_compliance = owasp_llm_stats
         collection.owasp_asi_compliance = owasp_asi_stats
 
- #
+        #
         collection.failure_analysis = self._analyze_failures(attack_results)
 
- # P0-4: Findings
+        # P0-4: Findings
         collection.findings = _build_findings(collection.evidence, owasp_web_stats, owasp_llm_stats, owasp_asi_stats)
 
         logger.info(
@@ -449,7 +537,7 @@ class EvidenceCollector:
             - validation_runs: _extract_validation_runs ->  1
             - testing_conditions: _extract_testing_conditions -> timestamp/outcome/attack_id
             - converter_chain: imports converter_log  ->  "none (baseline)"
-    """
+        """
         owasp_id = _get_owasp_id(result)
         objective = _extract_jailbreak_prompt(result)
         harmful_output = _extract_harmful_output(result)
@@ -488,21 +576,25 @@ class EvidenceCollector:
         if not converter_log:
             encoder = result_metadata.get("encoder", "")
             if encoder:
-                converter_log = [{
-                    "converter": f"{encoder} (encoded_injection)",
-                    "original": "",
-                    "transformed": objective[:200] if objective else "",
-                }]
+                converter_log = [
+                    {
+                        "converter": f"{encoder} (encoded_injection)",
+                        "original": "",
+                        "transformed": objective[:200] if objective else "",
+                    }
+                ]
 
         # P0-2: Even if baseline (no converter), ensure converter_log is populated
         # R10: converter_log for ALL evidence
         # baseline attacks record "none (baseline)"
         if not converter_log:
-            converter_log = [{
-                "converter": "none (baseline)",
-                "original": objective[:200] if objective else "",
-                "transformed": objective[:200] if objective else "",
-            }]
+            converter_log = [
+                {
+                    "converter": "none (baseline)",
+                    "original": objective[:200] if objective else "",
+                    "transformed": objective[:200] if objective else "",
+                }
+            ]
 
         # P1-1: converter_chain - derived from converter_log, ensured by above
         converter_chain_str = ", ".join(c.get("converter", "") for c in converter_log)
@@ -511,13 +603,15 @@ class EvidenceCollector:
 
         # P0-4: score_details - single fallback (no pseudo validation_runs)
         if not score_details:
-            score_details = [{
-                "scorer": "AttackOutcome",
-                "score_value": "success" if is_success else "failure",
-                "rationale": "Determined by post-hoc scoring (no explicit scorer object attached)",
-            }]
+            score_details = [
+                {
+                    "scorer": "AttackOutcome",
+                    "score_value": "success" if is_success else "failure",
+                    "rationale": "Determined by post-hoc scoring (no explicit scorer object attached)",
+                }
+            ]
 
- # OWASP
+        # OWASP
         owasp_standard = _get_owasp_standard(owasp_id)
         owasp_severity = _compute_owasp_severity(owasp_id, is_success, technique_asr)
         owasp_risk_score = _compute_owasp_risk_score(owasp_id, is_success, technique_asr)
@@ -525,22 +619,23 @@ class EvidenceCollector:
         owasp_reference = _get_owasp_reference_url(owasp_id)
         cvss_vector = _get_cvss_vector(owasp_id)
 
- # P0-2: MITRE ATLAS
+        # P0-2: MITRE ATLAS
         mitre_info = _MITRE_ATLAS_TECHNIQUES.get(owasp_id, {})
         mitre_tactic = mitre_info.get("tactic", "")
         mitre_technique_id = mitre_info.get("technique_id", "")
         mitre_technique_name = mitre_info.get("technique_name", "")
         mitre_url = mitre_info.get("url", "")
 
- # : _success
+        # : _success
         file_suffix = "_success" if is_success else ""
 
-         # evidence_id _success
-        evidence_id = f"EVD-{attack_index + 1:04d}"
+        # evidence_id _success
+        attack_id = getattr(result, "attack_result_id", getattr(result, "id", str(uuid.uuid4())))
+        evidence_id = self._next_evidence_id(attack_index, attack_id)
 
         return VulnerabilityEvidence(
             evidence_id=evidence_id,
-            attack_id=getattr(result, "attack_result_id", getattr(result, "id", str(uuid.uuid4()))),
+            attack_id=attack_id,
             technique_name=technique_name,
             technique_display_name=technique_display_name,
             converter_chain=converter_chain_str,
@@ -570,6 +665,7 @@ class EvidenceCollector:
             mitre_technique_name=mitre_technique_name,
             mitre_url=mitre_url,
             attack_result_ref=result,
+            metadata=_extract_result_metadata(result, technique_name=technique_name),
         )
 
     def _analyze_failures(self, attack_results: dict[str, list[Any]]) -> dict[str, Any]:

@@ -35,7 +35,7 @@ tools/ - CLI 开发/运维工具目录
 ▌开发验证覆盖的工具（开发中必跑）：
     tools/guard.py              → 架构守卫（静态检查）
     tools/drift_detector.py     → 规范漂移检测
-    tools/data_flow_validator.py → 数据流完整性
+    tools/dataflow/              → 数据流完整性子包
     ruff check .                → 代码风格
     pytest tests/               → 全量测试
     python main.py --dry-run    → 运行时验证
@@ -46,6 +46,9 @@ tools/ - CLI 开发/运维工具目录
     backlog.md                  → 待办闭环
 
 ▸ 核心操作（必记）
+    "组件审计"              → 执行 Phase 1→6 全流程组件审计 (py -m tools.component_audit)
+    "架构审计" / "架构体检" → 执行架构合规验证 (python tools/architecture_validator.py full)
+    "开发全审" / "全审"     → 执行 A→L 开发全审 (py -m tools.dev_audit_full)
     "完整验证" / "规范对齐" → 执行 6 步全流程验证 + 修复所有问题
     "门禁"                  → 执行四步质量门禁 (guard/ruff/pytest/dry-run)
     "守卫"                  → 运行架构守卫静态检查 (py -m tools.guard)
@@ -93,22 +96,29 @@ tools/ - CLI 开发/运维工具目录
 ================================================================================
 
 调用方式:
-    py -m tools.guard              # 宪法守卫 (原 py -m core.architecture_guard)
-    py -m tools.hooks              # Git hooks 安装 (原 py core/setup_hooks.py)
+    py -m tools.component_audit     # 组件审计 Phase 1→6 (全组件纯净度/覆盖度/种子验证)
+    py -m tools.dev_audit_full     # 开发全审 A→H (同 架构审计 / 架构体检)
+    py -m tools.guard              # 宪法守卫 (含 quick_check + watch_guard 功能)
+    py -m tools.guard --quick file.py  # 单文件快速检查
+    py -m tools.guard --watch      # 实时文件监视
+    py -m tools.hooks              # Git hooks 安装 (含 --local 模式)
     py -m tools.scenarios          # 场景列表 (原 py -m core.scenario_router)
     py -m tools.poc                # PoC 生成器 (CLI 模式)
-    py -m tools.watch_guard        # 实时文件监视 (开发时持续检测)
-    py -m tools.quick_check        # 单文件快速架构检查
-    py -m tools.data_flow_validator  # ARM→Strike→Assess 数据流完整性验证
+    py -m tools.dataflow.validator  # ARM→Strike→Assess 数据流完整性验证
     py -m tools.drift_detector     # 规范漂移检测器 (v2.1 新增)
 
 对应 entry_points (pyproject.toml):
+    pyrit-component-audit = "tools.component_audit:main"
+    pyrit-dev-audit = "tools.dev_audit_full:main"
     pyrit-guard = "tools.guard:main"
     pyrit-hooks = "tools.hooks:main"
     pyrit-scenarios = "tools.scenarios:main"
     pyrit-poc = "tools.poc:main"
-    pyrit-watch = "tools.watch_guard:main"
-    pyrit-quick = "tools.quick_check:main"
-    pyrit-dataflow = "tools.data_flow_validator:main"
+    pyrit-dataflow = "tools.dataflow.validator:main"
     pyrit-drift = "tools.drift_detector:main"
+
+快捷词组映射 (AI Code 触发词):
+    "组件审计"              → py -m tools.component_audit
+    "架构审计" / "架构体检" → py -m tools.dev_audit_full
+    "开发全审" / "全审"     → py -m tools.dev_audit_full
 """

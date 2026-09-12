@@ -1,14 +1,16 @@
 # -*- coding: utf-8 -*-
-"""kb_injector.py — 知识库文档注入器
+"""kb_injector.py — 知识库文档注入器 (knowledge_base_poisoning)
 
 直接向目标的知识库 (wiki, docs, KB) 注入恶意内容:
-- 直接文档创建/编辑
+- 直接文档创建/编辑 (knowledge_base_poisoning)
 - 评论/备注注入
 - 元数据投毒
 - 跨文档引用注入
 
+Technique category: knowledge_base_poisoning (OWASP LLM08)
+
 Academic basis:
-    - Zou et al. (arXiv:2406.04245) — PoisonedRAG
+    - Zou et al. (arXiv:2406.04245) — PoisonedRAG / knowledge_base_poisoning
     - Greshake et al. (arXiv:2302.12173) — Indirect Prompt Injection
     - Shayegani et al. (arXiv:2306.13254) — Multi-modal cyber security
 
@@ -26,6 +28,7 @@ Constitution compliance:
     - C2: 不添加攻击端过滤
     - R-S1: 注入内容完全配置驱动
 """
+
 from __future__ import annotations
 
 import logging
@@ -39,24 +42,27 @@ logger = logging.getLogger(__name__)
 
 class KBLocation(str, Enum):
     """知识库位置"""
-    DOCUMENTS = "documents"    # 主文档存储
-    COMMENTS = "comments"      # 评论/备注
-    TAGS = "tags"              # 标签
-    METADATA = "metadata"      # 元数据
+
+    DOCUMENTS = "documents"  # 主文档存储
+    COMMENTS = "comments"  # 评论/备注
+    TAGS = "tags"  # 标签
+    METADATA = "metadata"  # 元数据
 
 
 class InjectPhase(str, Enum):
     """注入阶段"""
-    CREATE = "create"          # 新建文档
-    UPDATE = "update"          # 更新现有文档
-    APPEND = "append"          # 追加内容
-    PREPEND = "prepend"        # 前置插入
+
+    CREATE = "create"  # 新建文档
+    UPDATE = "update"  # 更新现有文档
+    APPEND = "append"  # 追加内容
+    PREPEND = "prepend"  # 前置插入
 
 
 @dataclass
 class KBInjectConfig:
     """KB 注入配置"""
-    endpoint: str = "/api/kb/documents"     # KB API 端点
+
+    endpoint: str = "/api/kb/documents"  # KB API 端点
     title_field: str = "title"
     content_field: str = "content"
     author_field: str = "author"
@@ -64,12 +70,13 @@ class KBInjectConfig:
     max_documents: int = 5
     timeout_sec: float = 5.0
     verify_injection: bool = True
-    author_alias: str = ""                  # 伪装作者
+    author_alias: str = ""  # 伪装作者
 
 
 @dataclass
 class KBInjectResult:
     """KB 注入结果"""
+
     success: bool = False
     documents_created: int = 0
     documents_updated: int = 0
@@ -231,9 +238,7 @@ class KBInjector:
         result.phase = inject_position
         return result
 
-    def _build_document_payload(
-        self, title: str, content: str
-    ) -> dict[str, Any]:
+    def _build_document_payload(self, title: str, content: str) -> dict[str, Any]:
         """构造文档 payload"""
         # 使用模板包装
         template = self.DOC_TEMPLATES[0]
@@ -253,9 +258,7 @@ class KBInjector:
     async def _create_document(self, doc_payload: dict[str, Any]) -> Any:
         """创建新文档"""
         if hasattr(self.http_target, "send_request_async"):
-            return await self.http_target.send_request_async(
-                json=doc_payload, endpoint=self.config.endpoint
-            )
+            return await self.http_target.send_request_async(json=doc_payload, endpoint=self.config.endpoint)
         elif hasattr(self.http_target, "send_prompt_async"):
             # 对于 chat 接口, 尝试通过对话注入
             content = doc_payload.get(self.config.content_field, "")
@@ -265,16 +268,12 @@ class KBInjector:
             )
         raise RuntimeError("HTTPTarget 不支持发送请求")
 
-    async def _update_document(
-        self, doc_payload: dict[str, Any], phase: InjectPhase
-    ) -> Any:
+    async def _update_document(self, doc_payload: dict[str, Any], phase: InjectPhase) -> Any:
         """更新现有文档"""
         if hasattr(self.http_target, "send_request_async"):
             endpoint = f"{self.config.endpoint}/{doc_payload.get('doc_id', 'latest')}"
             method = "POST" in dir(self.http_target) and "PUT" or "POST"
-            return await self.http_target.send_request_async(
-                json=doc_payload, endpoint=endpoint, method=method
-            )
+            return await self.http_target.send_request_async(json=doc_payload, endpoint=endpoint, method=method)
         elif hasattr(self.http_target, "send_prompt_async"):
             content = doc_payload.get(self.config.content_field, "")
             return await self.http_target.send_prompt_async(
@@ -292,10 +291,11 @@ class KBInjector:
 
         # 尝试提取 ID
         import re
+
         patterns = [
             r'"id"\s*:\s*"([^"]+)"',
             r'"doc_id"\s*:\s*"([^"]+)"',
-            r'document created.*id:\s*(\w+)',
+            r"document created.*id:\s*(\w+)",
         ]
 
         for pattern in patterns:

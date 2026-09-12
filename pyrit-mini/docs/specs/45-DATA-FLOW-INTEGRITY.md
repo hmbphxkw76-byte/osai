@@ -72,11 +72,11 @@ Recon ──→ ARM ──→ Strike ──→ Assess ──→ Report/Evidence
 # 成功攻击取证证据
 successful_evidence_log: list[dict] = [
     {
-        "technique": str,           # 攻击技术名称
-        "converter_chain": str,     # 使用的 converter 链
-        "prompt_snippet": str,      # 攻击 prompt 片段（截断）
-        "response_snippet": str,    # 成功响应片段（截断）
-        "timestamp": float,         # 时间戳
+        "technique": str,  # 攻击技术名称
+        "converter_chain": str,  # 使用的 converter 链
+        "prompt_snippet": str,  # 攻击 prompt 片段（截断）
+        "response_snippet": str,  # 成功响应片段（截断）
+        "timestamp": float,  # 时间戳
     }
 ]
 
@@ -86,9 +86,9 @@ refusal_classification_log: list[dict] = [
         "technique": str,
         "converter_chain": str,
         "refusal_type": "guardrail" | "content_policy" | "format" | "unknown",
-        "matched_pattern": str,     # 匹配到的拒绝模式
-        "confidence": float,        # 分类置信度 0-1
-        "response_snippet": str,    # 拒绝响应片段
+        "matched_pattern": str,  # 匹配到的拒绝模式
+        "confidence": float,  # 分类置信度 0-1
+        "response_snippet": str,  # 拒绝响应片段
     }
 ]
 
@@ -97,10 +97,10 @@ guardrail_triggers: list[dict] = [
     {
         "technique": str,
         "converter_chain": str,
-        "trigger_token": str,       # 触发护栏的 token
-        "rule_name": str,           # 规则名称
+        "trigger_token": str,  # 触发护栏的 token
+        "rule_name": str,  # 规则名称
         "confidence": float,
-        "context_snippet": str,     # 上下文片段
+        "context_snippet": str,  # 上下文片段
     }
 ]
 
@@ -109,9 +109,9 @@ timing_metadata: list[dict] = [
     {
         "technique": str,
         "converter_chain": str,
-        "request_time": float,      # 请求时间戳
-        "response_time": float,     # 响应时间戳
-        "total_ms": float,          # 总耗时（毫秒）
+        "request_time": float,  # 请求时间戳
+        "response_time": float,  # 响应时间戳
+        "total_ms": float,  # 总耗时（毫秒）
     }
 ]
 ```
@@ -232,7 +232,7 @@ py -m pytest tests/test_data_flow_integrity.py -v  # pytest
 # 每次 git commit / push 自动触发
 
 # pipeline 集成
-from tools.data_flow_hooks import snapshot_hook, validate_and_report
+from tools.dataflow.hooks import snapshot_hook, validate_and_report
 ```
 
 ## 7. Git Hooks 集成
@@ -260,16 +260,16 @@ git push → pre-push hook → data_flow_validator → architecture_guard → py
 ### 8.1 DataFlowValidator
 
 ```python
-from tools.data_flow_validator import DataFlowValidator
+from tools.dataflow.validator import DataFlowValidator
 
 validator = DataFlowValidator(ctx)
-validator.snapshot("post_recon")      # Recon 完成后
-validator.snapshot("post_arm")        # ARM 完成后
-validator.snapshot("post_strike")     # Strike 完成后
-validator.snapshot("post_assess")     # Assess 完成后
-validator.snapshot("post_report")     # Report 完成后
-report = validator.validate_all()     # 执行全量验证
-assert report.is_valid                # 断言无数据流断点
+validator.snapshot("post_recon")  # Recon 完成后
+validator.snapshot("post_arm")  # ARM 完成后
+validator.snapshot("post_strike")  # Strike 完成后
+validator.snapshot("post_assess")  # Assess 完成后
+validator.snapshot("post_report")  # Report 完成后
+report = validator.validate_all()  # 执行全量验证
+assert report.is_valid  # 断言无数据流断点
 ```
 
 ### 8.2 ASR Forensics

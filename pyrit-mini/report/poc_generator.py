@@ -77,16 +77,18 @@ _PYRIT_ATTACK_MAPPING: dict[str, str] = {
 
 # EUREUR EURX?(EUR adversarial_chat) EUREUR
 # [: arXiv:2402.12109 (Crescendo), arXiv:2312.02191 (TAP), arXiv:2310.08419 (PAIR)
-_MULTI_TURN_TECHNIQUES: frozenset[str] = frozenset({
-    "crescendo",
-    "crescendo_simulated",
-    "crescendo_movie_director",
-    "tap",
-    "pair",
-    "multi_model_pair",
-    "red_teaming",
-    "sequential",
-})
+_MULTI_TURN_TECHNIQUES: frozenset[str] = frozenset(
+    {
+        "crescendo",
+        "crescendo_simulated",
+        "crescendo_movie_director",
+        "tap",
+        "pair",
+        "multi_model_pair",
+        "red_teaming",
+        "sequential",
+    }
+)
 
 # EUREUR Converter ??PyRIT Converter EUREUR
 # [: arXiv:2307.15043 (), arXiv:2402.19181 (), arXiv:2402.14266 (DrAttack)
@@ -112,12 +114,13 @@ _CONVERTER_CHAIN_MAP: dict[str, str] = {
     "AsciiSmugglerConverter": "AsciiSmugglerConverter",
     "LeetspeakConverter": "LeetspeakConverter",
     # L5 v36: File Converters ?PyRIT File Converters
-    "PDFConverter": "PDFConverter",               # PDF /eng
-    "WordDocConverter": "WordDocConverter",       # Word /[?
+    "PDFConverter": "PDFConverter",  # PDF /eng
+    "WordDocConverter": "WordDocConverter",  # Word /[?
 }
 
+
 def _get_pyrit_attack_mapping(technique_name: str) -> str:
-    """ PyRIT EURXEUR?
+    """PyRIT EURXEUR?
 
     Args:
         technique_name: EURXEUR?
@@ -126,6 +129,7 @@ def _get_pyrit_attack_mapping(technique_name: str) -> str:
         PyRIT AttackExecutor ?
     """
     return _PYRIT_ATTACK_MAPPING.get(technique_name, "PromptSendingAttack")
+
 
 def _is_multi_turn_technique(technique_name: str) -> bool:
     """yuXXX?(EUR?adversarial_chat)?
@@ -137,8 +141,9 @@ def _is_multi_turn_technique(technique_name: str) -> bool:
     """
     return technique_name in _MULTI_TURN_TECHNIQUES
 
+
 def _parse_converter_chain(converter_chain: str) -> list[str]:
-    """ converter_chain X?PyRIT Converter ?
+    """converter_chain X?PyRIT Converter ?
 
     Args:
         converter_chain: ?Converter  (?"Base64Converter, ROT13Converter")
@@ -152,12 +157,14 @@ def _parse_converter_chain(converter_chain: str) -> list[str]:
     parts = [p.strip() for p in converter_chain.split(",") if p.strip()]
     return [p for p in parts if p in _CONVERTER_CHAIN_MAP]
 
+
 def _escape_triple_quotes(text: str) -> str:
     r"""XX? PoC "?"""
     return text.replace('"""', '\\"\\"\\"')
 
+
 def generate_poc_script(ev: VulnerabilityEvidence) -> str:
-    """ PyRIT PoC ?
+    """PyRIT PoC ?
 
     yu: PoC zu PyRIT ?
      PyRIT  API ( requests.post)?
@@ -213,6 +220,7 @@ def generate_poc_script(ev: VulnerabilityEvidence) -> str:
             arxiv_ref=arxiv_ref,
             objective_text=objective_text,
         )
+
 
 # EUREUR PoC CX?EUREUR
 
@@ -645,7 +653,7 @@ async def run_poc() -> bool:
 
 
 def _generate_converter_setup(converters: list[str]) -> str:
-    """ Converter EUR?
+    """Converter EUR?
 
     [:
         - arXiv:2307.15043 ?Wei et al. X?
@@ -662,16 +670,16 @@ def _generate_converter_setup(converters: list[str]) -> str:
     # L5 v36: converter EURX import (?converter, strategy ?
     extra_imports: list[str] = []
     if "SelectiveTextConverter" in converters:
-        extra_imports.extend([
-            "from pyrit.converter import Base64Converter",
-            "from pyrit.converter import WordProportionSelectionStrategy",
-        ])
+        extra_imports.extend(
+            [
+                "from pyrit.converter import Base64Converter",
+                "from pyrit.converter import WordProportionSelectionStrategy",
+            ]
+        )
     if "CodeChameleonConverter" in converters:
         extra_imports.append("from pyrit.converter import CodeChameleonConverter")
 
-    import_lines = "\n".join(
-        f"from pyrit.converter import {c}" for c in converters
-    )
+    import_lines = "\n".join(f"from pyrit.converter import {c}" for c in converters)
     if extra_imports:
         import_lines += "\n" + "\n".join(extra_imports)
     unique_imports = list(dict.fromkeys(import_lines.split("\n")))
@@ -681,73 +689,64 @@ def _generate_converter_setup(converters: list[str]) -> str:
     for c in converters:
         if c == "PersuasionConverter":
             build_lines.append(
-                f'        # arXiv:2402.19181 -- authority_endorsement ASR 38.4%\n'
+                f"        # arXiv:2402.19181 -- authority_endorsement ASR 38.4%\n"
                 f'        {c}(converter_target=scoring_target, persuasion_technique="authority_endorsement"),'
             )
         elif c == "VariationConverter":
             build_lines.append(
-                f'        # arXiv:2407.01232 -- variation rewrite ASR 20-30%\n'
-                f'        {c}(converter_target=scoring_target),'
+                f"        # arXiv:2407.01232 -- variation rewrite ASR 20-30%\n"
+                f"        {c}(converter_target=scoring_target),"
             )
         elif c == "DecompositionConverter":
             build_lines.append(
-                f'        # arXiv:2402.14266 -- DrAttack decomposition ASR 40-60%\n'
-                f'        {c}(converter_target=scoring_target),'
+                f"        # arXiv:2402.14266 -- DrAttack decomposition ASR 40-60%\n"
+                f"        {c}(converter_target=scoring_target),"
             )
         elif c == "ToneConverter":
             build_lines.append(
-                f'        # arXiv:2402.19181 -- academic tone bypass keyword detection\n'
+                f"        # arXiv:2402.19181 -- academic tone bypass keyword detection\n"
                 f'        {c}(converter_target=scoring_target, tone="academic"),'
             )
         elif c == "CaesarConverter":
-            build_lines.append(
-                f'        # arXiv:2307.15043 -- Caesar offset encoding\n'
-                f'        {c}(caesar_offset=3),'
-            )
+            build_lines.append(f"        # arXiv:2307.15043 -- Caesar offset encoding\n        {c}(caesar_offset=3),")
         elif c == "CodeChameleonConverter":
             build_lines.append(
-                f'        # arXiv:2404.30015 -- CodeChameleon ASR 35-45% (0 token, pure text)\n'
+                f"        # arXiv:2404.30015 -- CodeChameleon ASR 35-45% (0 token, pure text)\n"
                 f'        {c}(encrypt_type="reverse"),'
             )
         elif c == "PolicyPuppetryConverter":
-            build_lines.append(
-                f'        # PolicyPuppetry ASR 30-40% (0 token, pure text)\n'
-                f'        {c}(),'
-            )
+            build_lines.append(f"        # PolicyPuppetry ASR 30-40% (0 token, pure text)\n        {c}(),")
         elif c == "SelectiveTextConverter":
             build_lines.append(
-                f'        # PyRIT SelectiveTextConverter -- selective encoding ASR 25-35%\n'
-                f'        {c}(sub_converter=Base64Converter(),\n'
-                f'        selection_strategy=WordProportionSelectionStrategy(proportion=0.3),\n'
-                f'        preserve_tokens=True),'
+                f"        # PyRIT SelectiveTextConverter -- selective encoding ASR 25-35%\n"
+                f"        {c}(sub_converter=Base64Converter(),\n"
+                f"        selection_strategy=WordProportionSelectionStrategy(proportion=0.3),\n"
+                f"        preserve_tokens=True),"
             )
         elif c == "SearchReplaceConverter":
             build_lines.append(
-                f'        # PyRIT SearchReplaceConverter -- keyword replacement 0 token ASR 20-30%\n'
+                f"        # PyRIT SearchReplaceConverter -- keyword replacement 0 token ASR 20-30%\n"
                 f'        {c}(pattern=r"(?i)\\b(hack|exploit|inject|attack|bypass)\\b",\n'
                 f'        replace=["test", "analyze", "process", "examine"]),'
             )
         elif c == "TemplateSegmentConverter":
-            build_lines.append(
-                f'        # TemplateSegment ASR 25-35%\n'
-                f'        {c}(),'
-            )
+            build_lines.append(f"        # TemplateSegment ASR 25-35%\n        {c}(),")
         elif c == "AsciiSmugglerConverter":
             build_lines.append(
-                f'        # AsciiSmuggler Unicode tag smuggling ASR 20-30%\n'
+                f"        # AsciiSmuggler Unicode tag smuggling ASR 20-30%\n"
                 f'        {c}(action="encode", unicode_tags=True),'
             )
         elif c == "PDFConverter":
             build_lines.append(
-                f'        # PyRIT File Converter: PDFConverter ?payload ?PDF file\n'
-                f'        # OWASP LLM01: Prompt Injection (eng ?EUR?\n'
+                f"        # PyRIT File Converter: PDFConverter ?payload ?PDF file\n"
+                f"        # OWASP LLM01: Prompt Injection (eng ?EUR?\n"
                 f'        {c}(prompt_template=None, font_type="Helvetica", font_size=12,'
-                f' page_width=210, page_height=297),'
+                f" page_width=210, page_height=297),"
             )
         elif c == "WordDocConverter":
             build_lines.append(
-                f'        # PyRIT File Converter: WordDocConverter ?payload ?.docx file\n'
-                f'        # OWASP LLM01: Prompt Injection (eng ?EUR?\n'
+                f"        # PyRIT File Converter: WordDocConverter ?payload ?.docx file\n"
+                f"        # OWASP LLM01: Prompt Injection (eng ?EUR?\n"
                 f'        {c}(),  # " (a?'
             )
         else:
@@ -765,6 +764,7 @@ def _generate_converter_setup(converters: list[str]) -> str:
         f"    ]"
     )
 
+
 def _generate_single_turn_poc(
     *,
     ev: VulnerabilityEvidence,
@@ -775,7 +775,7 @@ def _generate_single_turn_poc(
     arxiv_ref: str,
     objective_text: str,
 ) -> str:
-    """ PoC (PromptSendingAttack).
+    """PoC (PromptSendingAttack).
 
     [: arXiv:2407.01232 ?PyRIT PromptSendingAttack  API
     """
@@ -790,9 +790,7 @@ def _generate_single_turn_poc(
             "    ]"
         )
     else:
-        converter_config_code = (
-            "    converter_configs = None  # baseline, no converters"
-        )
+        converter_config_code = "    converter_configs = None  # baseline, no converters"
 
     return _SINGLE_TURN_TEMPLATE.format(
         technique_display=technique_display,
@@ -814,6 +812,7 @@ def _generate_single_turn_poc(
         objective_raw=ev.jailbreak_prompt or ev.objective,
     )
 
+
 def _generate_multi_turn_poc(
     *,
     ev: VulnerabilityEvidence,
@@ -824,7 +823,7 @@ def _generate_multi_turn_poc(
     arxiv_ref: str,
     objective_text: str,
 ) -> str:
-    """ PoC (CrescendoAttack/TAPAttack/PAIRAttack).
+    """PoC (CrescendoAttack/TAPAttack/PAIRAttack).
 
     [:
         - arXiv:2402.12109 ?CrescendoAttack: max_turns=10, max_backtracks=10  # from config/defaults.yaml crescendo_max_backtracks
@@ -958,6 +957,7 @@ def _generate_multi_turn_poc(
         objective_raw=ev.jailbreak_prompt or ev.objective,
     )
 
+
 def _build_findings(
     evidence_list: list[Any],
     owasp_web_stats: dict[str, Any] | None = None,
@@ -982,6 +982,7 @@ def _build_findings(
     """
     # XraX?
     from report.evidence import OWASPFinding
+
     findings_map: dict[str, list[Any]] = {}
     for ev in evidence_list:
         owasp_id = ev.owasp_id or "LLM01"
@@ -992,24 +993,26 @@ def _build_findings(
         # XEURXX OWASP C (?
         first_ev = ev_list[0]
 
-    # Finding uX
+        # Finding uX
         total_tested = len(ev_list)
         successful = sum(1 for ev in ev_list if ev.is_success)
         asr = (successful / total_tested * 100) if total_tested > 0 else 0.0
 
-    # Result u
+        # Result u
         results: list[dict[str, Any]] = []
         for ev in ev_list:
-            results.append({
-                "evidence_id": ev.evidence_id,
-                "technique": ev.technique_name,
-                "technique_display_name": ev.technique_display_name,
-                "is_success": ev.is_success,
-                "conversation": ev.conversation_history,
-                "objective": ev.objective,
-                "response": ev.harmful_output,
-                "converter_chain": ev.converter_chain,
-            })
+            results.append(
+                {
+                    "evidence_id": ev.evidence_id,
+                    "technique": ev.technique_name,
+                    "technique_display_name": ev.technique_display_name,
+                    "is_success": ev.is_success,
+                    "conversation": ev.conversation_history,
+                    "objective": ev.objective,
+                    "response": ev.harmful_output,
+                    "converter_chain": ev.converter_chain,
+                }
+            )
 
         finding = OWASPFinding(
             finding_id=f"FND-{owasp_id}",
@@ -1030,4 +1033,3 @@ def _build_findings(
         findings.append(finding)
 
     return findings
-

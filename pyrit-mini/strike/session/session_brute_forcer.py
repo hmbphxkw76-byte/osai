@@ -24,6 +24,7 @@ Constitution compliance:
     - C2: 不添加任何攻击端过滤
     - R-S1: 字典/范围完全配置驱动
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -39,8 +40,9 @@ logger = logging.getLogger(__name__)
 
 class BruteStrategy(str, Enum):
     """暴力破解策略"""
-    DICTIONARY = "dictionary"        # 字典
-    INCREMENTAL = "incremental"      # 递增
+
+    DICTIONARY = "dictionary"  # 字典
+    INCREMENTAL = "incremental"  # 递增
     PATTERN_BASED = "pattern_based"  # 基于模式
     TIME_CORRELATED = "time_correlated"  # 时间相关
 
@@ -48,14 +50,15 @@ class BruteStrategy(str, Enum):
 @dataclass
 class BruteConfig:
     """暴力破解配置"""
+
     strategy: BruteStrategy = BruteStrategy.PATTERN_BASED
-    max_attempts: int = 10000        # 最大尝试次数
-    batch_size: int = 5              # 并发批次
-    rate_limit_ms: int = 200         # 请求间隔
-    adaptive_rate: bool = True       # 自适应速率
-    jitter_ms: int = 50              # 随机抖动
-    timeout_sec: float = 5.0         # 超时
-    early_stop_count: int = 10       # 找到 N 个有效后停止
+    max_attempts: int = 10000  # 最大尝试次数
+    batch_size: int = 5  # 并发批次
+    rate_limit_ms: int = 200  # 请求间隔
+    adaptive_rate: bool = True  # 自适应速率
+    jitter_ms: int = 50  # 随机抖动
+    timeout_sec: float = 5.0  # 超时
+    early_stop_count: int = 10  # 找到 N 个有效后停止
     dictionary_path: str | None = None  # 字典路径
     session_field: str = "session_id"
     probe_message: str = "ping"
@@ -65,6 +68,7 @@ class BruteConfig:
 @dataclass
 class BruteResult:
     """暴力破解结果"""
+
     valid_sessions: list[str] = field(default_factory=list)
     total_attempts: int = 0
     elapsed_seconds: float = 0.0
@@ -124,7 +128,7 @@ class SessionBruteForcer:
         candidates = self._generate_candidates(analysis_result, known_session)
 
         # 执行爆破
-        for batch in self._batch(candidates[:self.config.max_attempts], self.config.batch_size):
+        for batch in self._batch(candidates[: self.config.max_attempts], self.config.batch_size):
             batch_results = await self._probe_batch(batch)
 
             for probe in batch_results:
@@ -145,9 +149,7 @@ class SessionBruteForcer:
         result.elapsed_seconds = time.time() - start_time
         return result
 
-    def _generate_candidates(
-        self, analysis_result: Any, known_session: str
-    ) -> list[str]:
+    def _generate_candidates(self, analysis_result: Any, known_session: str) -> list[str]:
         """根据分析结果生成候选列表"""
         pattern = analysis_result.pattern_type
         candidates: list[str] = []
@@ -168,23 +170,16 @@ class SessionBruteForcer:
 
         return candidates
 
-    def _generate_structured_candidates(
-        self, result: Any, known: str
-    ) -> list[str]:
+    def _generate_structured_candidates(self, result: Any, known: str) -> list[str]:
         """生成结构化序列候选"""
         prefix = result.prefix or known.split("-")[0]
         date_part = result.date_format or known.split("-")[1]
         width = result.counter_width or 4
 
-        upper = min(self.config.max_attempts, 10 ** width)
-        return [
-            f"{prefix}-{date_part}-{i:0{width}d}"
-            for i in range(1, upper + 1)
-        ]
+        upper = min(self.config.max_attempts, 10**width)
+        return [f"{prefix}-{date_part}-{i:0{width}d}" for i in range(1, upper + 1)]
 
-    def _generate_timestamp_candidates(
-        self, result: Any, known: str
-    ) -> list[str]:
+    def _generate_timestamp_candidates(self, result: Any, known: str) -> list[str]:
         """生成时间戳候选"""
         import re
 
@@ -203,11 +198,10 @@ class SessionBruteForcer:
             for i in range(1, 43200)  # 12h / direction
         ]
 
-    def _generate_incremental_candidates(
-        self, result: Any, known: str
-    ) -> list[str]:
+    def _generate_incremental_candidates(self, result: Any, known: str) -> list[str]:
         """生成递增整数候选"""
         import re
+
         num_match = re.search(r"(\d+)$", known)
         if not num_match:
             return []
@@ -219,13 +213,26 @@ class SessionBruteForcer:
     def _generate_user_candidates(self, known: str) -> list[str]:
         """生成用户名模式候选"""
         users = [
-            "admin", "administrator", "root", "system", "operator",
-            "user", "test", "guest", "demo", "dev", "staging",
-            "alice", "bob", "charlie", "dave", "eve",
+            "admin",
+            "administrator",
+            "root",
+            "system",
+            "operator",
+            "user",
+            "test",
+            "guest",
+            "demo",
+            "dev",
+            "staging",
+            "alice",
+            "bob",
+            "charlie",
+            "dave",
+            "eve",
         ]
 
         prefix = known.split("_")[0] if "_" in known else ""
-        suffix = known[len(prefix) + 1:] if "_" in known else known
+        suffix = known[len(prefix) + 1 :] if "_" in known else known
 
         # 替换用户名部分
         candidates = []
@@ -238,6 +245,7 @@ class SessionBruteForcer:
     def _generate_generic_candidates(self, known: str) -> list[str]:
         """通用模式: 前后扩展"""
         import re
+
         num_match = re.search(r"(\d+)$", known)
         if not num_match:
             return []

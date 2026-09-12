@@ -44,7 +44,11 @@ _AI_HEADER_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
     (re.compile(r"^openai-(organization|version|processing-ms)", re.I), "openai", "ai-sdk-client"),
     (re.compile(r"^anthropic-(version|beta|ratelimit-)", re.I), "anthropic", "ai-sdk-client"),
     (re.compile(r"^x-ms-region$|^azureml-model-session$", re.I), "azure-openai", "ai-sdk-client"),
-    (re.compile(r"^x-ratelimit-limit-tokens-cache-adjusted-prompt$|^x-fireworks-account-id$", re.I), "fireworks", "ai-sdk-client"),
+    (
+        re.compile(r"^x-ratelimit-limit-tokens-cache-adjusted-prompt$|^x-fireworks-account-id$", re.I),
+        "fireworks",
+        "ai-sdk-client",
+    ),
     # == MCP ==
     (re.compile(r"^x-mcp-", re.I), "mcp", "ai-framework"),
 ]
@@ -97,17 +101,18 @@ _AI_BODY_FINGERPRINTS: list[tuple[re.Pattern[str], str, str]] = [
     (re.compile(r"\btxt2img_textarea\b", re.I), "automatic1111", "ai-frontend"),
     (re.compile(r'"flowise_"', re.I), "flowise", "ai-frontend"),
     (re.compile(r"\bstreamlit_\b", re.I), "streamlit", "ai-frontend"),
-    (re.compile(r'\bgradio\b', re.I), "gradio", "ai-frontend"),
+    (re.compile(r"\bgradio\b", re.I), "gradio", "ai-frontend"),
     # == SDK ==
     (re.compile(r"""from openai import|import openai""", re.I), "openai-sdk", "ai-sdk-client"),
     (re.compile(r"""from anthropic import|import anthropic""", re.I), "anthropic-sdk", "ai-sdk-client"),
     (re.compile(r"""from litellm import|import litellm""", re.I), "litellm", "ai-proxy"),
 ]
 
+
 def split_response_headers_body(
     response_section: str,
 ) -> tuple[list[tuple[str, str]], str]:
-    """ Response headers body
+    """Response headers body
 
     Args:
         response_section: Burp Response
@@ -123,7 +128,7 @@ def split_response_headers_body(
         return [], normalized
 
     header_section = normalized[:split_idx]
-    body = normalized[split_idx + 2:]
+    body = normalized[split_idx + 2 :]
 
     headers_list: list[tuple[str, str]] = []
     for line in header_section.split("\n"):
@@ -135,6 +140,7 @@ def split_response_headers_body(
             headers_list.append((name.strip(), value.strip()))
 
     return headers_list, body
+
 
 def extract_ai_framework_fingerprint(
     response_section: str,
@@ -152,17 +158,19 @@ def extract_ai_framework_fingerprint(
 
     resp_headers, resp_body = split_response_headers_body(response_section)
 
- # == Layer 1: Response Header ==
+    # == Layer 1: Response Header ==
     for header_name, _header_value in resp_headers:
         for pattern, fw_name, fw_category in _AI_HEADER_PATTERNS:
             if pattern.search(header_name):
                 logger.debug(
                     "AI framework detected from response header '%s': %s (%s)",
-                    header_name, fw_name, fw_category,
+                    header_name,
+                    fw_name,
+                    fw_category,
                 )
                 return fw_name, fw_category
 
- # == Layer 2: HTML <title> ==
+    # == Layer 2: HTML <title> ==
     title_match = re.search(r"<title[^>]*>(.*?)</title>", resp_body, re.I | re.DOTALL)
     if title_match:
         title_text = title_match.group(1).strip()
@@ -171,16 +179,18 @@ def extract_ai_framework_fingerprint(
                 logger.debug("AI framework detected from <title>: %s", fw_name)
                 return fw_name, "ai-frontend"
 
- # == Layer 3: Body Wappalyzer ==
+    # == Layer 3: Body Wappalyzer ==
     for pattern, fw_name, fw_category in _AI_BODY_FINGERPRINTS:
         if pattern.search(resp_body):
             logger.debug(
                 "AI framework detected from body fingerprint: %s (%s)",
-                fw_name, fw_category,
+                fw_name,
+                fw_category,
             )
             return fw_name, fw_category
 
     return None, None
+
 
 def extract_ai_sdk_from_request_headers(
     request_headers: dict[str, str],
@@ -198,26 +208,123 @@ def extract_ai_sdk_from_request_headers(
     Returns:
         (framework_name, category)
     """
- # header
+    # header
     header_keys_lower = {k.lower() for k in request_headers}
 
- # Anthropic SDK
+    # Anthropic SDK
     for key in request_headers:
         if key.lower().startswith("anthropic-"):
             return "anthropic", "ai-sdk-client"
 
- # OpenAI SDK
+    # OpenAI SDK
     for key in request_headers:
         if key.lower().startswith("openai-"):
             return "openai", "ai-sdk-client"
 
- # Azure OpenAI ()
+    # Azure OpenAI ()
     if "api-key" in header_keys_lower or "x-ms-region" in header_keys_lower:
         return "azure-openai", "ai-sdk-client"
 
- # MCP
+    # MCP
     for key in request_headers:
         if key.lower().startswith("x-mcp-"):
             return "mcp", "ai-framework"
 
     return None, None
+
+
+# =============================================================================
+# FingerprintBuilder - Composite fingerprint construction
+# =============================================================================
+
+
+class TargetFingerprint:
+    """Target fingerprint data class.
+
+    Recon output bus: Contains all detected target capabilities.
+
+    Defined here for backward compatibility. Canonical definition
+    is in recon.burp_parser.TargetFingerprint.
+    """
+
+    def __init__(self) -> None:
+        self.framework: str | None = None
+        self.category: str | None = None
+        self.runtime: str | None = None
+        self.model_family: str | None = None
+
+
+def build_fingerprint(
+    response_section: str,
+    request_headers: dict[str, str] | None = None,
+) -> TargetFingerprint:
+    """Build a composite fingerprint from response section.
+
+    Args:
+        response_section: Raw Burp response section
+        request_headers: Optional request headers for SDK detection
+
+    Returns:
+        TargetFingerprint with detected framework info
+    """
+    fp = TargetFingerprint()
+
+    # Extract framework from response
+    fw_name, fw_category = extract_ai_framework_fingerprint(response_section)
+    if fw_name:
+        fp.framework = fw_name
+        fp.category = fw_category
+
+    # Extract SDK from request headers
+    if request_headers:
+        sdk_name, sdk_category = extract_ai_sdk_from_request_headers(request_headers)
+        if sdk_name:
+            fp.runtime = sdk_name
+            if not fp.category:
+                fp.category = sdk_category
+
+    return fp
+
+
+class FingerprintBuilder:
+    """Builder pattern for constructing complex target fingerprints.
+
+    Provides a fluent API for adding multiple fingerprint sources
+    before building the final composite fingerprint.
+    """
+
+    def __init__(self) -> None:
+        self._fingerprint = TargetFingerprint()
+        self._sources: list[str] = []
+
+    def with_response(self, response_section: str) -> "FingerprintBuilder":
+        """Add response-based fingerprint source."""
+        fp = build_fingerprint(response_section)
+        if fp.framework:
+            self._fingerprint.framework = fp.framework
+        if fp.category:
+            self._fingerprint.category = fp.category
+        if fp.runtime:
+            self._fingerprint.runtime = fp.runtime
+        self._sources.append("response")
+        return self
+
+    def with_request_headers(self, headers: dict[str, str]) -> "FingerprintBuilder":
+        """Add request header fingerprint source."""
+        sdk_name, sdk_category = extract_ai_sdk_from_request_headers(headers)
+        if sdk_name:
+            self._fingerprint.runtime = sdk_name
+            if not self._fingerprint.category:
+                self._fingerprint.category = sdk_category
+        self._sources.append("request_headers")
+        return self
+
+    def with_model_family(self, model_family: str) -> "FingerprintBuilder":
+        """Set model family explicitly."""
+        self._fingerprint.model_family = model_family
+        self._sources.append("model_family")
+        return self
+
+    def build(self) -> TargetFingerprint:
+        """Build and return the final fingerprint."""
+        return self._fingerprint

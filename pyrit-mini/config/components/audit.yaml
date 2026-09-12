@@ -1,0 +1,53 @@
+# config/components/audit.yaml — Audit / Observability 规避面（组件声明 SSOT）
+#
+# 【新增组件】plan §2.1 组件 [9]：审计/可观测面——日志、追踪、告警。
+# 特征：本组件是**规避对象**而非直接攻击目标，因此不计入 ASR 分母
+#       （与 supply_chain 同为侦察级组件，见 config/components/README.md）。
+
+schema_version: "1.0"
+component_key: audit_evasion
+id: audit
+display_name: "Audit / Observability Evasion Surface"
+labels: [audit_evasion, audit, observability, logging]
+
+recon_dir: ""
+strike_dir: evasion
+
+detection:
+  path_patterns: ["/logs", "/trace", "/metrics", "/audit", "/telemetry", "/events", "/otlp"]
+  body_markers: ["trace_id", "span_id", "audit_log", "logged", "monitoring", "alert"]
+  active_probes: ["recon.fingerprint"]
+  signals: ["trace_id", "span_id", "audit_log", "x-request-id", "otel"]
+  min_confidence: 0.50
+
+recon_modules:
+  - recon.fingerprint
+  - recon.stealth_timing
+service_profile_keys: ["audit_profile", "observability_profile"]
+
+seed_sets: []
+seeds: []
+seed_suitable_for: ["audit_evasion"]
+converter_vectors: ["log_redaction_evasion", "trace_fragmentation"]
+
+preferred_attack_class: "PromptSendingAttack"
+asr_prior: 0.60
+
+strike_modules:
+  - strike.evasion.audit
+  - strike.injection.stealth_exec
+playbooks: [audit_log_evasion]
+
+assess:
+  t0_check: "assess.component_scorers:t0_model_behavior_shift_check"
+  rubric: "data/scorers/component_scorers/model_behavior_shift.yaml"
+scorer: model_behavior_shift
+
+report_builder: "report.component_reports:_build_model_behavior_shift_sections"
+report_section: "report.component_reports.model"
+poc_template: "report.component_poc:model_poc"
+
+owasp: ["LLM09"]
+neighbors: ["model_behavior_shift", "llm_gateway", "supply_chain"]
+
+cleanup: [restore_log_level]

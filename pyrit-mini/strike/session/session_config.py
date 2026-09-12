@@ -15,6 +15,7 @@ Academic basis:
     - Crothers et al. (arXiv:2306.05685) — Adaptive session management
     - Gao et al. (arXiv:2311.10536) — Structured response parsing taxonomy
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -24,6 +25,7 @@ from typing import Any
 
 class ExtractionMethod(str, Enum):
     """状态提取方法"""
+
     JSON_PATH = "json_path"
     REGEX = "regex"
     HEADER = "header"
@@ -32,6 +34,7 @@ class ExtractionMethod(str, Enum):
 
 class InjectionTarget(str, Enum):
     """状态注入目标位置"""
+
     BODY = "body"
     HEADER = "header"
     QUERY = "query"
@@ -40,8 +43,9 @@ class InjectionTarget(str, Enum):
 
 class RotationType(str, Enum):
     """轮换策略类型"""
-    STICKY = "sticky"                   # 单 session 粘性
-    POOL = "pool"                       # session 池
+
+    STICKY = "sticky"  # 单 session 粘性
+    POOL = "pool"  # session 池
     FRESH_PER_REQUEST = "fresh_per_request"  # 每次新 session
 
 
@@ -56,6 +60,7 @@ class ExtractionRule:
         primary: 主提取方法
         fallbacks: 备用提取方法列表
     """
+
     name: str
     primary: dict[str, Any]
     fallbacks: list[dict[str, Any]] = field(default_factory=list)
@@ -88,6 +93,7 @@ class InjectionRule:
         field: 目标字段名
         template: 注入模板，{value} 会被替换为实际值
     """
+
     name: str
     target: InjectionTarget
     field: str
@@ -121,6 +127,7 @@ class SessionValidationConfig:
         alert_on_reset: session 重置时告警
         max_age_turns: 最大 session 存活轮数
     """
+
     enabled: bool = True
     strategy: str = "track_changes"
     alert_on_reset: bool = True
@@ -154,6 +161,7 @@ class RotationPolicy:
         pool_size: 池大小 (仅 pool 模式)
         reuse_threshold_turns: 复用阈值轮数 (仅 pool 模式)
     """
+
     type: RotationType = RotationType.STICKY
     max_turns: int = 50
     pool_size: int = 3
@@ -198,6 +206,7 @@ class SessionEnumerationConfig:
         sensitive_keywords: 自定义敏感关键词 (空 = 使用默认)
         empty_indicators: 自定义空会话指示词 (空 = 使用默认)
     """
+
     enabled: bool = False
     pattern_template: str = "MC-{date:%Y%m%d}-{counter:04d}"
     date_start: str = ""  # ISO format date string or empty
@@ -258,6 +267,7 @@ class SessionConfig:
         rotation: 轮换策略配置
         enumeration: 会话枚举配置 (ASI09)
     """
+
     extraction_rules: list[ExtractionRule] = field(default_factory=list)
     injection_rules: list[InjectionRule] = field(default_factory=list)
     validation: SessionValidationConfig = field(default_factory=SessionValidationConfig)
@@ -275,14 +285,8 @@ class SessionConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SessionConfig:
-        extraction_rules = [
-            ExtractionRule.from_dict(r)
-            for r in data.get("extraction_rules", [])
-        ]
-        injection_rules = [
-            InjectionRule.from_dict(r)
-            for r in data.get("injection_rules", [])
-        ]
+        extraction_rules = [ExtractionRule.from_dict(r) for r in data.get("extraction_rules", [])]
+        injection_rules = [InjectionRule.from_dict(r) for r in data.get("injection_rules", [])]
         validation_data = data.get("validation", {})
         rotation_data = data.get("rotation", {})
         enumeration_data = data.get("enumeration", {})

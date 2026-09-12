@@ -141,16 +141,17 @@
 
 ### C10 — 验证义务（Mandatory Verification）
 
-每次变更后，四步门禁**全部执行、全部通过、缺一不可**，顺序固定：
+每次变更后，五步门禁**全部执行、全部通过、缺一不可**，顺序固定：
 
 ```bash
 py -m tools.guard              # Step 1: 静态守卫 (0 新增 BLOCKING)
+python tools/architecture_validator.py full   # Step 1.5: 架构体检 (组件感知流水线合规)
 ruff check .  # Step 2: 代码风格（范围由 [tool.ruff] exclude 限定）
 python -m pytest tests/ -v --tb=long            # Step 3
 python main.py --dry-run --max-seeds 1          # Step 4: 0-token 运行时验证
 ```
 
-- **判定**："guard 过了所以不用 dry-run" / "改动很小跳过验证" → 全部违例。
+- **判定**："guard 过了所以不用 dry-run" / "改动很小跳过验证" / "架构体检太耗时跳过" → 全部违例。
 
 ### C11 — 停止权与提问义务（Stop-and-Ask）
 

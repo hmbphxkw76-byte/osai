@@ -15,6 +15,7 @@ Constitution compliance:
     - C1: 不使用 PyRIT (纯生成逻辑)
     - R-S1: 不硬编码目标标识符
 """
+
 from __future__ import annotations
 
 import re
@@ -32,9 +33,21 @@ class SessionIDCandidateGenerator:
 
     # 用户名派生模式的常用用户名
     USER_PREFIXES: list[str] = [
-        "admin", "user", "test", "guest", "demo", "dev",
-        "alice", "bob", "charlie", "operator", "root",
-        "administrator", "system", "staging", "production",
+        "admin",
+        "user",
+        "test",
+        "guest",
+        "demo",
+        "dev",
+        "alice",
+        "bob",
+        "charlie",
+        "operator",
+        "root",
+        "administrator",
+        "system",
+        "staging",
+        "production",
     ]
 
     def generate(
@@ -56,25 +69,15 @@ class SessionIDCandidateGenerator:
         candidates: list[str] = []
 
         if result.pattern_type == PatternType.STRUCTURED_SEQ:
-            candidates = self._generate_structured_candidates(
-                result, known_session, max_candidates
-            )
+            candidates = self._generate_structured_candidates(result, known_session, max_candidates)
         elif result.pattern_type in (PatternType.TIMESTAMP_MS, PatternType.TIMESTAMP_S):
-            candidates = self._generate_timestamp_candidates(
-                result, known_session, max_candidates
-            )
+            candidates = self._generate_timestamp_candidates(result, known_session, max_candidates)
         elif result.pattern_type == PatternType.INCREMENTAL_INT:
-            candidates = self._generate_incremental_candidates(
-                result, known_session, max_candidates
-            )
+            candidates = self._generate_incremental_candidates(result, known_session, max_candidates)
         elif result.pattern_type == PatternType.USER_DERIVED:
-            candidates = self._generate_user_candidates(
-                known_session, max_candidates
-            )
+            candidates = self._generate_user_candidates(known_session, max_candidates)
         else:
-            candidates = self._generate_generic_candidates(
-                known_session, max_candidates
-            )
+            candidates = self._generate_generic_candidates(known_session, max_candidates)
 
         return candidates[:max_candidates]
 
@@ -98,7 +101,7 @@ class SessionIDCandidateGenerator:
         date_part = match.group("date")
         counter_width = result.counter_width or len(match.group("counter"))
 
-        upper = min(max_candidates, 10 ** counter_width)
+        upper = min(max_candidates, 10**counter_width)
         return [
             f"{prefix}-{date_part}-{i:0{counter_width}d}"
             for i in range(1, upper + 1)
@@ -140,11 +143,7 @@ class SessionIDCandidateGenerator:
             max_val = max_candidates
 
         upper = min(max_val, max_candidates)
-        return [
-            str(i)
-            for i in range(1, upper + 1)
-            if str(i) != known_session
-        ]
+        return [str(i) for i in range(1, upper + 1) if str(i) != known_session]
 
     def _generate_user_candidates(
         self,
@@ -153,7 +152,7 @@ class SessionIDCandidateGenerator:
     ) -> list[str]:
         """生成用户名派生模式候选"""
         prefix = known_session.split("_")[0] if "_" in known_session else ""
-        suffix = known_session[len(prefix) + 1:] if "_" in known_session else known_session
+        suffix = known_session[len(prefix) + 1 :] if "_" in known_session else known_session
 
         candidates = []
         for user in self.USER_PREFIXES:
@@ -176,16 +175,12 @@ class SessionIDCandidateGenerator:
             return []
 
         base = num_match.group(1)
-        prefix = known_session[:-len(base)]
+        prefix = known_session[: -len(base)]
         num = int(base)
         width = len(base)
 
-        upper = min(num + max_candidates, 10 ** width - 1)
-        return [
-            f"{prefix}{i:0{width}d}"
-            for i in range(1, upper + 1)
-            if f"{prefix}{i:0{width}d}" != known_session
-        ]
+        upper = min(num + max_candidates, 10**width - 1)
+        return [f"{prefix}{i:0{width}d}" for i in range(1, upper + 1) if f"{prefix}{i:0{width}d}" != known_session]
 
     @staticmethod
     def _extract_numeric_suffix(text: str) -> int | None:

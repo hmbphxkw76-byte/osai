@@ -44,6 +44,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class TrustBoundary:
     """Detected trust boundary in multi-agent system."""
+
     boundary_id: str
     source_tier: str
     target_tier: str
@@ -58,6 +59,7 @@ class TrustBoundary:
 @dataclass
 class TrustChainResult:
     """Complete trust chain probing result."""
+
     base_url: str
     trust_boundaries: list[TrustBoundary] = field(default_factory=list)
     escalation_paths: list[TrustEscalationPath] = field(default_factory=list)
@@ -243,10 +245,19 @@ async def test_trust_escalation(
 
                     # Check if response indicates successful escalation
                     body_lower = body.lower()
-                    if any(indicator in body_lower for indicator in [
-                        "api_key", "secret", "password", "token", "credential",
-                        "sk-", "akia", "bearer",
-                    ]):
+                    if any(
+                        indicator in body_lower
+                        for indicator in [
+                            "api_key",
+                            "secret",
+                            "password",
+                            "token",
+                            "credential",
+                            "sk-",
+                            "akia",
+                            "bearer",
+                        ]
+                    ):
                         result["potential_success"] = True
                         result["indicators"] = "credentials_exposed"
 
@@ -254,11 +265,13 @@ async def test_trust_escalation(
 
         except aiohttp.ClientError as e:
             logger.debug("Trust escalation probe error: %s", e)
-            results.append({
-                "payload_name": step.name,
-                "error": str(e),
-                "success": False,
-            })
+            results.append(
+                {
+                    "payload_name": step.name,
+                    "error": str(e),
+                    "success": False,
+                }
+            )
         except Exception as e:
             logger.debug("Unexpected error in trust escalation: %s", e)
 

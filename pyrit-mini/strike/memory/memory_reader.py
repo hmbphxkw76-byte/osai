@@ -24,6 +24,7 @@ Constitution compliance:
     - C2: 不添加攻击端过滤
     - R-S1: 读取操作 payload 完全参数化
 """
+
 from __future__ import annotations
 
 import logging
@@ -36,6 +37,7 @@ logger = logging.getLogger(__name__)
 
 class DataType(str, Enum):
     """数据类型枚举"""
+
     NOTES = "notes"
     HISTORY = "history"
     SECRETS = "secrets"
@@ -46,6 +48,7 @@ class DataType(str, Enum):
 @dataclass
 class MemoryReadConfig:
     """内存读取配置 (无硬编码 payload)"""
+
     session_field: str = "session_id"
     read_payloads: dict[str, list[str]] = field(default_factory=dict)
     max_sessions: int = 10
@@ -56,6 +59,7 @@ class MemoryReadConfig:
 @dataclass
 class SessionData:
     """单个会话的数据"""
+
     session_id: str
     data_types_found: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
@@ -78,6 +82,7 @@ class SessionData:
 @dataclass
 class MemoryReadResult:
     """完整读取结果"""
+
     sessions_data: dict[str, SessionData] = field(default_factory=dict)
     total_sessions_attempted: int = 0
     total_data_items: int = 0
@@ -89,10 +94,7 @@ class MemoryReadResult:
             "total_sessions_attempted": self.total_sessions_attempted,
             "total_data_items": self.total_data_items,
             "elapsed_seconds": self.elapsed_seconds,
-            "sessions": {
-                sid: data.to_dict()
-                for sid, data in self.sessions_data.items()
-            },
+            "sessions": {sid: data.to_dict() for sid, data in self.sessions_data.items()},
         }
 
 
@@ -153,6 +155,7 @@ class MemoryReader:
             MemoryReadResult
         """
         import time
+
         start_time = time.time()
         result = MemoryReadResult()
 
@@ -163,9 +166,7 @@ class MemoryReader:
 
             # 统计总数据项
             result.total_data_items += (
-                len(session_data.notes)
-                + len(session_data.history)
-                + len(session_data.secrets_found)
+                len(session_data.notes) + len(session_data.history) + len(session_data.secrets_found)
             )
 
         result.elapsed_seconds = time.time() - start_time
@@ -190,9 +191,7 @@ class MemoryReader:
                 if data_type == "notes" and extracted:
                     session_data.notes.extend(extracted)
                 elif data_type == "history" and extracted:
-                    session_data.history.extend(
-                        [{"content": e} for e in extracted]
-                    )
+                    session_data.history.extend([{"content": e} for e in extracted])
                 elif data_type == "secrets" and extracted:
                     session_data.secrets_found.extend(extracted)
 
@@ -201,11 +200,13 @@ class MemoryReader:
 
         if session_data.notes or session_data.history:
             session_data.data_types_found = [
-                t for t, found in [
+                t
+                for t, found in [
                     ("notes", bool(session_data.notes)),
                     ("history", bool(session_data.history)),
                     ("secrets", bool(session_data.secrets_found)),
-                ] if found
+                ]
+                if found
             ]
 
         return session_data

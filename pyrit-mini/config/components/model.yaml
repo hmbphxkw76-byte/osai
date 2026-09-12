@@ -1,0 +1,66 @@
+# config/components/model.yaml — Model Behavior Shift（模型本体，组件声明 SSOT）
+#
+# 宪法 7B：通用 LLM Chat 首选 PromptSendingAttack + 多 Converter，ASR 先验 85-95%。
+# 覆盖：越狱、输出过滤绕过、多模态、后门/休眠触发器、人格切换。
+
+schema_version: "1.0"
+component_key: model_behavior_shift
+id: model
+display_name: "LLM Model Behavior (Jailbreak / Filter Bypass / Backdoor)"
+labels: [model, model_behavior_shift, multimodal_upload, jailbreak]
+
+recon_dir: model
+strike_dir: model
+
+detection:
+  path_patterns: ["/v1/chat/completions", "/v1/completions", "/v1/responses", "/api/chat", "/chat", "/generate"]
+  body_markers: ["choices", "system", "assistant", "messages", "model", "prompt"]
+  active_probes: ["recon.model.api_classifier"]
+  signals: ["chat/completions", "messages", "system_prompt", "choices"]
+  min_confidence: 0.50
+
+recon_modules:
+  - recon.model.api_classifier
+  - recon.model.prompt_injector
+  - recon.model.capability_detector
+  - recon.model.system_prompt_extract
+  - recon.model.seed_mapper
+service_profile_keys: ["model_profile", "system_prompt", "guardrail_profile"]
+
+seed_sets:
+  - "data/seeds/model/"
+  - "data/seeds/_core/"
+seeds: ["data/seeds/model/*", "data/seeds/_core/*"]
+seed_suitable_for: ["model_behavior_shift"]
+converter_vectors: ["jailbreak_template", "role_play", "payload_splitting", "many_shot"]
+
+preferred_attack_class: "PromptSendingAttack"
+asr_prior: 0.88
+
+strike_modules:
+  - strike.model.backdoor
+  - strike.model.filter_bypass
+  - strike.model.multimodal
+  - strike.model.persona_switch
+  - strike.model.sleeper_trigger
+  - strike.model.many_shot_jailbreak
+  - strike.model.pair_tap
+  - strike.injection.indirect_pi
+  - strike.injection.doc_poisoner
+  - strike.injection.file_upload_executor
+playbooks: [model_jailbreak_ladder, model_filter_bypass]
+
+assess:
+  t0_check: "assess.component_scorers:t0_model_behavior_shift_check"
+  rubric: "data/scorers/component_scorers/model_behavior_shift.yaml"
+scorer: model_behavior_shift
+
+report_builder: "report.component_reports:_build_model_behavior_shift_sections"
+report_section: "report.component_reports.model"
+poc_template: "report.component_poc:model_poc"
+
+owasp: ["LLM01", "LLM02", "LLM04"]
+# 模型本体是所有链路的汇聚点：上承网关，下接 RAG/MCP/A2A
+neighbors: ["llm_gateway", "rag_pipeline", "mcp_tool_poisoning", "a2a_agent_integrity", "audit_evasion"]
+
+cleanup: [restore_system_prompt, clear_injected_context]

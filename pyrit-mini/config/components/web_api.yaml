@@ -1,0 +1,66 @@
+# config/components/web_api.yaml — Web / API 接入层（组件声明 SSOT）
+#
+# 覆盖：认证、API 网关、限流、WAF、请求走私、租户隔离。
+# 说明：`recon/api/` 与 `recon/web/` 在此统一归属同一组件键（治 C3 双轨），
+#       两者作为并列侦察源同时登记，不再各自持有独立的组件语义。
+
+schema_version: "1.0"
+component_key: web_api
+id: web_infra
+display_name: "Web / API Gateway Layer"
+labels: [web_api, web_infra, web, api, gateway]
+
+recon_dir: api
+strike_dir: web
+
+detection:
+  path_patterns: ["/api", "/v1", "/v2", "/graphql", "/oauth", "/login", "/auth", "/openapi.json", "/swagger"]
+  body_markers: ["openapi", "swagger", "bearer", "jwt", "api_key", "x-api-key", "access_token"]
+  active_probes: ["recon.api.openapi_discoverer"]
+  signals: ["openapi", "swagger", "bearer", "jwt", "x-api-key", "WWW-Authenticate"]
+  min_confidence: 0.50
+
+recon_modules:
+  - recon.api.auth_detector
+  - recon.api.openapi_discoverer
+  - recon.api.openapi_capture
+  - recon.api.endpoint_sorter
+  - recon.api.recursive_expander
+  - recon.api.sse_parser
+  - recon.web.web_api_discoverer
+  - recon.web.web_auth_mapper
+  - recon.web.web_input_mapper
+service_profile_keys: ["auth_profile", "openapi_spec", "discovered_endpoints", "rate_limit_profile"]
+
+seed_sets:
+  - "data/seeds/web/"
+seeds: ["data/seeds/web/*"]
+seed_suitable_for: ["web_api"]
+converter_vectors: ["header_injection", "request_smuggling", "auth_bypass", "rate_limit_evasion"]
+
+preferred_attack_class: "PromptSendingAttack"
+asr_prior: 0.70
+
+strike_modules:
+  - strike.web.orchestrator
+  - strike.web.attacks
+  - strike.web.link_evasion
+  - strike.web.page_injector
+  - strike.web.http_engine
+  - strike.injection.auth_attacks
+playbooks: [web_auth_bypass, web_rate_limit_evasion]
+
+assess:
+  t0_check: "assess.component_scorers:t0_web_api_check"
+  rubric: "data/scorers/component_scorers/web_api.yaml"
+scorer: web_api
+
+report_builder: "report.component_reports:_build_web_api_sections"
+report_section: "report.component_reports.web"
+poc_template: "report.component_poc:web_poc"
+
+owasp: ["API1", "API2", "API5", "LLM03"]
+# 接入层是所有企业链路的入口，下游必然是模型网关
+neighbors: ["llm_gateway", "session_memory", "audit_evasion"]
+
+cleanup: [revoke_test_token, restore_rate_limit]

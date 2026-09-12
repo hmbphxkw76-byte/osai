@@ -27,6 +27,7 @@ Constitution compliance:
     - C2: 不添加攻击端过滤
     - R-S1: 注入 payload 完全配置驱动
 """
+
 from __future__ import annotations
 
 import logging
@@ -40,23 +41,26 @@ logger = logging.getLogger(__name__)
 
 class InjectTarget(str, Enum):
     """注入目标类型"""
-    NOTES = "notes"              # 用户笔记
-    DOCUMENTS = "documents"      # 知识库文档
-    HISTORY = "history"          # 对话历史
-    SYSTEM_PROMPT = "sys_prompt" # 系统提示（间接覆盖）
+
+    NOTES = "notes"  # 用户笔记
+    DOCUMENTS = "documents"  # 知识库文档
+    HISTORY = "history"  # 对话历史
+    SYSTEM_PROMPT = "sys_prompt"  # 系统提示（间接覆盖）
 
 
 class InjectStrategy(str, Enum):
     """注入策略"""
-    PREPEND = "prepend"           # 添加到头部
-    APPEND = "append"             # 添加到尾部
-    OVERWRITE = "overwrite"       # 覆盖原有内容
-    EMBED = "embed"               # 嵌入到现有内容中
+
+    PREPEND = "prepend"  # 添加到头部
+    APPEND = "append"  # 添加到尾部
+    OVERWRITE = "overwrite"  # 覆盖原有内容
+    EMBED = "embed"  # 嵌入到现有内容中
 
 
 @dataclass
 class InjectionConfig:
     """注入配置"""
+
     session_field: str = "session_id"
     inject_payloads: dict[str, list[str]] = field(default_factory=dict)
     strategy: InjectStrategy = InjectStrategy.APPEND
@@ -68,6 +72,7 @@ class InjectionConfig:
 @dataclass
 class InjectionResult:
     """注入结果"""
+
     success: bool = False
     injections_made: int = 0
     target_type: InjectTarget = InjectTarget.NOTES
@@ -334,4 +339,3 @@ async def inject_memory_payload(
         )
 
     return await inject_func(payload, session_id)
-

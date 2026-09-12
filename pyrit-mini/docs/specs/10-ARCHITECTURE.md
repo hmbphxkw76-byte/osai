@@ -3,7 +3,7 @@
 > **文档层级**：L1 / 五层规约金字塔第二层
 > **效力**：定义系统的目标架构、模块边界、数据契约与架构不变量。任何代码变更必须能在本蓝图上"落点"——落不了点的变更需要先走 change-proposal 修改蓝图。
 > **读者**：实施任务前的 AI（必读相关章节）、评审 diff 的人工/AI。
-> **版本**：v2.8（2026-09-09 REV-16：新增第十二章跨模型规约审查架构——分层落位/ctx字段契约/触发条件/不变量ICM-1~4）
+> **版本**：v3.0（2026-09-11 REV-18：新增 13.7 三条主线贯穿性约束 IC-1~IC-6（复审补强）+ ADR-008 修订为四态判定）
 > **归档文件**：`45-DATA-FLOW-INTEGRITY.md` 已合并入本文件的第四章，原文档不再独立维护（其验证工具链 `tools/data_flow_validator.py` + `tools/data_flow_hooks.py` + `tests/test_data_flow_integrity.py` 仍正常运行）
 
 ---
@@ -21,10 +21,16 @@ data/burp/*.txt    ──►     ① RECON    侦察/指纹/Target 构建    ─
  config/asr_priors.yaml    ⑥ REPORT   证据/多格式报告                   └── db/pyrit.db
  data/seeds/*.prompt
 config/burp/*.txt                 ← Burp 目标文件
-config/profiles/asset_index.yaml  ← 统一资产索引
+config/attack_surface_index.yaml  ← 统一攻击面索引（从 config/profiles/ 迁移）
 ```
 
 **使命映射**（见宪法第 0 条）：蓝图的每个部分都服务于"Burp 黑盒目标 ASR 最大化"。判断一个架构改动是否正当的唯一标准：它是否让 ①-⑥ 链路对 Burp 目标打出更高 ASR、或让证据链更可复现。
+
+> **v2.9 目标架构 v4.0（新增）**：在六阶段之上引入**六层架构**与**六个一等公民抽象**——
+> L0 输入与作用域 / L1 侦察与图谱 / L2 攻击链编排 / L3 执行适配 / L4 判定与取证 / L5 交付；
+> EventLog / TargetAdapter / SurfaceGraph / PlaybookEngine / ImpactChain+ExfilChannel / ComponentRegistry。
+> **完整落点见第十三章**；六阶段流水线作为该架构的**运行实例**保留（不改变 1.1 阶段词汇映射）。
+> 立项背景：现有形态为"单组件 / 单轮 prompt / 以 ASR 为唯一判据"，与企业场景（认证态+多步会话+多协议+多租户的组合体）存在输入契约、识别输出、成功判据三处架构级误配。
 
 ### 1.1 阶段词汇映射
 
@@ -50,6 +56,8 @@ config/profiles/asset_index.yaml  ← 统一资产索引
 | 工具层 | `tools/` | CLI 开发/运维工具（宪法守卫、hooks 安装）；**所有带 `__main__` 的脚本必须放在此处** |
 | 支撑层 | `utils/` | 终端展示、日志、资源清理 |
 | 数据层 | `data/` + `config/` | 种子、评分器 rubric、ASR 先验、defaults（**全部为声明式资产**） |
+| 阶段层子层（v2.9 新增） | `recon/adapters/` `strike/playbook/` `assess/impact/` | 协议适配 / 攻击链编排 / 影响判定；只依赖 `core/`，与阶段层其余模块仅经 PipelineContext + EventLog 交接 |
+| 靶场层（v2.9 新增） | `targets/mock/` | 本地 mock 靶标（MCP/A2A/RAG/ToolAgent/WebGateway）；**不打包、不引入新运行时依赖**（NEG-4） |
 
 ### 2.2 依赖方向矩阵
 
@@ -63,6 +71,9 @@ config/profiles/asset_index.yaml  ← 统一资产索引
 | assess/ | ✓ | ✗ | ✗ | ✗ | 内部 | ✗ | ✗ | 读写 asr_history |
 | report/ | ✓ | ✗ | ✗ | ✗ | ✗ | 内部 | ✗ | 只读 |
 | utils/ | ✓（context 类型） | ✗ | ✗ | ✗ | ✗ | ✗ | 内部 | 只读 |
+| recon/adapters/（v2.9） | ✓ | 内部 | ✗ | ✗ | ✗ | ✗ | ✗ | 只读 |
+| strike/playbook/（v2.9） | ✓ | ✗ | ✓ | 内部 | ✓** | ✗ | ✗ | 只读 |
+| assess/impact/（v2.9） | ✓ | ✗ | ✗ | ✗ | 内部 | ✗ | ✗ | 只读 |
 
 \* recon/target_router 调 `assess.scorer.validate_scoring_target_capabilities` —— 已登记债务 D-04。
 \** strike → assess 仅限 `precompute_outcomes_async`（升级前预评分），不得扩大。
@@ -171,6 +182,10 @@ Q1: PyRIT 1.0.1 有现成组件吗？
 | `orchestration_log` | list | 各阶段（自己追加自己的条目） | report | 编排日志（每阶段至少一条） | 4.1 |
 | `timing_metadata` | dict | strike/assess | assess/决策引擎 | 响应时序特征（时序侧信道分析） | R-DATA-3 |
 | `successful_evidence_log` / `refusal_classification_log` / `guardrail_triggers` | list | strike/assess | report/验证器 | Why-Success 取证字段组（R-DATA-3，缺失即契约违规） | 1B-DATA |
+| `event_log` | EventLog | 各阶段（自己追加） | 终端/报告/证据/续跑 | append-only 事件流，交付物唯一派生源（REQ-148） | 第十三章 |
+| `surface_graph` | SurfaceGraph | recon | arm/strike/report | 攻击面图谱：多标签+置信度+信任边界+数据流边（REQ-150） | 第十三章 |
+| `playbook_state` | PlaybookState | strike | report/续跑 | 攻击链执行状态（断点续跑，REQ-151/155） | 第十三章 |
+| `impact_verdicts` | list[ImpactVerdict] | assess | report | 影响链判定（impact / exfil / content_only，REQ-152） | 第十三章 |
 
 ## 第五章：Burp 目标数据流（输入契约）
 
@@ -200,6 +215,8 @@ Q1: PyRIT 1.0.1 有现成组件吗？
 | I9 | 报告必须含 PyRIT 原生输出（pyrit.output）+ 证据全字段非空 | R2 / R6 §6.6 |
 | I10 | 每 endpoint 独立 SQLite（WAL）+ Singleton 三步清除；共享 LLM target 跨 endpoint 复用 | R8 §8.1/8.3 |
 | I11 | **ASR 度量口径统一**：① 定义：ASR = 评分级联（T0→J1→J2→J3）判定 successful 的 objective 数 ÷ 总执行 objective 数（timeout/error 计入分母且计失败；scorer 未判定归入 unparsed，不计成功）；② **双口径分列**：`reported_asr`（自动评分级联产出）与 `confirmed_asr`（人工复核/二次验证确认）在报告中必须分列呈现，禁止混用或只报其一（无人工复核时 confirmed 列标注 `n/a`）；③ **目标锚点 SSOT**：目标 ASR 唯一定义于 `config/defaults.yaml` 的 `target_asr` 键，任何文档/决策/报告引用目标值只准引用该键，禁止硬编码百分比 | NFR-13 / 宪法第 0 条 |
+| I12 | **阶段间数据只经 PipelineContext 与 EventLog**，禁止任何旁路通道；阶段层只写事件，禁止直接读他阶段内存结构（NEG-3 的机器化表述） | NEG-3 / REQ-148 |
+| I13 | **副作用步必须声明 `cleanup`**；未声明 cleanup 的副作用步在 dry-run 之外禁止执行 | REQ-154 / R-S1 |
 
 ### 6.1 触发参数统一表（SSOT）与一致性裁定（v2.6）
 
@@ -231,6 +248,8 @@ Q1: PyRIT 1.0.1 有现成组件吗？
 | ADR-004 | 场景路由轻量化 | v60 起 synergy 只产出 technique_tags，种子/评分器选择回归 SSOT 配置 |
 | ADR-005 | 升级链技术分四级 | L1 优先级分批（先验排序）→ L2-L4 全并行；仅失败目标进入下一级 |
 | ADR-006 | 多 endpoint 串行 | 高价值优先（能力指纹排序）逐个深度攻击，不做并行（全局状态安全） |
+| ADR-007 | 组件差异声明式（v2.9） | 组件差异全部落在 `config/components/*.yaml` + ComponentRegistry；编排层禁止硬编码组件名（guard R-EVENT-1 BLOCKING） |
+| ADR-008 | 判定四态分列（v2.9，复审修订） | 判定输出 `impact`（副作用/影响成立） / `exfil_confirmed`（OOB 回执证实外传） / `exfil_suspected`（仅响应文本命中，未获回执） / `content_only`（仅内容层面）；**仅 `impact` 与 `exfil_confirmed` 计入 `confirmed_asr`**，其余单列。启用回执后 `confirmed_asr` 下降属**口径收紧而非能力退化**（NFR-13 ④ 预告） |
 
 ## 第八章：架构债务登记簿（冻结区）
 
@@ -324,15 +343,15 @@ recon 完成 → capability 指纹分支:
 
 ### 9.4 考试快速攻击模板速查
 
-> **用途**：考试期间快速选择预配置的攻击 profile。对应 `config/profiles/*.yaml` 四预设 + exam_mode。
+> **用途**：考试期间快速选择预配置的攻击策略。通过 CLI 参数组合实现（`--target` + `--strike` + `--technique-filter`）。
 
-| Campaign | 配置 | 适用目标 | 预计 ASR | Token 预算 |
-|------|------|---------|---------|-----------|
-| `exam_mode.yaml` (REQ-112) | 精简链路 + 证据优先 | 考试首选 | 最大化 | 受限（80% cap） |
-| `deep_spectrum.yaml` | 全量技术 + 最大并行 | 高价值单一目标 | 最高 | 无限制 |
-| `mcp_targeted.yaml` | MCP/Agent 技术优先 | Agent/MCP 目标 | 85-98% | 中等 |
-| `quick_scan.yaml` | 仅 recon + 基础打击 | 首次侦察 / 时间紧迫 | 中等 | 最低 |
-| `standard_redteam.yaml` | 均衡配置 | 标准红队评估 | 高 | 中等 |
+| 策略模式 | CLI 组合 | 适用目标 | 预计 ASR | Token 预算 |
+|---------|---------|---------|---------|-----------|
+| 快速扫描 (REQ-112) | `--target model --strike prompt_sending --max-seeds 5` | 考试首选 | 最大化 | 受限 |
+| 深度全谱 | `--target model --strike progressive --max-seeds 100` | 高价值单一目标 | 最高 | 无限制 |
+| MCP 定向 | `--target mcp --strike progressive` | Agent/MCP 目标 | 85-98% | 中等 |
+| 快速侦察 | `--target model --strike prompt_sending` | 首次侦察 / 时间紧迫 | 中等 | 最低 |
+| 标准红队 | `--target model --strike auto --max-seeds 30` | 标准红队评估 | 高 | 中等 |
 
 ---
 
@@ -547,6 +566,88 @@ Phase N 执行完成
 
 ---
 
+## 第十三章：目标架构 v4.0（v2.9 新增）
+
+> **引用**：00-CONSTITUTION C6 / 20-REQUIREMENTS 第九章 C（REQ-148~158）/ 提案 `docs/specs/plans/CP-001-target-architecture-v4.0.md`
+> **执行计划**：`docs/specs/plans/447be21ad0594078a923a53f701087d3-EXECUTION-PLAN.md`（W0–W5 波次与门禁）
+> **版本**：v1.0（2026-09-11）
+
+### 13.1 立项背景：三处架构级误配
+
+| # | 现状形状 | 企业真实形状 |
+|---|---------|-------------|
+| A | 输入 = URL / burp.txt（无状态单请求） | 认证态 + 多步会话 + 流式/多协议 + 多租户 |
+| B | 侦察输出 = 单标签分类 | 攻击面图谱：多标签 + 置信度 + 信任边界 + 数据流边 |
+| C | 成功判据 = ASR（内容是否有害） | 影响链：能力 → 动作 → 影响（含外传回执 / 副作用实证） |
+
+### 13.2 六层架构
+
+```
+L0 输入与作用域   Scope/RoE · AuthProfile · SessionState · ProtocolAdapter
+        ↓
+L1 侦察与图谱     Fingerprint → SurfaceGraph（多标签+置信度+信任边界+数据流）
+        ↓
+L2 攻击链编排     PlaybookEngine（DAG/状态机）· ComponentRegistry
+        ↓
+L3 执行适配       PyRIT 原生（PromptSending/Crescendo/TAP/PAIR）+ 旁路通道
+        ↓
+L4 判定与取证     ComponentScorer · ImpactChain · ExfilChannel · EvidencePack
+        ↓
+L5 交付           统一报告骨架 + 组件 section 插件 + PoC/SARIF/HTML
+                  （全部从 EventLog 派生）
+```
+
+六阶段流水线（①RECON…⑥REPORT）是本架构的**运行实例**，不改变 1.1 阶段词汇映射。
+
+### 13.3 六个一等公民抽象与落点
+
+| 抽象 | 落点 | 消费者 | REQ |
+|------|------|--------|-----|
+| **EventLog** | `core/events.py`，落盘 `outputs/<run_id>/events.jsonl` | 终端 / 报告 / 证据 / 回放 / 续跑 | 148 |
+| **TargetAdapter** | `recon/adapters/{base,http,sse,jsonrpc,multipart,playwright}.py` | L1 侦察、L3 执行 | 149 |
+| **SurfaceGraph** | `recon/surface/{graph,builder,legacy}.py` | L2 编排（组件与价值排序）、L5 报告 | 150 |
+| **PlaybookEngine** | `strike/playbook/{engine,model,registry,state}.py` + `playbooks/*.yaml` | L2/L3 | 151 |
+| **ImpactChain + ExfilChannel** | `assess/impact/{model,exfil,verdict,canary}.py` | L4 判定、L5 报告 | 152 |
+| **ComponentRegistry** | `core/registry.py` + `config/components/*.yaml` | 全层（组件差异唯一来源） | 153 |
+
+**组件矩阵 YAML 契约**（`config/components/<name>.yaml`）：
+`labels / detect / recon / seeds / converters / playbooks / scorer / report_section / cleanup`
+
+### 13.4 一期组件面（9 类）
+
+`model` `agent` `mcp` `a2a` `rag` `multimodal_upload` `memory_session_tenant` `web_infra` `supply_chain`（末者为侦察级，不计入 ASR 分母）。
+
+> **横切**：`ExfilChannel` 与 `ImpactChain` 不属于任何组件；所有组件的"成立"最终落到二者之一。
+
+### 13.5 不变量与护栏
+
+- **I12**：阶段间只经 ctx + EventLog（NEG-3 机器化）；**I13**：副作用步必须声明 cleanup。
+- **护栏**（唯一定义见 40-GUARDRAILS）：`R-EVENT-1` 编排层禁止硬编码组件名（BLOCKING）；`R-EVENT-2` 阶段产出必须有 EventLog 事件（W2 后 BLOCKING）；`R-COMP-1` 组件插件必须经注册表（BLOCKING）。
+
+### 13.6 兼容与收敛（防双轨长期化）
+
+| 兼容物 | 引入波次 | 删除波次 | 登记 |
+|--------|---------|---------|------|
+| `recon/surface/legacy.py`（旧 fingerprint 视图） | W1 | W5 | backlog 期限 |
+| Playbook ↔ `strike/common/executor.py` 双轨开关 | W2 | W5 | backlog 期限 |
+| `--no-events` 旁路开关 | W0 | W5 | 随 EventLog 转正删除 |
+
+**只减不增**：上表为临时兼容，到期未删视为新增债务（第八章债务簿）。
+
+### 13.7 三条主线贯穿性约束（复审补强，v2.9）
+
+> **复审结论**：规约侧（本章 13.2–13.4 + REQ-148~158）已就位，但**代码侧三个数据结构会架空三条主线**，必须在 W1 前定型，否则 W2/W3 返工。以下 IC-1~IC-6 为 BLOCKING 约束。
+
+| 主线 | 现状（代码证据） | 贯穿性约束 |
+|------|-----------------|-----------|
+| ① 多组件组合体 | `component_type` 为**单值 str**，贯穿 strike→assess→report（`core/phases/_component_bridge.py:85`）；`AttackDispatcher(target: str)` 单值路由（`strike/common/dispatcher.py:134`）；`report/evidence.py` `attack_surface` 为扁平单值 dict | **IC-1**：组件归属必须是 `component_labels: list[str]` + `label_confidence: dict[str, float]`；单值视图仅为兼容派生（W5 删除）。**IC-2**：Playbook step 必须支持 `node_ref`（指向 SurfaceGraph 节点）+ `adapter`（选择 TargetAdapter），否则跨组件链不可表达。**IC-3**：一个 finding 允许归属多个组件 |
+| ② 有状态攻击链 | 4 条多步链**已硬编码**：`strike/common/_executor_doc_poison.py`、`strike/common/_executor_vuln_inject.py`、`strike/rag/data_poisoning.py`、`strike/mcp/malicious_server.py` | **IC-4**：W2 是"迁移"**不是"新建"**；四者必须迁为 `strike/playbook/playbooks/*.yaml` 并删除原分支（删除期限登记 backlog）。**禁止出现第二套链机制**（C3） |
+| ③ 影响链取证 | 全仓库 **0 处** OOB/canary 实现；exfil 判据为响应文本正则（`assess/component_scorers.py:53-54` 匹配 `attacker_`/`exfil_`/`transmitted to http`），**可被复述或幻觉击穿** | **IC-5**：外传成立必须 OOB 回执（canary + `tools/oob_listener.py`，标准库实现，NEG-4 合规）；T0 正则降级为 `exfil_suspected`。**IC-6**：副作用成立必须**二次独立请求**确认目标状态变化；payload 自证字段不计成立 |
+
+**ASR 口径收紧预告**（ADR-008 / NFR-13 ④）：启用 IC-5/IC-6 后 `confirmed_asr` 会下降——被降级者是"文本命中但无真实外传/副作用"的样本。报告须四态分列并注明口径，禁止与历史数值直接对比后得出"能力退化"结论。
+
+---
+
 ## 版本记录
 
 | 版本 | 日期 | 变更摘要 | 批准 |
@@ -559,6 +660,7 @@ Phase N 执行完成
 | v1.5 | 2026-09-06 | REV-05 recon 违宪整改（按 00-CONSTITUTION 优先级全部解决）：① P0-01 能力检测三轨合一 — `_probe_capabilities` 内部委托给 `confidence_scorer.score_capability()` SSOT，关键词与正则模式从 capability_detector.py 迁移至 confidence_scorer.py（含 capability_detector 中 MCP/Agent/RAG/Embedding 的结构化模式），原 capability_detector 中 ~200 行重复关键词/正则代码删除；② P0-02 探测风暴裁剪（保留 ≤2 个核心同步探针，其余移异步）— 已完成于会话前期；③ P0-03 自定义 Target 废弃（JSONSafeHTTPTarget → PyRIT 原生 HTTPTarget + ChatIdStateManager）— 已完成于会话前期 | 用户会话批准 |
 | v1.6 | 2026-09-06 | REV-06 AI-300 考试架构优化：① 新增第九章 PyRIT 原生攻击引擎架构（PyRIT→阶段落点映射 9.1、考试攻击路径决策树 9.2、ASR 优化策略 9.3、考试快速攻击模板速查 9.4）；② 架构本体（分层/契约/不变量/ADR）无变更 | 用户会话批准 |
 | v1.7 | 2026-09-06 | REV-07 目录结构重构：① Burp 目标文件从 config/campaigns/targets/ 扁平化迁移至 config/targets/；② asset_index.yaml 从 config/campaigns/ 迁移至 config/profiles/ (固定参数集)；③ 4 Campaign 重命名清晰化 (rapid_recon→quick_scan, full_spectrum_max_asr→deep_spectrum, mcp_agent_targeted→mcp_targeted, standard_redteam 保留) 并迁移至 config/profiles/；④ 删除 config/campaigns/ 目录 | 用户会话批准 |
+| v3.0 | 2026-09-10 | REV-16 删除 config/profiles/ 目录：① 5 个 profile YAML 文件删除（功能已被 --target/--strike 路由 + data/seeds/_attack_surface/ 覆盖）；② 清理 core/_config_parsers.py 中 profile 专属逻辑（attack_surface/strategy 字段处理）；③ 更新文档引用 | 用户会话批准 |
 | v1.8 | 2026-09-06 | REV-08 消除命名冲突：① config/targets/ 重命名为 config/burp/ (区分代码 targets/ 适配层与 Burp 输入契约)；② 更新 core/config.py、core/scenario_router.py 路径引用 | 用户会话批准 |
 | v1.9 | 2026-09-06 | REV-09 适配层重命名：① targets/ → adapters/ (精准描述 PyRIT 原生组件包装职责)；② 更新 recon/target_router.py import 路径 | 用户会话批准 |
 | v2.0 | 2026-09-08 | REV-10 企业AI红队融合解决方案：① 新增Glue层架构（模块清单、架构原则、攻击类型映射、依赖拓扑）；② 更新分层表新增Glue层；③ 更新依赖方向矩阵新增glue行 | 用户会话批准 |
@@ -570,3 +672,5 @@ Phase N 执行完成
 | v2.6 | 2026-09-09 | 规约优化 P0-A4：第四章新增 4.4 ctx 字段总表（SSOT 登记簿）——收敛 4.1/4.2/11.2/11.6/R-DATA-3 分散声明的 25+ 字段为唯一登记簿，新字段只允许在此登记；11.6 改为引用不重复登记 | 用户会话批准 |
 | v2.7 | 2026-09-09 | 规约优化 P2-C2：① 9.1 落点阶段编号对齐 1.1 阶段词汇映射（②ARM/③STRIKE/④ESCALATE/⑤ASSESS）；② 9.1 类名对齐 PyRIT 1.0.1 实测（T0=`SubStringScorer`+`TrueFalseInverterScorer`、J1/J2=`SelfAskTrueFalseScorer`+`SelfAskRefusalScorer`，删除不存在的 AzureAIScScorer 引用）；③ 删除第九章末尾过时重复的版本记录表（SSOT C3，权威版本记录唯一保留于文末） | 用户会话批准 |
 | v2.8 | 2026-09-09 | REV-16 新增第十二章跨模型规约审查架构：① 审查协议分层落位（12.1）；② 审查器与 ctx 字段契约（12.2）；③ 触发条件与流水线集成（12.3）；④ 审查架构不变量 ICM-1~ICM-4（12.4） | 用户会话批准 |
+| v2.9 | 2026-09-11 | REV-17 新增第十三章目标架构 v4.0：① 13.1 三处架构级误配（输入契约/识别输出/成功判据）；② 13.2 六层架构（L0 作用域→L5 交付）；③ 13.3 六个一等公民抽象与落点（EventLog/TargetAdapter/SurfaceGraph/PlaybookEngine/ImpactChain+ExfilChannel/ComponentRegistry）；④ 13.4 一期 9 类组件面 + 横切判据；⑤ 13.5 不变量 I12/I13 + 护栏 R-EVENT-1/2、R-COMP-1 引用；⑥ 13.6 兼容与收敛（防双轨长期化）；⑦ 第一章新增目标架构 v4.0 引述段；⑧ 2.1 分层表新增阶段层子层与靶场层；⑨ 2.2 依赖矩阵新增 adapters/playbook/impact 三行；⑩ 4.4 ctx 字段总表新增 event_log/surface_graph/playbook_state/impact_verdicts 四行；⑪ 不变量新增 I12/I13；⑫ ADR 新增 ADR-007/008 | 用户会话批准 |
+| v3.0 | 2026-09-11 | REV-18 三条主线复审补强：① 新增 13.7「三条主线贯穿性约束」（复审结论 + 代码证据 + IC-1~IC-6 BLOCKING 约束）；② IC-1 组件归属改 `component_labels: list[str]` + `label_confidence`（单值视图仅兼容派生）；③ IC-2 Playbook step 支持 `node_ref` + `adapter`（跨组件链前提）；④ IC-3 一个 finding 可归属多组件；⑤ IC-4 W2 为"迁移"非"新建"，列明四条硬编码链迁移对象；⑥ IC-5 外传须 OOB 回执、T0 正则降级 `exfil_suspected`；⑦ IC-6 副作用须二次独立请求确认；⑧ ADR-008 由三类分列修订为四态分列 + 口径收紧预告 | 用户会话批准 |

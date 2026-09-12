@@ -1,0 +1,58 @@
+# config/components/embedding.yaml — Embedding / Vector 检索层（组件声明 SSOT）
+#
+# 【新增组件】修 §1.3 覆盖缺口：`recon/embedding/` 存在但 architecture_validator 无对应组件键。
+# 覆盖：embedding 模型、向量相似度检索、向量库投毒、嵌入空间反演。
+#
+# Academic basis:
+#   - Morris et al. (arXiv:2311.04239) — Text embedding inversion / 向量反演
+#   - Zou et al. (arXiv:2311.16127)    — 检索投毒（PoisonedRAG）
+
+schema_version: "1.0"
+component_key: embedding
+id: embedding
+display_name: "Embedding / Vector Search Layer"
+labels: [embedding, vector, retrieval]
+
+recon_dir: embedding
+strike_dir: rag
+
+detection:
+  path_patterns: ["/embed", "/embeddings", "/vector", "/similarity", "/knn", "/index/search"]
+  body_markers: ["embedding", "embeddings", "vector", "cosine", "similarity", "dimension", "top_k"]
+  active_probes: ["recon.embedding.vector_probe"]
+  signals: ["embeddings", "cosine_similarity", "top_k", "vector_db", "dimension"]
+  min_confidence: 0.55
+
+recon_modules:
+  - recon.embedding.vector_probe
+  - recon.embedding.similarity_probe
+service_profile_keys: ["embedding_profile", "vector_db_profile"]
+
+seed_sets:
+  - "data/seeds/_attack_surface/T1_LLM08_rag_full_surface/"
+seeds: []
+seed_suitable_for: ["embedding", "rag_pipeline"]
+converter_vectors: ["vector_poisoning", "embedding_inversion", "similarity_gaming"]
+
+preferred_attack_class: "PromptSendingAttack"
+asr_prior: 0.65
+
+strike_modules:
+  - strike.rag.vector_db_poisoner
+  - strike.rag.retrieval_manipulator
+playbooks: [embedding_poison_then_retrieve]
+
+assess:
+  t0_check: "assess.component_scorers:t0_rag_pipeline_check"
+  rubric: "data/scorers/component_scorers/rag_pipeline.yaml"
+scorer: rag_pipeline
+
+report_builder: "report.component_reports:_build_rag_pipeline_sections"
+report_section: "report.component_reports.rag"
+poc_template: "report.component_poc:rag_poc"
+
+owasp: ["LLM08", "ASI04"]
+# embedding 是 rag_pipeline 的专化面，二者几乎总共存
+neighbors: ["rag_pipeline", "llm_gateway"]
+
+cleanup: [restore_vector_index]

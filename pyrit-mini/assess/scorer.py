@@ -2,7 +2,7 @@
 # arXiv:2307.08673 - Zou et al., GCG (prefix-based attacks)
 # arXiv:2302.12173 - Greshake et al., PromptSendingAttack
 # arXiv:2407.01232 - PyRIT, SequentialAttack FIRST_SUCCESS
-""" -
+"""-
 
 :
     -  ( LLM)
@@ -35,8 +35,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+
 def create_substring_scorer(substring: str = "") -> Any:
-    """ SubStringScorer (, fallback)
+    """SubStringScorer (, fallback)
 
      LLM
 
@@ -53,8 +54,9 @@ def create_substring_scorer(substring: str = "") -> Any:
         categories=["substring_fallback"],
     )
 
+
 def create_refusal_keywords_scorer() -> Any:
-    """ ()
+    """()
 
      LLM ,
 
@@ -63,7 +65,7 @@ def create_refusal_keywords_scorer() -> Any:
     """
     from pyrit.score import SubStringScorer
 
- #
+    #
     refusal_keywords = "sorry"
 
     return SubStringScorer(
@@ -71,8 +73,9 @@ def create_refusal_keywords_scorer() -> Any:
         categories=["refusal_detection"],
     )
 
+
 def _register_scorer(scorer: Any, name: str) -> None:
-    """ ScorerRegistry"""
+    """ScorerRegistry"""
     try:
         from pyrit.registry import ScorerRegistry
 
@@ -85,6 +88,7 @@ def _register_scorer(scorer: Any, name: str) -> None:
         logger.info("Scorer registered as '%s'", name)
     except Exception as e:
         logger.warning("Failed to register scorer: %s", e)
+
 
 # == L5 v52: PyRIT TargetRequirements ==
 # Academic basis: PyRIT (arXiv:2407.01232) - TargetRequirements Capability verification
@@ -104,8 +108,9 @@ def _register_scorer(scorer: Any, name: str) -> None:
 # ()
 _SCORING_TARGET_REQUIREMENTS = None  #
 
+
 def _get_scoring_target_requirements():
-    """ (L5 v52).
+    """(L5 v52).
 
      PyRIT  TargetRequirements  scoring_target
     Load PyRIT
@@ -139,8 +144,9 @@ def _get_scoring_target_requirements():
 
     return _SCORING_TARGET_REQUIREMENTS
 
+
 def validate_scoring_target_capabilities(scoring_target: Any) -> bool:
-    """ scoring_target LLM-as-a-Judge (L5 v52).
+    """scoring_target LLM-as-a-Judge (L5 v52).
 
      PyRIT  TargetRequirements.validate()
     ,
@@ -169,7 +175,7 @@ def validate_scoring_target_capabilities(scoring_target: Any) -> bool:
     """
     requirements = _get_scoring_target_requirements()
     if requirements is False:
-     # TargetRequirements (PyRIT ), Skip
+        # TargetRequirements (PyRIT ), Skip
         logger.debug("TargetRequirements unavailable, skipping scoring target validation")
         return True
 
@@ -190,8 +196,8 @@ def validate_scoring_target_capabilities(scoring_target: Any) -> bool:
         )
         return False
     except Exception as e:
-     # configuration ( RateLimitedTarget target)
-     # ,
+        # configuration ( RateLimitedTarget target)
+        # ,
         logger.debug(
             "Scoring target %s has no configuration for validation (non-fatal): %s",
             type(scoring_target).__name__,

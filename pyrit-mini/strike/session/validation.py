@@ -10,6 +10,7 @@
 Academic basis:
     - Dougherty et al. (arXiv:2306.05685) — Session anomaly detection
 """
+
 from __future__ import annotations
 
 import logging
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ValidationResult:
     """验证结果"""
+
     is_valid: bool = True
     is_consistent: bool = True
     changes: list[str] = field(default_factory=list)
@@ -137,9 +139,7 @@ class SessionValidator:
             if key in current_state:
                 if previous_state[key] != current_state[key]:
                     result.is_valid = False
-                    result.alerts.append(
-                        f"Fixed session violation: '{key}' changed unexpectedly"
-                    )
+                    result.alerts.append(f"Fixed session violation: '{key}' changed unexpectedly")
 
     def detect_session_fixation(self) -> bool:
         """检测 session 固定漏洞

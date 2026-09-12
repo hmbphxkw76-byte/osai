@@ -39,6 +39,7 @@
 | 工具/命令 | 作用 | 通过标准 |
 |-----------|------|---------|
 | `py -m tools.guard` | 架构守卫静态检查 | 0 BLOCKING |
+| `python tools/architecture_validator.py full` | 架构体检（组件感知流水线合规） | 0 BLOCKING |
 | `ruff check .` | 代码风格检查 | 0 errors |
 | `pytest tests/` | 全量测试 | 0 failed |
 | `python main.py --dry-run` | 运行时数据流验证 | 无异常 |
@@ -59,11 +60,12 @@
 
 > **触发词**：**"完整验证"** / **"规范对齐"** / **"开发验证"** / **"开发必跑"**
 
-当用户对 AI 说出触发词时，自动执行以下 6 步验证 + 修复所有问题 + 汇报最终结果：
+当用户对 AI 说出触发词时，自动执行以下 7 步验证 + 修复所有问题 + 汇报最终结果：
 
 | 步骤 | 命令 | 通过标准 | 自动修复 |
 |------|------|---------|---------|
 | 1 | `py -m tools.guard` | 0 BLOCKING | 修复 BLOCKING 违规 |
+| 1.5 | `python tools/architecture_validator.py full` | 0 BLOCKING | 修复架构违规（阶段边界/组件传播/模块路由） |
 | 2 | `ruff check .` | 0 errors | `ruff check --fix` 自动修复 |
 | 3 | `pytest tests/ -v --tb=short` | 0 failed | 分析并修复 |
 | 4 | `python main.py --dry-run --max-seeds 1` | 无异常 | 修复数据流断点 |
@@ -79,12 +81,13 @@
 
 | 类别 | 触发词 | AI 自动执行 |
 |------|--------|------------|
-| **核心操作** | `"完整验证"` / `"规范对齐"` / `"开发验证"` / `"开发必跑"` | 6 步全流程验证 + 修复 |
-| | `"门禁"` | 四步质量门禁 |
+| **核心操作** | `"完整验证"` / `"规范对齐"` / `"开发验证"` / `"开发必跑"` | 7 步全流程验证 + 修复（含架构体检） |
+| | `"门禁"` | 五步质量门禁（含 Step 1.5 架构体检） |
 | | `"守卫"` | 架构守卫静态检查 |
 | | `"漂移"` | 规范漂移检测 |
 | | `"数据流"` | 数据流完整性验证 |
 | | `"交付标准"` / `"开发交付"` / `"开发必验"` | 按 40-GUARDRAILS 第七章生成验收清单 |
+| | `"架构体检"` / `"ArchCheck"` | 运行三层架构合规验证器 |
 | **开发流程** | `"开发规范"` / `"开发必看"` | 查看 宪法/蓝图/需求/红线 |
 | | `"领任务"` | 从 50-ROADMAP 查看下一个任务 |
 | | `"任务规格"` | 生成 TASK-xxx 规格文件 |
@@ -109,8 +112,8 @@
 | 层 | 文件 | 职责 | 版本 |
 |----|------|------|------|
 | L0 | [00-CONSTITUTION.md](00-CONSTITUTION.md) | AI 行为宪法：使命 / 裁决序 / C1-C14 (含跨模型一致性优先) / 违宪症状 / 制宪配套 / 考试专项附录 | v2.2 |
-| L1 | [10-ARCHITECTURE.md](10-ARCHITECTURE.md) | 技术蓝图：分层依赖 / ctx 契约（4.4 SSOT 总表） / 不变量 / ADR / 债务簿 / PyRIT攻击引擎 / Web攻击层 + 数据流完整性 / 全链路自主决策引擎 (第十一章) / 跨模型规约审查架构 (第十二章) | v2.8 |
-| L2 | [20-REQUIREMENTS.md](20-REQUIREMENTS.md) | 需求登记：P0 (已实现 ✅) / P1 (已实现 ✅) / 活跃需求 / NFR（含 NFR-13 ASR 双口径与 target_asr 锚点 + NFR-14~16 审查非功能） / NEG / 自主决策需求 / 文件上传攻击需求 (REQ-138~144) / 跨模型审查需求 (REQ-144~146) | v2.5 |
+| L1 | [10-ARCHITECTURE.md](10-ARCHITECTURE.md) | 技术蓝图：分层依赖 / ctx 契约（4.4 SSOT 总表） / 不变量 / ADR / 债务簿 / PyRIT攻击引擎 / Web攻击层 + 数据流完整性 / 全链路自主决策引擎 (第十一章) / 跨模型规约审查架构 (第十二章) / **目标架构 v4.0 (第十三章：六层架构 + 六大抽象 + I12/I13 + ADR-007/008 + 13.7 三条主线贯穿性约束 IC-1~IC-6)** | v3.0 |
+| L2 | [20-REQUIREMENTS.md](20-REQUIREMENTS.md) | 需求登记：P0 (已实现 ✅) / P1 (已实现 ✅) / 活跃需求 / NFR（含 NFR-13 ASR 双口径与 target_asr 锚点 + NFR-14~16 审查非功能） / NEG / 自主决策需求 / 文件上传攻击需求 (REQ-138~144) / 跨模型审查需求 (REQ-144~146) / **目标架构 v4.0 需求 (第九章 C, REQ-148~158；NFR-13 ④ 影响链口径收紧预告)** | v2.8 |
 | L3 | [30-TASKS.md](30-TASKS.md) | 任务协议：生命周期 / 粒度上限 / 八步协议 / STOP-REPORT / 考试速查 / 跨模型审查任务协议 (第十章) | v2.2 |
 | L4 | [40-GUARDRAILS.md](40-GUARDRAILS.md) | 红线 R-L / R-H / R-S / R-WEB (含R-WEB-6任意端口) / R-DRIFT / R-DATA / R-DECIDE / R-TOOLS / R-DOC (代码-文档同步，含R-DOC-5命令行文档) / R-CROSS (跨模型审查) / 四步门禁 / 三层防线 / 登记簿 (46项，1F 唯一，含R-L1/R-L7新实现) / 交付验证清单 (7D CLI文档验收) / 考试合规 / spec-code drift 修复 (v3.0) | v3.0 |
 | 配套 | [50-ROADMAP.md](50-ROADMAP.md) | 路线图：AI-300 考纲映射 / 红队实践 / 基准校准 (阶段 0.5) / 任务序列 / 会话模型 / Runbook / 考试日故障降级矩阵 / 跨模型审查系统 (阶段 1D) | v1.10 |
@@ -120,6 +123,8 @@
 | 配套 | [templates/task-spec.md](templates/task-spec.md) | 任务规格模板 + 考试变体 | v1.1 |
 | 配套 | [templates/cross-model-review.md](templates/cross-model-review.md) | 跨模型审查报告模板（快速决策卡 + 差异对齐表 + κ指标 + 修复清单） | v1.0 |
 | 配套 | [templates/change-proposal.md](templates/change-proposal.md) | 变更提案模板 | v1.0 |
+| 配套 | [plans/CP-001-target-architecture-v4.0.md](plans/CP-001-target-architecture-v4.0.md) | 变更提案 CP-001：目标架构 v4.0（EventLog / TargetAdapter / SurfaceGraph / PlaybookEngine / ImpactChain+ExfilChannel / ComponentRegistry）+ 条款 diff + 影响面 + ASR 评估 + §3.5 三条主线复审（IC-1~IC-6） | v1.1 |
+| 配套 | [plans/447be21ad0594078a923a53f701087d3-EXECUTION-PLAN.md](plans/447be21ad0594078a923a53f701087d3-EXECUTION-PLAN.md) | 执行计划 PLAN-447be21：目标/非目标 / 交付物总表 / 六大抽象契约 / 9 类组件矩阵 / W0–W5 波次与门禁 / 靶场规格 / 测试 CI / 回滚 / 里程碑 / 风险登记 (RK-7/RK-8) | v1.1 |
 
 > **已归档文件**：
 > - `45-DATA-FLOW-INTEGRITY.md` → 合并入 `10-ARCHITECTURE.md` 第四章（PipelineContext 数据契约 + Phase 字段契约 + 数据传递规则）。原独立文档不再独立维护，验证工具链（`tools/data_flow_validator.py` + 29 项测试）仍正常运行。
@@ -180,7 +185,7 @@
 | `pyrit-drift` (或 `py -m tools.drift_detector`) | 规范漂移检测 (快速模式，不含版本锁定) | **开发时高频检测** |
 | `pyrit-drift --full` | 规范漂移检测 (全量模式，含版本锁定) | 发布前/CI/CD |
 | `pyrit-drift --full --report` | JSON 报告输出 | CI 集成 |
-| `pyrit-dataflow` (或 `py -m tools.data_flow_validator`) | 数据流完整性验证 (ARM→Strike→Assess) | commit/push 时自动触发 |
+| `pyrit-dataflow` (或 `py -m tools.dataflow.validator`) | 数据流完整性验证 (ARM→Strike→Assess) | commit/push 时自动触发 |
 | `pyrit-cross` (或 `py -m tools.cross_model_review`) | 跨模型规约审查（FULL 模式：3 模型并行 + κ 计算 + 仲裁） | 规约文档变更时触发 |
 | `pyrit-cross --full` | 全量跨模型审查 | L0-L4 核心文档变更时 |
 | `pyrit-cross --light` | 快速单模型审查 | 单文件 docstring/注释变更时 |

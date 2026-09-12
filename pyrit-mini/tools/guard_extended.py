@@ -27,7 +27,9 @@ if TYPE_CHECKING:
 
 def _get_violation_classes():
     from tools.guard import Severity, Violation
+
     return Severity, Violation
+
 
 # ===============================================================================
 # 规则配置
@@ -85,6 +87,9 @@ _INIT_EXPORT_WHITELIST = {
     # A2A reconnaissance utilities (public API, may be used by advanced scripts)
     "run_inline_a2a_discovery",
     "check_defense_bypass_feasibility",
+    # Lazy-loaded __getattr__ modules (used via getattr() pattern)
+    "dynamic_seeds",
+    "indirect_pi",
 }
 
 # R-REDTEAM: 必须包含 arXiv 引用的技术
@@ -188,15 +193,21 @@ _NATIVE_ATTACK_KEYWORDS: dict[str, str] = {
 
 # R-REDTEAM: 禁止模式
 _FORBIDDEN_PATTERNS_REDTEAM: list[tuple[str, str, str]] = [
-    (r"return\s+None\b.*#.*attack",
-     "攻击代码中返回 None — 违反协议",
-     "返回 AttackOutcome 对象，记录 success/failure + 证据链"),
-    (r"pass\s*#.*(attack|exploit|score)",
-     "攻击/评分代码中的 pass stub — 违反完整性",
-     "实现逻辑或抛出 NotImplementedError"),
-    (r"raise\s+NotImplementedError.*#.*TODO",
-     "TODO stub 混入攻击代码 — 违反交付标准",
-     "移除 stub，或移至 orchestrator Skip 逻辑"),
+    (
+        r"return\s+None\b.*#.*attack",
+        "攻击代码中返回 None — 违反协议",
+        "返回 AttackOutcome 对象，记录 success/failure + 证据链",
+    ),
+    (
+        r"pass\s*#.*(attack|exploit|score)",
+        "攻击/评分代码中的 pass stub — 违反完整性",
+        "实现逻辑或抛出 NotImplementedError",
+    ),
+    (
+        r"raise\s+NotImplementedError.*#.*TODO",
+        "TODO stub 混入攻击代码 — 违反交付标准",
+        "移除 stub，或移至 orchestrator Skip 逻辑",
+    ),
 ]
 
 # PipelineContext 字段消费者映射
@@ -219,6 +230,7 @@ _CONTEXT_FIELD_CONSUMERS: dict[str, list[str]] = {
 
 # === 注册函数 ===
 
+
 def register_extended_checks(guard_cls) -> None:
     """注册所有扩展检查方法到 ArchitectureGuard 类"""
 
@@ -236,14 +248,16 @@ def register_extended_checks(guard_cls) -> None:
                 is_direct_def = f"async def {func_name}" in orch_content
                 is_imported = func_name in orch_content and "import" in orch_content and "from " in orch_content
                 if not is_direct_def and not is_imported:
-                    self.violations.append(Violation(
-                        rule="R-PIPE-1",
-                        severity=Severity.BLOCKING,
-                        file="core/orchestrator.py",
-                        line=0,
-                        description=f"orchestrator.py 缺少阶段 '{func_name}' - 流水线断裂",
-                        fix_hint=f"添加 async def {func_name}(ctx) 或从 phases/ 导入",
-                    ))
+                    self.violations.append(
+                        Violation(
+                            rule="R-PIPE-1",
+                            severity=Severity.BLOCKING,
+                            file="core/orchestrator.py",
+                            line=0,
+                            description=f"orchestrator.py 缺少阶段 '{func_name}' - 流水线断裂",
+                            fix_hint=f"添加 async def {func_name}(ctx) 或从 phases/ 导入",
+                        )
+                    )
 
         # R-PIPE-2: orchestrator 调用各阶段
         if orch_file.exists():
@@ -261,14 +275,16 @@ def register_extended_checks(guard_cls) -> None:
                 is_direct_def = f"def {func_name}" in orch_content
                 is_direct_call = f"await {func_name}" in orch_content
                 if not is_imported and not is_direct_def and not is_direct_call:
-                    self.violations.append(Violation(
-                        rule="R-PIPE-2",
-                        severity=Severity.BLOCKING,
-                        file="core/orchestrator.py",
-                        line=0,
-                        description=f"orchestrator 未调用 {desc} ({func_name}) - 流水线断裂",
-                        fix_hint=f"在 run_single_endpoint 或主流程中 await {func_name}(ctx)",
-                    ))
+                    self.violations.append(
+                        Violation(
+                            rule="R-PIPE-2",
+                            severity=Severity.BLOCKING,
+                            file="core/orchestrator.py",
+                            line=0,
+                            description=f"orchestrator 未调用 {desc} ({func_name}) - 流水线断裂",
+                            fix_hint=f"在 run_single_endpoint 或主流程中 await {func_name}(ctx)",
+                        )
+                    )
 
         self._check_arm_module_registration()
         self._check_strike_module_registration()
@@ -281,14 +297,16 @@ def register_extended_checks(guard_cls) -> None:
         content = presets_file.read_text(encoding="utf-8", errors="replace")
 
         if "_build_chain_builders" not in content:
-            self.violations.append(Violation(
-                rule="R-PIPE-3",
-                severity=Severity.WARNING,
-                file="arm/converter_presets.py",
-                line=0,
-                description="缺少 _build_chain_builders 函数 - converter 注册不完整",
-                fix_hint="实现 _build_chain_builders() -> dict[str, Any] builder 映射",
-            ))
+            self.violations.append(
+                Violation(
+                    rule="R-PIPE-3",
+                    severity=Severity.WARNING,
+                    file="arm/converter_presets.py",
+                    line=0,
+                    description="缺少 _build_chain_builders 函数 - converter 注册不完整",
+                    fix_hint="实现 _build_chain_builders() -> dict[str, Any] builder 映射",
+                )
+            )
 
     def _check_strike_module_registration(self) -> None:
         """R-PIPE-4: strike/ 模块注册检查"""
@@ -299,13 +317,13 @@ def register_extended_checks(guard_cls) -> None:
 
     # R-PIPE-5 字段白名单: 默认值字段在多个模块中被消费，但检测器无法追踪
     _PIPE5_FIELD_WHITELIST = {
-        "output_dir",       # main.py, orchestrator.py, report/generator.py 多处访问
-        "mcpsec_version",   # recon/_target_router_helpers.py MCPSec桥接后填充
-        "scenario_name",    # core/scenario_router.py 场景路由设置
-        "memory_labels",    # main.py CentralMemory.set_labels 使用
-        "stealth_config",   # strike/stealth_exec.py 读取
-        "session_state",    # strike/executor.py 会话感知攻击读取
-        "synergy_config",   # adaptive_executor.py 读取
+        "output_dir",  # main.py, orchestrator.py, report/generator.py 多处访问
+        "mcpsec_version",  # recon/_target_router_helpers.py MCPSec桥接后填充
+        "scenario_name",  # core/scenario_router.py 场景路由设置
+        "memory_labels",  # main.py CentralMemory.set_labels 使用
+        "stealth_config",  # strike/stealth_exec.py 读取
+        "session_state",  # strike/executor.py 会话感知攻击读取
+        "synergy_config",  # adaptive_executor.py 读取
         "scenario_config",  # adaptive_executor.py 读取
     }
 
@@ -371,14 +389,16 @@ def register_extended_checks(guard_cls) -> None:
                 all_content = self._read_all_source()
                 total_refs = sum(1 for c in all_content if re.search(access_pattern, c))
                 if total_refs <= 1:
-                    self.violations.append(Violation(
-                        rule="R-PIPE-5",
-                        severity=Severity.INFO,
-                        file="core/context.py",
-                        line=0,
-                        description=f"PipelineContext.{field_name} 未被消费 - 可能的数据流断裂",
-                        fix_hint=f"确认 {field_name} 是否被某个 converter(s) 阶段使用，否则可移除",
-                    ))
+                    self.violations.append(
+                        Violation(
+                            rule="R-PIPE-5",
+                            severity=Severity.INFO,
+                            file="core/context.py",
+                            line=0,
+                            description=f"PipelineContext.{field_name} 未被消费 - 可能的数据流断裂",
+                            fix_hint=f"确认 {field_name} 是否被某个 converter(s) 阶段使用，否则可移除",
+                        )
+                    )
 
     def _read_all_source(self) -> list[str]:
         """读取所有源文件"""
@@ -414,7 +434,9 @@ def register_extended_checks(guard_cls) -> None:
                 line = line.strip()
                 if line.startswith("from ") and " import " in line:
                     target = line.split()[1].lstrip(".")
-                    if any(pkg in target for pkg in ["core.", "arm.", "strike.", "assess.", "report.", "recon.", "tools."]):
+                    if any(
+                        pkg in target for pkg in ["core.", "arm.", "strike.", "assess.", "report.", "recon.", "tools."]
+                    ):
                         imports.add(target.split(".")[0] + "." + target.split(".")[1])
                 elif line.startswith("import "):
                     target = line.split()[1]
@@ -427,14 +449,16 @@ def register_extended_checks(guard_cls) -> None:
             for dep in deps:
                 dep_imports = import_graph.get(dep, set())
                 if module in dep_imports:
-                    self.violations.append(Violation(
-                        rule="R-IMPORT-1",
-                        severity=Severity.BLOCKING,
-                        file=module.replace(".", "/") + ".py",
-                        line=0,
-                        description=f"循环导入: {module} <-> {dep} - 架构腐败",
-                        fix_hint="抽取共享逻辑到 utils/ 或独立模块，使用延迟导入 (import in function)",
-                    ))
+                    self.violations.append(
+                        Violation(
+                            rule="R-IMPORT-1",
+                            severity=Severity.BLOCKING,
+                            file=module.replace(".", "/") + ".py",
+                            line=0,
+                            description=f"循环导入: {module} <-> {dep} - 架构腐败",
+                            fix_hint="抽取共享逻辑到 utils/ 或独立模块，使用延迟导入 (import in function)",
+                        )
+                    )
 
     def check_dead_code(self) -> None:
         """R-IMPORT-3: 死代码检测"""
@@ -475,14 +499,16 @@ def register_extended_checks(guard_cls) -> None:
                         is_imported = True
 
                 if not is_imported and not module_name.startswith("_"):
-                    self.violations.append(Violation(
-                        rule="R-IMPORT-3",
-                        severity=Severity.INFO,
-                        file=rel,
-                        line=0,
-                        description=f"潜在死代码: {rel} 未被任何模块导入",
-                        fix_hint="确认是否需要保留，或添加到 __init__.py / 删除",
-                    ))
+                    self.violations.append(
+                        Violation(
+                            rule="R-IMPORT-3",
+                            severity=Severity.INFO,
+                            file=rel,
+                            line=0,
+                            description=f"潜在死代码: {rel} 未被任何模块导入",
+                            fix_hint="确认是否需要保留，或添加到 __init__.py / 删除",
+                        )
+                    )
 
     # == R-REDTEAM ==============================================
 
@@ -506,14 +532,16 @@ def register_extended_checks(guard_cls) -> None:
 
                 for pattern, desc, fix in _FORBIDDEN_PATTERNS_REDTEAM:
                     if re.search(pattern, stripped, re.IGNORECASE):
-                        self.violations.append(Violation(
-                            rule="R-REDTEAM-1",
-                            severity=Severity.WARNING,
-                            file=str(path.relative_to(self.root)),
-                            line=i,
-                            description=f"{desc}: {stripped[:70]}",
-                            fix_hint=fix,
-                        ))
+                        self.violations.append(
+                            Violation(
+                                rule="R-REDTEAM-1",
+                                severity=Severity.WARNING,
+                                file=str(path.relative_to(self.root)),
+                                line=i,
+                                description=f"{desc}: {stripped[:70]}",
+                                fix_hint=fix,
+                            )
+                        )
 
     def check_academic_citations(self) -> None:
         """R-REDTEAM-2: arXiv 引用检查"""
@@ -531,14 +559,16 @@ def register_extended_checks(guard_cls) -> None:
                 if keyword in content and arxiv_id not in content:
                     for i, line in enumerate(content.split("\n"), 1):
                         if keyword in line and "import" not in line:
-                            self.violations.append(Violation(
-                                rule="R-REDTEAM-2",
-                                severity=Severity.INFO,
-                                file=str(path.relative_to(self.root)),
-                                line=i,
-                                description=f"使用 '{keyword}' 但缺少 {arxiv_id} ({paper_name}) 引用",
-                                fix_hint=f"在文件头部 docstring 中添加: {arxiv_id}",
-                            ))
+                            self.violations.append(
+                                Violation(
+                                    rule="R-REDTEAM-2",
+                                    severity=Severity.INFO,
+                                    file=str(path.relative_to(self.root)),
+                                    line=i,
+                                    description=f"使用 '{keyword}' 但缺少 {arxiv_id} ({paper_name}) 引用",
+                                    fix_hint=f"在文件头部 docstring 中添加: {arxiv_id}",
+                                )
+                            )
                             break
 
     def check_asr_completeness(self) -> None:
@@ -548,14 +578,16 @@ def register_extended_checks(guard_cls) -> None:
         if not score_file.exists():
             score_file = self.root / "assess" / "asr_stats.py"
         if not score_file.exists():
-            self.violations.append(Violation(
-                rule="R-REDTEAM-3",
-                severity=Severity.BLOCKING,
-                file="assess/asr_manager.py",
-                line=0,
-                description="缺少 ASR 计算模块 (asr_manager.py 或 asr_stats.py)",
-                fix_hint="创建 assess/asr_manager.py, 实现 compute_asr + compute_overall_asr",
-            ))
+            self.violations.append(
+                Violation(
+                    rule="R-REDTEAM-3",
+                    severity=Severity.BLOCKING,
+                    file="assess/asr_manager.py",
+                    line=0,
+                    description="缺少 ASR 计算模块 (asr_manager.py 或 asr_stats.py)",
+                    fix_hint="创建 assess/asr_manager.py, 实现 compute_asr + compute_overall_asr",
+                )
+            )
             return
 
         content = score_file.read_text(encoding="utf-8", errors="replace")
@@ -563,25 +595,25 @@ def register_extended_checks(guard_cls) -> None:
         for func in required_functions:
             has_def = f"def {func}" in content or f"async def {func}" in content
             _re = __import__("re")
-            has_single_import = bool(
-                _re.search(rf'^[^#]*\bimport\b[^#]*\b{func}\b', content, _re.MULTILINE)
-            )
+            has_single_import = bool(_re.search(rf"^[^#]*\bimport\b[^#]*\b{func}\b", content, _re.MULTILINE))
             has_multi_import = bool(
                 _re.search(
-                    rf'from\s+\S+\s+import\s*\([^)]*\b{func}\b',
+                    rf"from\s+\S+\s+import\s*\([^)]*\b{func}\b",
                     content,
                     _re.DOTALL,
                 )
             )
             if not has_def and not has_single_import and not has_multi_import:
-                self.violations.append(Violation(
-                    rule="R-REDTEAM-3",
-                    severity=Severity.WARNING,
-                    file=str(score_file.relative_to(self.root)),
-                    line=0,
-                    description=f"ASR 计算链不完整: 缺少 '{func}' - ASR 统计断裂",
-                    fix_hint=f"实现 {func}() 或从 SSOT import",
-                ))
+                self.violations.append(
+                    Violation(
+                        rule="R-REDTEAM-3",
+                        severity=Severity.WARNING,
+                        file=str(score_file.relative_to(self.root)),
+                        line=0,
+                        description=f"ASR 计算链不完整: 缺少 '{func}' - ASR 统计断裂",
+                        fix_hint=f"实现 {func}() 或从 SSOT import",
+                    )
+                )
 
     # == R-EVID =================================================
 
@@ -590,36 +622,42 @@ def register_extended_checks(guard_cls) -> None:
         Severity, Violation = _get_violation_classes()
         evidence_file = self.root / "report" / "evidence.py"
         if not evidence_file.exists():
-            self.violations.append(Violation(
-                rule="R-EVID-1",
-                severity=Severity.BLOCKING,
-                file="report/evidence.py",
-                line=0,
-                description="缺少 report/evidence.py - 证据收集模块",
-                fix_hint="创建 report/evidence.py, 实现 EvidenceCollector",
-            ))
+            self.violations.append(
+                Violation(
+                    rule="R-EVID-1",
+                    severity=Severity.BLOCKING,
+                    file="report/evidence.py",
+                    line=0,
+                    description="缺少 report/evidence.py - 证据收集模块",
+                    fix_hint="创建 report/evidence.py, 实现 EvidenceCollector",
+                )
+            )
             return
 
         content = evidence_file.read_text(encoding="utf-8", errors="replace")
         if "def collect(" not in content and "async def collect(" not in content:
-            self.violations.append(Violation(
-                rule="R-EVID-1",
-                severity=Severity.WARNING,
-                file="report/evidence.py",
-                line=0,
-                description="EvidenceCollector 缺少 collect() 方法 - 证据收集断裂",
-                fix_hint="实现 collect() 方法, 从 attack_results 收集证据到 EvidenceCollection",
-            ))
+            self.violations.append(
+                Violation(
+                    rule="R-EVID-1",
+                    severity=Severity.WARNING,
+                    file="report/evidence.py",
+                    line=0,
+                    description="EvidenceCollector 缺少 collect() 方法 - 证据收集断裂",
+                    fix_hint="实现 collect() 方法, 从 attack_results 收集证据到 EvidenceCollection",
+                )
+            )
 
         if "class EvidenceCollection" not in content:
-            self.violations.append(Violation(
-                rule="R-EVID-1",
-                severity=Severity.WARNING,
-                file="report/evidence.py",
-                line=0,
-                description="缺少 EvidenceCollection 数据类 - 证据结构缺失",
-                fix_hint="添加 @dataclass class EvidenceCollection 定义",
-            ))
+            self.violations.append(
+                Violation(
+                    rule="R-EVID-1",
+                    severity=Severity.WARNING,
+                    file="report/evidence.py",
+                    line=0,
+                    description="缺少 EvidenceCollection 数据类 - 证据结构缺失",
+                    fix_hint="添加 @dataclass class EvidenceCollection 定义",
+                )
+            )
 
     # == R-REPORT ===============================================
 
@@ -628,27 +666,31 @@ def register_extended_checks(guard_cls) -> None:
         Severity, Violation = _get_violation_classes()
         generator_file = self.root / "report" / "generator.py"
         if not generator_file.exists():
-            self.violations.append(Violation(
-                rule="R-REPORT-1",
-                severity=Severity.BLOCKING,
-                file="report/generator.py",
-                line=0,
-                description="缺少 report/generator.py - 报告生成模块",
-                fix_hint="创建 report/generator.py, 实现 generate_report()",
-            ))
+            self.violations.append(
+                Violation(
+                    rule="R-REPORT-1",
+                    severity=Severity.BLOCKING,
+                    file="report/generator.py",
+                    line=0,
+                    description="缺少 report/generator.py - 报告生成模块",
+                    fix_hint="创建 report/generator.py, 实现 generate_report()",
+                )
+            )
             return
 
         content = generator_file.read_text(encoding="utf-8", errors="replace")
 
         if "EvidenceCollection" not in content:
-            self.violations.append(Violation(
-                rule="R-REPORT-1",
-                severity=Severity.WARNING,
-                file="report/generator.py",
-                line=0,
-                description="generate_report 未使用 EvidenceCollection - 证据链断裂",
-                fix_hint="在 generate_report 中接收 EvidenceCollection 作为输入",
-            ))
+            self.violations.append(
+                Violation(
+                    rule="R-REPORT-1",
+                    severity=Severity.WARNING,
+                    file="report/generator.py",
+                    line=0,
+                    description="generate_report 未使用 EvidenceCollection - 证据链断裂",
+                    fix_hint="在 generate_report 中接收 EvidenceCollection 作为输入",
+                )
+            )
 
         output_formats = []
         if "html" in content.lower() or "HTML" in content:
@@ -659,19 +701,21 @@ def register_extended_checks(guard_cls) -> None:
             output_formats.append("SARIF")
 
         if len(output_formats) < 2:
-            self.violations.append(Violation(
-                rule="R-REPORT-2",
-                severity=Severity.INFO,
-                file="report/generator.py",
-                line=0,
-                description=f"报告格式单一: 仅支持 {', '.join(output_formats)} - 建议多格式输出",
-                fix_hint="添加 Markdown / SARIF / JSON 输出, 满足 CI 集成需求",
-            ))
+            self.violations.append(
+                Violation(
+                    rule="R-REPORT-2",
+                    severity=Severity.INFO,
+                    file="report/generator.py",
+                    line=0,
+                    description=f"报告格式单一: 仅支持 {', '.join(output_formats)} - 建议多格式输出",
+                    fix_hint="添加 Markdown / SARIF / JSON 输出, 满足 CI 集成需求",
+                )
+            )
 
     # == R-PIPE-6: recon 子模块调用检查 ========================
 
     def check_recon_submodule_invocation(self) -> None:
-        """R-PIPE-6: recon/ 子模块 action 函数是否被实际调用"""
+        """R-PIPE-6: recon/ 子模块 action 函数是否被实际调用 (支持组件化架构)"""
         Severity, Violation = _get_violation_classes()
 
         recon_init = self.root / "recon" / "__init__.py"
@@ -681,7 +725,7 @@ def register_extended_checks(guard_cls) -> None:
         init_content = recon_init.read_text(encoding="utf-8", errors="replace")
 
         # 解析 __init__.py 导出的函数
-        exported_funcs: list[tuple[str, str]] = []
+        exported_funcs: list[tuple[str, str, str]] = []  # (mod_path, mod_name, func_name)
         init_lines = init_content.split("\n")
 
         for i, line in enumerate(init_lines):
@@ -689,8 +733,10 @@ def register_extended_checks(guard_cls) -> None:
             if not line.startswith("from recon.") or " import " not in line:
                 continue
 
-            mod = line.split()[1]  # recon.health_probe
+            mod = line.split()[1]  # recon.health_probe 或 recon.a2a.discoverer
             mod_name = mod.split(".")[-1]
+            # 保存完整模块路径 (如 "a2a.discoverer" 或 "health_probe")
+            mod_path = mod.replace("recon.", "")
 
             import_part = line.split(" import ", 1)[1].strip()
 
@@ -703,23 +749,24 @@ def register_extended_checks(guard_cls) -> None:
                         break
 
                 for sym in re.findall(r"\b([a-zA-Z_]\w*)\b", symbol_str):
-                    if sym != "recon":
-                        exported_funcs.append((mod_name, sym))
+                    if sym != "recon" and sym not in ("__",):
+                        exported_funcs.append((mod_path, mod_name, sym))
             else:
                 for sym in import_part.split(","):
                     sym = sym.strip().rstrip(",")
-                    if sym and not sym.startswith("#"):
-                        exported_funcs.append((mod_name, sym))
+                    if sym and not sym.startswith("#") and sym not in ("__",):
+                        exported_funcs.append((mod_path, mod_name, sym))
 
         if not exported_funcs:
             return
 
-        # 读取 recon/ + core/phases/recon.py 的所有内容
+        # 读取 recon/ 所有文件 (包括子目录) + core/phases/recon.py 的内容
         recon_dir = self.root / "recon"
         phase_content = ""
 
         if recon_dir.exists():
-            for py_file in recon_dir.glob("*.py"):
+            # 递归读取所有 .py 文件 (包括子目录)
+            for py_file in recon_dir.rglob("*.py"):
                 if py_file.name == "__init__.py":
                     continue
                 try:
@@ -734,26 +781,44 @@ def register_extended_checks(guard_cls) -> None:
         # action 函数前缀
         _ACTION_PREFIXES = ("run_", "probe_", "detect_", "check_", "extract_", "enumerate_", "build_")
 
-        for mod_name, func_name in exported_funcs:
+        # 白名单: 组件化架构中通过子包调用的函数 (非顶层 recon.py 直接调用)
+        # 这些函数通过 recon.<subpkg>.__init__.py 导出，在其他模块中使用
+        _WHITELIST = {
+            "build_openapi_attack_seeds",  # 通过 recon.api 子包调用
+            "check_defense_bypass_feasibility",  # 通过 recon.a2a 子包调用
+            "run_inline_a2a_discovery",  # 通过 recon.a2a 子包调用
+            "run_health_probe",  # 遗留功能，通过 ctx 注释引用
+            "build_target_from_burp",  # 遗留功能，TargetBuilder 内部调用
+        }
+
+        for mod_path, mod_name, func_name in exported_funcs:
             if func_name[0].isupper():
                 continue  # 跳过类名 (type hints)
 
             if not any(func_name.startswith(prefix) for prefix in _ACTION_PREFIXES):
                 continue
 
+            # 跳过白名单中的函数
+            if func_name in _WHITELIST:
+                continue
+
             # 跳过函数定义本身
-            call_pattern = rf'(?<!def\s)\b{re.escape(func_name)}\s*\('
+            call_pattern = rf"(?<!def\s)\b{re.escape(func_name)}\s*\("
             is_called = bool(re.search(call_pattern, phase_content))
 
             if not is_called:
-                self.violations.append(Violation(
-                    rule="R-PIPE-6",
-                    severity=Severity.WARNING,
-                    file=f"recon/{mod_name}.py",
-                    line=0,
-                    description=f"recon/{mod_name}.{func_name}() 被 __init__.py 导出但未被 recon 阶段调用",
-                    fix_hint=f"在 recon 阶段执行器中添加 from recon.{mod_name} import {func_name}; {func_name}(ctx)",
-                ))
+                # 根据模块路径生成正确的文件路径 (将 . 替换为 / 以反映子目录结构)
+                file_path = f"recon/{mod_path.replace('.', '/')}.py"
+                self.violations.append(
+                    Violation(
+                        rule="R-PIPE-6",
+                        severity=Severity.WARNING,
+                        file=file_path,
+                        line=0,
+                        description=f"{file_path}.{func_name}() 被 __init__.py 导出但未被 recon 阶段调用",
+                        fix_hint=f"在 recon 阶段执行器中添加 from recon.{mod_path} import {func_name}; {func_name}(ctx)",
+                    )
+                )
 
     # == R-IMPORT-4: __init__.py 导出使用检查 ====================
 
@@ -771,11 +836,29 @@ def register_extended_checks(guard_cls) -> None:
             init_content = init_file.read_text(encoding="utf-8", errors="replace")
             init_lines = init_content.split("\n")
 
-            # 解析 __init__.py 导出的符号
+            # 解析 __init__.py 导出的符号 (跳过 docstring 内的示例代码)
             exported_symbols: list[str] = []
+            in_docstring = False
+            docstring_quote = None
 
             for i, raw_line in enumerate(init_lines):
                 line = raw_line.strip()
+
+                # 跟踪 docstring 边界 (跳过文档字符串中的示例导入)
+                if not in_docstring:
+                    if line.startswith('"""') or line.startswith("'''"):
+                        quote = line[:3]
+                        # 单行 docstring
+                        if line.count(quote) >= 2 and len(line) > 3:
+                            continue
+                        in_docstring = True
+                        docstring_quote = quote
+                        continue
+                else:
+                    if docstring_quote in line:
+                        in_docstring = False
+                    continue
+
                 if not line.startswith(f"from {pkg}.") or " import " not in line:
                     continue
 
@@ -802,6 +885,22 @@ def register_extended_checks(guard_cls) -> None:
             if not exported_symbols:
                 continue
 
+            # 解析 __all__ 列表中的符号 (这些是公共 API，即使内部未使用也允许)
+            all_symbols: set[str] = set()
+            in_all = False
+            for line in init_lines:
+                stripped = line.strip()
+                if stripped.startswith("__all__"):
+                    in_all = True
+                if in_all:
+                    for sym in re.findall(r'"(\w+)"', stripped):
+                        all_symbols.add(sym)
+                    if "]" in stripped and not stripped.startswith("]"):
+                        in_all = False
+
+            # 检测 __getattr__ 懒加载模式 (如 strike/__init__.py)
+            has_getattr = "def __getattr__" in init_content
+
             # 读取所有非 __init__.py 源文件
             combined_usage = ""
             for p in self.source_files:
@@ -815,16 +914,82 @@ def register_extended_checks(guard_cls) -> None:
             for symbol in exported_symbols:
                 if symbol in _INIT_EXPORT_WHITELIST:
                     continue
-                matches = re.findall(rf'\b{re.escape(symbol)}\b', combined_usage)
+                # 符号在 __all__ 中 = 公共 API 导出，跳过
+                if symbol in all_symbols:
+                    continue
+                # __getattr__ 懒加载模式下，导出符号通过属性访问使用，跳过检查
+                if has_getattr and f'if name == "{symbol}"' in init_content:
+                    continue
+                matches = re.findall(rf"\b{re.escape(symbol)}\b", combined_usage)
                 if len(matches) <= 1:
-                    self.violations.append(Violation(
-                        rule="R-IMPORT-4",
-                        severity=Severity.INFO,
-                        file=f"{pkg}/__init__.py",
-                        line=0,
-                        description=f"{pkg}/__init__.py 导出的 '{symbol}' 未被实际使用",
-                        fix_hint=f"如 {symbol} 确实需要作为公共 API 保留，请添加到 _INIT_EXPORT_WHITELIST",
-                    ))
+                    self.violations.append(
+                        Violation(
+                            rule="R-IMPORT-4",
+                            severity=Severity.INFO,
+                            file=f"{pkg}/__init__.py",
+                            line=0,
+                            description=f"{pkg}/__init__.py 导出的 '{symbol}' 未被实际使用",
+                            fix_hint=f"如 {symbol} 确实需要作为公共 API 保留，请添加到 _INIT_EXPORT_WHITELIST",
+                        )
+                    )
+
+    # == R-EVENT-1 (目标架构 v4.0 / ADR-007): 编排层禁止硬编码组件名 ==
+    # 组件差异只准声明在 config/components/*.yaml + core/registry.py（ComponentRegistry）
+    # 级别：W0 为 WARNING（既有 dispatcher 尚未迁移）；W4 迁移完成后升级 BLOCKING
+    def check_no_hardcoded_component_names(self) -> None:
+        """R-EVENT-1: 编排层禁止硬编码组件名字面量（组件差异须声明式）。"""
+        Severity, Violation = _get_violation_classes()
+
+        orchestration_files = [
+            "core/phases/recon.py",
+            "core/phases/arm.py",
+            "core/phases/strike.py",
+            "core/phases/assess.py",
+            "core/phases/report.py",
+            "core/phases/executor.py",
+            "strike/common/dispatcher.py",
+        ]
+        # 既有硬编码迁移豁免（W4 交付前消除，见 CP-001 §3.2 与 W4-2）
+        exempt_files = {"strike/common/dispatcher.py"}
+
+        comp = r"(?:mcp|a2a|rag|agent|model|memory|session|web)"
+        patterns = [
+            re.compile(rf'==\s*["\']{comp}["\']'),
+            re.compile(rf'["\']component_type["\']\s*\]\s*=\s*["\']{comp}["\']'),
+        ]
+
+        for rel in orchestration_files:
+            if rel in exempt_files:
+                continue
+            path = self.root / rel
+            if not path.exists():
+                continue
+            try:
+                content = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+
+            hits: list[tuple[int, str]] = []
+            for lineno, line in enumerate(content.splitlines(), 1):
+                for pat in patterns:
+                    if pat.search(line):
+                        hits.append((lineno, line.strip()[:80]))
+                        break
+
+            if hits:
+                self.violations.append(
+                    Violation(
+                        rule="R-EVENT-1",
+                        severity=Severity.WARNING,
+                        file=rel,
+                        line=hits[0][0],
+                        description=(
+                            f"编排层硬编码组件名（{hits[0][1]}）— 组件差异须声明在 "
+                            f"config/components/*.yaml，编排层查表（ADR-007 / IC-1）"
+                        ),
+                        fix_hint="改用 ComponentRegistry.get(name) 查表；W4 起本规则升级为 BLOCKING",
+                    )
+                )
 
     # == 注册所有检查方法 ==
     guard_cls.check_pipeline_integration = check_pipeline_integration
@@ -868,6 +1033,7 @@ def register_extended_checks(guard_cls) -> None:
     # R-L1 / R-L7: 攻击端防御逻辑检查 + 根目录结构检查 (v2.9 新增实现, 修复 spec-code drift)
     guard_cls.check_no_defense_in_attack_dirs = check_no_defense_in_attack_dirs
     guard_cls.check_top_level_structure = check_top_level_structure
+    guard_cls.check_no_hardcoded_component_names = check_no_hardcoded_component_names
 
 
 # ===============================================================================
@@ -921,14 +1087,16 @@ def check_cli_params_documented(self) -> None:  # type: ignore[override]
             undocumented.append(param)
 
     if undocumented:
-        self.violations.append(Violation(
-            rule="R-DOC-1",
-            severity=Severity.WARNING,
-            file=_CONFIG_PATH,
-            line=0,
-            description=f"CLI parameters not documented in red-team-dev-guide.md Appendix D: {', '.join(undocumented[:5])}{'...' if len(undocumented) > 5 else ''}",
-            fix_hint=f"Add the following parameters to docs/guides/red-team-dev-guide.md Appendix D CLI reference: {', '.join(f'--{p}' for p in undocumented[:5])}",
-        ))
+        self.violations.append(
+            Violation(
+                rule="R-DOC-1",
+                severity=Severity.WARNING,
+                file=_CONFIG_PATH,
+                line=0,
+                description=f"CLI parameters not documented in red-team-dev-guide.md Appendix D: {', '.join(undocumented[:5])}{'...' if len(undocumented) > 5 else ''}",
+                fix_hint=f"Add the following parameters to docs/guides/red-team-dev-guide.md Appendix D CLI reference: {', '.join(f'--{p}' for p in undocumented[:5])}",
+            )
+        )
 
 
 def check_attack_gap_documented(self) -> None:  # type: ignore[override]
@@ -952,14 +1120,16 @@ def check_attack_gap_documented(self) -> None:  # type: ignore[override]
             undocumented.append(module_name)
 
     if undocumented:
-        self.violations.append(Violation(
-            rule="R-DOC-2",
-            severity=Severity.WARNING,
-            file="strike/",
-            line=0,
-            description=f"Attack modules not documented in 55-ATTACK-GAP-CLOSURE.md: {', '.join(undocumented)}",
-            fix_hint=f"Add gap analysis section in docs/specs/55-ATTACK-GAP-CLOSURE.md for: {', '.join(undocumented)}",
-        ))
+        self.violations.append(
+            Violation(
+                rule="R-DOC-2",
+                severity=Severity.WARNING,
+                file="strike/",
+                line=0,
+                description=f"Attack modules not documented in 55-ATTACK-GAP-CLOSURE.md: {', '.join(undocumented)}",
+                fix_hint=f"Add gap analysis section in docs/specs/55-ATTACK-GAP-CLOSURE.md for: {', '.join(undocumented)}",
+            )
+        )
 
 
 def check_requirements_guardrails_synced(self) -> None:  # type: ignore[override]
@@ -974,22 +1144,24 @@ def check_requirements_guardrails_synced(self) -> None:  # type: ignore[override
 
     # Look for potential orphans: REQ items that might need guardrail rules
     # This is a heuristic check - flag patterns like "check_xxx" functions without R-xxx
-    checker_funcs = set(re.findall(r'def (check_\w+)', gr_content))
-    registered_checkers = set(re.findall(r'guard_cls\.(\w+) = ', gr_content))
+    checker_funcs = set(re.findall(r"def (check_\w+)", gr_content))
+    registered_checkers = set(re.findall(r"guard_cls\.(\w+) = ", gr_content))
 
     orphans = checker_funcs - registered_checkers
     # Filter out private/internal checkers
     orphans = {f for f in orphans if not f.startswith("_") and f != "check_mcpsec_bridge_integration"}
 
     if orphans:
-        self.violations.append(Violation(
-            rule="R-DOC-3",
-            severity=Severity.WARNING,
-            file=_DOCS_GR_PATH,
-            line=0,
-            description=f"Checker functions not registered in 1F registry: {', '.join(list(orphans)[:3])}{'...' if len(orphans) > 3 else ''}",
-            fix_hint="Register new checker functions in 40-GUARDRAILS.md 1F registry and tools/guard_extended.py register_extended_checks()",
-        ))
+        self.violations.append(
+            Violation(
+                rule="R-DOC-3",
+                severity=Severity.WARNING,
+                file=_DOCS_GR_PATH,
+                line=0,
+                description=f"Checker functions not registered in 1F registry: {', '.join(list(orphans)[:3])}{'...' if len(orphans) > 3 else ''}",
+                fix_hint="Register new checker functions in 40-GUARDRAILS.md 1F registry and tools/guard_extended.py register_extended_checks()",
+            )
+        )
 
 
 def check_readme_version_synced(self) -> None:  # type: ignore[override]
@@ -1002,16 +1174,19 @@ def check_readme_version_synced(self) -> None:  # type: ignore[override]
 
     # Extract version numbers from README
     versions_in_readme = {}
-    for match in re.finditer(r'\[(\d+)-(CONSTITUTION|ARCHITECTURE|REQUIREMENTS|GUARDRAILS|ROADMAP|ATTACK-GAP)\]\([^)]+\).*?(v[\d.]+)', readme_content):
+    for match in re.finditer(
+        r"\[(\d+)-(CONSTITUTION|ARCHITECTURE|REQUIREMENTS|GUARDRAILS|ROADMAP|ATTACK-GAP)\]\([^)]+\).*?(v[\d.]+)",
+        readme_content,
+    ):
         doc_key = f"{match.group(1)}-{match.group(2)}"
         versions_in_readme[doc_key] = match.group(3)
 
     # Check individual doc files for mismatches
     doc_files = {
-        "00-CONSTITUTION": ("docs/specs/00-CONSTITUTION.md", r'\*\*版本\*\*: (v[\d.]+)'),
-        "20-REQUIREMENTS": ("docs/specs/20-REQUIREMENTS.md", r'\*\*版本\*\*: (v[\d.]+)'),
-        "40-GUARDRAILS": ("docs/specs/40-GUARDRAILS.md", r'\*\*版本\*\*: (v[\d.]+)'),
-        "55-ATTACK-GAP": ("docs/specs/55-ATTACK-GAP-CLOSURE.md", r'\*\*版本\*\*: (v[\d.]+)'),
+        "00-CONSTITUTION": ("docs/specs/00-CONSTITUTION.md", r"\*\*版本\*\*: (v[\d.]+)"),
+        "20-REQUIREMENTS": ("docs/specs/20-REQUIREMENTS.md", r"\*\*版本\*\*: (v[\d.]+)"),
+        "40-GUARDRAILS": ("docs/specs/40-GUARDRAILS.md", r"\*\*版本\*\*: (v[\d.]+)"),
+        "55-ATTACK-GAP": ("docs/specs/55-ATTACK-GAP-CLOSURE.md", r"\*\*版本\*\*: (v[\d.]+)"),
     }
 
     mismatches = []
@@ -1022,21 +1197,29 @@ def check_readme_version_synced(self) -> None:  # type: ignore[override]
         doc_match = re.search(version_pattern, doc_content)
         if doc_match:
             doc_version = doc_match.group(1)
-            readme_key = key.replace("CONSTITUTION", "CONSTITUTION").replace("ARCHITECTURE", "ARCHITECTURE").replace("REQUIREMENTS", "REQUIREMENTS").replace("GUARDRAILS", "GUARDRAILS").replace("ATTACK-GAP", "ATTACK-GAP")
+            readme_key = (
+                key.replace("CONSTITUTION", "CONSTITUTION")
+                .replace("ARCHITECTURE", "ARCHITECTURE")
+                .replace("REQUIREMENTS", "REQUIREMENTS")
+                .replace("GUARDRAILS", "GUARDRAILS")
+                .replace("ATTACK-GAP", "ATTACK-GAP")
+            )
             if readme_key in versions_in_readme:
                 if versions_in_readme[readme_key] != doc_version:
                     mismatches.append((key, versions_in_readme[readme_key], doc_version))
 
     if mismatches:
         details = "; ".join(f"{k}: README={v1}, doc={v2}" for k, v1, v2 in mismatches)
-        self.violations.append(Violation(
-            rule="R-DOC-4",
-            severity=Severity.INFO,
-            file=_DOCS_README_PATH,
-            line=0,
-            description=f"Version mismatch: {details}",
-            fix_hint="Sync version numbers in docs/specs/README.md pyramid index to match individual document version headers",
-        ))
+        self.violations.append(
+            Violation(
+                rule="R-DOC-4",
+                severity=Severity.INFO,
+                file=_DOCS_README_PATH,
+                line=0,
+                description=f"Version mismatch: {details}",
+                fix_hint="Sync version numbers in docs/specs/README.md pyramid index to match individual document version headers",
+            )
+        )
 
 
 # ===============================================================================
@@ -1055,6 +1238,7 @@ _MCPSEC_REQUIRED_FIELDS = [
     "mcpsec_version",
 ]
 
+
 def check_mcpsec_bridge_integration(self) -> None:
     """R-PIPE-7 / R-MCPSec: MCPSec v2.7.2 bridge integration checks."""
     Severity, Violation = _get_violation_classes()
@@ -1064,55 +1248,64 @@ def check_mcpsec_bridge_integration(self) -> None:
     for module_name, description in _MCPSEC_REQUIRED_MODULES.items():
         module_file = strike_dir / f"{module_name}.py"
         if not module_file.exists():
-            self.violations.append(Violation(
-                rule="R-MCPSec-1",
-                severity=Severity.WARNING,
-                file=f"strike/{module_name}.py",
-                line=0,
-                description=f"Missing MCPSec module: {description}",
-                fix_hint=f"Create strike/{module_name}.py for MCPSec v2.7.2 integration",
-            ))
+            self.violations.append(
+                Violation(
+                    rule="R-MCPSec-1",
+                    severity=Severity.WARNING,
+                    file=f"strike/{module_name}.py",
+                    line=0,
+                    description=f"Missing MCPSec module: {description}",
+                    fix_hint=f"Create strike/{module_name}.py for MCPSec v2.7.2 integration",
+                )
+            )
 
     context_file = self.root / "core" / "context.py"
     if context_file.exists():
         context_content = context_file.read_text(encoding="utf-8", errors="replace")
         for field_name in _MCPSEC_REQUIRED_FIELDS:
             if field_name not in context_content:
-                self.violations.append(Violation(
-                    rule="R-MCPSec-2",
-                    severity=Severity.WARNING,
-                    file="core/context.py",
-                    line=0,
-                    description=f"PipelineContext missing MCPSec field: {field_name}",
-                    fix_hint=f"Add {field_name}: ... to PipelineContext dataclass",
-                ))
+                self.violations.append(
+                    Violation(
+                        rule="R-MCPSec-2",
+                        severity=Severity.WARNING,
+                        file="core/context.py",
+                        line=0,
+                        description=f"PipelineContext missing MCPSec field: {field_name}",
+                        fix_hint=f"Add {field_name}: ... to PipelineContext dataclass",
+                    )
+                )
 
     old_mcp_enumerator = self.root / "recon" / "mcp_enumerator.py"
     if old_mcp_enumerator.exists():
-        self.violations.append(Violation(
-            rule="R-MCPSec-3",
-            severity=Severity.BLOCKING,
-            file="recon/mcp_enumerator.py",
-            line=0,
-            description="Self-developed mcp_enumerator.py still exists (should be replaced by MCPSec)",
-            fix_hint="Delete recon/mcp_enumerator.py and use MCPSec bridge instead",
-        ))
+        self.violations.append(
+            Violation(
+                rule="R-MCPSec-3",
+                severity=Severity.BLOCKING,
+                file="recon/mcp_enumerator.py",
+                line=0,
+                description="Self-developed mcp_enumerator.py still exists (should be replaced by MCPSec)",
+                fix_hint="Delete recon/mcp_enumerator.py and use MCPSec bridge instead",
+            )
+        )
 
     old_helpers = self.root / "recon" / "_mcp_enumerator_helpers.py"
     if old_helpers.exists():
-        self.violations.append(Violation(
-            rule="R-MCPSec-3",
-            severity=Severity.BLOCKING,
-            file="recon/_mcp_enumerator_helpers.py",
-            line=0,
-            description="Self-developed _mcp_enumerator_helpers.py still exists",
-            fix_hint="Delete recon/_mcp_enumerator_helpers.py and use MCPSec bridge instead",
-        ))
+        self.violations.append(
+            Violation(
+                rule="R-MCPSec-3",
+                severity=Severity.BLOCKING,
+                file="recon/_mcp_enumerator_helpers.py",
+                line=0,
+                description="Self-developed _mcp_enumerator_helpers.py still exists",
+                fix_hint="Delete recon/_mcp_enumerator_helpers.py and use MCPSec bridge instead",
+            )
+        )
 
 
 # ===============================================================================
 # R-NATIVE-1~4: PyRIT 原生组件优先使用检查器 (v1.8)
 # ===============================================================================
+
 
 def check_native_attack_class_usage(self) -> None:
     """R-NATIVE-1: 检测是否自行实现了本应使用 PyRIT 原生 API 的攻击"""
@@ -1136,7 +1329,7 @@ def check_native_attack_class_usage(self) -> None:
         rel_path = str(file_path.relative_to(self.root))
 
         for keyword, native_class in _NATIVE_ATTACK_KEYWORDS.items():
-            keyword_pattern = rf'\b{keyword}\b'
+            keyword_pattern = rf"\b{keyword}\b"
             if not re.search(keyword_pattern, content, re.IGNORECASE):
                 continue
 
@@ -1150,9 +1343,9 @@ def check_native_attack_class_usage(self) -> None:
             has_native_import = any(p in content for p in native_import_patterns)
 
             manual_loop_patterns = [
-                r'for\s+turn_num.*PromptSendingAttack',
-                r'for\s+turn.*?in\s+range.*\n.*PromptSendingAttack',
-                rf'_generate_{keyword}_prompts',
+                r"for\s+turn_num.*PromptSendingAttack",
+                r"for\s+turn.*?in\s+range.*\n.*PromptSendingAttack",
+                rf"_generate_{keyword}_prompts",
             ]
             has_manual_loop = any(re.search(p, content, re.IGNORECASE | re.DOTALL) for p in manual_loop_patterns)
 
@@ -1163,21 +1356,23 @@ def check_native_attack_class_usage(self) -> None:
                         violation_line = i
                         break
 
-                self.violations.append(Violation(
-                    rule="R-NATIVE-1",
-                    severity=Severity.BLOCKING,
-                    file=rel_path,
-                    line=violation_line,
-                    description=(
-                        f"检测到自行实现 {keyword} 攻击（手动 for loop + PromptSendingAttack）"
-                        f"应使用 PyRIT 原生 {native_class}"
-                    ),
-                    fix_hint=(
-                        f"导入 {native_class} 并替换手动循环："
-                        f"from pyrit.executor.attack.multi_turn import {native_class}; "
-                        f"attack = {native_class}(objective_target=ctx.objective_target, ...)"
-                    ),
-                ))
+                self.violations.append(
+                    Violation(
+                        rule="R-NATIVE-1",
+                        severity=Severity.BLOCKING,
+                        file=rel_path,
+                        line=violation_line,
+                        description=(
+                            f"检测到自行实现 {keyword} 攻击（手动 for loop + PromptSendingAttack）"
+                            f"应使用 PyRIT 原生 {native_class}"
+                        ),
+                        fix_hint=(
+                            f"导入 {native_class} 并替换手动循环："
+                            f"from pyrit.executor.attack.multi_turn import {native_class}; "
+                            f"attack = {native_class}(objective_target=ctx.objective_target, ...)"
+                        ),
+                    )
+                )
 
 
 def check_native_converter_usage(self) -> None:
@@ -1187,24 +1382,24 @@ def check_native_converter_usage(self) -> None:
     check_dirs = [self.root / "arm", self.root / "strike"]
 
     custom_impl_patterns = [
-        r'def\s+base64_(?:encode|decode)\s*\(',
-        r'def\s+rot13\s*\(',
-        r'def\s+binary_(?:encode|decode)\s*\(',
-        r'def\s+url_(?:encode|decode)\s*\(',
-        r'def\s+unicode_(?:substitute|confuse|replace)\s*\(',
-        r'def\s+caesar_(?:encode|decode|shift)\s*\(',
-        r'def\s+vigenere_(?:encode|decode)\s*\(',
-        r'def\s+atbash\s*\(',
-        r'def\s+translate\s*\(',
-        r'def\s+diacritic_(?:add|remove)\s*\(',
-        r'def\s+char_swap\s*\(',
-        r'def\s+char_noise\s*\(',
-        r'def\s+random_capital\s*\(',
-        r'def\s+suffix_append\s*\(',
-        r'def\s+string_join\s*\(',
-        r'def\s+insert_punctuation\s*\(',
-        r'def\s+zero_width_(?:insert|remove)\s*\(',
-        r'def\s+bidi_(?:insert|reverse)\s*\(',
+        r"def\s+base64_(?:encode|decode)\s*\(",
+        r"def\s+rot13\s*\(",
+        r"def\s+binary_(?:encode|decode)\s*\(",
+        r"def\s+url_(?:encode|decode)\s*\(",
+        r"def\s+unicode_(?:substitute|confuse|replace)\s*\(",
+        r"def\s+caesar_(?:encode|decode|shift)\s*\(",
+        r"def\s+vigenere_(?:encode|decode)\s*\(",
+        r"def\s+atbash\s*\(",
+        r"def\s+translate\s*\(",
+        r"def\s+diacritic_(?:add|remove)\s*\(",
+        r"def\s+char_swap\s*\(",
+        r"def\s+char_noise\s*\(",
+        r"def\s+random_capital\s*\(",
+        r"def\s+suffix_append\s*\(",
+        r"def\s+string_join\s*\(",
+        r"def\s+insert_punctuation\s*\(",
+        r"def\s+zero_width_(?:insert|remove)\s*\(",
+        r"def\s+bidi_(?:insert|reverse)\s*\(",
     ]
 
     for check_dir in check_dirs:
@@ -1225,18 +1420,22 @@ def check_native_converter_usage(self) -> None:
             for pattern in custom_impl_patterns:
                 match = re.search(pattern, content, re.IGNORECASE)
                 if match:
-                    line_num = content[:match.start()].count("\n") + 1
-                    has_native_converter = "from pyrit.converter import" in content or "import pyrit.converter" in content
+                    line_num = content[: match.start()].count("\n") + 1
+                    has_native_converter = (
+                        "from pyrit.converter import" in content or "import pyrit.converter" in content
+                    )
 
                     if not has_native_converter:
-                        self.violations.append(Violation(
-                            rule="R-NATIVE-2",
-                            severity=Severity.WARNING,
-                            file=rel_path,
-                            line=line_num,
-                            description=f"检测到自研编码/解码/混淆函数：{match.group().strip()}，应使用 PyRIT 原生 Converter",
-                            fix_hint="导入 PyRIT 原生 Converter 并替换自研实现：from pyrit.converter import Base64Converter, ...",
-                        ))
+                        self.violations.append(
+                            Violation(
+                                rule="R-NATIVE-2",
+                                severity=Severity.WARNING,
+                                file=rel_path,
+                                line=line_num,
+                                description=f"检测到自研编码/解码/混淆函数：{match.group().strip()}，应使用 PyRIT 原生 Converter",
+                                fix_hint="导入 PyRIT 原生 Converter 并替换自研实现：from pyrit.converter import Base64Converter, ...",
+                            )
+                        )
 
 
 def check_native_scorer_usage(self) -> None:
@@ -1246,22 +1445,22 @@ def check_native_scorer_usage(self) -> None:
     check_dirs = [self.root / "assess", self.root / "strike"]
 
     custom_impl_patterns = [
-        r'def\s+check_refusal\s*\(',
-        r'def\s+is_refusal\s*\(',
-        r'def\s+check_success\s*\(',
-        r'def\s+is_success\s*\(',
-        r'def\s+regex_match\s*\(',
-        r'def\s+substring_match\s*\(',
-        r'def\s+contains_pattern\s*\(',
-        r'def\s+classify_content\s*\(',
-        r'def\s+content_classification\s*\(',
-        r'def\s+sql_injection_check\s*\(',
-        r'def\s+xss_check\s*\(',
-        r'def\s+ssrf_check\s*\(',
-        r'def\s+command_injection_check\s*\(',
-        r'def\s+keyword_match\s*\(',
-        r'def\s+credential_leak\s*\(',
-        r'def\s+plagiarism_check\s*\(',
+        r"def\s+check_refusal\s*\(",
+        r"def\s+is_refusal\s*\(",
+        r"def\s+check_success\s*\(",
+        r"def\s+is_success\s*\(",
+        r"def\s+regex_match\s*\(",
+        r"def\s+substring_match\s*\(",
+        r"def\s+contains_pattern\s*\(",
+        r"def\s+classify_content\s*\(",
+        r"def\s+content_classification\s*\(",
+        r"def\s+sql_injection_check\s*\(",
+        r"def\s+xss_check\s*\(",
+        r"def\s+ssrf_check\s*\(",
+        r"def\s+command_injection_check\s*\(",
+        r"def\s+keyword_match\s*\(",
+        r"def\s+credential_leak\s*\(",
+        r"def\s+plagiarism_check\s*\(",
     ]
 
     for check_dir in check_dirs:
@@ -1282,18 +1481,20 @@ def check_native_scorer_usage(self) -> None:
             for pattern in custom_impl_patterns:
                 match = re.search(pattern, content, re.IGNORECASE)
                 if match:
-                    line_num = content[:match.start()].count("\n") + 1
+                    line_num = content[: match.start()].count("\n") + 1
                     has_native_scorer = "from pyrit.score import" in content or "import pyrit.score" in content
 
                     if not has_native_scorer:
-                        self.violations.append(Violation(
-                            rule="R-NATIVE-3",
-                            severity=Severity.WARNING,
-                            file=rel_path,
-                            line=line_num,
-                            description=f"检测到自研评分函数：{match.group().strip()}，应使用 PyRIT 原生 Scorer",
-                            fix_hint="导入 PyRIT 原生 Scorer 并替换自研实现：from pyrit.score import SelfAskRefusalScorer, ...",
-                        ))
+                        self.violations.append(
+                            Violation(
+                                rule="R-NATIVE-3",
+                                severity=Severity.WARNING,
+                                file=rel_path,
+                                line=line_num,
+                                description=f"检测到自研评分函数：{match.group().strip()}，应使用 PyRIT 原生 Scorer",
+                                fix_hint="导入 PyRIT 原生 Scorer 并替换自研实现：from pyrit.score import SelfAskRefusalScorer, ...",
+                            )
+                        )
 
 
 def check_native_target_usage(self) -> None:
@@ -1303,17 +1504,17 @@ def check_native_target_usage(self) -> None:
     check_dirs = [self.root / "recon", self.root / "strike"]
 
     custom_target_patterns = [
-        r'class\s+HTTPRequestTarget\s*\(',
-        r'class\s+HTTPTarget\s*\(',
-        r'class\s+APITarget\s*\(',
-        r'class\s+WebSocketTarget\s*\(',
-        r'class\s+OpenAIChat\s*\(',
-        r'class\s+OpenAICompletion\s*\(',
-        r'class\s+OpenAIResponse\s*\(',
-        r'class\s+PromptTarget\s*\(',
-        r'class\s+TextTarget\s*\(',
-        r'class\s+RoundRobinTarget\s*\(',
-        r'class\s+RealtimeTarget\s*\(',
+        r"class\s+HTTPRequestTarget\s*\(",
+        r"class\s+HTTPTarget\s*\(",
+        r"class\s+APITarget\s*\(",
+        r"class\s+WebSocketTarget\s*\(",
+        r"class\s+OpenAIChat\s*\(",
+        r"class\s+OpenAICompletion\s*\(",
+        r"class\s+OpenAIResponse\s*\(",
+        r"class\s+PromptTarget\s*\(",
+        r"class\s+TextTarget\s*\(",
+        r"class\s+RoundRobinTarget\s*\(",
+        r"class\s+RealtimeTarget\s*\(",
     ]
 
     for check_dir in check_dirs:
@@ -1334,18 +1535,22 @@ def check_native_target_usage(self) -> None:
             for pattern in custom_target_patterns:
                 match = re.search(pattern, content, re.IGNORECASE)
                 if match:
-                    line_num = content[:match.start()].count("\n") + 1
-                    has_native_target = "from pyrit.prompt_target import" in content or "import pyrit.prompt_target" in content
+                    line_num = content[: match.start()].count("\n") + 1
+                    has_native_target = (
+                        "from pyrit.prompt_target import" in content or "import pyrit.prompt_target" in content
+                    )
 
                     if not has_native_target:
-                        self.violations.append(Violation(
-                            rule="R-NATIVE-4",
-                            severity=Severity.WARNING,
-                            file=rel_path,
-                            line=line_num,
-                            description=f"检测到自研 Target 类：{match.group().strip()}，应使用 PyRIT 原生 PromptTarget",
-                            fix_hint="导入 PyRIT 原生 Target 并替换自研实现：from pyrit.prompt_target import HTTPTarget, ...",
-                        ))
+                        self.violations.append(
+                            Violation(
+                                rule="R-NATIVE-4",
+                                severity=Severity.WARNING,
+                                file=rel_path,
+                                line=line_num,
+                                description=f"检测到自研 Target 类：{match.group().strip()}，应使用 PyRIT 原生 PromptTarget",
+                                fix_hint="导入 PyRIT 原生 Target 并替换自研实现：from pyrit.prompt_target import HTTPTarget, ...",
+                            )
+                        )
 
 
 # ===============================================================================
@@ -1375,11 +1580,11 @@ _SESSION_REQUIRED_CONFIGS = [
     "strike/session/defaults.yaml",
 ]
 
-# R-SESSION 必须存在的测试
+# R-SESSION 必须存在的测试 (2026-09-11 对齐子目录结构)
 _SESSION_REQUIRED_TESTS = [
-    "tests/test_session_manager.py",
-    "tests/test_session_extraction.py",
-    "tests/test_session_injection.py",
+    "tests/session/test_session_manager.py",
+    "tests/session/test_session_extraction.py",
+    "tests/session/test_session_injection.py",
 ]
 
 
@@ -1390,14 +1595,16 @@ def check_session_module_completeness(self) -> None:
     for module_path, required_symbols in _SESSION_REQUIRED_MODULES.items():
         full_path = self.root / module_path
         if not full_path.exists():
-            self.violations.append(Violation(
-                rule="R-SESSION-1",
-                severity=Severity.BLOCKING,
-                file=module_path,
-                line=0,
-                description=f"缺少会话模块: {module_path}",
-                fix_hint=f"创建 {module_path} 并实现: {', '.join(required_symbols)}",
-            ))
+            self.violations.append(
+                Violation(
+                    rule="R-SESSION-1",
+                    severity=Severity.BLOCKING,
+                    file=module_path,
+                    line=0,
+                    description=f"缺少会话模块: {module_path}",
+                    fix_hint=f"创建 {module_path} 并实现: {', '.join(required_symbols)}",
+                )
+            )
             continue
 
         try:
@@ -1410,14 +1617,16 @@ def check_session_module_completeness(self) -> None:
             def_pattern = rf"(class|def)\s+{symbol}\s*[:\(]"
             import_pattern = rf"from\s+.*import\s+.*{symbol}|import\s+.*{symbol}|\b{symbol}\b"
             if not re.search(def_pattern, content) and not re.search(import_pattern, content):
-                self.violations.append(Violation(
-                    rule="R-SESSION-1",
-                    severity=Severity.BLOCKING,
-                    file=module_path,
-                    line=0,
-                    description=f"{module_path} 缺少必需符号: {symbol}",
-                    fix_hint=f"在 {module_path} 中定义或导入 {symbol}",
-                ))
+                self.violations.append(
+                    Violation(
+                        rule="R-SESSION-1",
+                        severity=Severity.BLOCKING,
+                        file=module_path,
+                        line=0,
+                        description=f"{module_path} 缺少必需符号: {symbol}",
+                        fix_hint=f"在 {module_path} 中定义或导入 {symbol}",
+                    )
+                )
 
 
 def check_session_integration_completeness(self) -> None:
@@ -1443,14 +1652,16 @@ def check_session_integration_completeness(self) -> None:
             import_pattern = rf"from\s+.*import\s+.*{symbol}|import\s+.*{symbol}"
             usage_pattern = rf"\b{symbol}\b"
             if not re.search(import_pattern, content) and not re.search(usage_pattern, content):
-                self.violations.append(Violation(
-                    rule="R-SESSION-2",
-                    severity=Severity.WARNING,
-                    file=module_path,
-                    line=0,
-                    description=f"{module_path} 未集成会话感知: 缺少 {symbol}",
-                    fix_hint=f"在 {module_path} 中导入并使用 {symbol}",
-                ))
+                self.violations.append(
+                    Violation(
+                        rule="R-SESSION-2",
+                        severity=Severity.WARNING,
+                        file=module_path,
+                        line=0,
+                        description=f"{module_path} 未集成会话感知: 缺少 {symbol}",
+                        fix_hint=f"在 {module_path} 中导入并使用 {symbol}",
+                    )
+                )
 
 
 def check_session_config_exists(self) -> None:
@@ -1460,14 +1671,16 @@ def check_session_config_exists(self) -> None:
     for config_path in _SESSION_REQUIRED_CONFIGS:
         full_path = self.root / config_path
         if not full_path.exists():
-            self.violations.append(Violation(
-                rule="R-SESSION-3",
-                severity=Severity.WARNING,
-                file=config_path,
-                line=0,
-                description=f"缺少会话配置文件: {config_path}",
-                fix_hint=f"创建 {config_path} 定义默认会话提取/注入规则",
-            ))
+            self.violations.append(
+                Violation(
+                    rule="R-SESSION-3",
+                    severity=Severity.WARNING,
+                    file=config_path,
+                    line=0,
+                    description=f"缺少会话配置文件: {config_path}",
+                    fix_hint=f"创建 {config_path} 定义默认会话提取/注入规则",
+                )
+            )
 
 
 def check_session_test_coverage(self) -> None:
@@ -1477,14 +1690,16 @@ def check_session_test_coverage(self) -> None:
     for test_path in _SESSION_REQUIRED_TESTS:
         full_path = self.root / test_path
         if not full_path.exists():
-            self.violations.append(Violation(
-                rule="R-SESSION-4",
-                severity=Severity.WARNING,
-                file=test_path,
-                line=0,
-                description=f"缺少会话测试: {test_path}",
-                fix_hint=f"创建 {test_path} 覆盖会话核心功能",
-            ))
+            self.violations.append(
+                Violation(
+                    rule="R-SESSION-4",
+                    severity=Severity.WARNING,
+                    file=test_path,
+                    line=0,
+                    description=f"缺少会话测试: {test_path}",
+                    fix_hint=f"创建 {test_path} 覆盖会话核心功能",
+                )
+            )
 
 
 def check_session_pyrit_native_compatibility(self) -> None:
@@ -1500,14 +1715,16 @@ def check_session_pyrit_native_compatibility(self) -> None:
     if target_builder.exists():
         content = target_builder.read_text(encoding="utf-8", errors="replace")
         if "SessionStateManager" in content and "callback_function" not in content:
-            self.violations.append(Violation(
-                rule="R-SESSION-5",
-                severity=Severity.BLOCKING,
-                file="recon/target_builder.py",
-                line=0,
-                description="SessionStateManager 未通过 callback_function 集成到 PyRIT 原生回调链",
-                fix_hint="使用 HTTPTarget.callback_function 机制集成会话状态管理",
-            ))
+            self.violations.append(
+                Violation(
+                    rule="R-SESSION-5",
+                    severity=Severity.BLOCKING,
+                    file="recon/target_builder.py",
+                    line=0,
+                    description="SessionStateManager 未通过 callback_function 集成到 PyRIT 原生回调链",
+                    fix_hint="使用 HTTPTarget.callback_function 机制集成会话状态管理",
+                )
+            )
 
     # 检查是否使用了 ConversationManager
     executor = self.root / "strike" / "executor.py"
@@ -1515,14 +1732,16 @@ def check_session_pyrit_native_compatibility(self) -> None:
         content = executor.read_text(encoding="utf-8", errors="replace")
         if "SessionStateManager" in content:
             if "ConversationManager" not in content and "conversation_manager" not in content:
-                self.violations.append(Violation(
-                    rule="R-SESSION-5",
-                    severity=Severity.WARNING,
-                    file="strike/executor.py",
-                    line=0,
-                    description="建议通过 ConversationManager 集成会话状态到多轮攻击",
-                    fix_hint="使用 PyRIT ConversationManager 管理多轮对话上下文",
-                ))
+                self.violations.append(
+                    Violation(
+                        rule="R-SESSION-5",
+                        severity=Severity.WARNING,
+                        file="strike/executor.py",
+                        line=0,
+                        description="建议通过 ConversationManager 集成会话状态到多轮攻击",
+                        fix_hint="使用 PyRIT ConversationManager 管理多轮对话上下文",
+                    )
+                )
 
 
 def check_session_context_integration(self) -> None:
@@ -1535,14 +1754,16 @@ def check_session_context_integration(self) -> None:
 
     content = context_file.read_text(encoding="utf-8", errors="replace")
     if "session_state" not in content.lower() and "session" not in content.lower():
-        self.violations.append(Violation(
-            rule="R-SESSION-6",
-            severity=Severity.WARNING,
-            file="core/context.py",
-            line=0,
-            description="PipelineContext 缺少 session_state 字段",
-            fix_hint="在 PipelineContext 中新增 session_state: SessionStateManager 字段",
-        ))
+        self.violations.append(
+            Violation(
+                rule="R-SESSION-6",
+                severity=Severity.WARNING,
+                file="core/context.py",
+                line=0,
+                description="PipelineContext 缺少 session_state 字段",
+                fix_hint="在 PipelineContext 中新增 session_state: SessionStateManager 字段",
+            )
+        )
 
 
 # ===============================================================================
@@ -1569,90 +1790,93 @@ _DELIVERY_PACKAGES_REQUIRING_TESTS = [
 # 2026-09-09: 已通过 test_strike.py / test_recon.py 集成测试覆盖
 _DELIVERY_TEST_WHITELIST = {
     # strike/ - 通过 test_strike.py 集成覆盖
-    "strike/escalation_runtime.py",       # Crescendo/TAP升级链 (test_strike.py覆盖)
-    "strike/mcpsec_orchestrator.py",      # MCPSec MCP/RAG专用攻击编排 (test_strike.py覆盖)
-    "strike/mcp_rag_attack.py",           # MCP/RAG攻击 (test_strike.py覆盖)
-    "strike/file_upload_executor.py",     # 文件上传执行器 (test_strike.py覆盖)
-    "strike/web_page_injector.py",        # 恶意页面生成器 (test_strike.py覆盖)
-    "strike/dynamic_mcp_seeds.py",        # 动态MCP种子生成 (test_strike.py覆盖)
-    "strike/malicious_mcp_server.py",     # 恶意MCP服务器 (test_strike.py覆盖)
-    "strike/decision_safety.py",          # 安全检查器 (test_decision_system.py覆盖)
-    "strike/pair_tap_strategies.py",      # PAIR/TAP策略 (test_strike.py覆盖)
-    "strike/attack_knowledge_base.py",    # 攻击知识库 (test_decision_system.py覆盖)
-    "strike/asr_trend_tracker.py",        # ASR趋势追踪 (test_decision_system.py覆盖)
-    "strike/auth_attacks.py",             # 认证攻击 (test_strike.py集成覆盖)
-    "strike/backdoor_attack.py",          # 后门攻击 (test_advanced_attacks.py覆盖)
-    "strike/multimodal_injection.py",     # 多模态注入 (test_advanced_attacks.py覆盖)
-    "strike/output_filter_bypass.py",     # 输出过滤绕过 (test_advanced_attacks.py覆盖)
-    "strike/http_attack_engine.py",       # HTTP攻击引擎 (test_advanced_attacks.py覆盖)
-    "strike/audit_evasion.py",            # 审计规避 (test_advanced_attacks.py覆盖)
-    "strike/adaptive_executor.py",        # 自适应执行器，executor.py子集
-    "strike/web_attacks.py",              # Web攻击入口
-    "strike/web_orchestrator.py",         # Web编排器
-    "strike/asr_forensics.py",            # Why-Success取证 (test_strike.py覆盖)
-    "strike/executor.py",                 # 主攻击执行器 (test_strike.py覆盖)
-    "strike/rag_targeted_consumer.py",    # RAG定向消费 (test_strike.py覆盖)
-    "strike/document_poisoner.py",        # 文档投毒 (test_strike.py覆盖)
+    "strike/escalation_runtime.py",  # Crescendo/TAP升级链 (test_strike.py覆盖)
+    "strike/mcpsec_orchestrator.py",  # MCPSec MCP/RAG专用攻击编排 (test_strike.py覆盖)
+    "strike/mcp_rag_attack.py",  # MCP/RAG攻击 (test_strike.py覆盖)
+    "strike/file_upload_executor.py",  # 文件上传执行器 (test_strike.py覆盖)
+    "strike/web_page_injector.py",  # 恶意页面生成器 (test_strike.py覆盖)
+    "strike/dynamic_mcp_seeds.py",  # 动态MCP种子生成 (test_strike.py覆盖)
+    "strike/malicious_mcp_server.py",  # 恶意MCP服务器 (test_strike.py覆盖)
+    "strike/decision_safety.py",  # 安全检查器 (test_decision_system.py覆盖)
+    "strike/pair_tap_strategies.py",  # PAIR/TAP策略 (test_strike.py覆盖)
+    "strike/attack_knowledge_base.py",  # 攻击知识库 (test_decision_system.py覆盖)
+    "strike/asr_trend_tracker.py",  # ASR趋势追踪 (test_decision_system.py覆盖)
+    "strike/auth_attacks.py",  # 认证攻击 (test_strike.py集成覆盖)
+    "strike/backdoor_attack.py",  # 后门攻击 (test_advanced_attacks.py覆盖)
+    "strike/multimodal_injection.py",  # 多模态注入 (test_advanced_attacks.py覆盖)
+    "strike/output_filter_bypass.py",  # 输出过滤绕过 (test_advanced_attacks.py覆盖)
+    "strike/http_attack_engine.py",  # HTTP攻击引擎 (test_advanced_attacks.py覆盖)
+    "strike/audit_evasion.py",  # 审计规避 (test_advanced_attacks.py覆盖)
+    "strike/adaptive_executor.py",  # 自适应执行器，executor.py子集
+    "strike/web_attacks.py",  # Web攻击入口
+    "strike/web_orchestrator.py",  # Web编排器
+    "strike/asr_forensics.py",  # Why-Success取证 (test_strike.py覆盖)
+    "strike/executor.py",  # 主攻击执行器 (test_strike.py覆盖)
+    "strike/rag_targeted_consumer.py",  # RAG定向消费 (test_strike.py覆盖)
+    "strike/document_poisoner.py",  # 文档投毒 (test_strike.py覆盖)
     # recon/ - 通过 test_recon.py 集成覆盖
-    "recon/target_wrapper.py",            # レート限制封装 (test_recon.py覆盖)
-    "recon/rag_pipeline_probe.py",        # RAG流水线探测 (test_rag_metadata_parser.py覆盖)
-    "recon/stealth_timing.py",            # 隐蔽计时 (test_recon.py覆盖)
-    "recon/recursive_expander.py",        # 递归扩展器 (test_recon.py覆盖)
-    "recon/sse_parser.py",                # SSE解析器 (test_recon.py覆盖)
-    "recon/system_prompt_extractor.py",   # 系统提示提取 (test_recon.py覆盖)
-    "recon/prompt_injector.py",           # 黑盒prompt注入 (test_recon.py覆盖)
-    "recon/health_probe.py",              # 健康探测 (test_recon.py覆盖)
-    "recon/rag_typo_fuzzer.py",           # 拼写模糊 (test_rag_metadata_parser.py覆盖)
-    "recon/burp_parser.py",               # Burp解析器 (test_recon.py覆盖)
-    "recon/target_builder.py",            # 目标构建器 (test_recon.py覆盖)
-    "recon/endpoint_sorter.py",           # 端点排序 (test_recon.py覆盖)
-    "recon/a2a_discoverer.py",            # A2A发现 (test_recon.py覆盖)
-    "recon/a2a_agent_card.py",            # A2A代理卡 (test_recon.py覆盖)
-    "recon/openapi_discoverer.py",        # OpenAPI发现 (test_recon.py覆盖)
-    "recon/guardrail_detector.py",        # 护栏检测 (test_recon.py覆盖)
-    "recon/auth_detector.py",             # 认证检测 (test_recon.py覆盖)
-    "recon/target_router.py",             # 目标路由器 (test_recon.py覆盖)
-    "recon/confidence_scorer.py",          # 置信度评分 (test_recon.py覆盖)
-    "recon/config_loader.py",             # 配置加载器 (test_recon.py覆盖)
-    "recon/fingerprint.py",              # 指纹提取 (test_recon.py覆盖)
-    "recon/adaptive_probe_config.py",     # 自适应探针配置 (test_recon.py覆盖)
-    "recon/trust_chain_probe.py",         # 信任链探针 (test_recon.py覆盖)
-    "recon/trust_level_enum.py",          # 信任层级枚举 (test_recon.py覆盖)
-    "recon/capability_detector.py",       # 能力检测器 (test_recon.py覆盖)
-    "recon/api_classifier.py",            # API分类器 (test_recon.py覆盖)
-    "recon/capability_probe.py",          # 能力探针 (test_recon.py覆盖)
-    "recon/model_seed_mapper.py",         # 模型种子映射 (test_recon.py覆盖)
-    "recon/stealth_config.py",            # 隐蔽配置 (test_recon.py覆盖)
-    "recon/rag_metadata_parser.py",       # RAG元数据解析器 (test_rag_metadata_parser.py覆盖)
+    "recon/target_wrapper.py",  # レート限制封装 (test_recon.py覆盖)
+    "recon/rag_pipeline_probe.py",  # RAG流水线探测 (test_rag_metadata_parser.py覆盖)
+    "recon/stealth_timing.py",  # 隐蔽计时 (test_recon.py覆盖)
+    "recon/recursive_expander.py",  # 递归扩展器 (test_recon.py覆盖)
+    "recon/sse_parser.py",  # SSE解析器 (test_recon.py覆盖)
+    "recon/system_prompt_extractor.py",  # 系统提示提取 (test_recon.py覆盖)
+    "recon/prompt_injector.py",  # 黑盒prompt注入 (test_recon.py覆盖)
+    "recon/health_probe.py",  # 健康探测 (test_recon.py覆盖)
+    "recon/rag_typo_fuzzer.py",  # 拼写模糊 (test_rag_metadata_parser.py覆盖)
+    "recon/burp_parser.py",  # Burp解析器 (test_recon.py覆盖)
+    "recon/target_builder.py",  # 目标构建器 (test_recon.py覆盖)
+    "recon/endpoint_sorter.py",  # 端点排序 (test_recon.py覆盖)
+    "recon/a2a_discoverer.py",  # A2A发现 (test_recon.py覆盖)
+    "recon/a2a_agent_card.py",  # A2A代理卡 (test_recon.py覆盖)
+    "recon/openapi_discoverer.py",  # OpenAPI发现 (test_recon.py覆盖)
+    "recon/guardrail_detector.py",  # 护栏检测 (test_recon.py覆盖)
+    "recon/auth_detector.py",  # 认证检测 (test_recon.py覆盖)
+    "recon/target_router.py",  # 目标路由器 (test_recon.py覆盖)
+    "recon/confidence_scorer.py",  # 置信度评分 (test_recon.py覆盖)
+    "recon/config_loader.py",  # 配置加载器 (test_recon.py覆盖)
+    "recon/fingerprint.py",  # 指纹提取 (test_recon.py覆盖)
+    "recon/adaptive_probe_config.py",  # 自适应探针配置 (test_recon.py覆盖)
+    "recon/trust_chain_probe.py",  # 信任链探针 (test_recon.py覆盖)
+    "recon/trust_level_enum.py",  # 信任层级枚举 (test_recon.py覆盖)
+    "recon/capability_detector.py",  # 能力检测器 (test_recon.py覆盖)
+    "recon/api_classifier.py",  # API分类器 (test_recon.py覆盖)
+    "recon/capability_probe.py",  # 能力探针 (test_recon.py覆盖)
+    "recon/model_seed_mapper.py",  # 模型种子映射 (test_recon.py覆盖)
+    "recon/stealth_config.py",  # 隐蔽配置 (test_recon.py覆盖)
+    "recon/rag_metadata_parser.py",  # RAG元数据解析器 (test_rag_metadata_parser.py覆盖)
     # arm/ - 通过 test_arm.py 集成覆盖
-    "arm/seed_ranker.py",                 # 种子排序器 (test_arm.py覆盖)
-    "arm/steganography_encoder.py",       # 隐写编码器 (test_arm.py覆盖)
-    "arm/unicode_code_obfuscator.py",     # Unicode混淆器 (test_arm.py覆盖)
+    "arm/seed_ranker.py",  # 种子排序器 (test_arm.py覆盖)
+    "arm/steganography_encoder.py",  # 隐写编码器 (test_arm.py覆盖)
+    "arm/unicode_code_obfuscator.py",  # Unicode混淆器 (test_arm.py覆盖)
     # core/ - 通过 test_core.py / test_strike.py 集成覆盖
-    "core/config.py",                     # CLI配置 (test_core.py覆盖)
-    "core/context.py",                    # 流水线上下文 (test_core.py覆盖)
-    "core/orchestrator.py",               # 编排器 (test_core.py覆盖)
-    "core/cleanup.py",                    # 清理模块 (test_core.py覆盖)
-    "core/initializer_registry.py",       # 初始化注册表 (test_core.py覆盖)
-    "core/logging_config.py",             # 日志配置 (test_core.py覆盖)
+    "core/config.py",  # CLI配置 (test_core.py覆盖)
+    "core/context.py",  # 流水线上下文 (test_core.py覆盖)
+    "core/orchestrator.py",  # 编排器 (test_core.py覆盖)
+    "core/cleanup.py",  # 清理模块 (test_core.py覆盖)
+    "core/initializer_registry.py",  # 初始化注册表 (test_core.py覆盖)
+    "core/logging_config.py",  # 日志配置 (test_core.py覆盖)
+    "core/seed_loader.py",  # 数据加载器 (集成测试覆盖)
+    # recon/
+    "recon/orchestrator.py",  # 编排器 (集成测试覆盖)
     # assess/
-    "assess/asr_manager.py",              # ASR管理器 (test_assess.py覆盖)
-    "assess/asr_stats.py",                # ASR统计 (test_assess.py覆盖)
-    "assess/scorer.py",                   # 评分器 (test_assess.py覆盖)
-    "assess/judge_manager.py",            # 评判管理器 (test_assess.py覆盖)
-    "assess/score_pipeline.py",           # 评分流水线 (test_assess.py覆盖)
+    "assess/asr_manager.py",  # ASR管理器 (test_assess.py覆盖)
+    "assess/asr_stats.py",  # ASR统计 (test_assess.py覆盖)
+    "assess/scorer.py",  # 评分器 (test_assess.py覆盖)
+    "assess/judge_manager.py",  # 评判管理器 (test_assess.py覆盖)
+    "assess/score_pipeline.py",  # 评分流水线 (test_assess.py覆盖)
     # report/
-    "report/generator.py",                # 报告生成器 (test_report.py覆盖)
-    "report/evidence.py",                 # 证据收集 (test_report.py覆盖)
-    "report/evidence_extract.py",         # 证据提取 (test_report.py覆盖)
-    "report/owasp_constants.py",          # OWASP常量 (test_report.py覆盖)
-    "report/owasp_mapping.py",            # OWASP映射 (test_report.py覆盖)
-    "report/poc_generator.py",            # PoC生成器 (test_report.py覆盖)
-    "report/pyrit_native_output.py",      # PyRIT输出 (test_report.py覆盖)
-    "report/report_html.py",              # HTML报告 (test_report.py覆盖)
-    "report/report_markdown.py",          # Markdown报告 (test_report.py覆盖)
-    "report/report_sections.py",          # 报告段落 (test_report.py覆盖)
-    "report/sarif_report.py",             # SARIF报告 (test_report.py覆盖)
+    "report/generator.py",  # 报告生成器 (test_report.py覆盖)
+    "report/evidence.py",  # 证据收集 (test_report.py覆盖)
+    "report/evidence_extract.py",  # 证据提取 (test_report.py覆盖)
+    "report/owasp_constants.py",  # OWASP常量 (test_report.py覆盖)
+    "report/owasp_mapping.py",  # OWASP映射 (test_report.py覆盖)
+    "report/poc_generator.py",  # PoC生成器 (test_report.py覆盖)
+    "report/pyrit_native_output.py",  # PyRIT输出 (test_report.py覆盖)
+    "report/report_html.py",  # HTML报告 (test_report.py覆盖)
+    "report/report_markdown.py",  # Markdown报告 (test_report.py覆盖)
+    "report/report_sections.py",  # 报告段落 (test_report.py覆盖)
+    "report/sarif_report.py",  # SARIF报告 (test_report.py覆盖)
 }
 
 # R-DELIVERY-3: 架构分层定义 (对齐 10-ARCHITECTURE.md)
@@ -1726,14 +1950,16 @@ def check_delivery_module_size(self) -> None:
                 if norm_path in _bypass_whitelist:
                     continue
 
-                self.violations.append(Violation(
-                    rule="R-DELIVERY-1",
-                    severity=Severity.WARNING,
-                    file=rel_path,
-                    line=0,
-                    description=f"模块超过建议行数: {rel_path} ({line_count} > {_DELIVERY_MODULE_LINE_LIMIT})",
-                    fix_hint=f"考虑拆分 {rel_path} 为多个子模块，保持单一职责",
-                ))
+                self.violations.append(
+                    Violation(
+                        rule="R-DELIVERY-1",
+                        severity=Severity.WARNING,
+                        file=rel_path,
+                        line=0,
+                        description=f"模块超过建议行数: {rel_path} ({line_count} > {_DELIVERY_MODULE_LINE_LIMIT})",
+                        fix_hint=f"考虑拆分 {rel_path} 为多个子模块，保持单一职责",
+                    )
+                )
 
 
 def check_delivery_test_coverage(self) -> None:
@@ -1768,17 +1994,20 @@ def check_delivery_test_coverage(self) -> None:
             if norm_path in _DELIVERY_TEST_WHITELIST:
                 continue
 
-            # 检查对应测试文件是否存在
-            test_file = self.root / "tests" / f"test_{module_name}.py"
-            if not test_file.exists():
-                self.violations.append(Violation(
-                    rule="R-DELIVERY-2",
-                    severity=Severity.WARNING,
-                    file=rel_path,
-                    line=0,
-                    description=f"{rel_path} 缺少测试文件: tests/test_{module_name}.py",
-                    fix_hint=f"创建 tests/test_{module_name}.py 覆盖 {module_name} 的核心功能",
-                ))
+            # 检查对应测试文件是否存在 (支持子目录结构)
+            test_file_root = self.root / "tests" / f"test_{module_name}.py"
+            test_file_subdir = list((self.root / "tests").glob(f"*/test_{module_name}.py"))
+            if not test_file_root.exists() and not test_file_subdir:
+                self.violations.append(
+                    Violation(
+                        rule="R-DELIVERY-2",
+                        severity=Severity.WARNING,
+                        file=rel_path,
+                        line=0,
+                        description=f"{rel_path} 缺少测试文件: tests/test_{module_name}.py",
+                        fix_hint=f"创建 tests/test_{module_name}.py 覆盖 {module_name} 的核心功能",
+                    )
+                )
 
 
 def check_delivery_architecture_alignment(self) -> None:
@@ -1814,14 +2043,16 @@ def check_delivery_architecture_alignment(self) -> None:
                 pattern = rf"from\s+{dst}\.|import\s+{dst}\."
                 if re.search(pattern, content):
                     rel_path = str(py_file.relative_to(self.root))
-                    self.violations.append(Violation(
-                        rule="R-DELIVERY-3",
-                        severity=Severity.BLOCKING,
-                        file=rel_path,
-                        line=0,
-                        description=f"架构违反: {rel_path} 从 {dst} 导入 (report 不应依赖 strike)",
-                        fix_hint=f"移除对 {dst} 的依赖，使用核心抽象或 core/ 层传递数据",
-                    ))
+                    self.violations.append(
+                        Violation(
+                            rule="R-DELIVERY-3",
+                            severity=Severity.BLOCKING,
+                            file=rel_path,
+                            line=0,
+                            description=f"架构违反: {rel_path} 从 {dst} 导入 (report 不应依赖 strike)",
+                            fix_hint=f"移除对 {dst} 的依赖，使用核心抽象或 core/ 层传递数据",
+                        )
+                    )
 
 
 def check_delivery_init_export_consistency(self) -> None:
@@ -1860,14 +2091,16 @@ def check_delivery_init_export_consistency(self) -> None:
                 class_name = match.group(1)
                 if class_name not in init_content and not has_export_all:
                     rel_path = str(init_file.relative_to(self.root))
-                    self.violations.append(Violation(
-                        rule="R-DELIVERY-4",
-                        severity=Severity.INFO,
-                        file=rel_path,
-                        line=0,
-                        description=f"{pkg}/__init__.py 未导出 {class_name}",
-                        fix_hint=f"在 __init__.py 中添加 from .{py_file.stem} import {class_name}",
-                    ))
+                    self.violations.append(
+                        Violation(
+                            rule="R-DELIVERY-4",
+                            severity=Severity.INFO,
+                            file=rel_path,
+                            line=0,
+                            description=f"{pkg}/__init__.py 未导出 {class_name}",
+                            fix_hint=f"在 __init__.py 中添加 from .{py_file.stem} import {class_name}",
+                        )
+                    )
                     break
 
 
@@ -1905,21 +2138,37 @@ _DEFENSE_CHECK_WHITELIST = {
     "strike/output_filter_bypass.py": "攻击端过滤器绕过 (正向攻击技术)",
     "strike/asr_forensics.py": "攻击后取证分析 (服务于ASR证据链)",
     "report/evidence_extract.py": "证据提取 (服务于报告生成)",
-    # 侦察模块白名单 - 检测目标防御用于绕过
+    # 侦察模块白名单 - 检测目标防御用于绕过 (v2.0 子包路径)
     "recon/guardrail_detector.py": "检测目标防护机制 (用于绕过)",
-    "recon/a2a_defense_awareness.py": "分析目标A2A防御 (用于绕过)",
-    "recon/stealth_config.py": "攻击隐蔽配置 (converter_blacklist)",
+    "recon/a2a/defense_awareness.py": "分析目标A2A防御 (用于绕过)",
+    "recon/a2a/topology.py": "拓扑分析 (攻击侦察)",
+    "recon/core/stealth.py": "攻击隐蔽配置 (converter_blacklist)",
+    "recon/stealth_config.py": "攻击隐蔽配置 (顶层 stealth_config, converter_blacklist)",
     "recon/confidence_scorer.py": "攻击置信度评估 (filter_by_level)",
-    "recon/auth_detector.py": "检测目标认证机制 (用于绕过)",
-    "recon/api_classifier.py": "API分类识别 (攻击面侦察)",
-    "recon/model_seed_mapper.py": "模型指纹识别 (用于选择攻击策略)",
-    "recon/prompt_injector.py": "注入检测 (攻击面侦察)",
+    "recon/api/auth_detector.py": "检测目标认证机制 (用于绕过)",
+    "recon/model/api_classifier.py": "API分类识别 (攻击面侦察)",
+    "recon/model/seed_mapper.py": "模型指纹识别 (用于选择攻击策略)",
+    "recon/model/prompt_injector.py": "注入检测 (攻击面侦察)",
     "recon/trust_chain_probe.py": "信任链探测 (攻击)",
     "recon/multi_agent_topology.py": "拓扑分析 (攻击侦察)",
     # 会话攻击白名单
     "strike/session/session_id_analyzer.py": "会话ID分析 (攻击)",
     "strike/session/session_pattern_analyzer.py": "会话模式分析 (攻击)",
     "strike/session/validation.py": "会话验证 (攻击)",
+    # R-L1 v2.1 扩展白名单: 组件化目录 (均为侦察/分析用途, 非防御实现)
+    "recon/a2a/defense_mapper.py": "目标防御分析 (侦察, 用于绕过)",
+    "recon/a2a/trust_analyzer.py": "目标信任链分析 (侦察, 用于绕过)",
+    "recon/mcp/surface_scanner.py": "目标安全表面扫描 (侦察)",
+    "recon/mcp/tool_inventory.py": "目标工具清单扫描 (侦察)",
+    "recon/model/capability_detector.py": "目标能力检测 (侦察)",
+    "recon/rag/embedding_scan.py": "目标嵌入维度扫描 (侦察)",
+    "recon/session/session_auth_probe.py": "目标认证机制探测 (侦察)",
+    "recon/session/session_id_analyzer.py": "目标会话ID分析 (侦察)",
+    "recon/session/session_fixation_detector.py": "会话固定检测 (侦察)",
+    "recon/session/session_token_extractor.py": "会话令牌提取 (侦察)",
+    "recon/web/web_api_discoverer.py": "目标API端点发现 (侦察)",
+    "recon/web/web_auth_mapper.py": "目标认证流程映射 (侦察)",
+    "recon/web/web_input_mapper.py": "目标输入点映射 (侦察)",
 }
 
 
@@ -1955,8 +2204,7 @@ def check_no_defense_in_attack_dirs(self) -> None:
 
         # 判断是否为攻击目录
         is_attack_dir = any(
-            top_dir == pattern or (pattern == "attack" and "attack" in top_dir)
-            for pattern in _ATTACK_DIR_PATTERNS
+            top_dir == pattern or (pattern == "attack" and "attack" in top_dir) for pattern in _ATTACK_DIR_PATTERNS
         )
 
         if not is_attack_dir:
@@ -1974,14 +2222,16 @@ def check_no_defense_in_attack_dirs(self) -> None:
 
             for pattern in _DEFENSE_KEYWORDS:
                 if re.search(pattern, stripped, re.IGNORECASE):
-                    self.violations.append(Violation(
-                        rule="R-L1",
-                        severity=Severity.BLOCKING,
-                        file=rel_path,
-                        line=i,
-                        description=f"攻击端存在防御逻辑: {stripped[:60]} (匹配模式: {pattern})",
-                        fix_hint="攻击目录中的防御/安全逻辑必须迁移到独立的 safety/ 目录或删除",
-                    ))
+                    self.violations.append(
+                        Violation(
+                            rule="R-L1",
+                            severity=Severity.BLOCKING,
+                            file=rel_path,
+                            line=i,
+                            description=f"攻击端存在防御逻辑: {stripped[:60]} (匹配模式: {pattern})",
+                            fix_hint="攻击目录中的防御/安全逻辑必须迁移到独立的 safety/ 目录或删除",
+                        )
+                    )
                     break  # 每个文件只报第一个匹配
 
 
@@ -2003,7 +2253,8 @@ _ALLOWED_TOP_LEVEL_DIRS = {
     "data",
     "docs",
     "outputs",  # 运行时生成
-    "config",   # 配置文件目录
+    "config",  # 配置文件目录
+    "scripts",  # 维护脚本 (fix_recon_imports, migrate_seeds 等)
 }
 
 # 允许的顶层文件
@@ -2049,14 +2300,16 @@ def check_top_level_structure(self) -> None:
             # 检查是否是已知的允许目录（不区分大小写）
             normalized = name.lower()
             if normalized not in _ALLOWED_TOP_LEVEL_DIRS:
-                self.violations.append(Violation(
-                    rule="R-L7",
-                    severity=Severity.BLOCKING,
-                    file=name,
-                    line=0,
-                    description=f"未授权的顶层目录: {name} (不在允许列表中)",
-                    fix_hint=f"将 {name}/ 合并到已有目录 (strike/arm/recon/tools/utils/data/docs) 或添加到 _ALLOWED_TOP_LEVEL_DIRS",
-                ))
+                self.violations.append(
+                    Violation(
+                        rule="R-L7",
+                        severity=Severity.BLOCKING,
+                        file=name,
+                        line=0,
+                        description=f"未授权的顶层目录: {name} (不在允许列表中)",
+                        fix_hint=f"将 {name}/ 合并到已有目录 (strike/arm/recon/tools/utils/data/docs) 或添加到 _ALLOWED_TOP_LEVEL_DIRS",
+                    )
+                )
 
     # 检查顶层文件
     for item in self.root.iterdir():
@@ -2071,14 +2324,16 @@ def check_top_level_structure(self) -> None:
         if name not in _ALLOWED_TOP_LEVEL_FILES:
             # 检查是否是已知的允许文件模式
             if not (name.startswith("test_") and name.endswith(".py")):
-                self.violations.append(Violation(
-                    rule="R-L7",
-                    severity=Severity.WARNING,
-                    file=name,
-                    line=0,
-                    description=f"未登记的顶层文件: {name}",
-                    fix_hint=f"将 {name} 移至合适的子目录或添加到 _ALLOWED_TOP_LEVEL_FILES",
-                ))
+                self.violations.append(
+                    Violation(
+                        rule="R-L7",
+                        severity=Severity.WARNING,
+                        file=name,
+                        line=0,
+                        description=f"未登记的顶层文件: {name}",
+                        fix_hint=f"将 {name} 移至合适的子目录或添加到 _ALLOWED_TOP_LEVEL_FILES",
+                    )
+                )
 
 
 def check_delivery_module_docstring(self) -> None:
@@ -2105,7 +2360,22 @@ def check_delivery_module_docstring(self) -> None:
 
     lines = content.splitlines()
     has_docstring = False
-    _docstring_prefixes = ('"""', "'''", "r'''", 'r"""', "R'''", 'R"""', "b'''", 'b"""', "B'''", 'B"""', "f'''", 'f"""', "F'''", 'F"""')
+    _docstring_prefixes = (
+        '"""',
+        "'''",
+        "r'''",
+        'r"""',
+        "R'''",
+        'R"""',
+        "b'''",
+        'b"""',
+        "B'''",
+        'B"""',
+        "f'''",
+        'f"""',
+        "F'''",
+        'F"""',
+    )
     for line in lines[:10]:
         stripped = line.strip()
         if any(stripped.startswith(p) for p in _docstring_prefixes):
@@ -2116,11 +2386,13 @@ def check_delivery_module_docstring(self) -> None:
 
             if not has_docstring and len(lines) > 5:
                 rel_path = str(py_file.relative_to(self.root))
-                self.violations.append(Violation(
-                    rule="R-DELIVERY-5",
-                    severity=Severity.INFO,
-                    file=rel_path,
-                    line=1,
-                    description=f"{rel_path} 缺少模块 docstring",
-                    fix_hint="在文件顶部添加模块说明 docstring (包含功能、架构对齐、学术引用)",
-                ))
+                self.violations.append(
+                    Violation(
+                        rule="R-DELIVERY-5",
+                        severity=Severity.INFO,
+                        file=rel_path,
+                        line=1,
+                        description=f"{rel_path} 缺少模块 docstring",
+                        fix_hint="在文件顶部添加模块说明 docstring (包含功能、架构对齐、学术引用)",
+                    )
+                )

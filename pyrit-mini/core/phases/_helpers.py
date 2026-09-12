@@ -10,31 +10,39 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
 def _resolve_burp_list(args: Any) -> list[str]:
     """imports CLI Parameter parsing burp_list"""
-    burp_list: list[str] = getattr(args, "_burp_list", None)
+    # W0 fix: previously this function returned None on the common path (the `return`
+    # sat inside the single-branch `else`, and the `isinstance(list)` branch had none),
+    # causing `sort_endpoints_by_priority(None)` to raise TypeError.
+    burp_list: list[str] | None = getattr(args, "_burp_list", None)
     if burp_list is None:
         burp_val = args.burp
         if isinstance(burp_val, list):
-            burp_list = burp_val
+            burp_list = list(burp_val)
         else:
             burp_list = [burp_val] if burp_val else ["request"]
-            return burp_list
+    return burp_list
+
 
 def _detect_non_burp_mode(args: Any) -> bool:
-    """ Burp (LiteLLM/OpenAI API/Browser)"""
+    """Burp (LiteLLM/OpenAI API/Browser)"""
     return bool(
-        getattr(args, "litellm_model", None) or os.environ.get("LITELLM_MODEL")
+        getattr(args, "litellm_model", None)
+        or os.environ.get("LITELLM_MODEL")
         or (getattr(args, "target_api_endpoint", None) and getattr(args, "target_api_key", None))
         or getattr(args, "browser_url", None)
     )
 
+
 async def _setup_memory_labels(ctx: "PipelineContext") -> None:
-    """ CentralMemory"""
+    """CentralMemory"""
     if not ctx.memory_labels:
         return
     try:
         from pyrit.memory import CentralMemory
+
         memory = CentralMemory.get_memory_instance()
         if hasattr(memory, "set_labels"):
             memory.set_labels(ctx.memory_labels)
@@ -42,37 +50,35 @@ async def _setup_memory_labels(ctx: "PipelineContext") -> None:
             os.environ["PYRIT_MEMORY_LABELS"] = str(ctx.memory_labels)
             logger.info("Memory labels set: %s", ctx.memory_labels)
     except Exception as e:
-        logger.debug(
-            "Failed to set memory labels in CentralMemory: %s", e)
+        logger.debug("Failed to set memory labels in CentralMemory: %s", e)
         os.environ["PYRIT_MEMORY_LABELS"] = str(ctx.memory_labels)
 
-async def _re_set_memory_labels(
-        ctx: "PipelineContext", burp_name: str) -> None:
+
+async def _re_set_memory_labels(ctx: "PipelineContext", burp_name: str) -> None:
     """converter(s) endpoint memory labels (setup_environment )"""
     try:
         from pyrit.memory import CentralMemory
+
         _ep_memory = CentralMemory.get_memory_instance()
         if hasattr(_ep_memory, "set_labels"):
             _ep_memory.set_labels(ctx.memory_labels)
             logger.debug("Memory labels re-set for endpoint %s", burp_name)
     except Exception as e:
-        logger.debug(
-            "Failed to re-set memory labels for endpoint %s: %s",
-            burp_name,
-            e)
+        logger.debug("Failed to re-set memory labels for endpoint %s: %s", burp_name, e)
+
 
 async def _register_dynamic_initializers(ctx: "PipelineContext") -> None:
-    """ Initializer (--add-initializer)"""
+    """Initializer (--add-initializer)"""
     initializer_specs = getattr(ctx.args, "initializer_specs", None)
     if initializer_specs:
         from core.initializer_registry import register_initializers_async
+
         await register_initializers_async(initializer_specs, ctx)
-        logger.info(
-            "Registered %d dynamic initializer(s)",
-            len(initializer_specs))
+        logger.info("Registered %d dynamic initializer(s)", len(initializer_specs))
+
 
 def _reset_endpoint_state(ctx: "PipelineContext") -> None:
-    """ ctx (converter(s) endpoint )"""
+    """ctx (converter(s) endpoint )"""
     ctx.parsed_request = None
     ctx.service_profile = {}
     ctx.objective_target = None
@@ -95,6 +101,7 @@ def _reset_endpoint_state(ctx: "PipelineContext") -> None:
     # P0-A: DualJudgeState endpoint
     try:
         from assess.asr_stats import DualJudgeState
+
         ctx.dual_judge_state = DualJudgeState()
     except Exception:
         pass
@@ -102,47 +109,47 @@ def _reset_endpoint_state(ctx: "PipelineContext") -> None:
     # P0-A:   DualJudgeState
     try:
         from assess.asr_stats import _reset_dual_judge_stats
+
         _reset_dual_judge_stats()
     except Exception:
         pass
         try:
             from assess.judge_manager import reset_t0_stats
+
             reset_t0_stats()
         except Exception:
             pass
 
-def _print_endpoint_sort_results(
-        sorted_endpoints: list[dict[str, Any]]) -> None:
-    """ endpoint """
+
+def _print_endpoint_sort_results(sorted_endpoints: list[dict[str, Any]]) -> None:
+    """endpoint"""
     from utils.display import _C_BOLD, _C_RESET
+
     print()
     print(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
     print(f"{_C_BOLD}  > [RECON] Endpoint  (){_C_RESET}")
-    _files_str = ", ".join(
-        Path(ep['burp_path']).name for ep in sorted_endpoints)
+    _files_str = ", ".join(Path(ep["burp_path"]).name for ep in sorted_endpoints)
     print(f"  config/burp/ - {_files_str}")
     print(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
     for i, ep in enumerate(sorted_endpoints):
-        caps_str = ", ".join(
-            sorted(
-                ep["capabilities"])) if ep["capabilities"] else "chat"
-        print(
-            f"  {i + 1}. {_C_BOLD}{ep['burp_name']}{_C_RESET} "
-            f"(priority={ep['priority_score']}, caps={caps_str})"
-        )
+        caps_str = ", ".join(sorted(ep["capabilities"])) if ep["capabilities"] else "chat"
+        print(f"  {i + 1}. {_C_BOLD}{ep['burp_name']}{_C_RESET} (priority={ep['priority_score']}, caps={caps_str})")
+
 
 def _print_endpoint_header(idx: int, total: int, burp_name: str) -> None:
-    """ endpoint """
+    """endpoint"""
     from utils.display import _C_BOLD, _C_RESET
+
     print()
     print(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
     print(f"{_C_BOLD}  Endpoint {idx + 1}/{total}: {burp_name}{_C_RESET}")
     print(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
 
-def _print_joint_asr_summary(
-        joint_summary: dict[str, Any], report_path: Path) -> None:
-    """ ASR """
+
+def _print_joint_asr_summary(joint_summary: dict[str, Any], report_path: Path) -> None:
+    """ASR"""
     from utils.display import _C_BOLD, _C_RESET, print_joint_asr_card
+
     print()
     print(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
     print(f"{_C_BOLD}  Joint ASR Summary - Multi-Endpoint Deep Attack{_C_RESET}")
@@ -156,113 +163,139 @@ def _print_joint_asr_summary(
         report_path=str(report_path),
     )
 
-def _extract_target_profile(
-        ctx: "PipelineContext") -> tuple[str | None, str | None, str | None]:
-    """imports + + """
-    target_language = None
-    target_capabilities = None
-    target_model_family = None
-    if ctx.parsed_request:
-        fp = ctx.parsed_request.target_fingerprint
-        target_language = fp.get("language")
-        target_capabilities = fp.get("capabilities")
-        target_model_family = fp.get("model_family")
-        if not target_model_family and fp.get("burp_model_name"):
+
+def _extract_target_profile(ctx: "PipelineContext") -> dict[str, Any]:
+    """提取目标画像（language / capabilities / model_family），供 ARM 选择种子与 Converter。
+
+    W0 修复：本函数此前存在两处缺陷，导致 ARM 阶段必然崩溃 ——
+        1. 类型自相矛盾：注解声明返回 `tuple[str|None, ...]`，但唯一调用方
+           (`core/phases/arm.py:196`) 按 **dict** 消费（`.get("language")`）。
+        2. 主路径**没有 return**：只有 `model_family` 靠 burp_model_name 推断成功
+           的内层分支才 return，其余情况函数返回 `None` →
+           `NoneType.get` → AttributeError，ARM 阶段第一步即中断。
+
+    现统一返回 dict（调用方契约），并保证任何分支都有确定返回值（IA-6）。
+    """
+    profile: dict[str, Any] = {"language": None, "capabilities": None, "model_family": None}
+
+    if not ctx.parsed_request:
+        return profile
+
+    fp = ctx.parsed_request.target_fingerprint
+    if not isinstance(fp, dict):
+        return profile
+
+    profile["language"] = fp.get("language")
+    profile["capabilities"] = fp.get("capabilities")
+    profile["model_family"] = fp.get("model_family")
+
+    if not profile["model_family"] and fp.get("burp_model_name"):
+        try:
             from recon.capability_detector import _detect_model_family
+
             inferred = _detect_model_family(fp["burp_model_name"])
             if inferred:
-                target_model_family = inferred
-                return target_language, target_capabilities, target_model_family
+                profile["model_family"] = inferred
+        except Exception as e:
+            logger.debug("[ARM] model_family 推断失败（忽略）: %s", e)
+
+    return profile
+
 
 def _get_arm_target_type(ctx: "PipelineContext") -> str:
-    """ ARM """
+    """ARM"""
     if not ctx.parsed_request:
         return "unknown"
-        _fp = ctx.parsed_request.target_fingerprint
-        _caps = _fp.get("capabilities", "") or ""
-        if "mcp" in _caps.lower() or "mcp_protocol" in _caps.lower():
-            return "mcp_agent"
-        elif _fp.get("app_type") in ("chat", "responses", "litellm"):
-            return "llm_chat"
-        elif _fp.get("app_type") == "browser":
-            return "browser"
-            return "http_api"
+    # W0 fix: this whole block was dead code (indented past the previous `return`),
+    # so converter selection always received "unknown" and never resolved the
+    # target component type.
+    _fp = ctx.parsed_request.target_fingerprint
+    _caps = _fp.get("capabilities", "") or ""
+    if isinstance(_caps, (list, tuple, set)):
+        _caps_lower = " ".join(str(c) for c in _caps).lower()
+    else:
+        _caps_lower = str(_caps).lower()
+    if "mcp" in _caps_lower or "mcp_protocol" in _caps_lower:
+        return "mcp_agent"
+    if _fp.get("app_type") in ("chat", "responses", "litellm"):
+        return "llm_chat"
+    if _fp.get("app_type") == "browser":
+        return "browser"
+    return "http_api"
+
 
 def _record_recon_orchestration(ctx: "PipelineContext") -> None:
     """"""
     if ctx.parsed_request:
         _fp = ctx.parsed_request.target_fingerprint
-        ctx.orchestration_log.append({
-            "phase": "recon",
-            "decision": "target_profiling",
-            "input": {"burp": ctx.args.burp},
-            "output": {
-                "app_type": _fp.get("app_type", "Unknown"),
-                "auth_type": _fp.get("auth_type", "Unknown"),
-                "capabilities": _fp.get("capabilities", ""),
-                "model_family": _fp.get("model_family", ""),
-                "language": _fp.get("language", ""),
-                "burp_model_name": _fp.get("burp_model_name", ""),
-                "api_category": _fp.get("api_category", "chat"),
-                "has_model_list": _fp.get("burp_model_list", ""),
-                "mcp_tool_count": len(_fp.get("mcp_tools", [])),
-                "openapi_endpoint_count": len(_fp.get("openapi_endpoints", [])),
-                "port_endpoint_count": len(_fp.get("port_endpoints", [])),
-                "probe_count": _fp.get("probe_count", 0),
-                "probe_duration_seconds": _fp.get("probe_duration_seconds", 0),
-                "secret_format": _fp.get("secret_format", ""),
-                "session_type": _fp.get("session_type", ""),
-                "tenant_id": _fp.get("tenant_id", ""),
-                "ai_framework": _fp.get("ai_framework", ""),
-                "ai_framework_category": _fp.get("ai_framework_category", ""),
-                "system_prompt_leaked": _fp.get("system_prompt_leaked", False),
-                "system_prompt_extraction_method": _fp.get("system_prompt_extraction_method", ""),
-                "model_ids_count": len(_fp.get("model_ids", [])),
-                "vector_db_count": len(_fp.get("vector_dbs", [])),
-                "mcp_tool_safety_risky_count": sum(
-                    1 for t in _fp.get("mcp_tool_safety", []) if t.get("risks")
+        ctx.orchestration_log.append(
+            {
+                "phase": "recon",
+                "decision": "target_profiling",
+                "input": {"burp": ctx.args.burp},
+                "output": {
+                    "app_type": _fp.get("app_type", "Unknown"),
+                    "auth_type": _fp.get("auth_type", "Unknown"),
+                    "capabilities": _fp.get("capabilities", ""),
+                    "model_family": _fp.get("model_family", ""),
+                    "language": _fp.get("language", ""),
+                    "burp_model_name": _fp.get("burp_model_name", ""),
+                    "api_category": _fp.get("api_category", "chat"),
+                    "has_model_list": _fp.get("burp_model_list", ""),
+                    "mcp_tool_count": len(_fp.get("mcp_tools", [])),
+                    "openapi_endpoint_count": len(_fp.get("openapi_endpoints", [])),
+                    "port_endpoint_count": len(_fp.get("port_endpoints", [])),
+                    "probe_count": _fp.get("probe_count", 0),
+                    "probe_duration_seconds": _fp.get("probe_duration_seconds", 0),
+                    "secret_format": _fp.get("secret_format", ""),
+                    "session_type": _fp.get("session_type", ""),
+                    "tenant_id": _fp.get("tenant_id", ""),
+                    "ai_framework": _fp.get("ai_framework", ""),
+                    "ai_framework_category": _fp.get("ai_framework_category", ""),
+                    "system_prompt_leaked": _fp.get("system_prompt_leaked", False),
+                    "system_prompt_extraction_method": _fp.get("system_prompt_extraction_method", ""),
+                    "model_ids_count": len(_fp.get("model_ids", [])),
+                    "vector_db_count": len(_fp.get("vector_dbs", [])),
+                    "mcp_tool_safety_risky_count": sum(1 for t in _fp.get("mcp_tool_safety", []) if t.get("risks")),
+                },
+                "reasoning": (
+                    "Layer ( +  + ) + Burp  + "
+                    "MCP  + OpenAPI  +  +  + "
+                    "AI  + System Prompt  + "
+                    " API  + Confirmation + MCP  "
                 ),
-            },
-            "reasoning": (
-                "Layer ( +  + ) + Burp  + "
-                "MCP  + OpenAPI  +  +  + "
-                "AI  + System Prompt  + "
-                " API  + Confirmation + MCP  "
-            ),
-        })
+            }
+        )
     else:
         # Burp: recon Ensure
         _recon_mode = "unknown"
         _recon_endpoint = ""
-        if getattr(ctx.args, "litellm_model",
-                   None) or os.environ.get("LITELLM_MODEL"):
+        if getattr(ctx.args, "litellm_model", None) or os.environ.get("LITELLM_MODEL"):
             _recon_mode = "litellm"
-            _recon_endpoint = getattr(
-                ctx.args,
-                "litellm_model",
-                None) or os.environ.get(
-                "LITELLM_MODEL",
-                "")
+            _recon_endpoint = getattr(ctx.args, "litellm_model", None) or os.environ.get("LITELLM_MODEL", "")
         elif getattr(ctx.args, "target_api_endpoint", None) and getattr(ctx.args, "target_api_key", None):
             _recon_mode = getattr(ctx.args, "target_api_type", "chat")
             _recon_endpoint = getattr(ctx.args, "target_api_endpoint", "")
         elif getattr(ctx.args, "browser_url", None):
             _recon_mode = "browser"
             _recon_endpoint = getattr(ctx.args, "browser_url", "")
-            ctx.orchestration_log.append({
-                "phase": "recon",
-                "decision": "target_profiling",
-                "input": {"mode": _recon_mode, "endpoint": _recon_endpoint},
-                "output": {
-                    "app_type": _recon_mode,
-                    "auth_type": "api_key" if _recon_mode in ("chat", "responses", "litellm") else "none",
-                    "capabilities": "",
-                    "model_family": ctx.model_name or "",
-                    "language": "",
-                    "target_type": _recon_mode,
-                },
-                "reasoning": f"Burp ({_recon_mode}) - Target, HTTP",
-            })
+            ctx.orchestration_log.append(
+                {
+                    "phase": "recon",
+                    "decision": "target_profiling",
+                    "input": {"mode": _recon_mode, "endpoint": _recon_endpoint},
+                    "output": {
+                        "app_type": _recon_mode,
+                        "auth_type": "api_key" if _recon_mode in ("chat", "responses", "litellm") else "none",
+                        "capabilities": "",
+                        "model_family": ctx.model_name or "",
+                        "language": "",
+                        "target_type": _recon_mode,
+                    },
+                    "reasoning": f"Burp ({_recon_mode}) - Target, HTTP",
+                }
+            )
+
 
 def _record_arm_seed_orchestration(
     ctx: "PipelineContext",
@@ -270,7 +303,7 @@ def _record_arm_seed_orchestration(
     target_capabilities: str | None,
     target_model_family: str | None,
 ) -> None:
-    """ ARM """
+    """ARM"""
     _synergy_info = {}
     if ctx.synergy_config:
         _synergy_info = {
@@ -281,27 +314,31 @@ def _record_arm_seed_orchestration(
             "synergy_evidence": ctx.synergy_config.evidence,
         }
 
-    ctx.orchestration_log.append({
-        "phase": "arm",
-        "decision": "seed_selection",
-        "input": {
-            "seed_files": ctx.args.seeds,
-            "capabilities": target_capabilities or "",
-            "model_family": target_model_family or "",
-            "language": target_language or "",
-            **_synergy_info,
-        },
-        "output": {"seed_count": len(ctx.seeds)},
-        "reasoning": (
-            f" (capabilities={target_capabilities or 'none'})"
-            f" (model_family={target_model_family or 'unknown'})"
-        ),
-    })
+    ctx.orchestration_log.append(
+        {
+            "phase": "arm",
+            "decision": "seed_selection",
+            "input": {
+                "seed_files": ctx.args.seeds,
+                "capabilities": target_capabilities or "",
+                "model_family": target_model_family or "",
+                "language": target_language or "",
+                **_synergy_info,
+            },
+            "output": {"seed_count": len(ctx.seeds)},
+            "reasoning": (
+                f" (capabilities={target_capabilities or 'none'}) (model_family={target_model_family or 'unknown'})"
+            ),
+        }
+    )
+
 
 def _get_result_outcome(result: Any) -> str:
-    """ outcome (, from)"""
+    """outcome (, from)"""
     from assess.asr_stats import _get_outcome
+
     return _get_outcome(result)
+
 
 def _extract_auth_recovery_log(ctx: "PipelineContext") -> list[dict[str, str]]:
     """"""
@@ -311,15 +348,14 @@ def _extract_auth_recovery_log(ctx: "PipelineContext") -> list[dict[str, str]]:
         if _target and hasattr(_target, "_auth_state") and _target._auth_state:
             auth_recovery_log = list(_target._auth_state.recovery_history)
             if auth_recovery_log:
-                logger.info(
-                    "Auth recovery log: %d recovery attempts recorded",
-                    len(auth_recovery_log))
+                logger.info("Auth recovery log: %d recovery attempts recorded", len(auth_recovery_log))
     except Exception as e:
         logger.debug("Failed to extract auth recovery history: %s", e)
     return auth_recovery_log
 
+
 def _log_dual_judge_stats(dual_judge_stats: dict[str, Any]) -> None:
-    """ Judge + T0
+    """Judge + T0
 
     Production-grade:
     -  Judge  (Cohen's Kappa)
@@ -330,8 +366,7 @@ def _log_dual_judge_stats(dual_judge_stats: dict[str, Any]) -> None:
     """
     kappa = dual_judge_stats.get("cohens_kappa", 0)
     logging.info(
-        "Dual Judge: total=%d, dual_invoked=%d (%.1f%%), "
-        "agreements=%d, disagreements=%d, Cohen's Kappa=%.3f",
+        "Dual Judge: total=%d, dual_invoked=%d (%.1f%%), agreements=%d, disagreements=%d, Cohen's Kappa=%.3f",
         dual_judge_stats.get("total_scored", 0),
         dual_judge_stats.get("dual_judge_invoked", 0),
         dual_judge_stats.get("dual_judge_rate", 0.0),
@@ -357,8 +392,7 @@ def _log_dual_judge_stats(dual_judge_stats: dict[str, Any]) -> None:
         sm = dual_judge_stats.get("scorer_metrics", {})
         if sm and sm.get("num_responses", 0) > 0:
             logging.info(
-                "T0 ScorerMetrics: n=%d, accuracy=%.3f, f1=%.3f, "
-                "precision=%.3f, recall=%.3f",
+                "T0 ScorerMetrics: n=%d, accuracy=%.3f, f1=%.3f, precision=%.3f, recall=%.3f",
                 sm.get("num_responses", 0),
                 sm.get("accuracy", 0.0),
                 sm.get("f1_score", 0.0),
@@ -367,7 +401,6 @@ def _log_dual_judge_stats(dual_judge_stats: dict[str, Any]) -> None:
             )
 
             # === T0 (Production-grade) ===
-            # config/profiles ,
             # : get_t0_stats() FNR/FPR ( 10.5 10.5%)
             _T0_MAX_FPR = 10.0  # 10% ()
             _T0_MAX_FNR = 10.0  # 10% ()
@@ -377,55 +410,52 @@ def _log_dual_judge_stats(dual_judge_stats: dict[str, Any]) -> None:
             if not t0_stats:
                 return
 
-                refusal_filtered = t0_stats.get("refusal_filtered", 0)
-                success_filtered = t0_stats.get("success_filtered", 0)
-                fnr = t0_stats.get("false_negative_rate", 0.0)  #
-                fpr = t0_stats.get("false_positive_rate", 0.0)  #
-                total_filtered = refusal_filtered + success_filtered
+            refusal_filtered = t0_stats.get("refusal_filtered", 0)
+            success_filtered = t0_stats.get("success_filtered", 0)
+            fnr = t0_stats.get("false_negative_rate", 0.0)  #
+            fpr = t0_stats.get("false_positive_rate", 0.0)  #
+            total_filtered = refusal_filtered + success_filtered
 
-                # -
-                if total_filtered < _T0_MIN_SAMPLE_SIZE:
-                    logging.debug(
-                        "T0 heuristic alert skipped: sample size %d < %d (FNR=%.1f%%, FPR=%.1f%%)",
-                        total_filtered,
-                        _T0_MIN_SAMPLE_SIZE,
-                        fnr,
-                        fpr,
-                    )
-                    return
+            # -
+            if total_filtered < _T0_MIN_SAMPLE_SIZE:
+                logging.debug(
+                    "T0 heuristic alert skipped: sample size %d < %d (FNR=%.1f%%, FPR=%.1f%%)",
+                    total_filtered,
+                    _T0_MIN_SAMPLE_SIZE,
+                    fnr,
+                    fpr,
+                )
+                return
 
-                    # FNR - T0 ()
-                    if fnr > _T0_MAX_FNR:
-                        logging.warning(
-                            "[WARN] T0 HEURISTIC ALERT: High False Negative Rate (FNR=%.1f%% > %.0f%% threshold). "
-                            "T0 refusal filter is overriding %d successful attacks as failures. "
-                            "Recommendation: Calibrate T0 keyword thresholds or disable T0 pre-filter for this target.",
-                            fnr,
-                            _T0_MAX_FNR,
-                            t0_stats.get("refusal_judge_overturned", 0),
-                        )
+            # FNR - T0 ()
+            if fnr > _T0_MAX_FNR:
+                logging.warning(
+                    "[WARN] T0 HEURISTIC ALERT: High False Negative Rate (FNR=%.1f%% > %.0f%% threshold). "
+                    "T0 refusal filter is overriding %d successful attacks as failures. "
+                    "Recommendation: Calibrate T0 keyword thresholds or disable T0 pre-filter for this target.",
+                    fnr,
+                    _T0_MAX_FNR,
+                    t0_stats.get("refusal_judge_overturned", 0),
+                )
 
-                        # FPR - T0 ()
-                        if fpr > _T0_MAX_FPR:
-                            logging.warning(
-                                "[WARN] T0 HEURISTIC ALERT: High False Positive Rate (FPR=%.1f%% > %.0f%% threshold). "
-                                "T0 success filter is overriding %d failed attacks as successes. "
-                                "Recommendation: T0 token-saving benefits compromised - verify success keywords or adjust long-response threshold.",
-                                fpr,
-                                _T0_MAX_FPR,
-                                t0_stats.get(
-                                    "success_judge_overturned",
-                                    0),
-                            )
+            # FPR - T0 ()
+            if fpr > _T0_MAX_FPR:
+                logging.warning(
+                    "[WARN] T0 HEURISTIC ALERT: High False Positive Rate (FPR=%.1f%% > %.0f%% threshold). "
+                    "T0 success filter is overriding %d failed attacks as successes. "
+                    "Recommendation: T0 token-saving benefits compromised - verify success keywords or adjust long-response threshold.",
+                    fpr,
+                    _T0_MAX_FPR,
+                    t0_stats.get("success_judge_overturned", 0),
+                )
 
-                            # -
-                            if total_filtered > 0:
-                                logging.info(
-                                    "T0 Heuristic Health: filtered=%d, FNR=%.1f%%, FPR=%.1f%%, "
-                                    "tokens_saved~=%d - %s",
-                                    total_filtered,
-                                    fnr,
-                                    fpr,
-                                    total_filtered * 2,
-                                    "[OK] OK" if fnr <= _T0_MAX_FNR and fpr <= _T0_MAX_FPR else "[WARN] ALERT",
-                                )
+            # -
+            if total_filtered > 0:
+                logging.info(
+                    "T0 Heuristic Health: filtered=%d, FNR=%.1f%%, FPR=%.1f%%, tokens_saved~=%d - %s",
+                    total_filtered,
+                    fnr,
+                    fpr,
+                    total_filtered * 2,
+                    "[OK] OK" if fnr <= _T0_MAX_FNR and fpr <= _T0_MAX_FPR else "[WARN] ALERT",
+                )

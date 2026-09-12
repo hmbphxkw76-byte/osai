@@ -35,6 +35,7 @@ class TrustLevel(Enum):
 
     Ordered by privilege level (low to high).
     """
+
     UNAUTHENTICATED = 0
     BASIC = 1
     ELEVATED = 2
@@ -81,6 +82,7 @@ class TrustLevel(Enum):
 @dataclass
 class TrustEscalationPayload:
     """Payload for testing trust level escalation."""
+
     name: str
     source_level: TrustLevel
     target_level: TrustLevel
@@ -124,7 +126,6 @@ _TRUST_PAYLOADS: list[TrustEscalationPayload] = [
         owasp_id="ASI09",
         severity="high",
     ),
-
     # === BASIC → ELEVATED escalation ===
     TrustEscalationPayload(
         name="basic_to_elevated_scope",
@@ -154,7 +155,6 @@ _TRUST_PAYLOADS: list[TrustEscalationPayload] = [
         owasp_id="ASI09",
         severity="critical",
     ),
-
     # === ELEVATED → FULL_ACCESS escalation ===
     TrustEscalationPayload(
         name="elevated_to_full_system_prompt",
@@ -187,7 +187,6 @@ _TRUST_PAYLOADS: list[TrustEscalationPayload] = [
         owasp_id="ASI09",
         severity="critical",
     ),
-
     # === FULL_ACCESS → SYSTEM escalation ===
     TrustEscalationPayload(
         name="full_to_system_exec",
@@ -225,6 +224,7 @@ _TRUST_PAYLOADS: list[TrustEscalationPayload] = [
 @dataclass
 class TrustEscalationPath:
     """Complete trust escalation path from source to target level."""
+
     source: TrustLevel
     target: TrustLevel
     steps: list[TrustEscalationPayload] = field(default_factory=list)

@@ -14,49 +14,40 @@
 
 6-phase attack pipeline with PyRIT native AttackExecutor:
 
-Indirect Prompt Injection (arXiv:2302.12173):
-    - indirect_pi_generator: Generate indirect prompt injection payloads
-      via import chains and dependency injection patterns
+Component-based architecture (aligned with recon/ and data/seeds/):
+    - a2a/          A2A / Multi-Agent attacks
+    - mcp/          MCP protocol attacks
+    - rag/          RAG poisoning attacks
+    - model/        Direct LLM model attacks
+    - web/          Web application attacks
+    - memory/       Agent memory attacks
+    - session/      Session / Auth attacks
+    - evasion/      Evasion techniques (SQL, audit, etc.)
+    - injection/    Injection attacks (auth, doc, file, PI, stealth)
+    - common/       Shared infrastructure (dispatcher, executor, etc.)
 
-Core modules:
-    - executor: PromptSendingAttack execution (FIRST_SUCCESS)
-    - arm/converter_selector: Converter selection + OWASP mapping (arm/)
-    - escalation_runtime: Multi-turn escalation (Crescendo/TAP/SkeletonKey, arXiv:2402.14266)
-    - adaptive_executor: Best-of-N retry logic
-    - web_orchestrator: Web security attacks orchestrator
+Usage:
+    # Import from subdirectories (recommended):
+    from strike.a2a import A2AWorkflowAttacker
+    from strike.mcp import MCPOrchestrator
+    from strike.rag import VectorDBPoisoner
+    from strike.model import BackdoorAttack
+    from strike.web import WebAttackOrchestrator
+    from strike.memory import MemoryInjector
+    from strike.session import SessionManager
+    from strike.evasion import SQLInjectionEvasion
+    from strike.injection import IndirectPIAttackGenerator
+    from strike.common import execute_attacks
 
-Web Security Attacks:
-    - auth_attacks: Authentication attacks (JWT/OAuth/Session)
-    - web_attacks: Web application attacks (smuggling/cache poisoning/etc.)
-    - audit_evasion: Audit evasion attacks (log injection)
-    - http_attack_engine: Unified HTTP attack engine
-
-MCPSec + PyRIT Integration (v2.7.2):
-    - mcpsec_bridge: Bridge MCPSec CLI to pyrit-mini attack pipeline
-    - malicious_mcp_server: Rogue MCP server for client-side testing
-    - mcpsec_orchestrator: Full MCPSec + PyRIT attack pipeline orchestrator
-    - dynamic_mcp_seeds: Runtime attack seed generation via MCPSec
-
-Output Filter Bypass (arXiv:2402.05124):
-    - output_filter_bypass: ManyShotJailbreakAttack + ChunkedRequestAttack + XPIAAttack
-
-Multimodal Injection (arXiv:2403.07860):
-    - multimodal_injection: Image/Audio/File carrier channels for VLM attacks
-
-Backdoor Attack (arXiv:2301.11916):
-    - backdoor_attack: Trigger word activation + context-conditional behavior
-
-Decision System (v2.0):
-    - decision_safety: R-DECIDE-1 safety boundary protection
-    - asr_trend_tracker: ASR trend analysis for adaptive decisions
-    - pair_tap_strategies: PAIR/TAP as independent strategy options
-    - attack_knowledge_base: Historical attack knowledge for cross-target transfer
+    # Or use lazy imports from strike package:
+    import strike
+    attacker = strike.A2AWorkflowAttacker()
 """
 
 from typing import Any
 
-from strike.executor import execute_attacks
-from strike.stealth_exec import StealthConfig, StealthExecutor, _pareto_delay
+from strike.common.executor import execute_attacks
+from strike.injection.stealth_exec import StealthConfig, StealthExecutor, _pareto_delay
 
 __all__ = [
     "execute_attacks",
@@ -124,95 +115,130 @@ __all__ = [
     "generate_multi_step_fragmentation",
 ]
 
-# Lazy imports for Web security modules
+
+# Lazy imports for all submodules
 def __getattr__(name: str) -> Any:
-    """Lazy import for Web security and MCPSec integration modules."""
+    """Lazy import for all strike submodules."""
     # Web Security Attacks
     if name == "AuthAttacks":
-        from strike.auth_attacks import AuthAttacks
+        from strike.injection.auth_attacks import AuthAttacks
+
         return AuthAttacks
     if name == "WebAttacks":
-        from strike.web_attacks import WebAttacks
+        from strike.web.attacks import WebAttacks
+
         return WebAttacks
     if name == "AuditEvasionAttacks":
-        from strike.audit_evasion import AuditEvasionAttacks
+        from strike.evasion.audit import AuditEvasionAttacks
+
         return AuditEvasionAttacks
     if name == "HTTPAttackEngine":
-        from strike.http_attack_engine import HTTPAttackEngine
+        from strike.web.http_engine import HTTPAttackEngine
+
         return HTTPAttackEngine
     if name == "WebAttackOrchestrator":
-        from strike.web_orchestrator import WebAttackOrchestrator
+        from strike.web.orchestrator import WebAttackOrchestrator
+
         return WebAttackOrchestrator
 
-    # MCPSec modules
+    # MCPSec modules (now in strike/mcp/)
     if name in (
         "MCPSecBridge",
         "MCPSecScanResult",
         "create_mcpsec_bridge",
     ):
-        from strike import mcpsec_bridge
-        return getattr(mcpsec_bridge, name)
+        # Legacy compatibility: mcpsec_bridge functions are now in mcp/orchestrator
+        raise AttributeError(
+            f"module {__name__!r} has no attribute {name!r}. Use 'from strike.mcp.orchestrator import ...' instead"
+        )
     if name in (
         "MaliciousMCPServer",
         "MaliciousMCPConfig",
         "create_and_start_rogue_server",
     ):
-        from strike import malicious_mcp_server
-        return getattr(malicious_mcp_server, name)
+        from strike.mcp import malicious_server
+
+        return getattr(malicious_server, name)
     if name in (
         "MCPOrchestrator",
         "MCPOrchestratorConfig",
         "MCPAttackReport",
         "run_mcpsec_pyrit_attack",
     ):
-        from strike import mcpsec_orchestrator
-        return getattr(mcpsec_orchestrator, name)
+        from strike.mcp import orchestrator
+
+        return getattr(orchestrator, name)
     if name in ("generate_dynamic_seeds", "load_mcp_seeds_for_target"):
-        from strike import dynamic_mcp_seeds
-        return getattr(dynamic_mcp_seeds, name)
+        from strike.mcp import dynamic_seeds
 
-    # Output Filter Bypass modules
+        return getattr(dynamic_seeds, name)
+
+    # Output Filter Bypass modules (now in strike/model/)
     if name in ("run_output_filter_bypass", "OutputFilterBypassContext"):
-        from strike import output_filter_bypass
-        return getattr(output_filter_bypass, name)
+        from strike.model import filter_bypass
 
-    # Multimodal Injection modules
+        return getattr(filter_bypass, name)
+
+    # Multimodal Injection modules (now in strike/model/)
     if name in ("run_multimodal_injection", "MultimodalInjectionContext"):
-        from strike import multimodal_injection
-        return getattr(multimodal_injection, name)
+        from strike.model import multimodal
 
-    # Backdoor Attack modules
+        return getattr(multimodal, name)
+
+    # Backdoor Attack modules (now in strike/model/)
     if name in ("run_backdoor_attack", "BackdoorAttackContext"):
-        from strike import backdoor_attack
-        return getattr(backdoor_attack, name)
+        from strike.model import backdoor
+
+        return getattr(backdoor, name)
 
     # Document Poisoning modules
-    if name in ("create_poisoned_document", "generate_pdf_with_payload",
-                "generate_docx_with_payload", "generate_markdown_with_watermark"):
-        from strike import document_poisoner
-        return getattr(document_poisoner, name)
+    if name in (
+        "create_poisoned_document",
+        "generate_pdf_with_payload",
+        "generate_docx_with_payload",
+        "generate_markdown_with_watermark",
+    ):
+        from strike.injection import doc_poisoner
+
+        return getattr(doc_poisoner, name)
 
     # Indirect PI Generator module (arXiv:2302.12173)
     if name in ("IndirectPIAttackGenerator", "AttackPayload", "EvasionLevel"):
-        from strike import indirect_pi_generator
-        return getattr(indirect_pi_generator, name)
+        from strike.injection import indirect_pi
+
+        return getattr(indirect_pi, name)
 
     # Link Evasion module (arXiv:2407.16924)
-    if name in ("LinkEvasionResult", "generate_link_evasion_payloads",
-                "generate_display_url_mismatch", "generate_legitimate_framing",
-                "generate_gradual_injection_chain", "generate_shortened_url_payload",
-                "generate_homograph_link_payload", "generate_homograph_domain",
-                "get_available_techniques"):
-        from strike import link_evasion
+    if name in (
+        "LinkEvasionResult",
+        "generate_link_evasion_payloads",
+        "generate_display_url_mismatch",
+        "generate_legitimate_framing",
+        "generate_gradual_injection_chain",
+        "generate_shortened_url_payload",
+        "generate_homograph_link_payload",
+        "generate_homograph_domain",
+        "get_available_techniques",
+    ):
+        from strike.web import link_evasion
+
         return getattr(link_evasion, name)
 
     # SQL Injection Evasion module (arXiv:2403.15514 / arXiv:2306.05685)
-    if name in ("SQLInjectionEvasion", "create_sql_injection_evasion",
-                "EvasionPayload", "generate_hex_encoded_xp_cmdshell",
-                "generate_gradual_escalation_chain", "generate_lolbin_evasion",
-                "encode_hex", "generate_char_concatenation",
-                "generate_timing_jitter_evasion", "generate_multi_step_fragmentation"):
-        from strike import sql_injection_evasion
-        return getattr(sql_injection_evasion, name)
+    if name in (
+        "SQLInjectionEvasion",
+        "create_sql_injection_evasion",
+        "EvasionPayload",
+        "generate_hex_encoded_xp_cmdshell",
+        "generate_gradual_escalation_chain",
+        "generate_lolbin_evasion",
+        "encode_hex",
+        "generate_char_concatenation",
+        "generate_timing_jitter_evasion",
+        "generate_multi_step_fragmentation",
+    ):
+        from strike.evasion import sql
+
+        return getattr(sql, name)
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -17,11 +17,12 @@ import pytest
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tools.data_flow_hooks import reset_validator  # noqa: E402
+from tools.dataflow.hooks import reset_validator  # noqa: E402
 
 
 class MockParserRequest:
     """Mock parsed request for testing."""
+
     target_fingerprint = {
         "model_family": "gpt-4",
         "language": "en",
@@ -31,6 +32,7 @@ class MockParserRequest:
 
 class MockTargetFingerprint:
     """Mock target fingerprint for testing."""
+
     model_family = "gpt-4"
     language = "en"
 
@@ -63,16 +65,12 @@ def create_mock_ctx(
     }
 
     # MCPSec output
-    ctx.mcpsec_surface = {
-        "tools": [{"name": "search"}, {"name": "execute"}],
-        "resources": [],
-        "prompts": []
-    } if include_mcpsec else {}
-    ctx.mcpsec_scan_results = {
-        "vulnerabilities": [
-            {"severity": "high", "tool": "search", "description": "IDOR"}
-        ]
-    } if include_mcpsec else {}
+    ctx.mcpsec_surface = (
+        {"tools": [{"name": "search"}, {"name": "execute"}], "resources": [], "prompts": []} if include_mcpsec else {}
+    )
+    ctx.mcpsec_scan_results = (
+        {"vulnerabilities": [{"severity": "high", "tool": "search", "description": "IDOR"}]} if include_mcpsec else {}
+    )
 
     # ARM output
     ctx.seeds = [
@@ -126,9 +124,7 @@ def create_mock_ctx(
         {"title": "Prompt Injection", "severity": "high"},
         {"title": "Role Play Bypass", "severity": "medium"},
     ]
-    ctx.evidence_collection.owasp_llm_compliance = {
-        "LLM01": {"tested": 6, "success": 3, "asr": 50.0}
-    }
+    ctx.evidence_collection.owasp_llm_compliance = {"LLM01": {"tested": 6, "success": 3, "asr": 50.0}}
 
     # ASR Forensic data (Why Success/Refusal)
     ctx.successful_evidence_log = [
@@ -184,9 +180,27 @@ def create_mock_ctx(
         },
     ]
     ctx.timing_metadata = [
-        {"technique": "skeleton_key", "converter_chain": "Base64Converter", "request_time": 1.0, "response_time": 2.5, "total_ms": 1500.0},
-        {"technique": "crescendo", "converter_chain": "TranslationConverter", "request_time": 2.5, "response_time": 4.0, "total_ms": 1500.0},
-        {"technique": "role_play", "converter_chain": "ToneConverter", "request_time": 4.0, "response_time": 5.2, "total_ms": 1200.0},
+        {
+            "technique": "skeleton_key",
+            "converter_chain": "Base64Converter",
+            "request_time": 1.0,
+            "response_time": 2.5,
+            "total_ms": 1500.0,
+        },
+        {
+            "technique": "crescendo",
+            "converter_chain": "TranslationConverter",
+            "request_time": 2.5,
+            "response_time": 4.0,
+            "total_ms": 1500.0,
+        },
+        {
+            "technique": "role_play",
+            "converter_chain": "ToneConverter",
+            "request_time": 4.0,
+            "response_time": 5.2,
+            "total_ms": 1200.0,
+        },
     ]
 
     return ctx

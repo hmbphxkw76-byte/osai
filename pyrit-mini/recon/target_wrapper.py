@@ -160,8 +160,7 @@ class RateLimitedTarget(PromptTarget):
             requirements.validate(target=target)
         except ValueError as e:
             logger.warning(
-                "Target %s failed TargetRequirements validation: %s; "
-                "text-based attacks may fail",
+                "Target %s failed TargetRequirements validation: %s; text-based attacks may fail",
                 type(target).__name__,
                 e,
             )
@@ -204,18 +203,14 @@ class RateLimitedTarget(PromptTarget):
             )
             self._target_capabilities = discovered
             logger.info(
-                "Discovered capabilities: multi_turn=%s, "
-                "system_prompt=%s, json_output=%s, "
-                "input_modalities=%s",
+                "Discovered capabilities: multi_turn=%s, system_prompt=%s, json_output=%s, input_modalities=%s",
                 discovered.supports_multi_turn,
                 discovered.supports_system_prompt,
                 discovered.supports_json_output,
                 [sorted(s) for s in sorted(discovered.input_modalities)],
             )
         except Exception as e:
-            logger.debug(
-                "Native capability discovery failed (non-fatal): %s", e
-            )
+            logger.debug("Native capability discovery failed (non-fatal): %s", e)
 
     async def _send_prompt_to_target_async(
         self,

@@ -28,6 +28,7 @@ Academic basis:
 
 版本: v1.0 (2026-09-09 初始版本)
 """
+
 from __future__ import annotations
 
 import importlib
@@ -74,10 +75,26 @@ _SPEC_NATIVE_ATTACK_CLASSES: dict[str, str] = {
 }
 
 _SPEC_NATIVE_CONVERTER_PREFIXES: tuple[str, ...] = (
-    "Base64", "ROT13", "Binary", "Url", "Unicode", "ZeroWidth",
-    "AsciiArt", "Braille", "Morse", "Leetspeak", "Caesar", "Vigenere",
-    "Atbash", "Translation", "Diacritic", "CharSwap", "CharNoise",
-    "SuffixAppend", "StringJoin", "InsertPunctuation",
+    "Base64",
+    "ROT13",
+    "Binary",
+    "Url",
+    "Unicode",
+    "ZeroWidth",
+    "AsciiArt",
+    "Braille",
+    "Morse",
+    "Leetspeak",
+    "Caesar",
+    "Vigenere",
+    "Atbash",
+    "Translation",
+    "Diacritic",
+    "CharSwap",
+    "CharNoise",
+    "SuffixAppend",
+    "StringJoin",
+    "InsertPunctuation",
 )
 
 _SPEC_NATIVE_SCORER_CLASSES: dict[str, str] = {
@@ -110,15 +127,16 @@ _PIPELINE_CONTEXT_CONTRACTS: dict[str, list[str]] = {
 }
 
 # 规范文档中引用的文件路径 (需要定期验证存在性)
+# Note: Updated 2026-09-10 to reflect component-based directory structure
 _SPEC_REFERENCED_MODULES: list[str] = [
-    "strike/executor.py",
-    "strike/escalation_runtime.py",
-    "strike/auth_attacks.py",
-    "strike/web_attacks.py",
-    "strike/audit_evasion.py",
-    "strike/web_orchestrator.py",
-    "strike/mcpsec_orchestrator.py",
-    "strike/mcp_rag_attack.py",
+    "strike/common/executor.py",
+    "strike/common/escalation_runtime.py",
+    "strike/injection/auth_attacks.py",
+    "strike/web/attacks.py",
+    "strike/evasion/audit.py",
+    "strike/web/orchestrator.py",
+    "strike/mcp/orchestrator.py",
+    "strike/mcp/rag_attack.py",
     "recon/target_router.py",
     "recon/target_builder.py",
     "recon/burp_parser.py",
@@ -138,28 +156,31 @@ _SPEC_REFERENCED_MODULES: list[str] = [
 # 数据结构
 # ===============================================================================
 
+
 class DriftSeverity(IntEnum):
-    OK = 0              # 无漂移
-    INFO = 1            # 信息级 (建议关注)
-    WARNING = 2         # 警告级 (需要修复)
-    BLOCKING = 3        # 阻断级 (立即修复)
+    OK = 0  # 无漂移
+    INFO = 1  # 信息级 (建议关注)
+    WARNING = 2  # 警告级 (需要修复)
+    BLOCKING = 3  # 阻断级 (立即修复)
 
 
 @dataclass
 class DriftFinding:
     """单个漂移发现"""
+
     rule: str
     severity: DriftSeverity
-    dimension: str      # api_sync / version_lock / spec_table / contract_drift
+    dimension: str  # api_sync / version_lock / spec_table / contract_drift
     message: str
-    spec_source: str    # 触发漂移的规范文档
-    code_target: str    # 受影响的代码
+    spec_source: str  # 触发漂移的规范文档
+    code_target: str  # 受影响的代码
     fix_hint: str = ""
 
 
 @dataclass
 class DriftReport:
     """漂移检测报告"""
+
     timestamp: str = ""
     findings: list[DriftFinding] = field(default_factory=list)
     summary: dict[str, int] = field(default_factory=dict)
@@ -184,6 +205,7 @@ class DriftReport:
 # ===============================================================================
 # 检测引擎
 # ===============================================================================
+
 
 class DriftDetector:
     """规范漂移检测引擎"""
@@ -237,25 +259,29 @@ class DriftDetector:
         try:
             mod = importlib.import_module(module_path)
             if not hasattr(mod, class_name):
-                self.report.findings.append(DriftFinding(
+                self.report.findings.append(
+                    DriftFinding(
+                        rule="R-DRIFT-1",
+                        severity=DriftSeverity.WARNING,
+                        dimension=dimension,
+                        message=f"PyRIT 原生类不在预期位置: {module_path}.{class_name}",
+                        spec_source=spec_source,
+                        code_target=f"{module_path}.py",
+                        fix_hint=f"检查 {class_name} 是否已改名或移动位置",
+                    )
+                )
+        except ImportError as e:
+            self.report.findings.append(
+                DriftFinding(
                     rule="R-DRIFT-1",
-                    severity=DriftSeverity.WARNING,
+                    severity=DriftSeverity.BLOCKING,
                     dimension=dimension,
-                    message=f"PyRIT 原生类不在预期位置: {module_path}.{class_name}",
+                    message=f"PyRIT 模块无法导入: {module_path} ({e})",
                     spec_source=spec_source,
                     code_target=f"{module_path}.py",
-                    fix_hint=f"检查 {class_name} 是否已改名或移动位置",
-                ))
-        except ImportError as e:
-            self.report.findings.append(DriftFinding(
-                rule="R-DRIFT-1",
-                severity=DriftSeverity.BLOCKING,
-                dimension=dimension,
-                message=f"PyRIT 模块无法导入: {module_path} ({e})",
-                spec_source=spec_source,
-                code_target=f"{module_path}.py",
-                fix_hint="确认 pyrit==1.0.* 已安装: pip install pyrit==1.0.*",
-            ))
+                    fix_hint="确认 pyrit==1.0.* 已安装: pip install pyrit==1.0.*",
+                )
+            )
 
     # -----------------------------------------------------------------------
     # R-DRIFT-2: 规范表格-代码同步
@@ -266,15 +292,17 @@ class DriftDetector:
         for module_rel_path in _SPEC_REFERENCED_MODULES:
             abs_path = self.root / module_rel_path
             if not abs_path.exists():
-                self.report.findings.append(DriftFinding(
-                    rule="R-DRIFT-2",
-                    severity=DriftSeverity.WARNING,
-                    dimension="spec_table",
-                    message=f"规范引用模块已不存在: {module_rel_path}",
-                    spec_source="00-CONSTITUTION / 40-GUARDRAILS",
-                    code_target=module_rel_path,
-                    fix_hint=f"更新规范文档，删除对 {module_rel_path} 的引用",
-                ))
+                self.report.findings.append(
+                    DriftFinding(
+                        rule="R-DRIFT-2",
+                        severity=DriftSeverity.WARNING,
+                        dimension="spec_table",
+                        message=f"规范引用模块已不存在: {module_rel_path}",
+                        spec_source="00-CONSTITUTION / 40-GUARDRAILS",
+                        code_target=module_rel_path,
+                        fix_hint=f"更新规范文档，删除对 {module_rel_path} 的引用",
+                    )
+                )
 
     # -----------------------------------------------------------------------
     # R-DRIFT-3: 版本变更预警
@@ -284,28 +312,33 @@ class DriftDetector:
         """检测 PyRIT 版本是否偏离 pyproject.toml 锁定"""
         try:
             import pyrit
+
             installed_version = getattr(pyrit, "__version__", "unknown")
             self._pyrit_version = installed_version
         except ImportError:
-            self.report.findings.append(DriftFinding(
-                rule="R-DRIFT-3",
-                severity=DriftSeverity.BLOCKING,
-                dimension="version_lock",
-                message="PyRIT 未安装或无法导入",
-                spec_source="pyproject.toml (requires: pyrit==1.0.*)",
-                code_target="pyproject.toml",
-                fix_hint="pip install pyrit==1.0.*",
-            ))
+            self.report.findings.append(
+                DriftFinding(
+                    rule="R-DRIFT-3",
+                    severity=DriftSeverity.BLOCKING,
+                    dimension="version_lock",
+                    message="PyRIT 未安装或无法导入",
+                    spec_source="pyproject.toml (requires: pyrit==1.0.*)",
+                    code_target="pyproject.toml",
+                    fix_hint="pip install pyrit==1.0.*",
+                )
+            )
             return
         except Exception as e:
-            self.report.findings.append(DriftFinding(
-                rule="R-DRIFT-3",
-                severity=DriftSeverity.WARNING,
-                dimension="version_lock",
-                message=f"PyRIT 版本检测异常: {e}",
-                spec_source="pyproject.toml",
-                code_target="pyproject.toml",
-            ))
+            self.report.findings.append(
+                DriftFinding(
+                    rule="R-DRIFT-3",
+                    severity=DriftSeverity.WARNING,
+                    dimension="version_lock",
+                    message=f"PyRIT 版本检测异常: {e}",
+                    spec_source="pyproject.toml",
+                    code_target="pyproject.toml",
+                )
+            )
             return
 
         # 检查主版本号是否匹配
@@ -313,27 +346,28 @@ class DriftDetector:
         if version_match:
             major, minor = int(version_match.group(1)), int(version_match.group(2))
             if (major, minor) != _PINNED_PYRIT_MAJOR_MINOR:
-                self.report.findings.append(DriftFinding(
+                self.report.findings.append(
+                    DriftFinding(
+                        rule="R-DRIFT-3",
+                        severity=DriftSeverity.BLOCKING,
+                        dimension="version_lock",
+                        message=(f"PyRIT 版本漂移: 安装={installed_version}, 锁定={_PINNED_PYRIT_VERSION}"),
+                        spec_source="pyproject.toml",
+                        code_target="pyproject.toml",
+                        fix_hint="pip install pyrit==1.0.* 回滚到锁定版本",
+                    )
+                )
+        else:
+            self.report.findings.append(
+                DriftFinding(
                     rule="R-DRIFT-3",
-                    severity=DriftSeverity.BLOCKING,
+                    severity=DriftSeverity.WARNING,
                     dimension="version_lock",
-                    message=(
-                        f"PyRIT 版本漂移: 安装={installed_version}, "
-                        f"锁定={_PINNED_PYRIT_VERSION}"
-                    ),
+                    message=f"PyRIT 版本格式异常: {installed_version}",
                     spec_source="pyproject.toml",
                     code_target="pyproject.toml",
-                    fix_hint="pip install pyrit==1.0.* 回滚到锁定版本",
-                ))
-        else:
-            self.report.findings.append(DriftFinding(
-                rule="R-DRIFT-3",
-                severity=DriftSeverity.WARNING,
-                dimension="version_lock",
-                message=f"PyRIT 版本格式异常: {installed_version}",
-                spec_source="pyproject.toml",
-                code_target="pyproject.toml",
-            ))
+                )
+            )
 
     # -----------------------------------------------------------------------
     # R-DRIFT-4: 架构契约消费验证
@@ -343,14 +377,16 @@ class DriftDetector:
         """验证 PipelineContext 字段是否在实际代码中被消费"""
         context_path = self.root / "core" / "context.py"
         if not context_path.exists():
-            self.report.findings.append(DriftFinding(
-                rule="R-DRIFT-4",
-                severity=DriftSeverity.BLOCKING,
-                dimension="contract_drift",
-                message="core/context.py 不存在",
-                spec_source="10-ARCHITECTURE.md",
-                code_target="core/context.py",
-            ))
+            self.report.findings.append(
+                DriftFinding(
+                    rule="R-DRIFT-4",
+                    severity=DriftSeverity.BLOCKING,
+                    dimension="contract_drift",
+                    message="core/context.py 不存在",
+                    spec_source="10-ARCHITECTURE.md",
+                    code_target="core/context.py",
+                )
+            )
             return
 
         try:
@@ -370,15 +406,17 @@ class DriftDetector:
                     rf"|'{re.escape(field_name)}'"  # 'field' 格式
                 )
                 if not re.search(pattern, ctx_content):
-                    self.report.findings.append(DriftFinding(
-                        rule="R-DRIFT-4",
-                        severity=DriftSeverity.INFO,
-                        dimension="contract_drift",
-                        message=f"PipelineContext 字段 '{field_name}' (Phase: {phase}) 可能未定义",
-                        spec_source="10-ARCHITECTURE.md",
-                        code_target="core/context.py",
-                        fix_hint=f"确认 {field_name} 字段在 PipelineContext 中定义",
-                    ))
+                    self.report.findings.append(
+                        DriftFinding(
+                            rule="R-DRIFT-4",
+                            severity=DriftSeverity.INFO,
+                            dimension="contract_drift",
+                            message=f"PipelineContext 字段 '{field_name}' (Phase: {phase}) 可能未定义",
+                            spec_source="10-ARCHITECTURE.md",
+                            code_target="core/context.py",
+                            fix_hint=f"确认 {field_name} 字段在 PipelineContext 中定义",
+                        )
+                    )
 
     # -----------------------------------------------------------------------
     # R-DRIFT-5: 代码原生使用模式验证
@@ -412,15 +450,17 @@ class DriftDetector:
                 for pattern, hint, rule_id in forbidden_patterns:
                     if re.search(pattern, content):
                         rel_path = str(py_file.relative_to(self.root))
-                        self.report.findings.append(DriftFinding(
-                            rule=rule_id,
-                            severity=DriftSeverity.WARNING,
-                            dimension="native_first",
-                            message=f"检测到自研替代实现: {hint}",
-                            spec_source="00-CONSTITUTION.md (C1 PyRIT 原生优先)",
-                            code_target=rel_path,
-                            fix_hint=f"使用 PyRIT 原生 {hint.split('应使用 ')[-1]} 替代",
-                        ))
+                        self.report.findings.append(
+                            DriftFinding(
+                                rule=rule_id,
+                                severity=DriftSeverity.WARNING,
+                                dimension="native_first",
+                                message=f"检测到自研替代实现: {hint}",
+                                spec_source="00-CONSTITUTION.md (C1 PyRIT 原生优先)",
+                                code_target=rel_path,
+                                fix_hint=f"使用 PyRIT 原生 {hint.split('应使用 ')[-1]} 替代",
+                            )
+                        )
 
     # -----------------------------------------------------------------------
     # 汇总与报告
@@ -429,6 +469,7 @@ class DriftDetector:
     def run_all_checks(self, full: bool = False) -> DriftReport:
         """运行全部漂移检测"""
         from datetime import datetime
+
         self.report = DriftReport(timestamp=datetime.now().isoformat())
 
         # 基础检测
@@ -477,6 +518,7 @@ class DriftDetector:
 # ===============================================================================
 # CLI 入口
 # ===============================================================================
+
 
 def main(argv: list[str] | None = None) -> int:
     """CLI 入口"""
@@ -567,8 +609,7 @@ def main(argv: list[str] | None = None) -> int:
         print()
 
     # 汇总
-    print(f"  Summary: {report.blocking_count} BLOCKING / "
-          f"{report.warning_count} WARNING / {report.info_count} INFO")
+    print(f"  Summary: {report.blocking_count} BLOCKING / {report.warning_count} WARNING / {report.info_count} INFO")
     print()
 
     if report.blocking_count > 0:

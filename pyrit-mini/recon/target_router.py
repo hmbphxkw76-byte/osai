@@ -60,6 +60,7 @@ logger = logging.getLogger(__name__)
 _MAX_PROBE_COUNT = int(os.environ.get("RECON_MAX_PROBES", "10"))
 _COMPLEXITY_BASED_BUDGET: dict[str, Any] = {}  # Populated by _init_adaptive_probe
 
+
 # ====================================================================
 # P2-07: - orchestration_log
 # ====================================================================
@@ -69,7 +70,7 @@ def _log_probe_failure(
     error: Exception,
     is_fatal: bool = False,
 ) -> None:
-    """ orchestration_log (P2-07: )
+    """orchestration_log (P2-07: )
 
     Args:
         ctx: PipelineContext  ( orchestration_log ).
@@ -77,24 +78,27 @@ def _log_probe_failure(
         error: .
         is_fatal:  (True=, False=).
     """
- # : ctx orchestration_log ()
+    # : ctx orchestration_log ()
     if ctx is None or not hasattr(ctx, "orchestration_log"):
         return
 
-    ctx.orchestration_log.append({
-        "phase": "recon",
-        "decision": f"probe_{probe_phase}_failed",
-        "input": {"target": getattr(ctx, "model_name", "unknown")},
-        "output": {
-            "error_type": type(error).__name__,
-            "error_message": str(error)[:500],
-            "is_fatal": is_fatal,
-        },
-        "reasoning": (
-            f"Probe '{probe_phase}' failed with {type(error).__name__}: {str(error)[:200]}. "
-            f"{'Fatal: aborting.' if is_fatal else 'Non-fatal: continuing with degraded capability.'}"
-        ),
-    })
+    ctx.orchestration_log.append(
+        {
+            "phase": "recon",
+            "decision": f"probe_{probe_phase}_failed",
+            "input": {"target": getattr(ctx, "model_name", "unknown")},
+            "output": {
+                "error_type": type(error).__name__,
+                "error_message": str(error)[:500],
+                "is_fatal": is_fatal,
+            },
+            "reasoning": (
+                f"Probe '{probe_phase}' failed with {type(error).__name__}: {str(error)[:200]}. "
+                f"{'Fatal: aborting.' if is_fatal else 'Non-fatal: continuing with degraded capability.'}"
+            ),
+        }
+    )
+
 
 async def create_target(ctx: PipelineContext) -> None:
     """
@@ -118,13 +122,13 @@ async def create_target(ctx: PipelineContext) -> None:
     Args:
         ctx:
     """
- # == L5 v52: OpenAIChatTarget/OpenAIResponseTarget ==
+    # == L5 v52: OpenAIChatTarget/OpenAIResponseTarget ==
     target_api_endpoint = getattr(ctx.args, "target_api_endpoint", None)
     target_api_key = getattr(ctx.args, "target_api_key", None)
     target_api_model = getattr(ctx.args, "target_api_model", None)
     target_api_type = getattr(ctx.args, "target_api_type", "chat")
 
- # == LiteLLM ==
+    # == LiteLLM ==
     litellm_model = getattr(ctx.args, "litellm_model", None) or os.environ.get("LITELLM_MODEL")
     if litellm_model:
         logger.info("LiteLLM mode - creating native LiteLLMChatTarget for %s", litellm_model)
@@ -148,7 +152,7 @@ async def create_target(ctx: PipelineContext) -> None:
         await _configure_remaining_targets(ctx)
         return
 
- # == L5 v38: PlaywrightTarget ==
+    # == L5 v38: PlaywrightTarget ==
     browser_url = getattr(ctx.args, "browser_url", None)
     if browser_url:
         logger.info("Browser mode - creating PlaywrightTarget for %s", browser_url)
@@ -156,40 +160,40 @@ async def create_target(ctx: PipelineContext) -> None:
         await _configure_remaining_targets(ctx)
         return
 
- # ================================================================
- # Burp - P0-02
- # ================================================================
+    # ================================================================
+    # Burp - P0-02
+    # ================================================================
 
- # == Step 1: Burp ==
+    # == Step 1: Burp ==
     parsed = parse_burp_request(ctx.args.burp)
     ctx.parsed_request = parsed
     ctx.model_name = f"HTTP:{parsed.host}{parsed.path}"
 
- # == L5 v53: Burp ==
+    # == L5 v53: Burp ==
     if parsed.burp_model_name:
         ctx.model_name = parsed.burp_model_name
- # P1-05:
+        # P1-05:
         parsed.target_fingerprint.burp_model_name = parsed.burp_model_name
         logger.info("Model name from Burp response: %s", parsed.burp_model_name)
 
     if parsed.burp_model_list:
-     # P1-05: extra dict Schema
+        # P1-05: extra dict Schema
         parsed.target_fingerprint.extra["burp_model_list"] = "yes"
         logger.info("Model list extracted from Burp (length=%d)", len(parsed.burp_model_list))
 
     if parsed.original_prompt_value:
-     # P1-05:
+        # P1-05:
         parsed.target_fingerprint.original_prompt = parsed.original_prompt_value[:200]
         logger.info("Original prompt from Burp: %s", parsed.original_prompt_value[:80])
 
     if parsed.api_category != "chat":
         logger.info(
-            "Non-chat API detected (category=%s, path=%s) - model info extracted, "
-            "{PROMPT} injection skipped",
-            parsed.api_category, parsed.path,
+            "Non-chat API detected (category=%s, path=%s) - model info extracted, {PROMPT} injection skipped",
+            parsed.api_category,
+            parsed.path,
         )
 
- # == Step 2 (P0): (1 ) ==
+    # == Step 2 (P0): (1 ) ==
     _probe_counter = _ProbeCounter()
     _probe_start = _time.monotonic()
 
@@ -199,20 +203,19 @@ async def create_target(ctx: PipelineContext) -> None:
         logger.error(
             "Target %s://%s%s is NOT available. Aborting.",
             "https" if parsed.use_tls else "http",
-            parsed.host, parsed.path,
+            parsed.host,
+            parsed.path,
         )
-        raise ConnectionError(
-            f"Target {parsed.host}:{parsed.path} is not available."
-        )
+        raise ConnectionError(f"Target {parsed.host}:{parsed.path} is not available.")
     logger.info("Target availability check passed.")
 
- # == Step 3 (P0): (0-1 ) ==
+    # == Step 3 (P0): (0-1 ) ==
     logger.info("Probing response format...")
     try:
         await probe_response_path(parsed)
         _probe_counter.add(1)
     except Exception as e:
-     # P2-07: orchestration_log ()
+        # P2-07: orchestration_log ()
         logger.warning("Response path probing failed (non-fatal): %s", e)
         _log_probe_failure(ctx, "response_path", e, is_fatal=False)
 
@@ -221,17 +224,16 @@ async def create_target(ctx: PipelineContext) -> None:
     else:
         logger.info("No response path detected, using default callback")
 
- # == Chat ID ==
+    # == Chat ID ==
     if parsed.chat_id:
         logger.info("Chat ID from probe/Burp response: %s", parsed.chat_id)
     elif parsed.has_chat_id_placeholder:
         logger.info(
-            "Chat ID field '%s' in body with {CHAT_ID} placeholder, "
-            "will extract from first response",
+            "Chat ID field '%s' in body with {CHAT_ID} placeholder, will extract from first response",
             parsed.chat_id_field,
         )
 
- # == Step 4 (P0): HTTPTarget (0 - HTTP ) ==
+    # == Step 4 (P0): HTTPTarget (0 - HTTP ) ==
     target = build_http_target(parsed)
     target = RateLimitedTarget(
         target=target,
@@ -239,7 +241,7 @@ async def create_target(ctx: PipelineContext) -> None:
     )
     ctx.objective_target = target
 
- # == Step 4.1 (P0): HTTPTarget ==
+    # == Step 4.1 (P0): HTTPTarget ==
     multi_turn_target = build_http_target(parsed, enable_multi_turn=True)
     multi_turn_target = RateLimitedTarget(
         target=multi_turn_target,
@@ -247,19 +249,18 @@ async def create_target(ctx: PipelineContext) -> None:
     )
     ctx.multi_turn_target = multi_turn_target
 
- # == Step 4.5 (P0): - 6 ==
- # L5 v54+: Guardrail/Stealth/Behavioral/Capability/Seed/Drift
- # Data flow: create_target -> _init_adaptive_probe -> ctx.adaptive_probe_ctx
- # -> arm phase (seed_preferences, stealth_policy, probe_budget)
- # -> strike phase (guardrail_report)
+    # == Step 4.5 (P0): - 6 ==
+    # L5 v54+: Guardrail/Stealth/Behavioral/Capability/Seed/Drift
+    # Data flow: create_target -> _init_adaptive_probe -> ctx.adaptive_probe_ctx
+    # -> arm phase (seed_preferences, stealth_policy, probe_budget)
+    # -> strike phase (guardrail_report)
     try:
         _probe_ctx = await _init_adaptive_probe(ctx, parsed, _probe_counter)
         ctx.adaptive_probe_ctx = _probe_ctx
         ctx.guardrail_report = _probe_ctx.get("guardrail_report", {})
         ctx.stealth_policy = _probe_ctx.get("stealth_policy", {})
         logger.info(
-            "[Adaptive] Pipeline integration OK: guardrail=%s, stealth=%s, "
-            "adaptive_budget=%s",
+            "[Adaptive] Pipeline integration OK: guardrail=%s, stealth=%s, adaptive_budget=%s",
             ctx.guardrail_report.get("severity", "none"),
             ctx.stealth_policy.get("name", "balanced"),
             _probe_ctx.get("probe_budget", {}).get("budget", "default"),
@@ -270,14 +271,14 @@ async def create_target(ctx: PipelineContext) -> None:
         ctx.guardrail_report = {"has_guardrail": False, "severity": "none"}
         ctx.stealth_policy = {"name": "balanced", "behavioral_verify": True}
 
- # == Step 5 (P1 ): ==
- # P0-02: --deep-probe <
- # ctx._recon_background_tasks
+    # == Step 5 (P1 ): ==
+    # P0-02: --deep-probe <
+    # ctx._recon_background_tasks
     deep_probe_enabled = getattr(ctx.args, "deep_probe", False)
     always_capability_probe = getattr(ctx.args, "capability_probe", True)
 
     if always_capability_probe and _probe_counter.value < _MAX_PROBE_COUNT:
-     # ()
+        # ()
         bg_task = asyncio.create_task(
             # P2-07: ctx
             _run_background_probes(parsed, _probe_counter, ctx, deep_probe_enabled),
@@ -288,24 +289,21 @@ async def create_target(ctx: PipelineContext) -> None:
         ctx._recon_background_tasks.append(bg_task)
         logger.info(
             "Background capability probes launched (cap=%d, deep=%s)",
-            _MAX_PROBE_COUNT, deep_probe_enabled,
+            _MAX_PROBE_COUNT,
+            deep_probe_enabled,
         )
 
- # == Step 6: ==
+    # == Step 6: ==
     await _configure_remaining_targets(ctx)
 
- # == ==
+    # == ==
     _probe_duration = _time.monotonic() - _probe_start
- # P1-05:
+    # P1-05:
     parsed.target_fingerprint.probe_count = _probe_counter.value
     parsed.target_fingerprint.probe_duration_seconds = round(_probe_duration, 2)
     logger.info(
-        "Recon complete: %d probes sent, %.2fs duration "
-        "(attack starts now, background probes continue)",
+        "Recon complete: %d probes sent, %.2fs duration (attack starts now, background probes continue)",
         _probe_counter.value,
         _probe_duration,
         ctx._recon_background_tasks,
     )
-
-
-

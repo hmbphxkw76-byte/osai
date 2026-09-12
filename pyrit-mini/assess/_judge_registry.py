@@ -15,6 +15,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+
 def _resolve_scoring_endpoint() -> tuple[str, str, str]:
     """Resolve scoring endpoint config.
 
@@ -40,24 +41,29 @@ def _resolve_scoring_endpoint() -> tuple[str, str, str]:
     )
     return endpoint, api_key, model
 
+
 def _register_judge_to_registry(scorer: Any, name: str) -> None:
     """L5 v55: Judge scorer PyRIT ScorerRegistry."""
     try:
         from pyrit.registry import ScorerRegistry
+
         registry = ScorerRegistry.get_registry_singleton()
         registry.instances.register(scorer=scorer, name=name, tags=[{name: {}}])
         logger.debug("L5 v55: Judge '%s' registered to ScorerRegistry", name)
     except Exception as e:
         logger.debug("L5 v55: Failed to register judge '%s': %s", name, e)
 
+
 def _get_judge_from_registry(name: str) -> Any:
     """L5 v55: imports PyRIT ScorerRegistry Judge scorer."""
     try:
         from pyrit.registry import ScorerRegistry
+
         registry = ScorerRegistry.get_registry_singleton()
         return registry.get(name)
     except Exception:
         return None
+
 
 def _get_judge_scorer(primary_name: str, fallback_name: str) -> Any:
     """L5 v57: Get judge scorer wrapper or plain scorer."""
@@ -65,6 +71,7 @@ def _get_judge_scorer(primary_name: str, fallback_name: str) -> Any:
     if scorer is None:
         scorer = _get_judge_from_registry(fallback_name)
     return scorer
+
 
 def _resolve_arbiter_endpoint() -> tuple[str, str, str]:
     """Resolve arbiter (3rd judge) endpoint from environment.

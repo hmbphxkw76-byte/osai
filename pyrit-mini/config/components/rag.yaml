@@ -1,0 +1,61 @@
+# config/components/rag.yaml — RAG Pipeline（组件声明 SSOT）
+#
+# 宪法 7B：RAG Pipeline 首选 PromptSendingAttack + 间接注入，ASR 先验 80-95%。
+
+schema_version: "1.0"
+component_key: rag_pipeline
+id: rag
+display_name: "RAG / Retrieval Pipeline"
+labels: [rag, rag_pipeline, retrieval]
+
+recon_dir: rag
+strike_dir: rag
+
+detection:
+  path_patterns: ["/retrieve", "/search", "/query", "/rag", "/knowledge", "/documents", "/index"]
+  body_markers: ["context", "citations", "sources", "chunks", "retrieved", "knowledge_base"]
+  active_probes: ["recon.rag.pipeline_probe"]
+  signals: ["citations", "retrieved_docs", "knowledge_base", "/retrieve", "chunk_id"]
+  min_confidence: 0.55
+
+recon_modules:
+  - recon.rag.pipeline_probe
+  - recon.rag.metadata_parser
+  - recon.rag.kb_enumerator
+  - recon.rag.typo_fuzzer
+  - recon.rag.embedding_scan
+service_profile_keys: ["rag_pipeline", "rag_kb_map", "rag_typo_fuzz"]
+
+seed_sets:
+  - "data/seeds/rag/"
+  - "data/seeds/_attack_surface/T1_LLM08_rag_full_surface/"
+seeds: ["data/seeds/rag/*", "data/seeds/_attack_surface/T1_LLM08_rag_full_surface/*"]
+seed_suitable_for: ["rag_pipeline"]
+converter_vectors: ["indirect_injection", "citation_manipulation", "context_poisoning"]
+
+preferred_attack_class: "PromptSendingAttack"
+asr_prior: 0.85
+
+strike_modules:
+  - strike.rag.data_poisoning
+  - strike.rag.kb_injector
+  - strike.rag.vector_db_poisoner
+  - strike.rag.retrieval_manipulator
+  - strike.rag.context_exploit
+  - strike.rag.targeted_consumer
+playbooks: [rag_poison_then_query, rag_citation_spoof]
+
+assess:
+  t0_check: "assess.component_scorers:t0_rag_pipeline_check"
+  rubric: "data/scorers/component_scorers/rag_pipeline.yaml"
+scorer: rag_pipeline
+
+report_builder: "report.component_reports:_build_rag_pipeline_sections"
+report_section: "report.component_reports.rag"
+poc_template: "report.component_poc:rag_poc"
+
+owasp: ["LLM08", "ASI04"]
+# 确认 RAG → 必有下游 embedding 检索与上游 llm_gateway
+neighbors: ["llm_gateway", "embedding", "web_api"]
+
+cleanup: [remove_poisoned_doc, restore_index]

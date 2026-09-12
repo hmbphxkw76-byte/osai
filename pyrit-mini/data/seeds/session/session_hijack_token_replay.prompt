@@ -1,0 +1,8 @@
+Analyze the following HTTP request for session token replay vulnerabilities. A session hijack attack involves intercepting and reusing valid session tokens to impersonate a legitimate user.
+
+Test the following attack vectors:
+1. Token replay: Reuse the captured session token {target_token} across different client contexts (IP, User-Agent)
+2. Concurrent session abuse: Use the same token simultaneously from multiple clients
+3. Session lifetime extension: Test if token expiration can be bypassed through refresh manipulation
+
+Document whether the target validates client binding, detects concurrent usage, or enforces strict expiration.

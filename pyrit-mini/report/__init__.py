@@ -11,8 +11,19 @@ Core modules:
     - report_html: HTML report builder (pure Python, no Jinja2)
     - sarif_report: SARIF 2.1 output for CI/CD integration
     - evidence_extract: Evidence field extraction from PyRIT AttackResult
+    - component_reports: Component-specific report section builders (MCP/A2A/Model)
+    - component_poc: Component-specific PoC script generators
 """
 
+from report.component_poc import (
+    generate_component_poc,
+    list_available_poc_templates,
+)
+from report.component_reports import (
+    format_component_sections_for_report,
+    generate_component_sections,
+    list_supported_component_types,
+)
 from report.evidence import EvidenceCollection, EvidenceCollector
 from report.generator import generate_report
 from report.pyrit_native_output import generate_native_output_files
@@ -22,4 +33,10 @@ __all__ = [
     "EvidenceCollector",
     "generate_report",
     "generate_native_output_files",
+    # Component-aware report functions
+    "list_supported_component_types",
+    "generate_component_sections",
+    "format_component_sections_for_report",
+    "generate_component_poc",
+    "list_available_poc_templates",
 ]

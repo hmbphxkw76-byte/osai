@@ -24,9 +24,13 @@ Constitution compliance:
     - R-H3: Prevents dual-track redundancy (single success criteria)
     - C3: SSOT principle for result evaluation
 """
+
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def is_attack_successful(result: Any) -> bool:
@@ -57,15 +61,22 @@ def is_attack_successful(result: Any) -> bool:
             return score_val.lower() in ("true", "1", "success")
         if isinstance(score_val, (int, float)):
             return score_val > 0
+    # plan Wave 4.4：`scores` 既可能是 list[Score]（PyRIT 原生）也可能是
+    # dict[str, Score]（部分历史模块）。SSOT 必须同时覆盖两种形态，否则各调用点
+    # 会各自实现一份 → 又回退成多套口径（R-H3）。
     scores = getattr(result, "scores", None)
     if scores:
         try:
-            for s in scores:
-                sv = getattr(s, "score_value", "")
-                if str(sv).lower() in ("true", "1", "success"):
+            items = scores.values() if isinstance(scores, dict) else scores
+            for s in items:
+                sv = getattr(s, "score_value", s) if hasattr(s, "score_value") else s
+                if isinstance(sv, (int, float)):
+                    if sv > 0:
+                        return True
+                elif str(sv).lower() in ("true", "1", "success"):
                     return True
         except Exception:
-            pass
+            logger.debug("scores 解析失败，按未成功处理", exc_info=True)
     return False
 
 

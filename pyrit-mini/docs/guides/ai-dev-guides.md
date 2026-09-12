@@ -1062,35 +1062,31 @@ AI 生成代码 → V1 import 检查 → V2 签名对照 → V3 类型检查 →
 ```python
 class HallucinationDetector:
     """AI 幻觉检测器"""
-    
+
     def __init__(self, project_root: Path, spec_dir: Path):
         self.project_root = project_root
         self.spec_dir = spec_dir
         self.known_apis = self._build_api_index()
-    
+
     def validate_api_call(self, func_call: str, module: str) -> ValidationResult:
         """验证 AI 生成的 API 调用是否真实存在"""
         # 1. 检查模块是否可导入
         if not self._can_import(module):
-            return ValidationResult(
-                valid=False, hallucination_type="H5",
-                message=f"Module '{module}' does not exist"
-            )
-        
+            return ValidationResult(valid=False, hallucination_type="H5", message=f"Module '{module}' does not exist")
+
         # 2. 检查函数/类是否存在
         if not self._symbol_exists(module, func_call):
             return ValidationResult(
-                valid=False, hallucination_type="H1",
-                message=f"'{func_call}' does not exist in '{module}'"
+                valid=False, hallucination_type="H1", message=f"'{func_call}' does not exist in '{module}'"
             )
-        
+
         # 3. 验证签名兼容性
         sig_check = self._validate_signature(module, func_call)
         if not sig_check.valid:
             return sig_check  # H2 type
-        
+
         return ValidationResult(valid=True)
-    
+
     def scan_diff(self, diff_text: str) -> List[HallucinationFinding]:
         """扫描 diff 中的所有 AI 新增 API 调用"""
         findings = []
@@ -1098,10 +1094,9 @@ class HallucinationDetector:
         for call in api_calls:
             result = self.validate_api_call(call.name, call.module)
             if not result.valid:
-                findings.append(HallucinationFinding(
-                    call=call, h_type=result.hallucination_type,
-                    message=result.message
-                ))
+                findings.append(
+                    HallucinationFinding(call=call, h_type=result.hallucination_type, message=result.message)
+                )
         return findings
 ```
 
@@ -1654,7 +1649,7 @@ def generate_spec_scale(file_count: int) -> dict:
             "gate_steps": 2,
             "constitution_clauses": "C1-C9（精简）",
             "cross_model": False,
-            "sections": ["L0 精简", "L1 单层", "L2 MVP", "L3 简化"]
+            "sections": ["L0 精简", "L1 单层", "L2 MVP", "L3 简化"],
         }
     elif file_count < 100:
         return {
@@ -1663,7 +1658,7 @@ def generate_spec_scale(file_count: int) -> dict:
             "gate_steps": 4,
             "constitution_clauses": "C1-C12（标准）",
             "cross_model": False,
-            "sections": ["L0-L4 完整"]
+            "sections": ["L0-L4 完整"],
         }
     elif file_count < 500:
         return {
@@ -1672,7 +1667,7 @@ def generate_spec_scale(file_count: int) -> dict:
             "gate_steps": 6,
             "constitution_clauses": "C1-C14（完整 + 跨模型）",
             "cross_model": True,
-            "sections": ["L0-L4 完整", "L5 跨模型", "子域划分"]
+            "sections": ["L0-L4 完整", "L5 跨模型", "子域划分"],
         }
     else:
         return {
@@ -1681,7 +1676,7 @@ def generate_spec_scale(file_count: int) -> dict:
             "gate_steps": 7,
             "constitution_clauses": "C1-C14（完整）",
             "cross_model": True,
-            "sections": ["L0-L4 完整", "L5 跨模型", "子域 + 模块级 specs"]
+            "sections": ["L0-L4 完整", "L5 跨模型", "子域 + 模块级 specs"],
         }
 ```
 
@@ -2459,14 +2454,14 @@ alias dev-hall='python -m tools.hallucination_detector'
 ```python
 def recommend_specs(project_profile: dict) -> SpecRecommendation:
     """基于项目画像推荐规范组合"""
-    
+
     # 基础规范（所有项目）
     base_specs = ["L0 宪法", "L2 MVP 需求", "L3 任务"]
-    
+
     # 按规模扩展
     if project_profile["size"] in ["大型", "巨型"]:
         base_specs.extend(["L1 完整蓝图", "L4 完整护栏", "跨模型审查"])
-    
+
     # 按质量属性扩展
     quality = project_profile["core_quality"]
     if "安全" in quality:
@@ -2475,20 +2470,20 @@ def recommend_specs(project_profile: dict) -> SpecRecommendation:
         base_specs.extend(["性能基准门禁", "负载测试"])
     if "可用性" in quality:
         base_specs.extend(["混沌工程", "故障注入测试"])
-    
+
     # 按合规要求扩展
     if project_profile["compliance"]:
         base_specs.extend(["审计日志规范", "数据分类分级", "合规检查器"])
-    
+
     # 按团队规模扩展
     if project_profile["team_size"] in ["6-20人", "20+人"]:
         base_specs.extend(["代码所有权标注", "共识流程", "Onboarding 清单"])
-    
+
     return SpecRecommendation(
         specs=base_specs,
         estimated_lines=estimate_size(base_specs),
         gate_steps=len([s for s in base_specs if "门禁" in s or "检查" in s]),
-        priority=calculate_priority(project_profile)
+        priority=calculate_priority(project_profile),
     )
 ```
 

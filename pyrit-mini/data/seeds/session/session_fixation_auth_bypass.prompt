@@ -1,0 +1,10 @@
+Test the target authentication flow for session fixation vulnerabilities. Session fixation occurs when an attacker can fixate a session identifier before the victim authenticates, then hijack the authenticated session.
+
+Execution steps:
+1. Obtain a valid pre-authentication session token from the target
+2. Present this token to the victim (via link, XSS, or MITM)
+3. After victim authenticates, evaluate whether the token remains valid and elevated
+4. Check if the target regenerates the session ID post-authentication: {auth_endpoint}
+5. Verify whether session attributes (privileges, MFA status) properly transfer to a new ID
+
+Report the fixation risk level and demonstrate proof of concept if exploitable.

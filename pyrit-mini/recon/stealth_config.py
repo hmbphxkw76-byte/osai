@@ -22,6 +22,7 @@ Constitution compliance (Rule 2: Stealth First):
     Default "balanced" mode for all targets
     Escalate to "paranoid" only when guardrails detected
 """
+
 from __future__ import annotations
 
 import logging
@@ -35,12 +36,14 @@ logger = logging.getLogger(__name__)
 # Stealth Level Schema
 # ====================================================================
 
+
 @dataclass
 class StealthPolicy:
     """Stealth policy configuration for attack evasion.
 
     Controls timing, concurrency, and converter selection to avoid detection.
     """
+
     name: str
     delay_range: tuple[float, float]  # (min, max) seconds
     max_probes: int
@@ -83,7 +86,6 @@ STEALTH_POLICIES: dict[str, StealthPolicy] = {
         max_concurrent_requests=1,
         notes="High security targets, maximum evasion",
     ),
-
     "balanced": StealthPolicy(
         name="balanced",
         delay_range=(5.0, 15.0),
@@ -98,7 +100,6 @@ STEALTH_POLICIES: dict[str, StealthPolicy] = {
         max_concurrent_requests=3,
         notes="Default mode for standard targets",
     ),
-
     "aggressive": StealthPolicy(
         name="aggressive",
         delay_range=(0.5, 2.0),
@@ -113,7 +114,6 @@ STEALTH_POLICIES: dict[str, StealthPolicy] = {
         max_concurrent_requests=10,
         notes="CTF / low security targets, maximum speed",
     ),
-
     "silent_recon-only": StealthPolicy(
         name="silent_recon-only",
         delay_range=(10.0, 30.0),
@@ -134,6 +134,7 @@ STEALTH_POLICIES: dict[str, StealthPolicy] = {
 # ====================================================================
 # Stealth Level Manager
 # ====================================================================
+
 
 class StealthLevelManager:
     """Manages stealth policy selection based on guardrail detection.
@@ -240,13 +241,16 @@ class StealthLevelManager:
         policy = policy or self._current_policy or self.get_policy()
 
         ALL_CONVERTERS = [
-            "base64", "rot13", "leet_speak", "humanizer",
-            "unicode_smuggling", "homoglyph_chinese", "accent_obfuscation",
+            "base64",
+            "rot13",
+            "leet_speak",
+            "humanizer",
+            "unicode_smuggling",
+            "homoglyph_chinese",
+            "accent_obfuscation",
         ]
 
-        return [
-            c for c in ALL_CONVERTERS if self.is_converter_allowed(c, policy)
-        ]
+        return [c for c in ALL_CONVERTERS if self.is_converter_allowed(c, policy)]
 
 
 # ====================================================================

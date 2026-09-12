@@ -34,10 +34,33 @@ Usage:
     python main.py --stage assess
     python main.py --stage report
 
- # Custom parameters
+ # Progressive mode (--strike <target>: auto-escalation Phase 1→2→3→4)
+    python main.py --burp request --strike a2a       # A2A multi-agent progressive
+    python main.py --burp request --strike model     # Direct LLM progressive
+    python main.py --burp request --strike mcp       # MCP protocol progressive
+    python main.py --burp request --strike rag       # RAG poisoning progressive
+
+ # === Component-based seed loading (NEW: aligned with strike/ and recon/ directories) ===
+ # Load seeds by component (recommended for targeted attacks):
+    python main.py --strike mcp --seeds mcp --converters base64 --target burp.txt
+    python main.py --strike a2a --seeds a2a --converters l5_optimal --target burp.txt
+    python main.py --strike rag --seeds rag --target burp.txt
+    python main.py --strike model --seeds model --target burp.txt
+
+ # Combine multiple components:
+    python main.py --strike mcp --seeds mcp,a2a --target burp.txt
+
+ # List all available seeds:
+    python main.py --list-seeds
+
+ # Legacy seed names (backward compatible):
     python main.py --burp request \
         --seeds elite_jailbreaks --converters l5_optimal \
         --techniques auto --max-seeds 25
+    python main.py --seeds asi_top10,owasp_full_coverage --target burp.txt
+
+ # Load all seeds:
+    python main.py --seeds all --offensive --target burp.txt
 """
 
 from __future__ import annotations
@@ -45,7 +68,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -82,36 +104,26 @@ def auto_start_guard_watcher() -> None:
     """
     # 1. Check env vars (highest priority)
     env_watch = os.environ.get("AUTO_GUARD_WATCH")
-    env_mode = os.environ.get("AUTO_GUARD_MODE")
 
     if env_watch is not None:
         # Env var explicitly set — use it
         enabled = env_watch == "1"
-        mode = env_mode if env_mode else "fast"
     else:
         # No env var — fallback to YAML
         yaml_cfg = _load_auto_guard_from_yaml()
         enabled = yaml_cfg["enabled"]
-        mode = yaml_cfg["mode"]
 
     if not enabled:
         return
-    project_root = Path(__file__).resolve().parent
 
-    # Start watcher in background (non-blocking)
-    try:
-        subprocess.Popen(
-            [sys.executable, "-m", "tools.watch_guard", "--" + mode],
-            cwd=str(project_root),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
-            if sys.platform == "win32"
-            else 0,
-        )
-        print("  [AUTO-GUARD] Real-time watcher started (mode: {mode})".format(mode=mode))
-    except Exception as e:
-        print(f"  [AUTO-GUARD] Failed to start watcher: {e}")
+    # W0 fix: `tools.watch_guard` was merged into `tools.guard` (docs/specs/README.md) and
+    # no longer exists as a module. Previously this spawned a subprocess to a nonexistent
+    # module with stdout/stderr discarded, so the failure was completely invisible.
+    print(
+        "  [AUTO-GUARD] watcher enabled but unavailable: tools.watch_guard was merged into "
+        "tools.guard. Run `py -m tools.guard` in a separate shell instead."
+    )
+
 
 # UTF-8 (Windows GBK )
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
@@ -145,7 +157,11 @@ async def run(argv: list[str] | None = None) -> None:
         parse_args,
         setup_environment,
     )
-    from core.context import PipelineContext, apply_relaxed_adversarial_schema
+    from core.context import (
+        PipelineContext,
+        apply_relaxed_adversarial_schema,
+        enforce_authorized_scope,
+    )
     from core.logging_config import (
         configure_root_logging,
         flush_and_close_handlers,
@@ -192,11 +208,33 @@ async def run(argv: list[str] | None = None) -> None:
     ctx.scenario_result_id = getattr(args, "resume", None)
     ctx.memory_labels = getattr(args, "memory_labels_parsed", {}) or {}
 
+    # == plan Wave 2.9（R-S1 / C9）：授权范围启动期强制校验 ==
+    # 此前 `ctx.authorized_targets` 不存在 → `decision_safety` 的边界检查被整段跳过
+    # → 越界攻击静默放行。这里把「声明 → 校验 → 拒绝」前置到启动期，且未声明也必须留痕。
+    enforce_authorized_scope(args, ctx)
+
+    # == W0-4: EventLog 挂载（REQ-148，旁路埋点，零行为变更） ==
+    # --no-events 时为禁用实例，所有 emit 为 no-op
+    from core.events import EventLog
+
+    EventLog.attach(
+        ctx,
+        output_dir=output_dir,
+        enabled=not getattr(args, "no_events", False),
+        run_id=getattr(args, "resume", None),
+    )
+
+    # == W0-8: 终端展示层接入同一 EventLog（display 不持有 ctx，显式注入） ==
+    from utils.display import bind_event_log
+
+    bind_event_log(ctx.event_log)
+
     # == Stealth: SIEM evasion timing (optional) ==
     # Data flow: CLI --stealth -> StealthConfig -> ctx.stealth_config -> strike/executor
     stealth_level = getattr(args, "stealth", None)
     if stealth_level:
-        from strike.stealth_exec import StealthConfig
+        from strike.injection.stealth_exec import StealthConfig
+
         ctx.stealth_config = StealthConfig.from_level(stealth_level)
 
     # == Install signal handlers ==
@@ -233,20 +271,35 @@ async def run(argv: list[str] | None = None) -> None:
 
     # R12: Target + Strike routing (--target / --strike → strike/dispatcher.py)
     # When --target or --strike is specified, configure dispatcher seed categories
+    # Progressive mode: --strike <target> triggers auto-escalation (Phase 1→2→3→4)
     _target = getattr(args, "target", None)
     _strike = getattr(args, "strike", None)
     if _target or _strike:
-        from strike.dispatcher import create_dispatcher
-        ctx.dispatcher = create_dispatcher(target=_target, strike=_strike)
-        if _target:
-            # Override seed categories based on target
-            ctx.dispatcher_seed_categories = ctx.dispatcher.get_seed_categories()
+        from strike.common.dispatcher import create_dispatcher, is_target
+
+        # Detect progressive mode: --strike <target> (target name passed as strike)
+        if _strike and is_target(_strike) and _target is None:
+            # Progressive mode: auto-escalation for the specified target
+            ctx.dispatcher = create_dispatcher(strike=_strike)
+            ctx.progressive_mode = True
             _logger.info(
-                "[MAIN] Target routing: target=%s, seeds=%s",
-                _target, ctx.dispatcher_seed_categories,
+                "[MAIN] Progressive mode: target=%s, auto-escalation enabled (Phase 1→2→3→4)",
+                _strike,
             )
-        if _strike:
-            _logger.info("[MAIN] Strike routing: strategy=%s", _strike)
+        else:
+            # Standard mode: explicit target + strategy
+            ctx.dispatcher = create_dispatcher(target=_target, strike=_strike)
+            ctx.progressive_mode = False
+            if _target:
+                # Override seed categories based on target
+                ctx.dispatcher_seed_categories = ctx.dispatcher.get_seed_categories()
+                _logger.info(
+                    "[MAIN] Target routing: target=%s, seeds=%s",
+                    _target,
+                    ctx.dispatcher_seed_categories,
+                )
+            if _strike:
+                _logger.info("[MAIN] Strike routing: strategy=%s", _strike)
 
     # R1: Pipeline integrity verification - Ensure model_family data flow through to load_seeds
     # Before orchestration delegation, First extract model_family and inject into ctx, Ensure accessible in arm phase
@@ -260,7 +313,22 @@ async def run(argv: list[str] | None = None) -> None:
         # orchestrator.py imports all 6 phase functions from core/phases/
         from core.orchestrator import run_attack_pipeline
 
-        await run_attack_pipeline(ctx)
+        # Progressive mode: use dispatcher.execute_progressive() for auto-escalation
+        if getattr(ctx, "progressive_mode", False) and hasattr(ctx, "dispatcher"):
+            _logger.info("[MAIN] Executing progressive strike via dispatcher")
+            progressive_result = await ctx.dispatcher.execute_progressive(ctx)
+            _logger.info(
+                "[MAIN] Progressive result: success=%s, attacks=%d, progressive=%s",
+                progressive_result.success,
+                progressive_result.attack_count,
+                progressive_result.progressive_result,
+            )
+            # Store result in ctx for downstream phases
+            ctx.progressive_strike_result = progressive_result
+            # Still run the full pipeline for scoring/reporting
+            await run_attack_pipeline(ctx)
+        else:
+            await run_attack_pipeline(ctx)
 
         # R1: Pipeline closure verification - Ensure ASR written + priors updated
         # Post-execution audit: verify all data flows completed correctly
@@ -278,6 +346,13 @@ async def run(argv: list[str] | None = None) -> None:
                 await cleanup_resources(ctx)
         except Exception:
             _logger.debug("Resource release failure during final cleanup (non-fatal)")
+        # == W0-4: EventLog 落盘收尾（REQ-148，幂等） ==
+        try:
+            _elog = getattr(ctx, "event_log", None)
+            if _elog is not None:
+                _elog.close()
+        except Exception:
+            pass
         # Ensure all FileHandler flush + close
         flush_and_close_handlers()
 
@@ -323,6 +398,7 @@ def _verify_pipeline_closure(ctx: Any) -> None:
         if _mf and ctx.asr_per_technique:
             # : Check if priors file exists
             from pathlib import Path
+
             _priors_path = Path("config/asr_priors.yaml")
             if _priors_path.exists():
                 _logger.info(
@@ -334,8 +410,18 @@ def _verify_pipeline_closure(ctx: Any) -> None:
 #
 # ===============================================================================
 
-if __name__ == "__main__":
+def main(argv: list[str] | None = None) -> None:
+    """Synchronous console entry point.
+
+    W0 fix: `pyproject.toml` declared `pyrit-mini = "main:main"`, but no `main()` existed
+    (only the coroutine `run()`), so installing the package produced a broken console
+    script. This wrapper restores that contract.
+    """
     try:
-        asyncio.run(run())
+        asyncio.run(run(argv))
     except KeyboardInterrupt:
         sys.exit(130)
+
+
+if __name__ == "__main__":
+    main()

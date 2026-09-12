@@ -32,8 +32,10 @@ from typing import Any
 from core._config_parsers import (
     _apply_config_file,
     _apply_defaults,
+    _flatten_nested_defaults,
     _load_config_file,
     _load_defaults,
+    _parse_components,
     _parse_converter_global,
     _parse_converter_overrides,
     _parse_escalation_levels,
@@ -56,9 +58,8 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULTS_YAML = _PROJECT_ROOT / "config" / "defaults.yaml"
 
 
-
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """ CLI - .
+    """CLI - .
 
     Args:
         argv: None  sys.argv
@@ -70,132 +71,144 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="PyRIT-Strike - Burp->->->Converter->->-> ",
     )
 
- # == ==
- # 7 ( OWASP AI-300 Five-Step + PyRIT ):
- # recon -> Burp + + + HTTPTarget
- # arm -> /ASR + Converter +
- # strike -> PyRIT (PromptSendingAttack FIRST_SUCCESS)
- # escalate -> (Crescendo->TAP->PAIR->GCG->native, ASR<90% )
- # assess -> T0->J1->J2->J3 + ASR + Wilson CI
- # report -> + MD/HTML/JSON/PoC/SARIF
- # --stage (strike+escalate ),
+    # == ==
+    # 7 ( OWASP AI-300 Five-Step + PyRIT ):
+    # recon -> Burp + + + HTTPTarget
+    # arm -> /ASR + Converter +
+    # strike -> PyRIT (PromptSendingAttack FIRST_SUCCESS)
+    # escalate -> (Crescendo->TAP->PAIR->GCG->native, ASR<90% )
+    # assess -> T0->J1->J2->J3 + ASR + Wilson CI
+    # report -> + MD/HTML/JSON/PoC/SARIF
+    # --stage (strike+escalate ),
     parser.add_argument(
         "--stage",
         type=str,
         default=None,
         choices=["recon", "arm", "strike", "escalate", "assess", "report"],
-        help=" (recon/arm/strike/escalate/assess/report), "
-             "",
+        help=" (recon/arm/strike/escalate/assess/report), ",
     )
 
- # == : Burp ==
- # : --burp <name> () --burp MM_05 --burp MM_03 ()
- # v61: config/burp/burp/
- # config/burp/burp/<name>.txt
- # config/burp/burp/*.txt
- # : --burp config/burp/burp/deepseek.txt
- # endpoint: --burp MM_05 --burp MM_03 --burp MM_08
- # endpoint , Ensure
- # Academic basis: Greshake et al. (arXiv:2302.12173) - + ASR
+    # == : Burp ==
+    # : --burp <name> () --burp MM_05 --burp MM_03 ()
+    # v61: config/burp/burp/
+    # config/burp/burp/<name>.txt
+    # config/burp/burp/*.txt
+    # : --burp config/burp/burp/deepseek.txt
+    # endpoint: --burp MM_05 --burp MM_03 --burp MM_08
+    # endpoint , Ensure
+    # Academic basis: Greshake et al. (arXiv:2302.12173) - + ASR
     parser.add_argument(
         "--burp",
         type=str,
         default=None,
         metavar="NAME",
         action="append",
-        help="Burp  HTTP  ( config/burp/burp/<NAME>.txt), "
-             "converter(s) endpoint;  config/burp/burp/*.txt ",
+        help="Burp  HTTP  ( config/burp/burp/<NAME>.txt), converter(s) endpoint;  config/burp/burp/*.txt ",
     )
 
- # == ==
+    # == ==
     parser.add_argument(
         "--seeds",
         type=str,
         default=None,  # config-file defaults.yaml , fallback "elite_jailbreaks,asi_top10,owasp_full_coverage"
-        help=" ()",
+        help=" (, : elite_jailbreaks,asi_top10); "
+        "(a2a, mcp, rag, model, web, memory, session); "
+        "(mcp,elite_jailbreaks); all=all seeds",
     )
     parser.add_argument("--max-seeds", type=int, default=None, help=" ( 25)")
     parser.add_argument("--auto-seeds", action="store_true", default=False, help=" (3x)")
     parser.add_argument("--enable-dos", action="store_true", default=False, help=" DoS ")
+    parser.add_argument("--list-seeds", action="store_true", default=False, help="all seeds()")
 
- # == Converter ==
-    parser.add_argument(
-        "--converters", type=str, default=None, help="Converter  (auto, l5_optimal, none, ...)"
-    )
+    # == Converter ==
+    parser.add_argument("--converters", type=str, default=None, help="Converter  (auto, l5_optimal, none, ...)")
 
- # == ==
-    parser.add_argument(
-        "--techniques", type=str, default=None, help=" (auto, single, crescendo, ...)"
-    )
+    # == ==
+    parser.add_argument("--techniques", type=str, default=None, help=" (auto, single, crescendo, ...)")
     parser.add_argument("--max-attempts", type=int, default=None, help="converter(s)Retry")
     parser.add_argument("--max-concurrency", type=int, default=None, help=" ( 3)")
     parser.add_argument("--timeout", type=int, default=None, help=" ( 1200)")
 
- # == ==
+    # == ==
     parser.add_argument("--escalation", action="store_true", default=None, help="")
     parser.add_argument("--no-escalation", action="store_false", dest="escalation", help="")
+    parser.add_argument(
+        "--escalate-threshold",
+        type=float,
+        default=None,
+        metavar="PCT",
+        help=" (  - ,  config/defaults.yaml:escalation_asr_threshold,  90)。"
+        "C2  ,  ASR    Crescendo/TAP/SkeletonKey  ",
+    )
     parser.add_argument(
         "--escalation-levels",
         type=str,
         default=None,
         metavar="L1,L2,L3,L4",
         help=" (),  'L2,L4'  L2+L4; "
-             " L1->L2->L3->L4  (); "
-             ": L1 (RedTeaming+CoT+Crescendo+TAP+PAIR), "
-             "L2 (GCG+CAIR+Best-of-N+Encoded), "
-             "L3 (Multi-Model+SkeletonKey+Many-Shot+CoT+Chunked), "
-             "L4 (RogueAgent+EmbeddingInversion+MCP/RAG)",
+        " L1->L2->L3->L4  (); "
+        ": L1 (RedTeaming+CoT+Crescendo+TAP+PAIR), "
+        "L2 (GCG+CAIR+Best-of-N+Encoded), "
+        "L3 (Multi-Model+SkeletonKey+Many-Shot+CoT+Chunked), "
+        "L4 (RogueAgent+EmbeddingInversion+MCP/RAG)",
     )
 
- # == ==
+    # == (plan Wave 2.9 / R-S1) ==
+    parser.add_argument(
+        "--authorized-targets",
+        type=str,
+        default=None,
+        metavar="HOST[,HOST...]",
+        help=" (,  'example.com'  )。"
+        "  PyRIT  (C9)",
+    )
+
+    # == ==
     parser.add_argument("--offensive", action="store_true", default=False, help="")
     parser.add_argument("--rate-limit", type=int, default=None, help="API  (RPM)")
 
- # == R10: --dry-run token ==
- # Skip strike/escalate API , Data flow
- # : python main.py --dry-run --max-seeds 1
- # Ensure: , ctx , 6 ,
+    # == R10: --dry-run token ==
+    # Skip strike/escalate API , Data flow
+    # : python main.py --dry-run --max-seeds 1
+    # Ensure: , ctx , 6 ,
     parser.add_argument(
         "--dry-run",
         action="store_true",
         default=False,
-        help=" token  (R10) - Skip strike/escalate  API , "
-             "allData flow; : python main.py --dry-run --max-seeds 1",
+        help=" token  (R10) - Skip strike/escalate  API , allData flow; : python main.py --dry-run --max-seeds 1",
     )
 
- # == ==
+    # == ==
     parser.add_argument("--html-report", action="store_true", default=False, help=" HTML ")
 
- # == Stealth: SIEM evasion timing ==
- # --stealth: Paretorate shaping, session isolation
- # : a (100%15%), c (2%), b (0.1%)
- # : stealth_exec.StealthConfig.from_level()
- # arXiv:2306.05685 - Crothers et al., Adaptive attack timing
- # arXiv:2204.01326 - Zhang et al., Behavioral biometrics evasion
+    # == Stealth: SIEM evasion timing ==
+    # --stealth: Paretorate shaping, session isolation
+    # : a (100%15%), c (2%), b (0.1%)
+    # : stealth_exec.StealthConfig.from_level()
+    # arXiv:2306.05685 - Crothers et al., Adaptive attack timing
+    # arXiv:2204.01326 - Zhang et al., Behavioral biometrics evasion
     parser.add_argument(
         "--stealth",
         type=str,
         default=None,
         choices=["a", "c", "b"],
         metavar="LEVEL",
-        help=" SIEM : a (100%%15%%), c (2%%), "
-             "b (0.1%%); + + Pareto",
+        help=" SIEM : a (100%%15%%), c (2%%), b (0.1%%); + + Pareto",
     )
 
-# == : ASI09 Session Enumeration ==
-# --session-enum: session_id (IDOR)
-# : python main.py --burp request.txt --session-enum \
-#   --session-enum-days-back 14 --session-enum-counter-max 20
-#    + SessionPatternInferer
-# : MC-20260325-0015  MC-{date:%Y%m%d}-{counter:04d}
-# Academic: OWASP ASI09 - Broken Authentication via Session Enumeration
-# arXiv:2306.05685 - Crothers et al., Adaptive attack timing evasion
+    # == : ASI09 Session Enumeration ==
+    # --session-enum: session_id (IDOR)
+    # : python main.py --burp request.txt --session-enum \
+    #   --session-enum-days-back 14 --session-enum-counter-max 20
+    #    + SessionPatternInferer
+    # : MC-20260325-0015  MC-{date:%Y%m%d}-{counter:04d}
+    # Academic: OWASP ASI09 - Broken Authentication via Session Enumeration
+    # arXiv:2306.05685 - Crothers et al., Adaptive attack timing evasion
     parser.add_argument(
         "--session-enum",
         action="store_true",
         default=False,
-        help=" ASI09 session_id  (IDOR) - "
-             " session_id (MC-YYYYMMDD-NNNN) agent ",
+        help=" ASI09 session_id  (IDOR) -  session_id (MC-YYYYMMDD-NNNN) agent ",
     )
     parser.add_argument(
         "--session-enum-pattern",
@@ -203,8 +216,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="",
         metavar="PATTERN",
         help="session_id模板 (为空时自动从请求推断); "
-             "支持占位符: {date:FORMAT} {counter:WIDTH}; "
-             "示例: MC-{date:%%Y%%m%%d}-{counter:04d}, session_{counter:06d}",
+        "支持占位符: {date:FORMAT} {counter:WIDTH}; "
+        "示例: MC-{date:%%Y%%m%%d}-{counter:04d}, session_{counter:06d}",
     )
     parser.add_argument(
         "--session-enum-days-back",
@@ -300,11 +313,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     # == Target & Strike: Unified attack surface + strategy routing ==
     # --target: Attack surface selection (a2a, mcp, rag, session, memory, web, model)
     # --strike: Attack strategy (prompt_sending, crescendo, tap, pair, gcg, native)
+    #           OR target name for progressive mode (a2a, mcp, rag, session, memory, web, model)
+    # Progressive mode: --strike <target> triggers auto-escalation (Phase 1→2→3→4)
     # Academic basis: NIST SP 800-115 Sec4 (attack surface enumeration)
     # Usage:
     #   py main.py --target a2a --strike prompt_sending --converters base64
     #   py main.py --target mcp --strike crescendo
     #   py main.py --target rag --strike tap --converters l5_optimal
+    #   py main.py --strike a2a          # Progressive mode: auto-escalation for A2A target
+    #   py main.py --strike model        # Progressive mode: auto-escalation for direct LLM
     target_strike_group = parser.add_argument_group("Target & Strike Routing (Unified)")
     target_strike_group.add_argument(
         "--target",
@@ -313,22 +330,54 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=["a2a", "mcp", "rag", "session", "memory", "web", "model"],
         metavar="SURFACE",
         help="Attack surface: a2a (multi-agent), mcp (model context protocol), "
-             "rag (retrieval-augmented), session (auth/session), memory (agent memory), "
-             "web (browser/injection), model (direct LLM)",
+        "rag (retrieval-augmented), session (auth/session), memory (agent memory), "
+        "web (browser/injection), model (direct LLM)",
     )
+    # --strike accepts both strategy names and target names (for progressive mode)
+    _strike_choices = [
+        "prompt_sending",
+        "crescendo",
+        "tap",
+        "pair",
+        "gcg",
+        "native",
+        "first_success",
+        "many_shot",
+        "figstep",
+        "sleeper",
+        "a2a",
+        "mcp",
+        "rag",
+        "session",
+        "memory",
+        "web",
+        "model",
+    ]
     target_strike_group.add_argument(
         "--strike",
         type=str,
         default=None,
-        choices=[
-            "prompt_sending", "crescendo", "tap", "pair", "gcg", "native",
-            "first_success", "many_shot", "figstep", "sleeper",
-        ],
-        metavar="STRATEGY",
-        help="Attack strategy: prompt_sending (single-turn), crescendo (multi-turn escalation), "
-             "tap (Tree of Attacks with Pruning), pair (black-box iterative), "
-             "gcg (gradient-based), native (PyRIT native), first_success (stop on first hit), "
-             "many_shot (arXiv:2402.05124), figstep (arXiv:2403.07860), sleeper (arXiv:2301.11916)",
+        choices=_strike_choices,
+        metavar="STRATEGY|TARGET",
+        help="Attack strategy OR target for progressive mode. "
+        "Strategies: prompt_sending, crescendo, tap, pair, gcg, native, first_success, "
+        "many_shot, figstep, sleeper. "
+        "Targets (progressive): a2a, mcp, rag, session, memory, web, model. "
+        "When a target name is given, auto-escalation (Phase 1→2→3→4) is triggered.",
+    )
+    # --components: 显式锁定多组件组合体（plan Wave 1 / §2.3 层 2「显式指定兜底」）
+    # 逗号分隔的组件键，取值来自 ComponentRegistry.keys()（config/components/*.yaml）。
+    # 指定后跳过多信号推断，直接锁定，用于「识别不确定」时的人工兜底。
+    # C7：权重/阈值仍走 defaults.yaml → args 链路，不由 CLI 直接写死。
+    target_strike_group.add_argument(
+        "--components",
+        type=str,
+        default=None,
+        metavar="KEY[,KEY...]",
+        help="Explicitly lock the target component combo (skips inference). "
+        "Values come from config/components/*.yaml, e.g. "
+        "--components mcp_tool_poisoning,rag_pipeline. "
+        "Short ids (mcp/a2a/rag/model/session/web) and labels are also accepted.",
     )
 
     # == A2A Multi-Agent Attack Vectors (v4.0: Direct exploitation) ==
@@ -404,91 +453,84 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Data poisoning method: database/document/knowledge_base/all (default: all)",
     )
 
- # == P2-2: output-format ==
- # : md / html / json / sarif / poc / csv / all ()
- # : --output-format md,json  md+json
- # : --html-report  html_report=True, output-format html
+    # == P2-2: output-format ==
+    # : md / html / json / sarif / poc / csv / all ()
+    # : --output-format md,json  md+json
+    # : --html-report  html_report=True, output-format html
     parser.add_argument(
         "--output-format",
         type=str,
         default=None,
         metavar="FMT",
-        help=" (: all=all); "
-             "md/html/json/sarif/poc/csv; "
-             " md,json  md+html+json+sarif",
+        help=" (: all=all); md/html/json/sarif/poc/csv;  md,json  md+html+json+sarif",
     )
 
- # == : --memory-labels ==
- # pyrit_scan --memory-labels: CentralMemory,
- # ( label=production,target=deepseek)
- # : JSON {"run_id": "r001", "target": "deepseek"}
+    # == : --memory-labels ==
+    # pyrit_scan --memory-labels: CentralMemory,
+    # ( label=production,target=deepseek)
+    # : JSON {"run_id": "r001", "target": "deepseek"}
     parser.add_argument(
         "--memory-labels",
         type=str,
         default=None,
         metavar="JSON",
-        help=' (JSON ,  \'{"run_id":"r001","target":"deepseek"}\'); '
-             ' CentralMemory ',
+        help=' (JSON ,  \'{"run_id":"r001","target":"deepseek"}\');  CentralMemory ',
     )
 
- # == : --seed-filters ==
- # pyrit_scan --seed-filters: metadata KEY=VALUE
- # : owasp_id=LLM01,difficulty=high -
- # (): category=attack,language=en
+    # == : --seed-filters ==
+    # pyrit_scan --seed-filters: metadata KEY=VALUE
+    # : owasp_id=LLM01,difficulty=high -
+    # (): category=attack,language=en
     parser.add_argument(
         "--seed-filters",
         type=str,
         default=None,
         metavar="KEY=VALUE",
-        help=' ( KEY=VALUE,  owasp_id=LLM01,difficulty=high); '
-             ' metadata ',
+        help=" ( KEY=VALUE,  owasp_id=LLM01,difficulty=high);  metadata ",
     )
 
- # == : --add-initializer Target ==
- # pyrit_scan --add-initializer: PyRIT Initializer
- # : ClassName,arg1=val1,arg2=val2 - PyRIT
- # : --add-initializer MyInit,foo=bar --add-initializer OtherInit
+    # == : --add-initializer Target ==
+    # pyrit_scan --add-initializer: PyRIT Initializer
+    # : ClassName,arg1=val1,arg2=val2 - PyRIT
+    # : --add-initializer MyInit,foo=bar --add-initializer OtherInit
     parser.add_argument(
         "--add-initializer",
         type=str,
         default=None,
         metavar="CLASS[,args]",
         action="append",
-        help=' PyRIT Initializer (); '
-             ': ClassName,arg1=val1,arg2=val2 - ',
+        help=" PyRIT Initializer (); : ClassName,arg1=val1,arg2=val2 - ",
     )
 
- # == : --config-file YAML ==
- # pyrit_scan --config-file: YAML
- # : seeds, converters, techniques, burp, memory_labels, seed_filters
- # : CLI --flag > --config-file > config/defaults.yaml >
+    # == : --config-file YAML (通用配置能力) ==
+    # pyrit_scan --config-file: YAML
+    # : seeds, converters, techniques, burp, memory_labels, seed_filters, scoring, escalation
+    # : CLI --flag > --config-file > config/defaults.yaml >
     parser.add_argument(
         "--config-file",
         type=str,
         default=None,
         metavar="PATH",
-        help=' YAML ;  seeds/converters/techniques/burp ; '
-             'CLI --flag ',
+        help=" YAML ;  seeds/converters/techniques/burp/scoring/escalation ; CLI --flag ",
     )
 
- # == Target routing ( PyRIT 1.0.1 Target ) ==
- # Academic basis: PyRIT (arXiv:2407.01232) - Target
- # : --litellm-model > --target-api-endpoint > --browser-url > --burp
+    # == Target routing ( PyRIT 1.0.1 Target ) ==
+    # Academic basis: PyRIT (arXiv:2407.01232) - Target
+    # : --litellm-model > --target-api-endpoint > --browser-url > --burp
     parser.add_argument(
         "--litellm-model",
         type=str,
         default=None,
         metavar="MODEL",
         help="LiteLLM  ( anthropic/claude-sonnet-4-6, bedrock/anthropic.claude-v2), "
-             " LiteLLM SDK  100+ LLM ;  LITELLM_API_KEY/LITELLM_ENDPOINT ",
+        " LiteLLM SDK  100+ LLM ;  LITELLM_API_KEY/LITELLM_ENDPOINT ",
     )
     parser.add_argument(
         "--target-api-endpoint",
         type=str,
         default=None,
         metavar="URL",
-        help="OpenAI  API  ( https://api.openai.com/v1), "
-             " --target-api-key ,  OpenAIChatTarget/OpenAIResponseTarget",
+        help="OpenAI  API  ( https://api.openai.com/v1),  --target-api-key ,  OpenAIChatTarget/OpenAIResponseTarget",
     )
     parser.add_argument(
         "--target-api-key",
@@ -516,8 +558,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=str,
         default=None,
         metavar="URL",
-        help=" Chat UI URL ( PyRIT  PlaywrightTarget), "
-             " JS  Web Chat ",
+        help=" Chat UI URL ( PyRIT  PlaywrightTarget),  JS  Web Chat ",
     )
     parser.add_argument(
         "--auto-discover-capabilities",
@@ -526,28 +567,38 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=" PyRIT  discover_target_capabilities_async ",
     )
 
- # == ==
+    # == ==
     parser.add_argument("--output-dir", type=str, default=None, help="Output directory")
     parser.add_argument("--resume", type=str, default=None, help="imports")
 
- # == ==
- # --verbose: INFO ( + WARNING/ERROR)
- # {output_dir}/pipeline.log
+    # == W0-4: EventLog bypass switch (REQ-148, target architecture v4.0) ==
+    # --no-events: disable event bus entirely (all emit() become no-op)
+    # Data flow: parse_args -> ctx.args.no_events -> main.py (EventLog.attach enabled=not no_events)
+    # W0 compatibility obligation: deleted in W5 together with the bypass switch
+    parser.add_argument(
+        "--no-events",
+        action="store_true",
+        default=False,
+        dest="no_events",
+        help="Disable EventLog event bus (W0 bypass switch, removed in W5)",
+    )
+
+    # == ==
+    # --verbose: INFO ( + WARNING/ERROR)
+    # {output_dir}/pipeline.log
     parser.add_argument(
         "--verbose",
         action="store_true",
         default=False,
-        help=" INFO  (+WARNING/ERROR, "
-             " {output_dir}/pipeline.log)",
+        help=" INFO  (+WARNING/ERROR,  {output_dir}/pipeline.log)",
     )
 
- # T-06: --verbose-strike: output ()
+    # T-06: --verbose-strike: output ()
     parser.add_argument(
         "--verbose-strike",
         action="store_true",
         default=False,
-        help="STRIKE/ESCALATE  PyRIT  output "
-             "(:  1 ,  output)",
+        help="STRIKE/ESCALATE  PyRIT  output (:  1 ,  output)",
     )
 
     # == P3-Synergy: Burp + Scores + Seeds ==
@@ -559,8 +610,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--synergy",
         action="store_true",
         default=True,
-        help=" Burp + Scores + Seeds  (, "
-             " + )",
+        help=" Burp + Scores + Seeds  (,  + )",
     )
 
     # == Advanced Attacks: Output Filter Bypass / Multimodal / Backdoor ==
@@ -579,21 +629,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         default=False,
         help=" Output filter bypass (ManyShotJailbreakAttack + ChunkedRequestAttack + XPIAAttack); "
-             "arXiv:2402.05124, ASR 60-80%%",
+        "arXiv:2402.05124, ASR 60-80%%",
     )
     advanced_group.add_argument(
         "--enable-multimodal",
         action="store_true",
         default=False,
-        help=" Multimodal injection (Image/Audio/File carrier); "
-             "arXiv:2403.07860 (FigStep), ASR 75-95%%",
+        help=" Multimodal injection (Image/Audio/File carrier); arXiv:2403.07860 (FigStep), ASR 75-95%%",
     )
     advanced_group.add_argument(
         "--enable-backdoor",
         action="store_true",
         default=False,
-        help=" Backdoor attack (trigger word + context-conditional); "
-             "arXiv:2301.11916 (Sleeper Agents), ASR 70-90%%",
+        help=" Backdoor attack (trigger word + context-conditional); arXiv:2301.11916 (Sleeper Agents), ASR 70-90%%",
     )
     advanced_group.add_argument(
         "--bypass-threshold",
@@ -645,8 +693,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--enable-web-injection",
         action="store_true",
         default=False,
-        help=" Enable CSS hidden content injection for browser agents; "
-             "arXiv:2302.12173, ASR 85-95%%",
+        help=" Enable CSS hidden content injection for browser agents; arXiv:2302.12173, ASR 85-95%%",
     )
     advanced_group.add_argument(
         "--web-injection-strategy",
@@ -683,10 +730,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=", ",
     )
 
- # == Scenario (v60: ->) ==
- # Academic basis: NIST SP 800-115 Sec4, PTES Sec3, OWASP ASI Top 10
- # v60 Data flow: synergy_orchestrator -> technique_tags -> adaptive_technique_filter -> TextAdaptive
- # Scenario = -> technique_tags ( seeds/converters/scorer)
+    # == Scenario (v60: ->) ==
+    # Academic basis: NIST SP 800-115 Sec4, PTES Sec3, OWASP ASI Top 10
+    # v60 Data flow: synergy_orchestrator -> technique_tags -> adaptive_technique_filter -> TextAdaptive
+    # Scenario = -> technique_tags ( seeds/converters/scorer)
     scenario_group = parser.add_argument_group("Scenario  (v60 Tag-Based)")
     scenario_group.add_argument(
         "--scenario",
@@ -739,9 +786,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     #   python main.py --file-upload-target http://target:8004 \
     #                  --upload-files template_doc.txt,payload_doc.txt \
     #                  --trigger-endpoint /analyze
-    fileupload_group = parser.add_argument_group(
-        "File Upload Attack (Document Injection)"
-    )
+    fileupload_group = parser.add_argument_group("File Upload Attack (Document Injection)")
     fileupload_group.add_argument(
         "--file-upload-target",
         type=str,
@@ -806,25 +851,30 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     #   2. Build trust session via incremental_trust_builder
     #   3. Generate poisoned prompt with embedded bypass signals
     #   4. Execute against target orchestrator /workflow endpoint
-    workflow_evasion_group = parser.add_argument_group(
-        "Workflow Evasion (Security Scan Bypass)"
-    )
+    workflow_evasion_group = parser.add_argument_group("Workflow Evasion (Security Scan Bypass)")
     workflow_evasion_group.add_argument(
         "--enable-workflow-evasion",
         action="store_true",
         default=False,
         help=" Enable workflow evasion attack seeds (Authority Appeal + Workflow Shortcuts + Scope Limitation); "
-             "arXiv:2402.19181, ASR 35-55%%",  # noqa: PLE1300
+        "arXiv:2402.19181, ASR 35-55%%",  # noqa: PLE1300
     )
     workflow_evasion_group.add_argument(
         "--workflow-evasion-strategy",
         type=str,
         default=None,
         choices=[
-            "authority_ciso", "authority_compliance", "authority_emergency",
-            "workflow_efficiency", "workflow_performance", "workflow_template",
-            "scope_internal", "scope_draft", "scope_preproduction",
-            "incremental_trust", "combined",
+            "authority_ciso",
+            "authority_compliance",
+            "authority_emergency",
+            "workflow_efficiency",
+            "workflow_performance",
+            "workflow_template",
+            "scope_internal",
+            "scope_draft",
+            "scope_preproduction",
+            "incremental_trust",
+            "combined",
         ],
         help=" Force specific workflow evasion strategy (default: auto-rotate)",
     )
@@ -847,9 +897,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=str,
         default="authorization_claim",
         choices=[
-            "authorization_claim", "authority_ciso", "workflow_efficiency",
-            "scope_exclusion", "scope_internal_draft", "emergency_protocol",
-            "compliance_preapproval", "incremental_trust", "format_exploit",
+            "authorization_claim",
+            "authority_ciso",
+            "workflow_efficiency",
+            "scope_exclusion",
+            "scope_internal_draft",
+            "emergency_protocol",
+            "compliance_preapproval",
+            "incremental_trust",
+            "format_exploit",
             "step_manipulation",
         ],
         help=" Bypass method for review skip (default: authorization_claim)",
@@ -866,62 +922,65 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     explicit_escalation = args.escalation
 
- # == --config-file YAML ==
- # : CLI --flag > --config-file > config/defaults.yaml >
- # config_file args None (Not overridden CLI )
+    # == --config-file YAML ==
+    # : CLI --flag > --config-file > config/defaults.yaml >
+    # config_file args None (Not overridden CLI )
     config_file_data: dict[str, Any] = {}
     if getattr(args, "config_file", None):
         config_file_data = _load_config_file(args.config_file)
         _apply_config_file(args, config_file_data)
 
- # == YAML (config/defaults.yaml) ==
+    # == YAML (config/defaults.yaml) ==
     defaults = _load_defaults()
     _apply_defaults(args, defaults)
+    # 展平嵌套小节（component_classification / attack_budget / attack_chain / impact_chain）
+    # 到 args 标量键，保证 C7「defaults.yaml → args → getattr」链路不断
+    _flatten_nested_defaults(args)
+    # --components "a,b,c" -> list[str]
+    args.components_list = _parse_components(getattr(args, "components", None))
 
- # == --offensive ==
+    # == --offensive ==
     if args.offensive:
         args.converters = "l5_optimal"
         args.html_report = True
         if args.max_attempts is None:
             args.max_attempts = 3
 
- # == escalation ==
+    # == escalation ==
     if explicit_escalation is not None:
         args.escalation = explicit_escalation
     elif args.escalation is None:
         args.escalation = True
 
- # == : --converters technique:converter.xxx ==
- # converters per-technique overrides ( ; )
- # converter ( ; )
+    # == : --converters technique:converter.xxx ==
+    # converters per-technique overrides ( ; )
+    # converter ( ; )
     _raw_converters = getattr(args, "converters", None)
     args.converter_overrides = _parse_converter_overrides(_raw_converters)
 
- # == : converter ( technique:converter.xxx ) ==
- # args.converters "auto;tap:persuasion"
- # converter , Ensure main.py split(",")
+    # == : converter ( technique:converter.xxx ) ==
+    # args.converters "auto;tap:persuasion"
+    # converter , Ensure main.py split(",")
     if args.converters and ";" in str(args.converters):
         args.converters = _parse_converter_global(args.converters)
 
- # == Burp ==
- # v63: config/burp/ (, )
- # --burp -> config/burp/*.txt ()
- # --burp <name> -> config/burp/<name>.txt ()
- # : --burp MM_05 --burp MM_03 -> ["config/burp/MM_05.txt", ...]
- # : --burp request -> "config/burp/request.txt"
- # list[str], str ()
- # .txt ,
+    # == Burp ==
+    # v63: config/burp/ (, )
+    # --burp -> config/burp/*.txt ()
+    # --burp <name> -> config/burp/<name>.txt ()
+    # : --burp MM_05 --burp MM_03 -> ["config/burp/MM_05.txt", ...]
+    # : --burp request -> "config/burp/request.txt"
+    # list[str], str ()
+    # .txt ,
     raw_burps = args.burp
     if raw_burps is None:
-     # --burp -> config/burp/ .txt
-     # Academic basis: Greshake et al. (arXiv:2302.12173) - ()
+        # --burp -> config/burp/ .txt
+        # Academic basis: Greshake et al. (arXiv:2302.12173) - ()
         burp_dir = _PROJECT_ROOT / "config" / "burp"
         if burp_dir.is_dir():
-            raw_burps = sorted(
-                str(f) for f in burp_dir.glob("*.txt") if f.is_file()
-            )
+            raw_burps = sorted(str(f) for f in burp_dir.glob("*.txt") if f.is_file())
         if not raw_burps:
-         # .txt -> fallback request.txt
+            # .txt -> fallback request.txt
             raw_burps = ["request"]
         logger.debug(
             "No --burp specified: auto-discovered %d .txt file(s) in config/burp/: %s",
@@ -934,45 +993,45 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     resolved_burps: list[str] = []
     for burp_val in raw_burps:
         if "/" not in burp_val and "\\" not in burp_val and not burp_val.endswith(".txt"):
-         # v63: -> config/burp/<name>.txt
+            # v63: -> config/burp/<name>.txt
             resolved_burps.append(str(_PROJECT_ROOT / "config" / "burp" / f"{burp_val}.txt"))
         elif not Path(burp_val).is_absolute() and ("/" in burp_val or "\\" in burp_val):
-         # ->
+            # ->
             resolved_burps.append(str(_PROJECT_ROOT / burp_val))
         else:
             resolved_burps.append(burp_val)
 
- # : str, list[str]
+    # : str, list[str]
     if len(resolved_burps) == 1:
         args.burp = resolved_burps[0]
     else:
         args.burp = resolved_burps
- # main.py endpoint
+    # main.py endpoint
     args._burp_list = resolved_burps
 
- # == : --memory-labels JSON ==
- # JSON dict, args.memory_labels_parsed
- # main.py CentralMemory
+    # == : --memory-labels JSON ==
+    # JSON dict, args.memory_labels_parsed
+    # main.py CentralMemory
     args.memory_labels_parsed = _parse_memory_labels(getattr(args, "memory_labels", None))
 
- # == : --seed-filters KEY=VALUE ==
- # KEY=VALUE dict, args.seed_filters_parsed
+    # == : --seed-filters KEY=VALUE ==
+    # KEY=VALUE dict, args.seed_filters_parsed
     args.seed_filters_parsed = _parse_seed_filters(getattr(args, "seed_filters", None))
 
- # == : --add-initializer ==
- # ["ClassName,arg1=val1", ...] [{"class": "...", "args": {...}}, ...]
+    # == : --add-initializer ==
+    # ["ClassName,arg1=val1", ...] [{"class": "...", "args": {...}}, ...]
     args.initializer_specs = _parse_initializer_specs(getattr(args, "add_initializer", None))
 
- # == --escalation-levels ==
- # : "L1,L2,L4" / "l1,l3" / "L1-L4" / "all" / None ()
- # : args.escalation_levels_parsed = set[int] {1, 2, 4}, None=
+    # == --escalation-levels ==
+    # : "L1,L2,L4" / "l1,l3" / "L1-L4" / "all" / None ()
+    # : args.escalation_levels_parsed = set[int] {1, 2, 4}, None=
     raw_levels = getattr(args, "escalation_levels", None)
     if raw_levels is not None:
         args.escalation_levels_parsed = _parse_escalation_levels(raw_levels)
     else:
         args.escalation_levels_parsed = None  # None = L1-L4
 
- # == fallback (CLI + config-file + defaults.yaml ) ==
+    # == fallback (CLI + config-file + defaults.yaml ) ==
     if args.seeds is None:
         args.seeds = "elite_jailbreaks,asi_top10,owasp_full_coverage"
     if args.converters is None:
@@ -980,12 +1039,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     if args.techniques is None:
         args.techniques = "auto"
 
- # == Scenario (v60) ==
- # --no-scenario Scenario
+    # == Scenario (v60) ==
+    # --no-scenario Scenario
     if getattr(args, "no_scenario", False):
         args.scenario_enabled = False
 
-     # --list-scenarios: Scenario
+    # --list-scenarios: Scenario
     if getattr(args, "list_scenarios", False):
         from core.scenario_router import get_router
 
@@ -993,33 +1052,99 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         print(router.format_scenarios_display())
         sys.exit(0)
 
+    # --list-seeds: 列出所有可用的种子文件和组件目录
+    if getattr(args, "list_seeds", False):
+        from core.seed_loader import SeedLoader
+
+        loader = SeedLoader()
+        print("\n=== Available Seed Files ===")
+        print()
+        for dir_name, files in loader.list_available().items():
+            print(f"  {dir_name}/ ({len(files)} files)")
+            for f in sorted(files)[:5]:  # 只显示前5个
+                print(f"    - {f}")
+            if len(files) > 5:
+                print(f"    ... and {len(files) - 5} more")
+            print()
+        print("Usage examples:")
+        print("  --seeds mcp              # Load all MCP seeds")
+        print("  --seeds mcp,a2a          # Load MCP + A2A seeds")
+        print("  --seeds mcp_tool_hijack  # Load specific seed file")
+        print("  --seeds all              # Load all seeds")
+        print("  --seeds elite_jailbreaks # (legacy) Load by name")
+        sys.exit(0)
+
     # --upload-files: comma-separated string -> list[str]
     upload_files_raw = getattr(args, "upload_files", None)
     if upload_files_raw and isinstance(upload_files_raw, str):
-        args.upload_files = [
-            f.strip() for f in upload_files_raw.split(",") if f.strip()
-        ]
+        args.upload_files = [f.strip() for f in upload_files_raw.split(",") if f.strip()]
     elif upload_files_raw is None:
         args.upload_files = []
 
- # --technique-filter:
- # v60: , synergy_config.technique_tags
+    # --technique-filter:
+    # v60: , synergy_config.technique_tags
     technique_filter_str = getattr(args, "technique_filter", None)
     if technique_filter_str:
-     #
-        args.adaptive_technique_filter = [
-            tag.strip() for tag in technique_filter_str.split(",") if tag.strip()
-        ]
+        #
+        args.adaptive_technique_filter = [tag.strip() for tag in technique_filter_str.split(",") if tag.strip()]
         logger.info(
             "v60: CLI --technique-filter parsed: %s",
             args.adaptive_technique_filter,
         )
     else:
-     # Ensure args adaptive_technique_filter ( config )
+        # Ensure args adaptive_technique_filter ( config )
         if not hasattr(args, "adaptive_technique_filter"):
             args.adaptive_technique_filter = None
 
+    # == plan Wave 4.3：无效参数显式提示（反静默）==
+    # 「参数无效时应给出提示」：--max-seeds 超过实际种子数、--converters none
+    # 这类组合会静默产生零攻击/零转换，必须让用户在启动阶段就看到。
+    _warn_ineffective_args(args)
+
     return args
+
+
+def _warn_ineffective_args(args: Any) -> None:
+    """对"会被静默忽略"的参数组合发出显式警告（plan Wave 4.3 / C9）。
+
+    覆盖：
+        1. --max-seeds 大于种子库实际规模 → 实际只会跑 N 条
+        2. --converters none → 跳过全部转换器，多数越狱种子失效
+        3. --stage escalate 且 --max-seeds 极小 → 升级链样本不足
+    """
+    # 1. --max-seeds 超过种子库规模
+    max_seeds = getattr(args, "max_seeds", None)
+    if isinstance(max_seeds, int) and max_seeds > 0:
+        try:
+            seeds_root = _PROJECT_ROOT / "data" / "seeds"
+            available = sum(1 for _ in seeds_root.rglob("*.prompt")) if seeds_root.is_dir() else 0
+            if available and max_seeds > available:
+                logger.warning(
+                    "[Args] --max-seeds=%d 超过种子库实际规模 %d，实际只会执行 %d 条",
+                    max_seeds,
+                    available,
+                    available,
+                )
+        except Exception as e:  # 统计失败不影响启动
+            logger.debug("[Args] 种子库规模统计失败: %s", e)
+
+    # 2. --converters none
+    converters = str(getattr(args, "converters", "") or "").strip().lower()
+    if converters == "none":
+        logger.warning(
+            "[Args] --converters none：将跳过全部 PyRIT Converter，"
+            "多数编码/混淆类越狱种子会退化为明文直发（ASR 通常显著下降）"
+        )
+
+    # 3. --stage escalate 但样本过少
+    stage = getattr(args, "stage", None)
+    if stage == "escalate" and isinstance(max_seeds, int) and 0 < max_seeds < 5:
+        logger.warning(
+            "[Args] --stage escalate 且 --max-seeds=%d：样本过少，升级链（Crescendo/TAP/PAIR）"
+            "可能无可用目标，建议 --max-seeds >= 5",
+            max_seeds,
+        )
+
 
 def get_output_dir(args: argparse.Namespace) -> Path:
     """Output directory."""
@@ -1027,6 +1152,7 @@ def get_output_dir(args: argparse.Namespace) -> Path:
         return Path(args.output_dir)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     return _PROJECT_ROOT / "outputs" / f"strike_{timestamp}"
+
 
 def ensure_output_dir(output_dir: Path) -> Path:
     """Output directory (evidence/, db/, poc/)."""
@@ -1036,8 +1162,9 @@ def ensure_output_dir(output_dir: Path) -> Path:
     (output_dir / "db").mkdir(parents=True, exist_ok=True)
     return output_dir
 
+
 async def setup_environment(output_dir: Path) -> None:
-    """ PyRIT - SQLite WAL + .
+    """PyRIT - SQLite WAL + .
 
     Production-grade:  endpoint ,  Singleton cache +
      DB , Ensureconverter(s) endpoint  SQLite DB
@@ -1059,6 +1186,7 @@ async def setup_environment(output_dir: Path) -> None:
     """
     try:
         from dotenv import load_dotenv
+
         load_dotenv()
     except ImportError:
         pass
@@ -1072,15 +1200,15 @@ async def setup_environment(output_dir: Path) -> None:
     os.environ.setdefault("PYRIT_SQLITE_JOURNAL_MODE", "WAL")
     os.environ.setdefault("PYRIT_SQLITE_BUSY_TIMEOUT", "5000")
 
- # == : Ensure endpoint DB ==
- # , SQLiteMemory Singleton , db_path ,
- # endpoint DB (Layer db/pyrit.db)
+    # == : Ensure endpoint DB ==
+    # , SQLiteMemory Singleton , db_path ,
+    # endpoint DB (Layer db/pyrit.db)
     try:
         from pyrit.common.singleton import Singleton
         from pyrit.memory import CentralMemory
         from pyrit.memory.sqlite_memory import SQLiteMemory
 
- # Step 1: MemoryInterface SQLAlchemy engine
+        # Step 1: MemoryInterface SQLAlchemy engine
         _old_memory = CentralMemory._memory_instance
         if _old_memory is not None:
             try:
@@ -1089,14 +1217,14 @@ async def setup_environment(output_dir: Path) -> None:
             except Exception as e:
                 logger.debug("Engine dispose skipped (non-fatal): %s", e)
 
- # Step 2: SQLiteMemory Singleton
- # - SQLiteMemory(db_path=...) __init__
+        # Step 2: SQLiteMemory Singleton
+        # - SQLiteMemory(db_path=...) __init__
         if SQLiteMemory in Singleton._instances:
             del Singleton._instances[SQLiteMemory]
             logger.debug("Cleared SQLiteMemory Singleton cache")
 
- # Step 3: CentralMemory
- # initialize_pyrit_async set_memory_instance
+        # Step 3: CentralMemory
+        # initialize_pyrit_async set_memory_instance
         CentralMemory._memory_instance = None
         logger.debug("Cleared CentralMemory singleton reference")
     except ImportError as e:

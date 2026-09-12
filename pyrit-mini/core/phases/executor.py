@@ -1,4 +1,4 @@
-""" —  ( orchestrator() ).
+"""—  ( orchestrator() ).
 
 :
 - run_single_endpoint_to_result:  endpoint  (dict)
@@ -8,6 +8,7 @@
     >>> from core.phases.executor import run_single_endpoint_to_result
     >>> result = await run_single_endpoint_to_result(ctx, output_dir, "endpoint_1")
 """
+
 from __future__ import annotations
 
 import logging
@@ -19,12 +20,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
 async def run_single_endpoint_to_result(
     ctx: "PipelineContext",
     ep_output_dir: Path,
     burp_name: str,
 ) -> dict[str, Any]:
-    """ endpoint  (dict).
+    """endpoint  (dict).
 
     Academic basis: Greshake et al. (arXiv:2302.12173) - converter(s)
 
@@ -52,6 +54,7 @@ async def run_single_endpoint_to_result(
     # Generate final credential utilization report for red team deliverable
     try:
         from core.phases._credential_consume import generate_credential_report
+
         credential_report = generate_credential_report(ctx)
         logger.info(
             "[Execute] Credential report: %s",
@@ -66,15 +69,14 @@ async def run_single_endpoint_to_result(
         "overall_asr": ctx.overall_asr,
         "total_attacks": sum(len(v) for v in ctx.attack_results.values()),
         "successful_attacks": sum(
-            1 for results in ctx.attack_results.values()
-            for r in results
-            if _get_result_outcome(r) == "success"
+            1 for results in ctx.attack_results.values() for r in results if _get_result_outcome(r) == "success"
         ),
         "asr_per_technique": ctx.asr_per_technique,
         "wilson_ci": getattr(ctx, "wilson_ci", (0.0, 0.0)),
         "capabilities": fp.get("capabilities", ""),
         "model_family": fp.get("model_family", ""),
     }
+
 
 async def run_single_endpoint(
     ctx: "PipelineContext",
@@ -98,21 +100,36 @@ async def run_single_endpoint(
 
     args = ctx.args
 
+    # == W0-4: EventLog 阶段埋点（REQ-148，旁路；--no-events 时 emit 为 no-op） ==
+    # Data flow: 各阶段 -> emit_event(ctx, phase, "phase_start"/"phase_end") -> ctx.event_log
+    #            -> 终端/报告/证据/续跑（蓝图第十三章，不变量 I12）
+    # escalate 属 strike 内部逻辑（1.1 阶段词汇映射），不单列阶段事件
+    from core.events import emit_event
+
+    async def _emit_phase(phase: str, factory) -> Any:
+        """执行一个阶段并在前后写事件；阶段异常不影响事件落盘。"""
+        emit_event(ctx, phase, "phase_start")
+        try:
+            return await factory()
+        finally:
+            emit_event(ctx, phase, "phase_end")
+
     # ===========================================================================
     # (1) Recon: HTTP -> -> HTTPTarget
     # ===========================================================================
-    await _run_recon_phase(ctx, output_dir)
+    await _emit_phase("recon", lambda: _run_recon_phase(ctx, output_dir))
 
     # == --stage recon: , ==
     if getattr(args, "stage", None) == "recon":
         from core.cleanup import cleanup_resources
+
         await cleanup_resources(ctx, exclude_shared=True)
         return
 
     # ===========================================================================
     # (3) ARM: + + Converter
     # ===========================================================================
-    await _run_arm_phase(ctx)
+    await _emit_phase("arm", lambda: _run_arm_phase(ctx))
 
     # == --stage arm: , ==
     if getattr(args, "stage", None) == "arm":
@@ -122,26 +139,28 @@ async def run_single_endpoint(
     # ===========================================================================
     # (4) STRIKE: +
     # ===========================================================================
-    await _run_strike_phase(ctx)
+    await _emit_phase("strike", lambda: _run_strike_phase(ctx))
 
     # ===========================================================================
     # (5) ASSESS:
     # ===========================================================================
-    await _run_assess_phase(ctx)
+    await _emit_phase("assess", lambda: _run_assess_phase(ctx))
 
     # ===========================================================================
     # (6) REPORT: +
     # ===========================================================================
-    await _run_report_phase(ctx, output_dir)
+    await _emit_phase("report", lambda: _run_report_phase(ctx, output_dir))
 
     # :
     await cleanup_resources(ctx, exclude_shared=True)
 
+
 #  —  _get_result_outcome
 def _get_result_outcome(result: Any) -> str:
-    """ outcome (, from)"""
+    """outcome (, from)"""
     try:
         from assess.asr_stats import _get_outcome
+
         return _get_outcome(result)
     except ImportError:
         pass
@@ -153,10 +172,8 @@ def _get_result_outcome(result: Any) -> str:
 
 
 #  run_attack_pipeline ( endpoints )
-async def run_attack_pipeline(
-    ctx: "PipelineContext", router: Any = None
-) -> None:
-    """ endpoint converter(s) + ASR.
+async def run_attack_pipeline(ctx: "PipelineContext", router: Any = None) -> None:
+    """endpoint converter(s) + ASR.
 
     Academic basis: Greshake et al. (arXiv:2302.12173) - converter(s)
 
@@ -196,6 +213,7 @@ async def run_attack_pipeline(
 
     # Dry-run check (v2.0+: 使用 utils/dry_run.py)
     from utils.dry_run import get_dry_run_log_message, is_dry_run
+
     if is_dry_run(ctx.args):
         logger.info(get_dry_run_log_message("orchestrator"))
         print_status("ORCHESTRATOR", "DRY-RUN", "Skip", ok=True)
@@ -204,7 +222,8 @@ async def run_attack_pipeline(
     await _setup_memory_labels(ctx)
     await _register_dynamic_initializers(ctx)
 
-    from recon.endpoint_sorter import sort_endpoints_by_priority
+    from recon.api.endpoint_sorter import sort_endpoints_by_priority
+
     sorted_endpoints = sort_endpoints_by_priority(burp_list)
     _print_endpoint_sort_results(sorted_endpoints)
 
@@ -222,6 +241,7 @@ async def run_attack_pipeline(
         switch_log_file(ep_output_dir)
 
         from core.config import setup_environment
+
         await setup_environment(ep_output_dir)
 
         if ctx.memory_labels:
@@ -235,32 +255,38 @@ async def run_attack_pipeline(
             multi_endpoint_results.append(ep_result)
         except ConnectionError as e:
             logger.error("Endpoint %s : %s", burp_name, e)
-            multi_endpoint_results.append({
-                "burp_name": burp_name,
-                "endpoint": "",
-                "overall_asr": 0.0,
-                "total_attacks": 0,
-                "successful_attacks": 0,
-                "error": str(e),
-            })
+            multi_endpoint_results.append(
+                {
+                    "burp_name": burp_name,
+                    "endpoint": "",
+                    "overall_asr": 0.0,
+                    "total_attacks": 0,
+                    "successful_attacks": 0,
+                    "error": str(e),
+                }
+            )
         except Exception as e:
             logger.error("Endpoint %s : %s", burp_name, e, exc_info=True)
-            multi_endpoint_results.append({
-                "burp_name": burp_name,
-                "endpoint": "",
-                "overall_asr": ctx.overall_asr,
-                "total_attacks": sum(len(v) for v in ctx.attack_results.values()),
-                "successful_attacks": sum(
-                    1 for results in ctx.attack_results.values()
-                    for r in results
-                    if _get_result_outcome(r) == "success"
-                ),
-                "error": str(e),
-            })
+            multi_endpoint_results.append(
+                {
+                    "burp_name": burp_name,
+                    "endpoint": "",
+                    "overall_asr": ctx.overall_asr,
+                    "total_attacks": sum(len(v) for v in ctx.attack_results.values()),
+                    "successful_attacks": sum(
+                        1
+                        for results in ctx.attack_results.values()
+                        for r in results
+                        if _get_result_outcome(r) == "success"
+                    ),
+                    "error": str(e),
+                }
+            )
 
     # Joint ASR computation
     switch_log_file(output_dir)
     from assess.asr_manager import build_joint_summary, save_joint_report
+
     joint_summary = build_joint_summary(multi_endpoint_results)
     joint_report_path = save_joint_report(joint_summary, output_dir)
     _print_joint_asr_summary(joint_summary, joint_report_path)

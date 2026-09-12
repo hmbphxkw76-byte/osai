@@ -1,15 +1,17 @@
 # -*- coding: utf-8 -*-
-"""vector_db_poisoner.py — 向量数据库投毒器
+"""vector_db_poisoner.py — 向量数据库投毒器 (vector_db_injection)
 
-向目标的神经检索系统 (知识库) 注入恶意文档, 使得:
+向目标的神经检索系统 (知识库) 注入恶意文档 (vector_db_injection), 使得:
 - 注入文档出现在检索结果中
-- 注入文档包含间接提示注入 payload
+- 注入文档包含间接提示 injection payload (vector_db_injection)
 - 后续用户查询时触发恶意行为
 
+Technique category: vector_db_injection (OWASP LLM08)
+
 Academic basis:
-    - Zou et al. (arXiv:2406.04245) — PoisonedRAG
-    - Bagdasaryan et al. (arXiv:2302.10149) — Diffusion Model Backdoor
-    - Greshake et al. (arXiv:2302.12173) — Indirect Prompt Injection
+    - Zou et al. (arXiv:2406.04245) — PoisonedRAG / vector_db_injection
+    - Bagdasaryan et al. (arXiv:2302.10149) — vector_db_injection backdoor
+    - Greshake et al. (arXiv:2302.12173) — Indirect Prompt Injection via vector
     - Kandpal et al. (arXiv:2308.14032) — Document Enumeration
 
 使用示例:
@@ -26,6 +28,7 @@ Constitution compliance:
     - C2: 不添加攻击端过滤
     - R-S1: 注入内容完全配置驱动
 """
+
 from __future__ import annotations
 
 import logging
@@ -39,15 +42,17 @@ logger = logging.getLogger(__name__)
 
 class PoisonStrategy(str, Enum):
     """投毒策略"""
-    DIRECT = "direct"            # 直接注入
+
+    DIRECT = "direct"  # 直接注入
     SEMANTIC_MATCH = "semantic"  # 语义相关性注入
     ADVERSARIAL = "adversarial"  # 对抗性注入
-    GROUND_TRUTH = "truth"       # 伪造权威文档
+    GROUND_TRUTH = "truth"  # 伪造权威文档
 
 
 @dataclass
 class PoisonConfig:
     """投毒配置"""
+
     kb_api_field: str = "knowledge_base"
     document_field: str = "document"
     title_field: str = "title"
@@ -55,12 +60,13 @@ class PoisonConfig:
     max_documents: int = 5
     timeout_sec: float = 5.0
     verify_poison: bool = True
-    stealth_mode: bool = True       # 注入内容伪装为正常文档
+    stealth_mode: bool = True  # 注入内容伪装为正常文档
 
 
 @dataclass
 class PoisonResult:
     """投毒结果"""
+
     success: bool = False
     documents_injected: int = 0
     strategy_used: PoisonStrategy = PoisonStrategy.DIRECT
@@ -213,13 +219,9 @@ class VectorDBPoisoner:
 
         return results
 
-    def _construct_documents(
-        self, payload: str, strategy: PoisonStrategy
-    ) -> list[dict[str, str]]:
+    def _construct_documents(self, payload: str, strategy: PoisonStrategy) -> list[dict[str, str]]:
         """构造投毒文档列表"""
-        templates = self.DEFAULT_DOCUMENT_TEMPLATES.get(
-            strategy.value, self.DEFAULT_DOCUMENT_TEMPLATES["direct"]
-        )
+        templates = self.DEFAULT_DOCUMENT_TEMPLATES.get(strategy.value, self.DEFAULT_DOCUMENT_TEMPLATES["direct"])
 
         documents: list[dict[str, str]] = []
 
@@ -236,11 +238,13 @@ class VectorDBPoisoner:
                 else f"Documentation Part {i + 1}"
             )
 
-            documents.append({
-                "title": title,
-                "content": content,
-                "metadata": {"source": "internal", "type": "documentation"},
-            })
+            documents.append(
+                {
+                    "title": title,
+                    "content": content,
+                    "metadata": {"source": "internal", "type": "documentation"},
+                }
+            )
 
         return documents
 

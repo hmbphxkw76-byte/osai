@@ -66,6 +66,7 @@ _OWASP_ALL_CATEGORIES: dict[str, str] = {
     "ASI10": "Rogue Agent",
 }
 
+
 def _classify_score_consistency(score_details: list[dict[str, Any]]) -> str:
     """Classify score consistency across multiple scorers.
 
@@ -104,9 +105,11 @@ def _classify_score_consistency(score_details: list[dict[str, Any]]) -> str:
         return "Consistent"
     return "Minor Disagreement"
 
+
 # Delegated generation functions (lazy import)
 # report_markdown.py and report_html.py implement the actual logic;
 # generator imports them lazily in generate_report to avoid circular deps.
+
 
 def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = False) -> str:
     """Generate Markdown report (delegates to report_markdown).
@@ -117,14 +120,16 @@ def _generate_markdown(evidence: EvidenceCollection, *, success_only: bool = Fal
 
     return _impl(evidence, success_only=success_only)
 
+
 def _generate_html(evidence: EvidenceCollection, *, success_only: bool = False) -> str:
     """Generate HTML report (delegates to report_html)."""
     from report.report_html import _generate_html as _impl
 
     return _impl(evidence, success_only=success_only)
 
+
 def _evidence_to_dict(evidence: EvidenceCollection, *, success_only: bool = False) -> dict[str, Any]:
-    """ ( report_html).
+    """( report_html).
 
     Includes: dual_judge_stats, owasp_web_compliance, web_vuln_stats, discovered_endpoints.
     """
@@ -132,14 +137,16 @@ def _evidence_to_dict(evidence: EvidenceCollection, *, success_only: bool = Fals
 
     return _impl(evidence, success_only=success_only)
 
+
 def _single_evidence_to_dict(ev: Any) -> dict[str, Any]:
     """converter(s) ( report_html)."""
     from report.report_html import _single_evidence_to_dict as _impl
 
     return _impl(ev)
 
+
 def _parse_output_formats(args: Any) -> set[str]:
-    """ P2-2:  --output-format
+    """P2-2:  --output-format
 
     :
         - None / "all" -> {"md", "html", "json", "sarif", "poc", "csv"}
@@ -176,6 +183,7 @@ def _parse_output_formats(args: Any) -> set[str]:
 
     return formats if formats else {"md", "html", "json", "sarif", "poc", "csv"}
 
+
 async def generate_report(
     ctx: Any,
     evidence: EvidenceCollection,
@@ -205,7 +213,7 @@ async def generate_report(
     evidence_dir.mkdir(parents=True, exist_ok=True)
     poc_dir.mkdir(parents=True, exist_ok=True)
 
- # == P2-2:  output-format ==
+    # == P2-2:  output-format ==
     output_formats = _parse_output_formats(ctx.args)
     logger.info(
         "P2-2: output-format=%s (md=%s html=%s json=%s sarif=%s poc=%s csv=%s)",
@@ -218,10 +226,10 @@ async def generate_report(
         "csv" in output_formats,
     )
 
- # == PyRIT Native Output (R2: PyRIT ) ==
- # Uses official pyrit.output module to generate standard-format output files.
- # This is the PyRIT-native output path, separate from the security report.
- # OffSec AI-300: Proves PyRIT framework mastery via native output format.
+    # == PyRIT Native Output (R2: PyRIT ) ==
+    # Uses official pyrit.output module to generate standard-format output files.
+    # This is the PyRIT-native output path, separate from the security report.
+    # OffSec AI-300: Proves PyRIT framework mastery via native output format.
     try:
         from report.pyrit_native_output import generate_native_output_files
 
@@ -231,22 +239,41 @@ async def generate_report(
     except Exception as e:
         logger.warning("PyRIT native output generation failed (non-fatal): %s", e)
 
- # == Markdown Report (OffSec AI-300 Security Report) ==
- # P2-2: md format
+    # == Markdown Report (OffSec AI-300 Security Report) ==
+    # P2-2: md format
     md_path = output_dir / "report.md"
-    if "md" in output_formats:
-        # v57: Layer - + + +
-        from report.report_markdown import (
-            _generate_executive_markdown,
-            _generate_findings_markdown,
-            _generate_technical_markdown,
-        )
+    # v57: Layer 1/2/3 Markdown 构建器
+    # W6 fix: 原本这段 import 位于 `if "md" in output_formats:` 内，而下游 Layer 报告
+    # 的写入逻辑在其外使用，会触发 NameError —— 统一提到此处无条件导入。
+    from report.report_markdown import (
+        _generate_executive_markdown,
+        _generate_findings_markdown,
+        _generate_technical_markdown,
+    )
 
-        md_content = _generate_markdown(evidence)
-        md_path.write_text(md_content, encoding="utf-8")
-        logger.info("Markdown report (index) saved to %s", md_path)
+    md_content = _generate_markdown(evidence)
+    md_path.write_text(md_content, encoding="utf-8")
+    logger.info("Markdown report (index) saved to %s", md_path)
 
-        # v57: Layer
+    # == P3: Component-specific report sections ==
+    # Inject component-aware sections (MCP tool inventory, A2A trust analysis, Model persona shift)
+    component_sections = ""
+    try:
+        from report.component_reports import format_component_sections_for_report
+
+        component_sections = format_component_sections_for_report(evidence)
+        if component_sections:
+            logger.info("Component-specific sections generated (%d chars)", len(component_sections))
+        else:
+            logger.info("No component-specific sections (dominant component not determined)")
+    except Exception as e:
+        # 反静默：组件章节生成失败不得静默 debug，也不得吞掉后续 Layer 报告
+        logger.warning("Component sections generation failed: %s", e)
+
+    # v57: Layer 1/2/3 Markdown
+    # W6 fix: 下面这段原本被错误地缩进在上一处 try 的 `except` 块内，
+    # 导致"组件章节生成成功 → Layer 报告永远不写；生成失败 → 反而写了"的倒置行为。
+    try:
         exec_md = _generate_executive_markdown(evidence)
         exec_md_path = output_dir / "report_executive.md"
         exec_md_path.write_text(exec_md, encoding="utf-8")
@@ -256,6 +283,11 @@ async def generate_report(
         findings_md_path = output_dir / "report_findings.md"
         findings_md_path.write_text(findings_md, encoding="utf-8")
         logger.info("Findings report saved to %s", findings_md_path)
+        # 组件章节追加到 findings（成功与否都不影响 findings 本身已写入）
+        if component_sections:
+            with open(findings_md_path, "a", encoding="utf-8") as f:
+                f.write(component_sections)
+            logger.info("Component-specific sections appended to findings report")
 
         tech_md = _generate_technical_markdown(evidence)
         tech_md_path = output_dir / "report_technical.md"
@@ -265,16 +297,16 @@ async def generate_report(
         # == Markdown ==
         # v57: success_only = executive () + findings ()
         if evidence.successful_evidence:
-            from report.report_markdown import _generate_executive_markdown as _gen_exec
-
             success_findings = _generate_findings_markdown(evidence, success_only=True)
-            success_exec = _gen_exec(evidence)
+            success_exec = _generate_executive_markdown(evidence)
             success_md = success_exec + "\n\n---\n\n" + success_findings
             success_md_path = output_dir / "report_success.md"
             success_md_path.write_text(success_md, encoding="utf-8")
             logger.info("Success-only Markdown report saved to %s", success_md_path)
+    except Exception as e:
+        logger.warning("Layer 1/2/3 Markdown report generation failed: %s", e)
 
- # == HTML (P2-2: html format) ==
+    # == HTML (P2-2: html format) ==
     if "html" in output_formats:
         html_content = _generate_html(evidence)
         html_path = output_dir / "report.html"
@@ -287,7 +319,7 @@ async def generate_report(
             success_html_path.write_text(success_html, encoding="utf-8")
             logger.info("Success-only HTML report saved to %s", success_html_path)
 
- # == evidence JSON (P2-2: json format) ==
+    # == evidence JSON (P2-2: json format) ==
     if "json" in output_formats:
         json_data = _evidence_to_dict(evidence)
         json_path = evidence_dir / "evidence.json"
@@ -315,16 +347,22 @@ async def generate_report(
                 encoding="utf-8",
             )
 
- # == PoC (P2-2: poc format) ==
+    # == PoC (P2-2: poc format) ==
     if "poc" in output_formats:
-        # : , ,
+        # v63: Component-specific PoC scripts (MCP/A2A/Model)
+        from report.component_poc import generate_component_poc
         from report.owasp_mapping import generate_poc_script
 
         poc_count = 0
         poc_failed = 0
         for ev in evidence.successful_evidence:
             try:
-                poc_script = generate_poc_script(ev)
+                # Try component-specific PoC first
+                ev_dict = _single_evidence_to_dict(ev)
+                poc_script = generate_component_poc(ev_dict)
+                if not poc_script:
+                    # Fall back to generic PoC
+                    poc_script = generate_poc_script(ev)
                 poc_path = poc_dir / f"poc_{ev.evidence_id}.py"
                 poc_path.write_text(poc_script, encoding="utf-8")
                 poc_count += 1
@@ -348,7 +386,7 @@ async def generate_report(
         if poc_failed:
             logger.warning("PoC generation: %d succeeded, %d failed", poc_count, poc_failed)
 
- # == SARIF (P2-2: sarif format) ==
+    # == SARIF (P2-2: sarif format) ==
     if "sarif" in output_formats:
         try:
             from report.sarif_report import generate_sarif_report
@@ -358,7 +396,7 @@ async def generate_report(
         except Exception as e:
             logger.warning("Failed to generate SARIF report: %s", e)
 
- # == CSV (P2-2: csv format) ==
+    # == CSV (P2-2: csv format) ==
     if "csv" in output_formats:
         try:
             from report.report_sections import (

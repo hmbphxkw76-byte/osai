@@ -1,4 +1,4 @@
-""" — 6  + .
+"""— 6  + .
 
 P1  (2026-09-06):
     imports core/orchestrator.py (1629) ,

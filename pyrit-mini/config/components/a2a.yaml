@@ -1,0 +1,63 @@
+# config/components/a2a.yaml — A2A Multi-Agent / Agent Integrity（组件声明 SSOT）
+#
+# 宪法 7B：Multi-Agent / A2A 首选 CrescendoAttack + cross-agent 种子，ASR 先验 70-85%。
+# 复用资产：recon/a2a/topology.py TopologyGraph → ComponentGraph 泛化来源。
+
+schema_version: "1.0"
+component_key: a2a_agent_integrity
+id: a2a
+display_name: "A2A Multi-Agent Protocol"
+labels: [a2a, agent, a2a_agent_integrity]
+
+recon_dir: a2a
+strike_dir: a2a
+
+detection:
+  path_patterns: ["/.well-known/agent.json", "/agent", "/agents", "/a2a", "/tasks/send"]
+  body_markers: ["agentCard", "agent_card", "skills", "a2a", "taskId", "artifacts"]
+  active_probes: ["recon.a2a.discoverer"]
+  signals: ["agent-card", "/.well-known/agent", "agentCard", "tasks/send"]
+  min_confidence: 0.60
+
+recon_modules:
+  - recon.a2a.discoverer
+  - recon.a2a.agent_card
+  - recon.a2a.topology
+  - recon.a2a.topology_mapper
+  - recon.a2a.trust_analyzer
+  - recon.a2a.attack_planner
+  - recon.a2a.defense_awareness
+  - recon.a2a.capability_enumerator
+service_profile_keys: ["a2a_inventory", "a2a_topology", "a2a_defense_profile", "a2a_attack_plan"]
+
+seed_sets:
+  - "data/seeds/a2a/"
+  - "data/seeds/_attack_surface/T1_ASI06-09_multi_agent/"
+seeds: ["data/seeds/a2a/*", "data/seeds/_attack_surface/T1_ASI06-09_multi_agent/*"]
+seed_suitable_for: ["a2a_agent_integrity"]
+converter_vectors: ["cross_agent_injection", "agent_card_spoofing", "workflow_manipulation"]
+
+preferred_attack_class: "CrescendoAttack"
+asr_prior: 0.78
+
+strike_modules:
+  - strike.a2a.card_spoofer
+  - strike.a2a.rogue_registrar
+  - strike.a2a.workflow_attacker
+  - strike.a2a.cross_agent_injector
+  - strike.a2a.trust_builder
+playbooks: [a2a_card_spoof, a2a_workflow_hijack]
+
+assess:
+  t0_check: "assess.component_scorers:t0_a2a_agent_integrity_check"
+  rubric: "data/scorers/component_scorers/a2a_agent_integrity.yaml"
+scorer: a2a_agent_integrity
+
+report_builder: "report.component_reports:_build_a2a_agent_integrity_sections"
+report_section: "report.component_reports.a2a"
+poc_template: "report.component_poc:a2a_poc"
+
+owasp: ["ASI06", "ASI07"]
+neighbors: ["llm_gateway", "web_api", "mcp_tool_poisoning", "session_memory"]
+
+cleanup: [unregister_agent, restore_agent_card]

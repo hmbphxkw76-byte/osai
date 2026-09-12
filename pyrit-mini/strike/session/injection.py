@@ -12,6 +12,7 @@
 Academic basis:
     - Perez et al. (arXiv:2202.03286) — Injection-based attack persistence
 """
+
 from __future__ import annotations
 
 import json

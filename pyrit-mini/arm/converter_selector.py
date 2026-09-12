@@ -26,12 +26,12 @@ logger = logging.getLogger(__name__)
 # LLM-Based converters (ASR 30-60%) > Selective (25-40%) > Translation (25-35%) > ...
 _CONVERTER_PRIORITY_MAP: dict[str, int] = {
     # LLM-Based (ASR 30-60%)
-    "DecompositionConverter": 0,                    # ASR 40-60%
-    "CodeChameleonConverter": 1,                    # ASR 35-45%
+    "DecompositionConverter": 0,  # ASR 40-60%
+    "CodeChameleonConverter": 1,  # ASR 35-45%
     "PersuasionConverter:authority_endorsement": 2,  # ASR 38.4%
-    "PersuasionConverter:expert_endorsement": 3,    # ASR ~35%
-    "PersuasionConverter:logical_appeal": 4,        # ASR 28.7%
-    "PolicyPuppetryConverter": 5,                  # ASR 30-40%
+    "PersuasionConverter:expert_endorsement": 3,  # ASR ~35%
+    "PersuasionConverter:logical_appeal": 4,  # ASR 28.7%
+    "PolicyPuppetryConverter": 5,  # ASR 30-40%
     # Selective (ASR 25-40%)
     "SelectiveTextConverter:TokenSelectionStrategy": 6,
     "SelectiveTextConverter:WordProportionSelectionStrategy": 7,
@@ -60,6 +60,7 @@ _CONVERTER_PRIORITY_MAP: dict[str, int] = {
     "UnicodeSubstitutionConverter": 21,
     "Base64Converter": 22,
 }
+
 
 def _merge_converter_priority(
     base_priority: dict[str, int],
@@ -107,17 +108,24 @@ def _merge_converter_priority(
 
 # converter ()
 _SEMANTIC_CONVERTER_NAMES = {
-    "PersuasionConverter", "DecompositionConverter",
-    "VariationConverter", "RandomTranslationConverter",
-    "TranslationConverter", "ToneConverter",
+    "PersuasionConverter",
+    "DecompositionConverter",
+    "VariationConverter",
+    "RandomTranslationConverter",
+    "TranslationConverter",
+    "ToneConverter",
 }
 
 # converter ()
 _ENCODING_CONVERTER_NAMES = {
-    "ROT13Converter", "AsciiSmugglerConverter",
-    "CodeChameleonConverter", "PolicyPuppetryConverter",
-    "SelectiveTextConverter", "SearchReplaceConverter",
+    "ROT13Converter",
+    "AsciiSmugglerConverter",
+    "CodeChameleonConverter",
+    "PolicyPuppetryConverter",
+    "SelectiveTextConverter",
+    "SearchReplaceConverter",
 }
+
 
 def _get_category_converter_priorities(ctx: PipelineContext) -> list[str]:
     """L5 v40: imports category Converter .
@@ -147,7 +155,7 @@ def _get_category_converter_priorities(ctx: PipelineContext) -> list[str]:
     if not ctx.seeds:
         return []
 
- # category
+    # category
     category_counts: dict[str, int] = {}
     for group in ctx.seeds:
         for seed in getattr(group, "seeds", []):
@@ -159,7 +167,7 @@ def _get_category_converter_priorities(ctx: PipelineContext) -> list[str]:
     if not category_counts:
         return []
 
- # category ()
+    # category ()
     dominant_category = max(category_counts, key=category_counts.get)
     logger.info(
         "L5 v40: Seed category distribution: %s, dominant=%s",
@@ -167,9 +175,10 @@ def _get_category_converter_priorities(ctx: PipelineContext) -> list[str]:
         dominant_category,
     )
 
- # asr_priors.yaml category_converter_map
+    # asr_priors.yaml category_converter_map
     try:
         from arm.seed_ranker import load_asr_priors
+
         priors = load_asr_priors(getattr(ctx, "model_name", "") or "")
         category_map = priors.get("category_converter_map", {})
         if not category_map:
@@ -187,6 +196,7 @@ def _get_category_converter_priorities(ctx: PipelineContext) -> list[str]:
         logger.warning("L5 v40: Failed to load category_converter_map: %s", e)
 
     return []
+
 
 def _get_suitable_for_converter_strategy(
     ctx: PipelineContext,
@@ -217,14 +227,14 @@ def _get_suitable_for_converter_strategy(
     if not ctx.seeds:
         return {"full": 1}
 
- # suitable_for
+    # suitable_for
     sf_counts: dict[str, int] = {}
     for group in ctx.seeds:
         for seed in getattr(group, "seeds", []):
             meta = getattr(seed, "metadata", {}) or {}
             suitable_for = str(meta.get("suitable_for", "")).strip().lower()
             if suitable_for:
-             # suitable_for ,
+                # suitable_for ,
                 first_sf = suitable_for.split(",")[0].strip()
                 if first_sf:
                     sf_counts[first_sf] = sf_counts.get(first_sf, 0) + 1
@@ -232,10 +242,11 @@ def _get_suitable_for_converter_strategy(
     if not sf_counts:
         return {"full": 1}
 
- # asr_priors.yaml suitable_for_converter_strategy
+    # asr_priors.yaml suitable_for_converter_strategy
     strategy_counts: dict[str, int] = {}
     try:
         from arm.seed_ranker import load_asr_priors
+
         priors = load_asr_priors(getattr(ctx, "model_name", "") or "")
         sf_map = priors.get("suitable_for_converter_strategy", {})
 
@@ -244,7 +255,7 @@ def _get_suitable_for_converter_strategy(
             strategy = entry.get("strategy", "full") if isinstance(entry, dict) else "full"
             strategy_counts[strategy] = strategy_counts.get(strategy, 0) + count
 
- # suitable_for default
+        # suitable_for default
         if not strategy_counts:
             default_entry = sf_map.get("default", {})
             default_strategy = default_entry.get("strategy", "full") if isinstance(default_entry, dict) else "full"
@@ -260,6 +271,7 @@ def _get_suitable_for_converter_strategy(
         strategy_counts = {"full": 1}
 
     return strategy_counts or {"full": 1}
+
 
 def _deduplicate_converters(ctx: PipelineContext) -> list[Any]:
     """Deduplicate converters from ctx.converter_map by signature."""
@@ -360,8 +372,9 @@ def _get_candidate_converters(ctx: PipelineContext) -> list[Any]:
 
     return top_candidates
 
+
 def _converter_signature(c: Any) -> str:
-    """ converter ( + ).
+    """converter ( + ).
 
     L5 v8:  (type_name + signature) ,  converter.
      SequentialAttack , .
@@ -376,19 +389,19 @@ def _converter_signature(c: Any) -> str:
          ( "PersuasionConverter:authority_endorsement").
     """
     type_name = type(c).__name__
- # PersuasionConverter: persuasion_technique
+    # PersuasionConverter: persuasion_technique
     if type_name == "PersuasionConverter":
         technique = getattr(c, "_persuasion_technique", None)
         if technique is not None:
             tech_name = getattr(technique, "value", str(technique))
             return f"{type_name}:{tech_name}"
- # ToneConverter: tone
+    # ToneConverter: tone
     if type_name == "ToneConverter":
         tone = getattr(c, "_tone", None)
         if tone is not None:
             tone_name = getattr(tone, "value", str(tone))
             return f"{type_name}:{tone_name}"
- # SelectiveTextConverter: selection_strategy + sub_converter
+    # SelectiveTextConverter: selection_strategy + sub_converter
     if type_name == "SelectiveTextConverter":
         strategy = getattr(c, "_selection_strategy", None)
         if strategy is not None:
@@ -396,28 +409,29 @@ def _converter_signature(c: Any) -> str:
             sub_conv = getattr(c, "_sub_converter", None)
             sub_name = type(sub_conv).__name__ if sub_conv else "unknown"
             return f"{type_name}:{strategy_name}:{sub_name}"
- # SearchReplaceConverter: pattern
+    # SearchReplaceConverter: pattern
     if type_name == "SearchReplaceConverter":
         pattern = getattr(c, "_pattern", "") or ""
         return f"{type_name}:{pattern[:30]}"
- # CodeChameleonConverter: encrypt_type
+    # CodeChameleonConverter: encrypt_type
     if type_name == "CodeChameleonConverter":
         encrypt_type = getattr(c, "_encrypt_type", "unknown")
         return f"{type_name}:{encrypt_type}"
- # PDFConverter: (direct / injection)
+    # PDFConverter: (direct / injection)
     if type_name == "PDFConverter":
         existing_pdf = getattr(c, "_existing_pdf_path", None)
         if existing_pdf is not None:
             return f"{type_name}:injection"
         return f"{type_name}:direct"
- # WordDocConverter: (direct / placeholder)
+    # WordDocConverter: (direct / placeholder)
     if type_name == "WordDocConverter":
         injection_config = getattr(c, "_injection_config", None)
         if injection_config is not None and getattr(injection_config, "existing_docx", None) is not None:
             return f"{type_name}:placeholder"
         return f"{type_name}:direct"
- # converter:
+    # converter:
     return type_name
+
 
 def _detect_chained_selective_pair(
     conv_a: Any,
@@ -451,23 +465,20 @@ def _detect_chained_selective_pair(
     strategy_a = type(getattr(conv_a, "_selection_strategy", None)).__name__
     strategy_b = type(getattr(conv_b, "_selection_strategy", None)).__name__
 
- # WordProportion (first) + Token (second) = valid selective chain
+    # WordProportion (first) + Token (second) = valid selective chain
     if strategy_a == "WordProportionSelectionStrategy" and strategy_b == "TokenSelectionStrategy":
-        logger.info(
-            "Detected chained SelectiveText pair: WordProportion + Token "
-            "(selective 2-layer, ASR 30-40%%)"
-        )
+        logger.info("Detected chained SelectiveText pair: WordProportion + Token (selective 2-layer, ASR 30-40%%)")
         return (conv_a, conv_b)
 
- # Also handle reversed order (Token first, WordProportion second)
+    # Also handle reversed order (Token first, WordProportion second)
     if strategy_a == "TokenSelectionStrategy" and strategy_b == "WordProportionSelectionStrategy":
         logger.info(
-            "Detected chained SelectiveText pair: Token + WordProportion "
-            "(reordered, selective 2-layer, ASR 30-40%%)"
+            "Detected chained SelectiveText pair: Token + WordProportion (reordered, selective 2-layer, ASR 30-40%%)"
         )
         return (conv_b, conv_a)
 
     return None
+
 
 def _get_owasp_converter_priorities(ctx: PipelineContext) -> list[str]:
     """L5 v36: imports OWASP Converter .
@@ -493,7 +504,7 @@ def _get_owasp_converter_priorities(ctx: PipelineContext) -> list[str]:
     if not ctx.seeds:
         return []
 
- # owasp_id
+    # owasp_id
     owasp_counts: dict[str, int] = {}
     for group in ctx.seeds:
         for seed in getattr(group, "seeds", []):
@@ -505,7 +516,7 @@ def _get_owasp_converter_priorities(ctx: PipelineContext) -> list[str]:
     if not owasp_counts:
         return []
 
- # OWASP ()
+    # OWASP ()
     dominant_owasp = max(owasp_counts, key=owasp_counts.get)
     logger.info(
         "L5 v36: OWASP distribution: %s, dominant=%s",
@@ -513,9 +524,10 @@ def _get_owasp_converter_priorities(ctx: PipelineContext) -> list[str]:
         dominant_owasp,
     )
 
- # asr_priors.yaml owasp_converter_map
+    # asr_priors.yaml owasp_converter_map
     try:
         from arm.seed_ranker import load_asr_priors
+
         priors = load_asr_priors(getattr(ctx, "model_name", "") or "")
         owasp_map = priors.get("owasp_converter_map", {})
         if not owasp_map:
@@ -533,6 +545,7 @@ def _get_owasp_converter_priorities(ctx: PipelineContext) -> list[str]:
         logger.warning("L5 v36: Failed to load owasp_converter_map: %s", e)
 
     return []
+
 
 def _build_converter_config(ctx: PipelineContext) -> Any:
     """Build AttackConverterConfig for SequentialAttack.
@@ -595,9 +608,7 @@ def _build_converter_config(ctx: PipelineContext) -> Any:
         if i + 1 < len(unique_converters):
             pair = _detect_chained_selective_pair(conv, unique_converters[i + 1])
             if pair is not None:
-                converter_configurations.append(
-                    ConverterConfiguration(converters=list(pair))
-                )
+                converter_configurations.append(ConverterConfiguration(converters=list(pair)))
                 logger.info("Path %d: Chained SelectiveText (2-layer, ASR 30-40%%)", len(converter_configurations))
                 i += 2
                 continue
@@ -611,6 +622,7 @@ def _build_converter_config(ctx: PipelineContext) -> Any:
         logger.info("  Path %d: %s", idx + 1, " + ".join(conv_names))
 
     return AttackConverterConfig(request_converters=converter_configurations)
+
 
 def _prune_low_asr_converters(
     converters: list[Any],
@@ -646,17 +658,17 @@ def _prune_low_asr_converters(
     import json
     from pathlib import Path
 
- # L5 v15: -
- # Academic basis: PyRIT SequentialAttack (arXiv:2407.01232) - FIRST_SUCCESS
- # , (, API );
- # , (, )
- # :
- # failed_objectives > 10: threshold=10% (, ASR )
- # 5 <= failed <= 10: threshold=5% ()
- # failed < 5: threshold=3% (, )
+    # L5 v15: -
+    # Academic basis: PyRIT SequentialAttack (arXiv:2407.01232) - FIRST_SUCCESS
+    # , (, API );
+    # , (, )
+    # :
+    # failed_objectives > 10: threshold=10% (, ASR )
+    # 5 <= failed <= 10: threshold=5% ()
+    # failed < 5: threshold=3% (, )
     _MIN_PATHS = 4
 
- # ctx ()
+    # ctx ()
     n_failed = 0
     try:
         n_failed = len(getattr(ctx, "_failed_objectives", []) or [])
@@ -674,10 +686,10 @@ def _prune_low_asr_converters(
         logger.info("L5 v15: Dynamic prune threshold=3%% (failed=%d < 5, conservative)", n_failed)
 
     if len(converters) <= _MIN_PATHS:
-     # ,
+        # ,
         return converters
 
- # converter ASR
+    # converter ASR
     project_root = Path(__file__).resolve().parent.parent
     asr_history_path = project_root / "data" / "seeds" / "asr_history.json"
 
@@ -690,16 +702,16 @@ def _prune_low_asr_converters(
             logger.warning("Failed to read converter ASR history: %s", e)
 
     if not converter_asr:
-     # ,
+        # ,
         return converters
 
- # converter ASR
+    # converter ASR
     converter_with_asr: list[tuple[float, int, Any]] = []
     pruned_count = 0
 
     for i, c in enumerate(converters):
         type_name = type(c).__name__
- # PersuasionConverter/ToneConverter, key
+        # PersuasionConverter/ToneConverter, key
         sig = _converter_signature(c)
         asr = converter_asr.get(sig, converter_asr.get(type_name, -1.0))
 
@@ -707,21 +719,23 @@ def _prune_low_asr_converters(
             pruned_count += 1
             logger.info(
                 "Converter path pruned: %s (ASR=%.1f%% < %.1f%%)",
-                sig, asr, _PRUNE_ASR_THRESHOLD,
+                sig,
+                asr,
+                _PRUNE_ASR_THRESHOLD,
             )
         else:
-         # : ASR ASR , (ASR=-1)
+            # : ASR ASR , (ASR=-1)
             converter_with_asr.append((asr, i, c))
 
- #
+    #
     if len(converter_with_asr) < _MIN_PATHS:
-     # , ( ASR )
+        # , ( ASR )
         logger.info(
             "Pruning would leave %d paths < %d minimum, restoring some",
             len(converter_with_asr),
             _MIN_PATHS,
         )
- # ( ASR )
+        # ( ASR )
         pruned_with_asr: list[tuple[float, int, Any]] = []
         for i, c in enumerate(converters):
             sig = _converter_signature(c)
@@ -740,7 +754,7 @@ def _prune_low_asr_converters(
                 item[0],
             )
 
- # : ASR ASR , ASR (ASR=-1)
+    # : ASR ASR , ASR (ASR=-1)
     converter_with_asr.sort(key=lambda x: (-x[0] if x[0] >= 0 else 1, x[1]))
 
     result = [c for _, _, c in converter_with_asr]

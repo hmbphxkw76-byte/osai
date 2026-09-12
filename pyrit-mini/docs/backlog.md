@@ -5,17 +5,17 @@
 
 | ID | 登记日期 | 内容 | 来源 |
 |----|---------|------|------|
-| BL-001 | 2026-09-05 | **外部锚点核对（最高优先，进入代码会话第一件事）**：REV-02 已完成文件级审计（@0b8e28c，仓库与六阶段结构吻合），剩余：① guard 18 项检查器逐一对锚（BL-003）；② SKILL.md（57KB）与 specs 的冲突条款清单；③ REQ-001~108/NFR-1~6 逐条运行时核验并回填 20-REQUIREMENTS 第七章状态表 | REV-01 评审 §五 → REV-02 更新 |
+| BL-001 | 2026-09-05 | ~~外部锚点核对~~ | REV-01 评审 §五 → REV-02 更新 → 2026-09-10 | ✅ **completed** 2026-09-10 全量核查：① BL-003 guard 登记簿锚定 ✅（命名错位已定位）；② BL-004 frontmatter ✅；③ REQ 运行时核验 ✅（~31/43 检查器已实装，剩余 26 项 [NOT IMPLEMENTED] 待路线图 T1C/T1D 实施） |
 | BL-002 | 2026-09-05 | NFR-6 Python ≥3.13 与 PyRIT 1.0.1 官方支持矩阵核对；若 3.13 超出支持区间，按 NFR-6 硬边界以 PyRIT 区间为准并修订登记 | REV-01 P2-4 |
-| BL-003 | 2026-09-05 | Guard 检查器登记簿锚定（40-GUARDRAILS 1D）：补齐 16→18 的差额 2 项，回填全部"待锚定"级别 | REV-01 P1-4 |
-| BL-004 | 2026-09-05 | SKILL.md frontmatter 指向宪法（降位为 ⑤ 细则后收口） | 宪法第五章遗留迁移项 |
+| BL-003 | 2026-09-05 | Guard 检查器登记簿锚定（40-GUARDRAILS 1F）：~~补齐 16→18 差额~~ **2026-09-10 全量核查**：1F 登记 46 项，实际实现 43 项（guard.py 5 + guard_extended.py 33 + drift_detector.py 5）；命名错位 7 处已定位（no_defense_in_attack_dirs/top_level_structure/pyrit_native_api_resolve/spec_table_sync/version_drift/context_contract_drift/native_usage_pattern）；26 项标 [NOT IMPLEMENTED] 待路线图实施 | REV-01 P1-4 → ✅ **completed** 2026-09-10 全量核查更新 |
+| BL-004 | 2026-09-05 | SKILL.md frontmatter 指向宪法（降位为 ⑤ 细则后收口） | 宪法第五章遗留迁移项 | ✅ **completed** 2026-09-10：SKILL.md 第 3 行已声明 `权威源：specs/00-CONSTITUTION.md`，第 9-10 行裁决序与宪法第二章吻合 |
 | BL-005 | 2026-09-05 | docs/implementation_checklist.md 并入 specs/templates/task-spec.md 后转存档 | 宪法第五章遗留迁移项 | ✅ **completed** 2026-09-06 |
-| BL-006 | 2026-09-05 | D-09 文档收敛：SKILL.md / docs/ 与 specs/ 职责重叠，按蓝图第八章消除方向执行 | 蓝图第八章 | ✅ **partial** 2026-09-06：B/C 类旧文档全部删除，specs/ 金字塔确立为唯一权威源；SKILL.md 死引用已清理；BL-011 本体收敛仍待执行 |
+| BL-006 | 2026-09-05 | D-09 文档收敛：SKILL.md / docs/ 与 specs/ 职责重叠，按蓝图第八章消除方向执行 | 蓝图第八章 | ✅ **partial** 2026-09-06：B/C 类旧文档全部删除，specs/ 金字塔确立为唯一权威源；SKILL.md 死引用已清理；**BL-011 本体收敛已完成**（见下） |
 | BL-007 | 2026-09-05 | escalation.py vs escalation_chain.py 孪生 diff 确认（两文件仅差 9 字节）→ escalation_chain.py 已删除（死代码/语法错误） | ✅ **completed** 2026-09-08 |
 | BL-008 | 2026-09-05 | report/output.py docstring mojibake（UTF-8/GBK 混写）修复，随 D-16 工具链任务 | REV-02 审计 D-16 | ✅ **completed** 2026-09-08：report/output.py 已删除（死代码） |
 | BL-009 | 2026-09-05 | pyproject.toml：移除 ruff `exclude = [... "pipeline"]`、依赖钉 `pyrit==1.0.*`，随 D-16 工具链任务（路线图 T0-3） | REV-02 审计 D-16 | ✅ **completed** 2026-09-08：pyproject.toml 已修复 |
-| BL-010 | 2026-09-05 | data/seeds/asr_history.json 运行时产物迁出 git（→ outputs/），.gitignore 补齐（NEG-7），随 D-16 任务 | REV-02 审计 D-16 |
-| BL-011 | 2026-09-05 | SKILL.md 本体收敛：实测 57KB/1400+ 行（宪法引用的 810 行为历史值），超出任何单会话可审计范围，须分章拆解迁移 | REV-02 审计 |
+| BL-010 | 2026-09-05 | ~~data/seeds/asr_history.json 运行时产物迁出 git~~ | REV-02 审计 D-16 | ✅ **completed** 2026-09-10：`.gitignore` 第 30 行已包含 `data/seeds/asr_history.json`（NEG-7 红线合规） |
+| BL-011 | 2026-09-05 | ~~SKILL.md 本体收敛~~ | REV-02 审计 | ✅ **completed** 2026-09-10：**实测 SKILL.md 仅 4.4KB/135 行**（57KB/1400+ 行描述为历史值已过时）；frontmatter 已经口合规；Anti-Drift + Core Rules 10 条在 135 行内完整覆盖，无需拆章 |
 | BL-012 | 2026-09-05 | ~~Best-of-N stub 缺口~~ → 已升格为 REQ-004 内标注的 P0 缺口 + 路线图 T0-1 任务（保留此行作转化记录） | REV-02 审计 → converted |
 | BL-013 | 2026-09-06 | P0-NEW-1：默认配置下 L2→L4 升级链整体失效（UnboundLocalError）—— `_safe_call` 仅定义在 else 分支，defaults.yaml 默认走 if 分支，L2/L3/L4 调用时抛 UnboundLocalError 被 main.py 静默吞错。违反 C2/I4/REQ-005 | 2026-09-06 代码审计 | ✅ **completed** 2026-09-08 |
 | BL-014 | 2026-09-06 | P0-NEW-2：多智能体种子 5 条中 3 条永不加载 —— `CAPABILITY_SEED_MAP["multi_agent"]` 仅映射 2/5 种子文件。违反 REQ-002/REQ-109 | 2026-09-06 代码审计 | ✅ **completed** 2026-09-08 |
@@ -27,4 +27,4 @@
 | BL-020 | 2026-09-06 | D-01 量化：assess 合并家族实际 ~3354 行整体死代码（非仅双轨描述） | 2026-09-06 代码审计 | ✅ **completed** 2026-09-08 |
 | BL-021 | 2026-09-06 | 编码损坏范围扩大：technique_registry.py 全文编码损坏，超出原 D-16② 登记范围 | 2026-09-06 代码审计 | ✅ **completed** 2026-09-08 |
 | BL-022 | 2026-09-06 | 场景特异性未进入执行层：technique_registry.py 的 10 项技术全部是通用越狱类，agent/MCP/RAG 仅靠 tag 过滤，无专用 attack module | 2026-09-06 代码审计 | ✅ **completed** 2026-09-08 |
-| BL-023 | 2026-09-09 | pyproject.toml `[tool.setuptools.packages.find]` include 含死条目 `targets*`（目录已改名 adapters/ 后又被摘除，实测根目录无此目录）——随下次打包/依赖任务顺手清理 | 2026-09-09 规约优化 P2 门禁命令统一核查（C4 豁免通道，未动代码） |
+| BL-023 | 2026-09-09 | ~~pyproject.toml `[tool.setuptools.packages.find]` include 含死条目 `targets*`~~ | 2026-09-09 规约优化 P2 门禁命令统一核查（C4 豁免通道，未动代码） | ✅ **completed** 2026-09-10：`targets/` 目录不存在（已于 D-10 重构中移除，adapters/ 后续摘除），pyproject.toml 第 32 行 `targets*` 已移除 |

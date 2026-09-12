@@ -18,19 +18,32 @@ dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.4"]
 
 [project.scripts]
 # CLI entry_points (v2.0+: tools/ 目录)
+# v3.0: guard.py 合并了 quick_check + watch_guard 功能
+# v3.0: hooks.py 合并了 install_hooks_local 功能 (--local 模式)
+# v3.0: component_audit = 组件审计 Phase 1→6
+# v3.0: dev_audit_full = 开发全审 A→H (同 架构审计 / 架构体检)
+# v3.0: security_audit = 安全审计 Phase 1→5 (密钥/漏洞/注入/输入/权限)
+# v3.0: test_audit = 测试审计 Phase 1→5 (覆盖率/质量/边界/隔离/变异)
+# v3.0: dependency_audit = 依赖审计 Phase 1→5 (版本/许可证/漏洞/树健康/源)
+# v3.0: release_audit = 发布审计 Phase 1→5 (版本/变更日志/生产就绪/回滚/文档)
 pyrit-mini = "main:main"
+pyrit-component-audit = "tools.component_audit:main"
+pyrit-dev-audit = "tools.dev_audit_full:main"
 pyrit-guard = "tools.guard:main"
-pyrit-watch = "tools.watch_guard:main"
-pyrit-quick = "tools.quick_check:main"
 pyrit-hooks = "tools.hooks:main"
 pyrit-scenarios = "tools.scenarios:main"
 pyrit-poc = "tools.poc:main"
-pyrit-dataflow = "tools.data_flow_validator:main"
+pyrit-dataflow = "tools.dataflow.validator:main"
 pyrit-drift = "tools.drift_detector:main"
-pyrit-hooks-local = "tools.install_hooks_local:main"
+pyrit-security-audit = "tools.security_audit:main"
+pyrit-test-audit = "tools.test_audit:main"
+pyrit-dependency-audit = "tools.dependency_audit:main"
+pyrit-release-audit = "tools.release_audit:main"
 
 [tool.setuptools.packages.find]
-include = ["core*", "recon*", "arm*", "strike*", "assess*", "report*", "targets*", "utils*", "tools*"]
+# W0 fix: "main" was missing, so the pyrit-mini console script declared below referenced a
+# module that never got packaged.
+include = ["core*", "recon*", "arm*", "strike*", "assess*", "report*", "utils*", "tools*", "main"]
 
 [tool.ruff]
 line-length = 120
@@ -44,6 +57,15 @@ ignore = ["E501"]
 [tool.ruff.lint.per-file-ignores]
 # E402 false positive: `from __future__ import annotations` + module docstring triggers ruff E402
 "core/seed_dynamic_engine.py" = ["E402"]
+# E402: test files with sys.path.insert pattern
+"tests/common/test_component_purity.py" = ["E402"]
+# Backward compatibility stubs: F401 false positive — imports re-exported for legacy callers
+"strike/asr_forensics.py" = ["F401"]
+"strike/executor.py" = ["F401"]
+"strike/file_upload_executor.py" = ["F401"]
+"strike/link_evasion.py" = ["F401"]
+"strike/sql_injection_evasion.py" = ["F401"]
+"strike/stealth_exec.py" = ["F401"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

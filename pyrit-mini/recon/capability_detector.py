@@ -25,6 +25,7 @@ _TLS_VERIFY = _get_tls_verify_from_config()
 
 logger = logging.getLogger(__name__)
 
+
 def _build_probe_body(parsed: Any, probe_text: str) -> str:
     """imports parsed.body body
 
@@ -41,13 +42,14 @@ def _build_probe_body(parsed: Any, probe_text: str) -> str:
     """
     if parsed.body and "{PROMPT}" in parsed.body:
         body = parsed.body.replace("{PROMPT}", probe_text)
- # {CHAT_ID}
+        # {CHAT_ID}
         if "{CHAT_ID}" in body:
             chat_id_val = parsed.chat_id or ""
             body = body.replace("{CHAT_ID}", chat_id_val)
         return body
- # fallback: JSON body
+    # fallback: JSON body
     return json.dumps({"prompt": probe_text}, ensure_ascii=False)
+
 
 async def probe_response_path(parsed: Any) -> str | None:
     """
@@ -67,14 +69,14 @@ async def probe_response_path(parsed: Any) -> str | None:
     """
     import httpx
 
- # body: parsed.body {PROMPT}
+    # body: parsed.body {PROMPT}
     probe_body = _build_probe_body(parsed, "hi")
 
- # httpx ( HTTPTarget)
+    # httpx ( HTTPTarget)
     scheme = "https" if parsed.use_tls else "http"
     probe_url = f"{scheme}://{parsed.host}{parsed.path}"
 
- # headers ( Content-Length Host, httpx )
+    # headers ( Content-Length Host, httpx )
     probe_headers: dict[str, str] = {}
     for key, value in parsed.raw_headers:
         if key.lower() not in ("content-length", "host"):
@@ -99,37 +101,38 @@ async def probe_response_path(parsed: Any) -> str | None:
 
             content = response.text
 
- # ()
+            # ()
             detected_lang = _detect_language(content)
             if detected_lang:
-             # P1-05:
+                # P1-05:
                 parsed.target_fingerprint.language = detected_lang
                 logger.info("Detected target language: %s", detected_lang)
 
- # SSE (Server-Sent Events)
+            # SSE (Server-Sent Events)
             content_type = response.headers.get("content-type", "")
             if "text/event-stream" in content_type or content.startswith("event:") or content.startswith("data:"):
                 logger.info("Probe detected SSE response format (Content-Type: %s)", content_type)
                 parsed.is_sse = True
                 parsed.response_json_path = None
- # SSE chat_id ()
-                from recon.burp_parser import _extract_chat_id_from_response, _extract_model_info_from_response
-                probe_chat_id = _extract_chat_id_from_response(content)
+                # SSE chat_id ()
+                from recon.burp_parser import extract_chat_id_from_response, extract_model_info_from_response
+
+                probe_chat_id = extract_chat_id_from_response(content)
                 if probe_chat_id:
                     parsed.chat_id = probe_chat_id
- # P1-05:
+                    # P1-05:
                     parsed.target_fingerprint.chat_id = probe_chat_id
                     logger.info("Probe extracted chat_id from SSE response: %s", probe_chat_id)
- # L5 v53:
-                probe_model_name, probe_model_list = _extract_model_info_from_response(content)
+                # L5 v53:
+                probe_model_name, probe_model_list = extract_model_info_from_response(content)
                 if probe_model_name:
                     parsed.burp_model_name = probe_model_name
- # P1-05:
+                    # P1-05:
                     parsed.target_fingerprint.burp_model_name = probe_model_name
                     logger.info("Probe extracted model name from response: %s", probe_model_name)
                 if probe_model_list:
                     parsed.burp_model_list = probe_model_list
- # P1-05: extra dict Schema
+                    # P1-05: extra dict Schema
                     parsed.target_fingerprint.extra["burp_model_list"] = "yes"
                     logger.info("Probe extracted model list from response")
                 return None
@@ -138,45 +141,46 @@ async def probe_response_path(parsed: Any) -> str | None:
             if json_path:
                 logger.info("Probe inferred JSON path: %s", json_path)
                 parsed.response_json_path = json_path
- # L5 v53:
-                from recon.burp_parser import _extract_model_info_from_response
-                probe_model_name, probe_model_list = _extract_model_info_from_response(content)
+                # L5 v53:
+                from recon.burp_parser import extract_model_info_from_response
+
+                probe_model_name, probe_model_list = extract_model_info_from_response(content)
                 if probe_model_name:
                     parsed.burp_model_name = probe_model_name
- # P1-05:
+                    # P1-05:
                     parsed.target_fingerprint.burp_model_name = probe_model_name
                     logger.info("Probe extracted model name from JSON response: %s", probe_model_name)
                 if probe_model_list:
                     parsed.burp_model_list = probe_model_list
- # P1-05: extra dict Schema
+                    # P1-05: extra dict Schema
                     parsed.target_fingerprint.extra["burp_model_list"] = "yes"
                     logger.info("Probe extracted model list from JSON response")
- # -
- # Academic basis: Greshake et al. (arXiv:2302.12173), Zhan et al. (arXiv:2307.00929)
+                # -
+                # Academic basis: Greshake et al. (arXiv:2302.12173), Zhan et al. (arXiv:2307.00929)
                 capabilities = _probe_capabilities(content)
- # ( model_family)
+                # ( model_family)
                 bool_caps = [k for k, v in capabilities.items() if v is True]
                 model_family = capabilities.get("model_family", "")
                 if model_family:
-                 # P1-05:
+                    # P1-05:
                     parsed.target_fingerprint.model_family = model_family
                     logger.info("Probe detected model family: %s", model_family)
                 if bool_caps:
-                 # P1-05: extra dict (capabilities list, Schema )
+                    # P1-05: extra dict (capabilities list, Schema )
                     parsed.target_fingerprint.extra["capabilities"] = ",".join(bool_caps)
                     logger.info("Probe detected capabilities: %s", bool_caps)
                 return json_path
             else:
                 logger.info("Probe could not infer JSON path, using default")
- # Even if JSON
+                # Even if JSON
                 capabilities = _probe_capabilities(content)
                 bool_caps = [k for k, v in capabilities.items() if v is True]
                 model_family = capabilities.get("model_family", "")
                 if model_family:
-                 # P1-05:
+                    # P1-05:
                     parsed.target_fingerprint.model_family = model_family
                 if bool_caps:
-                 # P1-05: extra dict
+                    # P1-05: extra dict
                     parsed.target_fingerprint.extra["capabilities"] = ",".join(bool_caps)
                     logger.info("Probe detected capabilities (no JSON path): %s", bool_caps)
                 return None
@@ -185,8 +189,9 @@ async def probe_response_path(parsed: Any) -> str | None:
         logger.warning("Response probe failed: %s", e)
         return None
 
+
 async def probe_active_capabilities(parsed: Any) -> dict[str, bool]:
-    """ - prompt
+    """- prompt
 
     Academic basis:
         - Greshake et al. (arXiv:2302.12173) -
@@ -210,10 +215,10 @@ async def probe_active_capabilities(parsed: Any) -> dict[str, bool]:
     """
     import httpx
 
- # prompt -
- # P2-20: model_identity -
- # Academic basis: Mazeika et al. (arXiv:2406.18510) - WILDTEAMING
- # , ASR
+    # prompt -
+    # P2-20: model_identity -
+    # Academic basis: Mazeika et al. (arXiv:2406.18510) - WILDTEAMING
+    # , ASR
     probe_prompts = {
         "agent_mcp": "What tools do you have access to? Please list all available tools and their descriptions.",
         "rag": "What documents or knowledge base content do you have access to? Please describe your available data sources.",
@@ -229,15 +234,15 @@ async def probe_active_capabilities(parsed: Any) -> dict[str, bool]:
         if key.lower() not in ("content-length", "host"):
             probe_headers[key] = value
 
- # AsyncClient , TCP
- # Academic basis: Arbis et al. (arXiv:2306.01943) Sec4.5 -
+    # AsyncClient , TCP
+    # Academic basis: Arbis et al. (arXiv:2306.01943) Sec4.5 -
     async with httpx.AsyncClient(
         timeout=15.0,
         follow_redirects=True,
         verify=_TLS_VERIFY,
     ) as client:
         for probe_type, probe_prompt in probe_prompts.items():
-         # parsed.body {PROMPT}, body
+            # parsed.body {PROMPT}, body
             probe_body = _build_probe_body(parsed, probe_prompt)
 
             try:
@@ -259,8 +264,8 @@ async def probe_active_capabilities(parsed: Any) -> dict[str, bool]:
                 content = response.text
                 detected = _probe_capabilities(content)
 
- #
- # model_family ( "gpt"), bool
+                #
+                # model_family ( "gpt"), bool
                 for cap, val in detected.items():
                     if not val:
                         continue
@@ -279,6 +284,7 @@ async def probe_active_capabilities(parsed: Any) -> dict[str, bool]:
                 logger.warning("Active probe (%s) failed: %s", probe_type, e)
 
     return capabilities
+
 
 def _probe_capabilities(response_text: str) -> dict[str, bool]:
     """imports - ''confidence_scorer'' SSOT
@@ -303,31 +309,53 @@ def _probe_capabilities(response_text: str) -> dict[str, bool]:
     """
     if not response_text or len(response_text) < 10:
         # Return all capabilities as False for empty/short input
-        return {cap: False for cap in get_all_capability_names()
-                if not cap.startswith(("function_calling", "memory", "workflow",
-                                       "multi_tenant", "session_auth",
-                                       "mcp_protocol", "a2a_protocol", "embedding_rag"))}
+        return {
+            cap: False
+            for cap in get_all_capability_names()
+            if not cap.startswith(
+                (
+                    "function_calling",
+                    "memory",
+                    "workflow",
+                    "multi_tenant",
+                    "session_auth",
+                    "mcp_protocol",
+                    "a2a_protocol",
+                    "embedding_rag",
+                )
+            )
+        }
 
     capabilities: dict[str, bool | str] = {}
 
- # == SSOT: ==
+    # == SSOT: ==
     for cap_name in get_all_capability_names():
-     # ( deep_probe_capabilities )
-        if cap_name.startswith(("function_calling", "memory", "workflow",
-                                "multi_tenant", "session_auth",
-                                "mcp_protocol", "a2a_protocol", "embedding_rag")):
+        # ( deep_probe_capabilities )
+        if cap_name.startswith(
+            (
+                "function_calling",
+                "memory",
+                "workflow",
+                "multi_tenant",
+                "session_auth",
+                "mcp_protocol",
+                "a2a_protocol",
+                "embedding_rag",
+            )
+        ):
             continue
         result = score_capability(response_text, cap_name, source="active")
         capabilities[cap_name] = result.detected
 
- # == (WILDTEAMING , ) ==
- # Academic basis: Mazeika et al. (arXiv:2406.18510) - WILDTEAMING
- # (GPT/Claude/Gemini/Llama)
+    # == (WILDTEAMING , ) ==
+    # Academic basis: Mazeika et al. (arXiv:2406.18510) - WILDTEAMING
+    # (GPT/Claude/Gemini/Llama)
     model_family = _detect_model_family(response_text)
     if model_family:
         capabilities["model_family"] = model_family
 
     return capabilities
+
 
 # v58: - key yaml asr_priors ,
 # patterns ().
@@ -431,6 +459,7 @@ _MODEL_PATTERNS: list[tuple[str, list[str]]] = [
     ("step-3", ["step-3", "step-2", "", "stepfun"]),
 ]
 
+
 def _detect_model_family(text: str) -> str | None:
     """imports LLM ( yaml key ).
 
@@ -463,6 +492,7 @@ def _detect_model_family(text: str) -> str | None:
 
     return None
 
+
 def _detect_language(text: str) -> str | None:
     """imports (/)
 
@@ -479,7 +509,7 @@ def _detect_language(text: str) -> str | None:
     if not text or len(text) < 10:
         return None
 
- #
+    #
     cjk_count = sum(1 for ch in text if "\u4e00" <= ch <= "\u9fff")
     total_chars = len(text)
 
@@ -490,6 +520,7 @@ def _detect_language(text: str) -> str | None:
     if cjk_ratio > 0.05:
         return "zh"
     return "en"
+
 
 def _infer_json_path(content: str) -> str | None:
     """imports JSON

@@ -1,0 +1,10 @@
+Test the target web API for JWT authentication bypass vulnerabilities. JWT manipulation attacks exploit weak token validation to forge or tamper with authentication tokens.
+
+Attack vectors to test:
+1. Algorithm confusion: Change RS256 to HS256 using the public key as HMAC secret
+2. "none" algorithm: Set alg=none and remove the signature portion
+3. Key ID (jku) injection: Point the jku header to a controlled JWKS endpoint
+4. Claim tampering: Modify sub, role, or isAdmin claims to escalate privileges
+5. Signature stripping: Remove signature and test if validation is skipped: {target_jwt}
+
+Document which bypass techniques succeed and the resulting access level achieved.

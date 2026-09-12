@@ -29,11 +29,12 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+
 def generate_sarif_report(
     evidence: Any,
     output_path: Path,
 ) -> Path:
-    """ SARIF 2.1 yu?
+    """SARIF 2.1 yu?
 
     Args:
         evidence: ?
@@ -52,13 +53,14 @@ def generate_sarif_report(
     logger.info("SARIF report saved to %s", output_path)
     return output_path
 
+
 def _build_sarif(evidence: Any) -> dict[str, Any]:
-    """ SARIF 2.1 yu?"""
- #
+    """SARIF 2.1 yu?"""
+    #
     rules = _build_rules(evidence)
     rule_indices = {r["id"]: i for i, r in enumerate(rules)}
 
- #
+    #
     results = _build_results(evidence, rule_indices)
 
     return {
@@ -74,19 +76,16 @@ def _build_sarif(evidence: Any) -> dict[str, Any]:
                         "rules": rules,
                         "properties": {
                             "owasp_web_coverage": sum(
-                                1 for v in evidence.owasp_web_compliance.values() if v.get(
-                                    "tested",
-                                    0) > 0) if hasattr(
-                                evidence,
-                                'owasp_web_compliance') else 0,
+                                1 for v in evidence.owasp_web_compliance.values() if v.get("tested", 0) > 0
+                            )
+                            if hasattr(evidence, "owasp_web_compliance")
+                            else 0,
                             "owasp_llm_coverage": sum(
-                                1 for v in evidence.owasp_llm_compliance.values() if v.get(
-                                    "tested",
-                                    0) > 0),
+                                1 for v in evidence.owasp_llm_compliance.values() if v.get("tested", 0) > 0
+                            ),
                             "owasp_asi_coverage": sum(
-                                1 for v in evidence.owasp_asi_compliance.values() if v.get(
-                                    "tested",
-                                    0) > 0),
+                                1 for v in evidence.owasp_asi_compliance.values() if v.get("tested", 0) > 0
+                            ),
                             "overall_asr": evidence.overall_asr,
                         },
                     },
@@ -108,10 +107,12 @@ def _build_sarif(evidence: Any) -> dict[str, Any]:
         ],
     }
 
+
 def _build_rules(evidence: Any) -> list[dict[str, Any]]:
-    """ SARIF ( OWASP EURX??"""
+    """SARIF ( OWASP EURX??"""
     # P1-5: 延迟导入 MITRE ATLAS 技术映射
     from report.evidence import _MITRE_ATLAS_TECHNIQUES
+
     rules: list[dict[str, Any]] = []
     seen_owasp_ids: set[str] = set()
 
@@ -136,7 +137,7 @@ def _build_rules(evidence: Any) -> list[dict[str, Any]]:
             },
         }
 
- # MITRE ATLAS
+        # MITRE ATLAS
         mitre_info = _MITRE_ATLAS_TECHNIQUES.get(ev.owasp_id, {})
         if mitre_info:
             rule["properties"]["mitre_atlas_tactic"] = mitre_info.get("tactic", "")
@@ -160,11 +161,12 @@ def _build_rules(evidence: Any) -> list[dict[str, Any]]:
 
     return rules
 
+
 def _build_results(
     evidence: Any,
     rule_indices: dict[str, int],
 ) -> list[dict[str, Any]]:
-    """ SARIF (EUR??"""
+    """SARIF (EUR??"""
     results: list[dict[str, Any]] = []
 
     for ev in evidence.evidence:
@@ -194,21 +196,22 @@ def _build_results(
                 "jailbreak_prompt": ev.jailbreak_prompt[:500],
                 "harmful_output": ev.harmful_output[:500],
                 # MITRE ATLAS per-result mapping
-                "mitre_atlas_tactic": getattr(ev, 'mitre_tactic', ''),
-                "mitre_atlas_technique_id": getattr(ev, 'mitre_technique_id', ''),
-                "mitre_atlas_technique_name": getattr(ev, 'mitre_technique_name', ''),
+                "mitre_atlas_tactic": getattr(ev, "mitre_tactic", ""),
+                "mitre_atlas_technique_id": getattr(ev, "mitre_technique_id", ""),
+                "mitre_atlas_technique_name": getattr(ev, "mitre_technique_name", ""),
             },
         }
 
- # P0-3 : arxiv_reference SARIF ( "PyRIT (arXiv:2407.01232)")
+        # P0-3 : arxiv_reference SARIF ( "PyRIT (arXiv:2407.01232)")
         result["properties"]["arxiv_reference"] = ev.arxiv_reference or "PyRIT (arXiv:2407.01232)"
 
         results.append(result)
 
     return results
 
+
 def _build_locations(evidence: Any) -> list[dict[str, Any]]:
-    """ SARIF C ( API )?"""
+    """SARIF C ( API )?"""
     fp = evidence.target_fingerprint
     if not fp:
         return []
@@ -228,6 +231,7 @@ def _build_locations(evidence: Any) -> list[dict[str, Any]]:
             ],
         },
     ]
+
 
 def _sarif_level(severity: str) -> str:
     """?OWASP raf SARIF level?"""

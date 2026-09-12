@@ -106,7 +106,9 @@ async def auto_generate_seeds_async(
 
     logger.info(
         "auto_generate_seeds: expanded %d -> %d seeds (+%d variants)",
-        len(base_seeds), len(expanded_seeds), generated_count,
+        len(base_seeds),
+        len(expanded_seeds),
+        generated_count,
     )
     return expanded_seeds
 
@@ -132,8 +134,9 @@ def _compute_adaptive_ucb_c(
         UCB value for this arm
     """
     import math
+
     if pull_count == 0:
-        return float('inf')  # Encourage exploration of unpulled arms
+        return float("inf")  # Encourage exploration of unpulled arms
     exploitation = mean_reward
     exploration = exploration_factor * math.sqrt(math.log(total_pulls) / pull_count)
     return exploitation + exploration
@@ -167,6 +170,4 @@ def _auto_generate_seeds_sync(
         )
     except RuntimeError:
         # No event loop, create a new one
-        return asyncio.run(
-            auto_generate_seeds_async(base_seeds, converter_target, expansion_factor=expansion_factor)
-        )
+        return asyncio.run(auto_generate_seeds_async(base_seeds, converter_target, expansion_factor=expansion_factor))

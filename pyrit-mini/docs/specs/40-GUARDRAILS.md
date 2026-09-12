@@ -201,7 +201,7 @@ pyrit-drift --full --report
 | 手动开发 | `pyrit-drift` | 开发时实时检测 |
 | CI/CD | `pyrit-drift --full --report` | 定期审计/PR 检查 |
 
-### 1F. Guard 检查器登记簿（v2.9 新增 2 项，总计 46 项）
+### 1F. Guard 检查器登记簿（v3.1 新增 1 项，总计 47 项）
 
 规约各处引用的检查器汇总（**权威清单以 `tools/guard.py` + `tools/drift_detector.py` 实际实现为准**）：
 
@@ -214,6 +214,7 @@ pyrit-drift --full --report
 | check_intermediate_exit | I4 / R-L5 | BLOCKING | 核心安全 |
 | check_pyrit_native_output | I9·C1 / R-L6 | BLOCKING | 核心安全 |
 | check_top_level_structure | R-L7 | BLOCKING | 核心安全 |
+| check_no_hardcoded_component_names | ADR-007 / R-EVENT-1 | WARNING（W4 起 BLOCKING） | 目标架构 v4.0 |
 | check_test_coverage | R-L7 | BLOCKING | 核心安全 |
 | check_dry_run_available | C10 / R-L8 | BLOCKING | 核心安全 |
 | check_native_attack_usage | C1 | WARNING | PyRIT 原生 |
@@ -310,16 +311,21 @@ pyrit-drift --full --report
 
 **降级策略**：模型池不足（<2 可用）时，R-CROSS-1~4 降级为人工审查模式 + 代码存档记录，不阻断合入但标记 `needs-cross-model-pending`。
 
-## 第二章：四步质量门禁（强制，顺序固定）
+## 第二章：五步质量门禁（强制，顺序固定）
 
 对应宪法 C10。**全部通过是任务 verified 的必要条件**：
 
 | 步 | 命令 | 通过标准 | 拦截什么 |
 |----|------|---------|---------|
 | 1 | `py -m tools.guard` | **0 新增 BLOCKING**（相对变更前基线） | 架构模式违规（红线 1A） |
+| 1.5 | `python tools/architecture_validator.py full` | 0 BLOCKING | 组件感知流水线架构违规（阶段边界/组件传播/模块路由/元数据连续性） |
 | 2 | `ruff check .`（范围由 [tool.ruff] exclude 限定） | 0 违规 | 风格/导入/未用变量 |
 | 3 | `python -m pytest tests/ -v --tb=long` | 0 失败 | 功能回归 |
 | 4 | `python main.py --dry-run --max-seeds 1` | 无 ImportError/AttributeError/KeyError/TypeError，到达 REPORT 阶段 | **运行时数据流断点**（静态检查抓不到的交接失败） |
+
+> **Step 1.5 说明**：架构体检（ArchCheck）是三层架构合规验证器，验证：> - **StaticAnalyzer**：模块路由完整性（recon→arm→strike→assess→report 组件化子包存在性）
+> - **ContractChecker**：阶段边界契约（各阶段 ctx 字段输出符合流水线契约）
+> - **RuntimeTracer**：数据流追踪（AttackResult component_type 元数据端到端连续性）
 
 **Tier 2（条件触发）**：变更涉及攻击执行/评分/数据变换逻辑时，追加：
 

@@ -5,6 +5,7 @@ This package is the backbone of the six-phase attack pipeline:
     - context.py: PipelineContext dataclass carrying all data across phases
     - orchestrator.py: Re-exports from core/phases/ (executor/strike/arm/assess/report)
     - phases/: Individual phase implementations (recon/arm/strike/assess/report)
+      - _component_bridge: Component-aware metadata stamping bridge
     - seed_*.py: Seed routing, dynamic generation, and quality assessment
 
 Architecture role (per 10-ARCHITECTURE.md §2.1):
@@ -27,6 +28,10 @@ from core.logging_config import (
     switch_log_file,
 )
 from core.orchestrator import run_attack_pipeline, run_single_endpoint, run_single_endpoint_to_result
+from core.phases._component_bridge import (
+    get_component_stats,
+    stamp_component_metadata,
+)
 
 __all__ = [
     # Context
@@ -50,4 +55,7 @@ __all__ = [
     "run_attack_pipeline",
     "run_single_endpoint",
     "run_single_endpoint_to_result",
+    # Component bridge (v63 component-aware pipeline)
+    "stamp_component_metadata",
+    "get_component_stats",
 ]

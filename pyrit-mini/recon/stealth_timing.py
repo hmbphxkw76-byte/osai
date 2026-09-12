@@ -90,6 +90,7 @@ async def stealth_delay(
         # Policy-driven mode with lognormal distribution
         try:
             from recon.stealth_config import get_stealth_manager
+
             stealth_mgr = get_stealth_manager()
             policy = stealth_mgr.get_policy(policy_name)
 

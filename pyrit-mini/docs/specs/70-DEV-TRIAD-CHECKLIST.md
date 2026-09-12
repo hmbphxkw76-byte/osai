@@ -29,11 +29,12 @@ py -m tools.guard --list-redlines
 
 ## 🏃 开发必跑（开发中，10 分钟）
 
-每完成一个功能点，执行以下 6 步验证：
+每完成一个功能点，执行以下 7 步验证：
 
 | 步 | 命令 | 通过标准 | 说明 |
 |----|------|---------|------|
 | 1 | `py -m tools.guard` | 0 BLOCKING | 架构守卫 |
+| 1.5 | `python tools/architecture_validator.py full` | 0 BLOCKING | 架构体检 (组件感知流水线合规) |
 | 2 | `ruff check .` | 0 errors | 代码风格 |
 | 3 | `pytest tests/ -v --tb=short` | 0 failed | 单元测试 |
 | 4 | `python main.py --dry-run --max-seeds 1` | 无异常 | 运行时验证 |
@@ -43,7 +44,16 @@ py -m tools.guard --list-redlines
 **一键执行**：
 ```bash
 # 保存为 scripts/dev_check_all.py 或手动顺序执行
-py -m tools.guard && ruff check . && pytest tests/ -v --tb=short && python main.py --dry-run --max-seeds 1 && py -m tools.drift_detector --full && pytest tests/test_data_flow_integrity.py -v
+py -m tools.guard && python tools/architecture_validator.py full && ruff check . && pytest tests/ -v --tb=short && python main.py --dry-run --max-seeds 1 && py -m tools.drift_detector --full && pytest tests/test_data_flow_integrity.py -v
+```
+
+**仅执行架构体检**：
+```bash
+# 方式1: 通过全审入口
+py -m tools.dev_audit_full --phase b2
+
+# 方式2: 直接运行
+python tools/architecture_validator.py full
 ```
 
 ---
@@ -157,12 +167,14 @@ py -m tools.guard && ruff check . && pytest tests/ -v --tb=short && python main.
 | 工具 | 命令 | 用途 |
 |------|------|------|
 | 架构守卫 | `py -m tools.guard` | 检查架构规则和红线 |
+| 架构体检 | `python tools/architecture_validator.py full` | 组件感知流水线架构合规验证 |
 | 代码风格 | `ruff check .` | 检查代码风格违规 |
 | 单元测试 | `pytest tests/ -v` | 运行所有测试 |
 | 运行时验证 | `python main.py --dry-run --max-seeds 1` | 验证无运行时异常 |
 | 规范漂移 | `py -m tools.drift_detector --full` | 检查规约-代码一致性 |
 | 数据流完整性 | `pytest tests/test_data_flow_integrity.py -v` | 验证端到端数据流 |
 | Hooks 安装 | `py -m tools.install_hooks_local` | 安装 Git hooks |
+| 开发全审 | `py -m tools.dev_audit_full` | 一键执行 B→B2→C→D→E→F→G→H 全审流程 |
 
 ---
 

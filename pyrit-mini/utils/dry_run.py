@@ -23,6 +23,7 @@ Academic basis:
     - Continuous Integration best practices (zero-cost pipeline check)
     - R10 (Runtime Verification) from Constitution v1.8
 """
+
 from __future__ import annotations
 
 import logging

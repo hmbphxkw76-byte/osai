@@ -22,6 +22,7 @@ Academic basis:
     sessions = collect_samples(target, count=5)
     result = analyzer.analyze(sessions)
 """
+
 from __future__ import annotations
 
 import math
@@ -49,12 +50,8 @@ class SessionIDAnalyzer:
         r"(?P<date>\d{8}|\d{10}|\d{13})-"
         r"(?P<counter>\d{2,8})$"
     )
-    _UUID_V1_PATTERN = re.compile(
-        r"^[0-9a-f]{8}-[0-9a-f]{4}-1[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
-    )
-    _UUID_V4_PATTERN = re.compile(
-        r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
-    )
+    _UUID_V1_PATTERN = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-1[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+    _UUID_V4_PATTERN = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
     _MD5_PATTERN = re.compile(r"^[0-9a-f]{32}$")
     _SHA1_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 
@@ -163,7 +160,7 @@ class SessionIDAnalyzer:
                 prefix = match.group("prefix")
                 date_fmt = match.group("date")
                 counter_width = len(match.group("counter"))
-                search_space = 10 ** counter_width
+                search_space = 10**counter_width
                 inc_val = increments[0] if increments else 1
                 risk = RiskLevel.CRITICAL
                 attack_vectors = ["enumerate_counter_range", "brute_force_low_counter", "predict_future_sessions"]
@@ -177,7 +174,11 @@ class SessionIDAnalyzer:
             search_space = 86_400_000
             risk = RiskLevel.HIGH
             attack_vectors = ["time_window_enumeration", "session_prediction"]
-            recommendations = ["利用时间窗口: 限定在目标活跃时段", "预测模式: 根据当前时间推算有效 session", f"搜索空间: {search_space} / day"]
+            recommendations = [
+                "利用时间窗口: 限定在目标活跃时段",
+                "预测模式: 根据当前时间推算有效 session",
+                f"搜索空间: {search_space} / day",
+            ]
         elif pattern == PatternType.TIMESTAMP_S:
             search_space = 86_400
             risk = RiskLevel.HIGH
@@ -190,7 +191,7 @@ class SessionIDAnalyzer:
             recommendations = ["UUID v1 含时间戳和 MAC 地址信息", "需收集样本分析时间相关性"]
         elif pattern == PatternType.UUID_V4:
             risk = RiskLevel.MINIMAL
-            search_space = 2 ** 122
+            search_space = 2**122
             recommendations = ["UUID v4 (随机): 暴力破解不可行", "寻找侧信道: 日志泄露、Referer 头等"]
         elif pattern in (PatternType.MD5_HASH, PatternType.SHA1_HASH):
             risk = RiskLevel.MEDIUM
@@ -201,7 +202,11 @@ class SessionIDAnalyzer:
             search_space = self._extract_numeric_suffix(session_ids[-1]) or 10000
             risk = RiskLevel.CRITICAL
             attack_vectors = ["sequential_enumeration"]
-            recommendations = ["纯整数递增: 预测性极高", f"已观察到最大 ID: {search_space}", f"推荐枚举: 1 到 {search_space}"]
+            recommendations = [
+                "纯整数递增: 预测性极高",
+                f"已观察到最大 ID: {search_space}",
+                f"推荐枚举: 1 到 {search_space}",
+            ]
         elif pattern == PatternType.USER_DERIVED:
             risk = RiskLevel.CRITICAL
             search_space = 100
@@ -214,17 +219,22 @@ class SessionIDAnalyzer:
         predictability = self._compute_predictability(pattern, risk, entropy, time_correlation)
 
         return AnalysisResult(
-            pattern_type=pattern, risk_level=risk, entropy_bits=entropy,
-            predictability_score=predictability, search_space=search_space,
-            sample_count=len(session_ids), prefix=prefix, date_format=date_fmt,
-            counter_width=counter_width, time_correlation=time_correlation,
+            pattern_type=pattern,
+            risk_level=risk,
+            entropy_bits=entropy,
+            predictability_score=predictability,
+            search_space=search_space,
+            sample_count=len(session_ids),
+            prefix=prefix,
+            date_format=date_fmt,
+            counter_width=counter_width,
+            time_correlation=time_correlation,
             increment_value=increments[0] if increments else 0,
-            attack_vectors=attack_vectors, recommendations=recommendations,
+            attack_vectors=attack_vectors,
+            recommendations=recommendations,
         )
 
-    def _compute_time_correlation(
-        self, session_ids: list[str], timestamps: list[float]
-    ) -> float:
+    def _compute_time_correlation(self, session_ids: list[str], timestamps: list[float]) -> float:
         """计算 session ID 与请求时间的相关性"""
         if len(session_ids) < 2 or len(timestamps) < 2:
             return 0.0
@@ -250,7 +260,7 @@ class SessionIDAnalyzer:
         sum_x2 = sum(t * t for t in timestamps[:n])
         sum_y2 = sum(s * s for s in nums)
 
-        denom = math.sqrt((n * sum_x2 - sum_x ** 2) * (n * sum_y2 - sum_y ** 2))
+        denom = math.sqrt((n * sum_x2 - sum_x**2) * (n * sum_y2 - sum_y**2))
         if denom == 0:
             return 0.0
 
@@ -343,6 +353,7 @@ class SessionIDAnalyzer:
         委托给 SessionIDCandidateGenerator 执行。
         """
         from strike.session.session_id_candidates import SessionIDCandidateGenerator
+
         return SessionIDCandidateGenerator().generate(result, known_session, max_candidates)
 
 

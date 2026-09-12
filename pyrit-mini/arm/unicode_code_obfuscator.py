@@ -23,6 +23,7 @@ Constitution compliance:
 Data Flow:
     unicode_code_obfuscator → obfuscated_code → PyRIT CodeChameleonConverter → Attack
 """
+
 from __future__ import annotations
 
 import logging

@@ -9,6 +9,8 @@
 模块清单:
     - vector_db_poisoner.py : 向量数据库投毒器 (VectorDBPoisoner)
     - kb_injector.py        : 知识库文档注入器 (KBInjector)
+    - targeted_consumer.py  : RAG 元数据定向消费 (RAGTargetedConsumer)
+    - data_poisoning.py     : 数据投毒注入器 (DataPoisoningInjector)
 
 Academic basis:
     - Zou et al. (arXiv:2406.04245) — PoisonedRAG
@@ -23,6 +25,17 @@ Constitution compliance:
     - R-S4: 测试全部 mock
 """
 
+from strike.rag.context_exploit import (
+    ContextExploitPayload,
+    ContextExploitResult,
+    ContextWindowExploiter,
+    context_window_attack,
+)
+from strike.rag.data_poisoning import (
+    DataPoisoningInjector,
+    PoisonPayload,
+    create_data_poisoning_injector,
+)
 from strike.rag.kb_injector import (
     InjectPhase,
     KBInjectConfig,
@@ -30,6 +43,17 @@ from strike.rag.kb_injector import (
     KBInjectResult,
     KBLocation,
     inject_kb_document,
+)
+from strike.rag.retrieval_manipulator import (
+    RetrievalManipPayload,
+    RetrievalManipResult,
+    RetrievalManipulator,
+    retrieval_manipulation_attack,
+)
+from strike.rag.targeted_consumer import (
+    generate_document_targeted_seeds,
+    inject_rag_targeted_seeds,
+    recommend_techniques_for_rag,
 )
 from strike.rag.vector_db_poisoner import (
     PoisonConfig,
@@ -53,4 +77,22 @@ __all__ = [
     "KBLocation",
     "InjectPhase",
     "inject_kb_document",
+    # Retrieval Manipulator
+    "RetrievalManipulator",
+    "RetrievalManipPayload",
+    "RetrievalManipResult",
+    "retrieval_manipulation_attack",
+    # Context Exploit
+    "ContextWindowExploiter",
+    "ContextExploitPayload",
+    "ContextExploitResult",
+    "context_window_attack",
+    # Data Poisoning
+    "DataPoisoningInjector",
+    "PoisonPayload",
+    "create_data_poisoning_injector",
+    # Targeted Consumer
+    "generate_document_targeted_seeds",
+    "inject_rag_targeted_seeds",
+    "recommend_techniques_for_rag",
 ]

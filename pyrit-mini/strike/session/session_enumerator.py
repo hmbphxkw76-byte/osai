@@ -28,6 +28,7 @@ Constitution compliance:
     - C2: 不添加任何攻击端过滤
     - R-S1: 不硬编码目标标识符, 完全配置驱动
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -42,31 +43,34 @@ logger = logging.getLogger(__name__)
 
 class EnumStrategy(str, Enum):
     """枚举策略"""
-    SEQUENTIAL = "sequential"          # 顺序递增
-    DICTIONARY = "dictionary"          # 字典攻击
-    TIME_WINDOW = "time_window"        # 时间窗口
-    LEAK_BASED = "leak_based"          # 信息泄露
+
+    SEQUENTIAL = "sequential"  # 顺序递增
+    DICTIONARY = "dictionary"  # 字典攻击
+    TIME_WINDOW = "time_window"  # 时间窗口
+    LEAK_BASED = "leak_based"  # 信息泄露
 
 
 class ProbeMethod(str, Enum):
     """探测方法"""
-    CHAT_API = "chat_api"              # 通过 chat API probe
-    DIRECT_ACCESS = "direct_access"    # 直接访问 endpoint
+
+    CHAT_API = "chat_api"  # 通过 chat API probe
+    DIRECT_ACCESS = "direct_access"  # 直接访问 endpoint
     CONTEXT_SWITCH = "context_switch"  # 上下文切换
 
 
 @dataclass
 class EnumerationConfig:
     """枚举配置 (完全参数化, 无硬编码)"""
+
     strategy: EnumStrategy = EnumStrategy.SEQUENTIAL
-    batch_size: int = 10                # 并发批次大小
-    max_attempts: int = 1000            # 最大尝试次数
-    rate_limit_ms: int = 100            # 请求间隔 (ms)
-    timeout_sec: float = 5.0            # 请求超时
-    probe_message: str = "ping"         # 探测消息
-    idor_test_enabled: bool = True      # 自动 IDOR 验证
+    batch_size: int = 10  # 并发批次大小
+    max_attempts: int = 1000  # 最大尝试次数
+    rate_limit_ms: int = 100  # 请求间隔 (ms)
+    timeout_sec: float = 5.0  # 请求超时
+    probe_message: str = "ping"  # 探测消息
+    idor_test_enabled: bool = True  # 自动 IDOR 验证
     idor_probe_message: str = "show my data"  # IDOR 探测消息
-    session_field: str = "session_id"   # 请求中 session 字段名
+    session_field: str = "session_id"  # 请求中 session 字段名
     valid_response_hints: list[str] = field(default_factory=list)  # 有效响应特征
     invalid_response_hints: list[str] = field(default_factory=list)  # 无效响应特征
 
@@ -74,6 +78,7 @@ class EnumerationConfig:
 @dataclass
 class ProbeResult:
     """单次探测结果"""
+
     session_id: str
     is_valid: bool
     response_code: int = 0
@@ -85,6 +90,7 @@ class ProbeResult:
 @dataclass
 class EnumerationResult:
     """枚举完整结果"""
+
     valid_sessions: list[str] = field(default_factory=list)
     invalid_count: int = 0
     total_attempts: int = 0
@@ -148,7 +154,7 @@ class SessionEnumerator:
         result = EnumerationResult()
 
         # 分批处理
-        batches = self._create_batches(candidates[:self.config.max_attempts])
+        batches = self._create_batches(candidates[: self.config.max_attempts])
 
         for batch in batches:
             batch_results = await self._probe_batch(batch)
@@ -174,18 +180,11 @@ class SessionEnumerator:
         result.elapsed_seconds = time.time() - start_time
         return result
 
-    async def _create_batches(
-        self, candidates: list[str]
-    ) -> list[list[str]]:
+    async def _create_batches(self, candidates: list[str]) -> list[list[str]]:
         """将候选列表分批"""
-        return [
-            candidates[i : i + self.config.batch_size]
-            for i in range(0, len(candidates), self.config.batch_size)
-        ]
+        return [candidates[i : i + self.config.batch_size] for i in range(0, len(candidates), self.config.batch_size)]
 
-    async def _probe_batch(
-        self, session_ids: list[str]
-    ) -> list[ProbeResult]:
+    async def _probe_batch(self, session_ids: list[str]) -> list[ProbeResult]:
         """并发探测一批 session"""
         tasks = [self._probe_single(sid) for sid in session_ids]
         return await asyncio.gather(*tasks)
@@ -329,9 +328,7 @@ class SessionEnumerationSuite:
     ) -> EnumerationResult:
         """完整测试: 生成候选 → 枚举 → IDOR 验证"""
         # 生成候选列表
-        candidates = self.analyzer.generate_candidates(
-            analysis_result, known_session, max_candidates
-        )
+        candidates = self.analyzer.generate_candidates(analysis_result, known_session, max_candidates)
 
         # 执行枚举
         return await self.enumerator.enumerate(candidates)

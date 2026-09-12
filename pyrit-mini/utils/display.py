@@ -5,6 +5,7 @@ Removed: decorative banners, progress bars, ASCII art, unused helpers.
 
 Preserved: only symbols with actual consumers in the attack pipeline.
 """
+
 from __future__ import annotations
 
 import logging
@@ -41,6 +42,7 @@ for _stream in (_sys.stdout, _sys.stderr):
 if _sys.platform == "win32":
     try:
         import ctypes
+
         _kernel32 = ctypes.windll.kernel32
         _kernel32.SetConsoleMode(_kernel32.GetStdHandle(-11), 7)
     except Exception:
@@ -74,6 +76,7 @@ def _asr_bar(asr: float, width: int = 20) -> str:
 
 def _visual_width(text: str) -> int:
     import unicodedata
+
     clean = _ANSI_RE.sub("", text)
     return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in clean)
 
@@ -110,6 +113,35 @@ def _print_card_sep() -> None:
 # Phase display primitives (consumed by: main.py, core/phases/*)
 # ====================================================================
 
+
+# == W0-8: 终端事件接入 EventLog（REQ-148，旁路；未绑定时为 no-op） ==
+# display 不持有 ctx，由 main.py 在 EventLog.attach 之后调用 bind_event_log() 注入
+_EVENT_LOG = None
+
+
+def bind_event_log(log) -> None:
+    """绑定 EventLog 实例（INIT 阶段调用一次；重复调用以最后一次为准）。"""
+    global _EVENT_LOG
+    _EVENT_LOG = log
+
+
+def _emit_display(phase: str, status: str, message: str, ok: bool | None) -> None:
+    """终端事件写入 EventLog；未绑定/禁用时静默 no-op。
+
+    展示层异常绝不阻断攻击主链路——这是 W0 零行为回归的底线。
+    """
+    if _EVENT_LOG is None:
+        return
+    try:
+        _EVENT_LOG.emit(
+            phase.lower(),
+            "display",
+            {"status": status, "message": str(message)[:500], "ok": ok},
+        )
+    except Exception:
+        pass
+
+
 def print_banner() -> None:
     print()
     print(f"{_C_CYAN}{_C_BOLD}+{'=' * 68}+")
@@ -121,8 +153,13 @@ def print_banner() -> None:
 
 def print_phase(phase: str, description: str) -> None:
     phase_colors = {
-        "RECON": _C_CYAN, "ARM": _C_BLUE, "STRIKE": _C_YELLOW,
-        "ESCALATE": _C_MAGENTA, "ASSESS": _C_GREEN, "REPORT": _C_CYAN, "INIT": _C_DIM,
+        "RECON": _C_CYAN,
+        "ARM": _C_BLUE,
+        "STRIKE": _C_YELLOW,
+        "ESCALATE": _C_MAGENTA,
+        "ASSESS": _C_GREEN,
+        "REPORT": _C_CYAN,
+        "INIT": _C_DIM,
     }
     color = phase_colors.get(phase, _C_BOLD)
     sep = "=" * 60
@@ -130,6 +167,7 @@ def print_phase(phase: str, description: str) -> None:
     print(f"  {color}{sep}{_C_RESET}")
     print(f"  {color}> [{phase}] {_C_RESET}{_C_BOLD}{description}{_C_RESET}")
     print(f"  {color}{sep}{_C_RESET}")
+    _emit_display(phase, "start", description, None)
 
 
 def print_status(phase: str, status: str, message: str, *, ok: bool | None = None) -> None:
@@ -143,6 +181,7 @@ def print_status(phase: str, status: str, message: str, *, ok: bool | None = Non
         tag = f"{_C_CYAN}[*]{_C_RESET}"
         sc = _C_CYAN
     print(f"  {tag} {_C_BOLD}[{phase}]{_C_RESET} {sc}{status}{_C_RESET}  {_C_DIM}{message}{_C_RESET}")
+    _emit_display(phase, status, message, ok)
 
 
 def print_card(title: str, rows: list[tuple[str, str]], *, color: str = "", title_color: str = "") -> None:
@@ -170,24 +209,54 @@ def print_error(message: str) -> None:
 # Phase-specific cards (consumed by: core/phases/*)
 # ====================================================================
 
+
 def print_recon_card(
-    entry_point: str,
-    attack_surface: list[str],
-    confidence: float,
-    capabilities: list[str],
-    seeds: list[str],
-    converters: list[str],
+    entry_point: Any = "",
+    attack_surface: list[str] | None = None,
+    confidence: float = 0.0,
+    capabilities: list[str] | None = None,
+    seeds: list[str] | None = None,
+    converters: list[str] | None = None,
 ) -> None:
+    """渲染 RECON 卡片。
+
+    W0 修复：支持两种调用约定，二者此前不兼容 ——
+        1. `print_recon_card(ctx)`（core/phases/recon.py 的调用点）→ 原签名缺 5 个
+           必填参数，每次 RECON 必抛 TypeError，**主链路第一步即中断**。
+        2. `print_recon_card(entry, surface, conf, caps, seeds, convs)`（既有调用）
+    现在以「首参不是字符串即视为 ctx」判定，两种写法都能工作。
+    """
+    # 约定 1：传入上下文对象 → 从中提取展示字段
+    if not isinstance(entry_point, str):
+        ctx = entry_point
+        parsed = getattr(ctx, "parsed_request", None)
+        fingerprint = getattr(parsed, "target_fingerprint", None) or {}
+        if not isinstance(fingerprint, dict):
+            fingerprint = getattr(fingerprint, "to_dict", lambda: {})() or {}
+
+        entry_point = str(
+            getattr(parsed, "path", "") or getattr(parsed, "url", "") or getattr(ctx, "target_name", "") or "N/A"
+        )
+        surface = fingerprint.get("attack_surface") or fingerprint.get("attack_surfaces") or []
+        attack_surface = list(surface) if isinstance(surface, (list, tuple, set)) else [str(surface)]
+        confidence = float(fingerprint.get("confidence", 0.0) or 0.0)
+        caps = fingerprint.get("capabilities") or []
+        capabilities = list(caps) if isinstance(caps, (list, tuple, set)) else [str(caps)]
+        seed_map = getattr(ctx, "seeds", None) or []
+        seeds = list(seed_map) if not isinstance(seed_map, dict) else list(seed_map.keys())
+        conv_map = getattr(ctx, "converter_map", None) or {}
+        converters = list(conv_map.keys()) if isinstance(conv_map, dict) else list(conv_map)
+
     rows = [
-        ("Entry", entry_point),
-        ("Attack Surface", ", ".join(attack_surface[:3]) if attack_surface else "N/A"),
-        ("Confidence", f"{_C_CYAN}{confidence:.1%}{_C_RESET}"),
-        ("Capabilities", ", ".join(capabilities[:4]) if capabilities else "N/A"),
+        ("Entry", str(entry_point)),
+        ("Attack Surface", ", ".join(str(x) for x in (attack_surface or [])[:3]) or "N/A"),
+        ("Confidence", f"{_C_CYAN}{float(confidence or 0.0):.1%}{_C_RESET}"),
+        ("Capabilities", ", ".join(str(x) for x in (capabilities or [])[:4]) or "N/A"),
     ]
     if seeds:
         rows.append(("Seeds", f"{len(seeds)} seeds loaded"))
     if converters:
-        rows.append(("Converters", ", ".join(converters[:3])))
+        rows.append(("Converters", ", ".join(str(x) for x in converters[:3])))
     print_card("RECON: Target Reconnaissance", rows, color=_C_CYAN)
 
 
@@ -206,12 +275,41 @@ def print_arm_card(tech: str, seeds_count: int, converters: list[str], max_seeds
 
 def print_arm_highlights(*, seed_count: int, technique_count: int, converter_count: int) -> None:
     """Print ARM phase highlights (consumed by: core/phases/arm.py)."""
-    print(f"  {_C_DIM}[ARM]{_C_RESET} {_C_GREEN}Seed={seed_count}{_C_RESET}, "
-          f"{_C_MAGENTA}Technique={technique_count}{_C_RESET}, "
-          f"{_C_CYAN}Converter={converter_count}{_C_RESET}")
+    print(
+        f"  {_C_DIM}[ARM]{_C_RESET} {_C_GREEN}Seed={seed_count}{_C_RESET}, "
+        f"{_C_MAGENTA}Technique={technique_count}{_C_RESET}, "
+        f"{_C_CYAN}Converter={converter_count}{_C_RESET}"
+    )
 
 
-def print_assess_card(tech: str, judge_scores: list[float], avg_score: float, confidence: float) -> None:
+def print_assess_card(
+    tech: Any = "",
+    judge_scores: list[float] | None = None,
+    avg_score: float | None = None,
+    confidence: float | None = None,
+) -> None:
+    """渲染 ASSESS 评分卡片。
+
+    W0 修复：支持两种调用约定 ——
+        1. `print_assess_card(ctx)`（utils/display.py:748 的 print_assess_report
+           以及 core/phases/assess.py:163 的调用点）→ 原签名要求 4 个必填参数，
+           每次 ASSESS 必抛 TypeError。
+        2. `print_assess_card(tech, judge_scores, avg_score, confidence)`（既有调用）
+    以「首参不是字符串即视为 ctx」判定。
+    """
+    if not isinstance(tech, str):
+        ctx = tech
+        stats = getattr(ctx, "judge_stats", None) or {}
+        scores = getattr(ctx, "judge_scores", None) or []
+        tech = str(getattr(ctx, "technique_name", "") or "ALL")
+        judge_scores = [float(s) for s in scores] if isinstance(scores, (list, tuple)) else []
+        avg_score = float(stats.get("avg_score", getattr(ctx, "avg_score", 0.0)) or 0.0)
+        confidence = float(stats.get("confidence", getattr(ctx, "confidence", 0.0)) or 0.0)
+
+    judge_scores = list(judge_scores or [])
+    avg_score = float(avg_score or 0.0)
+    confidence = float(confidence or 0.0)
+
     score_color = _C_GREEN if avg_score >= 7 else _C_YELLOW if avg_score >= 4 else _C_RED
     rows = [
         ("Technology", f"{_C_BOLD}{tech}{_C_RESET}"),
@@ -222,20 +320,86 @@ def print_assess_card(tech: str, judge_scores: list[float], avg_score: float, co
     print_card("ASSESS: Scoring", rows, color=_C_GREEN)
 
 
-def print_report_card(report_path: str, report_type: str = "HTML") -> None:
+def print_report_card(
+    report_path: str = "",
+    report_type: str = "HTML",
+    *,
+    total_attacks: int | None = None,
+    successful_attacks: int | None = None,
+    overall_asr: float | None = None,
+    evidence_count: int | None = None,
+    wilson_ci: tuple[float, float] | None = None,
+    native_output_dir: str | None = None,
+) -> None:
+    """渲染报告生成卡片。
+
+    W0 修复：`core/phases/report.py:187` 传入 total_attacks / successful_attacks /
+    overall_asr / evidence_count / wilson_ci 五个关键字参数，而原签名只接受
+    (report_path, report_type) → TypeError: unexpected keyword argument，
+    报告已生成却在此崩溃。现按调用方契约扩展为可选关键字参数。
+    """
     rows = [
         ("Type", report_type),
         ("Path", report_path),
         ("Status", f"{_C_GREEN}Generated{_C_RESET}"),
     ]
+    if total_attacks is not None:
+        rows.append(("Total Attacks", str(total_attacks)))
+    if successful_attacks is not None:
+        rows.append(("Successful", f"{_C_GREEN}{successful_attacks}{_C_RESET}"))
+    if overall_asr is not None:
+        rows.append(("ASR", _format_asr(float(overall_asr))))
+    if evidence_count is not None:
+        rows.append(("Evidence", str(evidence_count)))
+    if wilson_ci:
+        rows.append(("Wilson 95% CI", f"[{wilson_ci[0]:.1f}%, {wilson_ci[1]:.1f}%]"))
+    if native_output_dir:
+        rows.append(("Native Output", str(native_output_dir)))
     print_card("REPORT: Generated", rows, color=_C_CYAN)
 
 
-def print_joint_asr_card(per_endpoint: dict[str, float], joint_asr: float) -> None:
-    rows = []
-    for endpoint, asr in per_endpoint.items():
-        rows.append((endpoint, _format_asr(asr)))
+def print_joint_asr_card(
+    joint_asr: float,
+    *,
+    per_endpoint: dict[str, float] | None = None,
+    total_endpoints: int | None = None,
+    total_attacks: int | None = None,
+    total_successes: int | None = None,
+    endpoint_summaries: Any = None,
+    report_path: str | None = None,
+) -> None:
+    """渲染多端点联合 ASR 卡片。
+
+    W0 修复：调用方（core/phases/_helpers._print_joint_asr_summary）传入
+    joint_asr/total_endpoints/total_attacks/total_successes/endpoint_summaries/report_path
+    六个关键字参数，而本函数原先只接受 (per_endpoint, joint_asr) → TypeError，
+    在多端点主链路末尾直接崩溃。现按调用方契约扩展签名，并保留旧签名兼容
+    （单独传 per_endpoint 位置参数仍可用）。
+    """
+    rows: list[tuple[str, str]] = []
+
+    # 每个端点的明细（优先用 endpoint_summaries，其次 per_endpoint）
+    if endpoint_summaries:
+        if isinstance(endpoint_summaries, dict):
+            iterable = endpoint_summaries.items()
+        else:
+            iterable = ((getattr(s, "endpoint", str(i)), getattr(s, "asr", 0.0)) for i, s in enumerate(endpoint_summaries))
+        for endpoint, asr in iterable:
+            rows.append((str(endpoint), _format_asr(float(asr or 0.0))))
+    elif per_endpoint:
+        for endpoint, asr in per_endpoint.items():
+            rows.append((str(endpoint), _format_asr(float(asr or 0.0))))
+
+    if total_endpoints is not None:
+        rows.append(("Endpoints", str(total_endpoints)))
+    if total_attacks is not None:
+        rows.append(("Total Attacks", str(total_attacks)))
+    if total_successes is not None:
+        rows.append(("Successful", f"{_C_GREEN}{total_successes}{_C_RESET}"))
     rows.append(("Joint ASR", f"{_C_BOLD}{_format_asr(joint_asr)}{_C_RESET}"))
+    if report_path:
+        rows.append(("Report", str(report_path)))
+
     print_card("Joint ASR Summary", rows, color=_C_MAGENTA)
 
 
@@ -258,8 +422,10 @@ def print_summary(*, total_attacks: int, successful_attacks: int, overall_asr: f
 # Strike helpers (consumed by: strike/executor.py, core/phases/strike.py)
 # ====================================================================
 
+
 def _get_endpoint_name(ctx: Any) -> str:
     import pathlib
+
     burp_val = getattr(ctx.args, "burp", None)
     if burp_val:
         try:
@@ -279,7 +445,9 @@ def _get_endpoint_name(ctx: Any) -> str:
     return "unknown"
 
 
-def print_strike_start_banner(ctx: Any, *, total_endpoints: int | None = None, current_endpoint_idx: int | None = None) -> None:
+def print_strike_start_banner(
+    ctx: Any, *, total_endpoints: int | None = None, current_endpoint_idx: int | None = None
+) -> None:
     ep_name = _get_endpoint_name(ctx)
     total_seeds = len(ctx.seeds)
     total_converters = sum(len(v) for v in ctx.converter_map.values()) if ctx.converter_map else 0
@@ -287,6 +455,7 @@ def print_strike_start_banner(ctx: Any, *, total_endpoints: int | None = None, c
     if total_endpoints and current_endpoint_idx is not None:
         ep_idx_str = f" {_C_DIM}(endpoint {current_endpoint_idx + 1}/{total_endpoints}){_C_RESET}"
     from core.context import get_effective_concurrency
+
     concurrency = get_effective_concurrency(ctx)
     print()
     print(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
@@ -304,22 +473,37 @@ def print_strike_phase_summary(ctx: Any, *, total_results: int, total_success: i
     asr_str = _format_asr(asr)
     print()
     print(f"  {_C_BOLD}{'=' * 60}{_C_RESET}")
-    print(f"  {_C_BOLD}STRIKE DONE:{_C_RESET} {_C_CYAN}{ep_name}{_C_RESET} "
-          f"| {total_results} attacks, {_C_GREEN}{total_success} success{_C_RESET} ({asr_str}) "
-          f"| {elapsed_seconds:.1f}s")
+    print(
+        f"  {_C_BOLD}STRIKE DONE:{_C_RESET} {_C_CYAN}{ep_name}{_C_RESET} "
+        f"| {total_results} attacks, {_C_GREEN}{total_success} success{_C_RESET} ({asr_str}) "
+        f"| {elapsed_seconds:.1f}s"
+    )
     print(f"  {_C_BOLD}{'=' * 60}{_C_RESET}")
 
 
-def print_converter_path_start(ctx: Any, *, converter_name: str, path_idx: int, total_paths: int, seeds_remaining: int) -> None:
+def print_converter_path_start(
+    ctx: Any, *, converter_name: str, path_idx: int, total_paths: int, seeds_remaining: int
+) -> None:
     ep_name = _get_endpoint_name(ctx)
-    print(f"\n  {_C_BOLD}> [STRIKE]{_C_RESET} {_C_CYAN}{ep_name}{_C_RESET} "
-          f"{_C_DIM}|{_C_RESET} Path {_C_YELLOW}{path_idx + 1}/{total_paths}{_C_RESET}: "
-          f"{_C_MAGENTA}{converter_name}{_C_RESET} "
-          f"| {seeds_remaining} seeds {_C_DIM}[WAIT]{_C_RESET}")
+    print(
+        f"\n  {_C_BOLD}> [STRIKE]{_C_RESET} {_C_CYAN}{ep_name}{_C_RESET} "
+        f"{_C_DIM}|{_C_RESET} Path {_C_YELLOW}{path_idx + 1}/{total_paths}{_C_RESET}: "
+        f"{_C_MAGENTA}{converter_name}{_C_RESET} "
+        f"| {seeds_remaining} seeds {_C_DIM}[WAIT]{_C_RESET}"
+    )
 
 
-def print_converter_path_done(ctx: Any, *, converter_name: str, path_idx: int, total_paths: int,
-                               seeds_attempted: int, seeds_succeeded: int, seeds_remaining: int, elapsed_seconds: float) -> None:
+def print_converter_path_done(
+    ctx: Any,
+    *,
+    converter_name: str,
+    path_idx: int,
+    total_paths: int,
+    seeds_attempted: int,
+    seeds_succeeded: int,
+    seeds_remaining: int,
+    elapsed_seconds: float,
+) -> None:
     ep_name = _get_endpoint_name(ctx)
     success_rate = (seeds_succeeded / seeds_attempted * 100) if seeds_attempted > 0 else 0.0
     rate_color = _asr_color(success_rate)
@@ -329,40 +513,48 @@ def print_converter_path_done(ctx: Any, *, converter_name: str, path_idx: int, t
         status = f"{_C_GREEN}[OK] partial{_C_RESET}"
     else:
         status = f"{_C_YELLOW}o no success{_C_RESET}"
-    print(f"  {status} {_C_DIM}[STRIKE]{_C_RESET} {_C_CYAN}{ep_name}{_C_RESET} "
-          f"{_C_DIM}|{_C_RESET} Path {_C_YELLOW}{path_idx + 1}/{total_paths}{_C_RESET}: "
-          f"{_C_MAGENTA}{converter_name}{_C_RESET} "
-          f"| {rate_color}{seeds_succeeded}/{seeds_attempted} ({success_rate:.0f}%) success{_C_RESET}, "
-          f"{seeds_remaining} remaining {_C_DIM}({elapsed_seconds:.1f}s){_C_RESET}")
+    print(
+        f"  {status} {_C_DIM}[STRIKE]{_C_RESET} {_C_CYAN}{ep_name}{_C_RESET} "
+        f"{_C_DIM}|{_C_RESET} Path {_C_YELLOW}{path_idx + 1}/{total_paths}{_C_RESET}: "
+        f"{_C_MAGENTA}{converter_name}{_C_RESET} "
+        f"| {rate_color}{seeds_succeeded}/{seeds_attempted} ({success_rate:.0f}%) success{_C_RESET}, "
+        f"{seeds_remaining} remaining {_C_DIM}({elapsed_seconds:.1f}s){_C_RESET}"
+    )
 
 
-def print_seed_batch_progress(ctx: Any, *, converter_name: str, path_idx: int, total_paths: int,
-                               completed: int, total: int, succeeded: int) -> None:
+def print_seed_batch_progress(
+    ctx: Any, *, converter_name: str, path_idx: int, total_paths: int, completed: int, total: int, succeeded: int
+) -> None:
     ep_name = _get_endpoint_name(ctx)
     bar_width = 20
     filled = int(completed / max(1, total) * bar_width)
     bar = "#" * filled + "-" * (bar_width - filled)
     succ_str = f"{_C_GREEN}{succeeded} success{_C_RESET}" if succeeded > 0 else f"{_C_DIM}0 success{_C_RESET}"
-    line = (f"\r  {_C_DIM}[STRIKE]{_C_RESET} {_C_CYAN}{ep_name}{_C_RESET} "
-            f"{_C_DIM}|{_C_RESET} Path {_C_YELLOW}{path_idx + 1}/{total_paths}{_C_RESET}: "
-            f"{_C_MAGENTA}{converter_name}{_C_RESET} "
-            f"{_C_DIM}|{_C_RESET} {bar} {completed}/{total} ({succ_str})")
+    line = (
+        f"\r  {_C_DIM}[STRIKE]{_C_RESET} {_C_CYAN}{ep_name}{_C_RESET} "
+        f"{_C_DIM}|{_C_RESET} Path {_C_YELLOW}{path_idx + 1}/{total_paths}{_C_RESET}: "
+        f"{_C_MAGENTA}{converter_name}{_C_RESET} "
+        f"{_C_DIM}|{_C_RESET} {bar} {completed}/{total} ({succ_str})"
+    )
     if completed < total:
         print(f"{line}{' ' * 10}", end="", flush=True)
     else:
         print(f"{line}{' ' * 10}")
 
 
-def print_native_sequential_progress(ctx: Any, *, seed_idx: int, total_seeds: int,
-                                      converter_count: int, objective_preview: str) -> None:
+def print_native_sequential_progress(
+    ctx: Any, *, seed_idx: int, total_seeds: int, converter_count: int, objective_preview: str
+) -> None:
     ep_name = _get_endpoint_name(ctx)
     bar_width = 20
     filled = int((seed_idx + 1) / max(1, total_seeds) * bar_width)
     bar = "#" * filled + "-" * (bar_width - filled)
     obj_short = objective_preview[:50] + ("..." if len(objective_preview) > 50 else "")
-    line = (f"\r  {_C_DIM}[STRIKE]{_C_RESET} {_C_CYAN}{ep_name}{_C_RESET} "
-            f"{_C_DIM}| Sequential{_C_RESET} {bar} {seed_idx + 1}/{total_seeds} "
-            f"{_C_DIM}| {converter_count} paths{_C_DIM} | obj: \"{obj_short}\"")
+    line = (
+        f"\r  {_C_DIM}[STRIKE]{_C_RESET} {_C_CYAN}{ep_name}{_C_RESET} "
+        f"{_C_DIM}| Sequential{_C_RESET} {bar} {seed_idx + 1}/{total_seeds} "
+        f'{_C_DIM}| {converter_count} paths{_C_DIM} | obj: "{obj_short}"'
+    )
     if seed_idx + 1 < total_seeds:
         print(f"{line}{' ' * 10}", end="", flush=True)
     else:
@@ -373,15 +565,20 @@ def print_native_sequential_progress(ctx: Any, *, seed_idx: int, total_seeds: in
 # PyRIT native output (consumed by: this module's own orchestrators)
 # ====================================================================
 
-async def print_native_attack_result(result: Any, *, include_auxiliary: bool = True,
-                                      include_adversarial: bool = True, include_pruned: bool = True) -> bool:
+
+async def print_native_attack_result(
+    result: Any, *, include_auxiliary: bool = True, include_adversarial: bool = True, include_pruned: bool = True
+) -> bool:
     """Dispatch PyRIT output_attack_async for a single result."""
     if result is None:
         return False
     try:
         from pyrit.output import OutputFormat, StdoutSink, output_attack_async
+
         await output_attack_async(
-            result, format=OutputFormat.PRETTY, sink=StdoutSink(),
+            result,
+            format=OutputFormat.PRETTY,
+            sink=StdoutSink(),
             include_auxiliary_metadata=include_auxiliary,
             include_adversarial_conversation=include_adversarial,
             include_pruned_conversations=include_pruned,
@@ -398,8 +595,10 @@ async def print_native_scenario_result(scenario_result: Any) -> bool:
         return False
     try:
         from pyrit.output import OutputFormat, StdoutSink, output_scenario_async
-        await output_scenario_async(scenario_result, format=OutputFormat.PRETTY, sink=StdoutSink(),
-                                     sort_groups_by_success_rate=True)
+
+        await output_scenario_async(
+            scenario_result, format=OutputFormat.PRETTY, sink=StdoutSink(), sort_groups_by_success_rate=True
+        )
         return True
     except Exception as e:
         logger.debug("Native scenario output failed: %s", e)
@@ -450,21 +649,29 @@ async def print_technique_trail(scenario_result: Any) -> None:
 # Attack result orchestration (consumed by: strike/__init__.py)
 # ====================================================================
 
+
 def _print_failure_summary(result: Any, tech_name: str, idx: int) -> None:
     objective = getattr(result, "objective", "") or ""
     outcome = getattr(result, "outcome", "")
     outcome_str = str(outcome)
-    tag = f"{_C_GREEN}SCORE{_C_RESET}" if "score" in outcome_str.lower() else (
-        f"{_C_RED}FAIL{_C_RESET}" if "fail" in outcome_str.lower() else outcome_str[:10]
+    tag = (
+        f"{_C_GREEN}SCORE{_C_RESET}"
+        if "score" in outcome_str.lower()
+        else (f"{_C_RED}FAIL{_C_RESET}" if "fail" in outcome_str.lower() else outcome_str[:10])
     )
     seed_label = objective[:30].strip() + ("..." if len(objective) > 30 else "")
-    print(f"  {_C_DIM}[FAIL] [{tech_name}#{idx}]{_C_RESET} "
-          f"{_C_DIM}{seed_label[:50]:<50}{_C_RESET} {_C_RED}{tag}{_C_RESET}")
+    print(
+        f"  {_C_DIM}[FAIL] [{tech_name}#{idx}]{_C_RESET} "
+        f"{_C_DIM}{seed_label[:50]:<50}{_C_RESET} {_C_RED}{tag}{_C_RESET}"
+    )
 
 
 async def print_attack_results_native(
-    attack_results: dict[str, list[Any]], *, phase_label: str = "STRIKE",
-    max_per_tech: int = 3, verbose_failures: bool = False,
+    attack_results: dict[str, list[Any]],
+    *,
+    phase_label: str = "STRIKE",
+    max_per_tech: int = 3,
+    verbose_failures: bool = False,
 ) -> None:
     total_results = sum(len(r) for r in attack_results.values())
     if total_results == 0:
@@ -518,8 +725,7 @@ async def print_attack_results_native(
         tech_total = len(results)
         tech_asr = (tech_success / tech_total * 100) if tech_total > 0 else 0
         color = _asr_color(tech_asr)
-        print(f"  {color}{tech_name:<28}{_C_RESET} "
-              f"{tech_success:>3}/{tech_total:<3} {_asr_bar(tech_asr, width=20)}")
+        print(f"  {color}{tech_name:<28}{_C_RESET} {tech_success:>3}/{tech_total:<3} {_asr_bar(tech_asr, width=20)}")
 
 
 async def print_strike_results_native(ctx: "PipelineContext", *, max_per_tech: int = 3) -> None:
@@ -528,10 +734,7 @@ async def print_strike_results_native(ctx: "PipelineContext", *, max_per_tech: i
 
 def print_strike_card(ctx: "PipelineContext") -> None:
     total = sum(len(results) for results in ctx.attack_results.values())
-    success_count = sum(
-        1 for results in ctx.attack_results.values()
-        for r in results if _is_success(r)
-    )
+    success_count = sum(1 for results in ctx.attack_results.values() for r in results if _is_success(r))
     overall_asr = (success_count / total * 100) if total > 0 else 0
     print()
     print_card(
@@ -563,12 +766,29 @@ def print_strike_report(ctx: "PipelineContext") -> None:
 
 async def print_escalate_report_async(ctx: "PipelineContext") -> None:
     escalation_techs = [
-        k for k in ctx.attack_results
-        if any(x in k.lower() for x in [
-            "crescendo", "tap", "pair", "gcg", "best_of_n",
-            "skeleton", "native", "rogue", "mcp", "embedding",
-            "many_shot", "cair", "encoded", "red_teaming", "multi_prompt", "chunked",
-        ])
+        k
+        for k in ctx.attack_results
+        if any(
+            x in k.lower()
+            for x in [
+                "crescendo",
+                "tap",
+                "pair",
+                "gcg",
+                "best_of_n",
+                "skeleton",
+                "native",
+                "rogue",
+                "mcp",
+                "embedding",
+                "many_shot",
+                "cair",
+                "encoded",
+                "red_teaming",
+                "multi_prompt",
+                "chunked",
+            ]
+        )
     ]
     if escalation_techs:
         escalate_results = {k: ctx.attack_results[k] for k in escalation_techs}

@@ -14,16 +14,17 @@ Contains:
 - _create_litellm_target
 - _ensure_parsed_request_for_api_path
 """
+
 from __future__ import annotations
 
 import logging
 import os
 from typing import TYPE_CHECKING, Any
 
-from recon.adaptive_probe_config import compute_probe_budget
+from recon.api.adaptive_config import compute_probe_budget
 from recon.capability_detector import probe_active_capabilities
 from recon.guardrail_detector import detect_guardrail
-from recon.model_seed_mapper import get_seeds_for_model
+from recon.model.seed_mapper import get_seeds_for_model
 from recon.stealth_config import get_stealth_manager
 from recon.target_wrapper import RateLimitedTarget
 
@@ -36,9 +37,11 @@ logger = logging.getLogger(__name__)
 # These are operational resource handles, not attack data.
 _playwright_handles: dict[str, Any] = {}
 
+
 def get_playwright_handles() -> dict[str, Any]:
     """Get module-level Playwright handles for cleanup. Not part of ASR data flow."""
     return _playwright_handles
+
 
 #: Default max probe count (used when adaptive probe budget not configured)
 _MAX_PROBE_COUNT: int = 10
@@ -56,44 +59,46 @@ def _log_probe_failure(
     """Local orchestration_log helper (mirrors target_router._log_probe_failure)."""
     if ctx is None or not hasattr(ctx, "orchestration_log"):
         return
-    ctx.orchestration_log.append({
-        "phase": "recon",
-        "decision": f"probe_{probe_phase}_failed",
-        "input": {"target": getattr(ctx, "model_name", "unknown")},
-        "output": {
-            "error_type": type(error).__name__,
-            "error_message": str(error)[:500],
-            "is_fatal": is_fatal,
-        },
-        "reasoning": (
-            f"Probe '{probe_phase}' failed with {type(error).__name__}: {str(error)[:200]}. "
-            f"{'Fatal: aborting.' if is_fatal else 'Non-fatal: continuing with degraded capability.'}"
-        ),
-    })
+    ctx.orchestration_log.append(
+        {
+            "phase": "recon",
+            "decision": f"probe_{probe_phase}_failed",
+            "input": {"target": getattr(ctx, "model_name", "unknown")},
+            "output": {
+                "error_type": type(error).__name__,
+                "error_message": str(error)[:500],
+                "is_fatal": is_fatal,
+            },
+            "reasoning": (
+                f"Probe '{probe_phase}' failed with {type(error).__name__}: {str(error)[:200]}. "
+                f"{'Fatal: aborting.' if is_fatal else 'Non-fatal: continuing with degraded capability.'}"
+            ),
+        }
+    )
 
 
 async def _configure_remaining_targets(ctx: PipelineContext) -> None:
-    """ adversarial/scoring/converter targets."""
- # adversarial target
+    """adversarial/scoring/converter targets."""
+    # adversarial target
     if ctx.adversarial_target is None:
         ctx.adversarial_target = _create_adversarial_target()
     if ctx.adversarial_target:
         logger.info("Adversarial target: %s", type(ctx.adversarial_target).__name__)
 
- # extra adversarial targets
+    # extra adversarial targets
     if not ctx.extra_adversarial_targets:
         extra_targets = _create_extra_adversarial_targets()
         if extra_targets:
             ctx.extra_adversarial_targets = extra_targets
             logger.info("Extra adversarial targets: %d", len(extra_targets))
 
- # scoring target
+    # scoring target
     if ctx.scoring_target is None:
         ctx.scoring_target = _create_scoring_target(ctx)
     if ctx.scoring_target:
         logger.info("Scoring target: %s", type(ctx.scoring_target).__name__)
 
- # converter target
+    # converter target
     if ctx.converter_target is None:
         ctx.converter_target = ctx.scoring_target or ctx.adversarial_target
 
@@ -104,9 +109,11 @@ async def _configure_remaining_targets(ctx: PipelineContext) -> None:
         type(ctx.scoring_target).__name__ if ctx.scoring_target else "None",
     )
 
+
 # ====================================================================
 # -
 # ====================================================================
+
 
 class _ProbeCounter:
     """
@@ -122,7 +129,7 @@ class _ProbeCounter:
         self.value += n
 
     def can_probe(self, n: int = 1, max_probes: int = _MAX_PROBE_COUNT) -> bool:
-     # max ()
+        # max ()
         effective_max = self._adaptive_max if self._adaptive_max is not None else max_probes
         return self.value + n <= effective_max
 
@@ -131,16 +138,18 @@ class _ProbeCounter:
         effective_max = self._adaptive_max if self._adaptive_max is not None else max_probes
         return max(0, effective_max - self.value)
 
+
 # ====================================================================
 # L5 v54+: Adaptive Probe Initialization - 6-Strategy Integration Hub
 # ====================================================================
+
 
 async def _init_adaptive_probe(
     ctx: Any,
     parsed: Any,
     counter: _ProbeCounter,
 ) -> dict[str, Any]:
-    """ - 6
+    """- 6
 
      ():
         1. Guardrail Detection -> severity, stealth_level
@@ -168,7 +177,7 @@ async def _init_adaptive_probe(
 
     model_name = getattr(parsed, "burp_model_name", "") or "unknown"
 
- # == Phase 1: Guardrail Detection () ==
+    # == Phase 1: Guardrail Detection () ==
     try:
         logger.info("[Adaptive] Phase 1: Guardrail detection...")
         guardrail_report = await detect_guardrail(parsed)
@@ -188,13 +197,13 @@ async def _init_adaptive_probe(
             "stealth_level": "balanced",
         }
 
- # == Phase 2: Stealth Level -> Policy ==
+    # == Phase 2: Stealth Level -> Policy ==
     try:
         stealth_mgr = get_stealth_manager()
         guardrail_severity = probe_ctx["guardrail_report"].get("severity", "none")
         recommended_stealth = probe_ctx["guardrail_report"].get("stealth_level", "balanced")
 
- # guardrail ,
+        # guardrail ,
         user_stealth = getattr(ctx.args, "stealth_level", None) or recommended_stealth
         stealth_policy = stealth_mgr.get_policy(user_stealth)
         probe_ctx["stealth_policy"] = {
@@ -208,9 +217,9 @@ async def _init_adaptive_probe(
         logger.debug("[Adaptive] Stealth config failed: %s", e)
         probe_ctx["stealth_policy"] = {"name": "balanced", "behavioral_verify": True}
 
- # == Phase 3: Adaptive Probe Budget ==
+    # == Phase 3: Adaptive Probe Budget ==
     try:
-     # ( parsed target_fingerprint )
+        # ( parsed target_fingerprint )
         existing_caps_str = parsed.target_fingerprint.extra.get("capabilities", "")
         existing_caps = {}
         if existing_caps_str:
@@ -227,11 +236,10 @@ async def _init_adaptive_probe(
             stealth_level=probe_ctx["stealth_policy"].get("name", "balanced"),
         )
         probe_ctx["probe_budget"] = probe_budget
- # max_probes ()
+        # max_probes ()
         counter._adaptive_max = probe_budget["budget"]
         logger.info(
-            "[Adaptive] Probe budget: total=%d, parallel=%d, deep=%d, behavioral=%d "
-            "(complexity=%s)",
+            "[Adaptive] Probe budget: total=%d, parallel=%d, deep=%d, behavioral=%d (complexity=%s)",
             probe_budget["budget"],
             probe_budget["parallel"],
             probe_budget["deep_probe_budget"],
@@ -242,7 +250,7 @@ async def _init_adaptive_probe(
         logger.debug("[Adaptive] Probe budget calc failed: %s", e)
         probe_ctx["probe_budget"] = {"budget": 5, "parallel": 1, "complexity_level": "moderate"}
 
- # == Phase 4: Model Seed Mapping ( model_name ) ==
+    # == Phase 4: Model Seed Mapping ( model_name ) ==
     try:
         if model_name and model_name != "unknown":
             seed_mapping = get_seeds_for_model(model_name)
@@ -255,12 +263,12 @@ async def _init_adaptive_probe(
                 seed_mapping.get("source", "default"),
             )
 
- # ctx arm
+            # ctx arm
             ctx.seed_preferences = seed_mapping
     except Exception as e:
         logger.debug("[Adaptive] Seed mapping failed: %s", e)
 
- # == Phase 5: Behavioral Verification ( S1 ) ==
+    # == Phase 5: Behavioral Verification ( S1 ) ==
     behavioral_enabled = probe_ctx["stealth_policy"].get("behavioral_verify", True)
     behavioral_budget = probe_ctx["probe_budget"].get("behavioral_verify_budget", 0)
 
@@ -272,9 +280,11 @@ async def _init_adaptive_probe(
     logger.info("[Adaptive] Probe initialization complete: %s", probe_ctx["probe_budget"])
     return probe_ctx
 
+
 # ====================================================================
 # P1 ()
 # ====================================================================
+
 
 async def _run_background_probes(
     parsed: Any,
@@ -301,12 +311,12 @@ async def _run_background_probes(
     """
     logger.info("Background probes started (cap=%d)...", _MAX_PROBE_COUNT)
 
- # == P1-1: probe_active_capabilities (3 ) ==
+    # == P1-1: probe_active_capabilities (3 ) ==
     try:
         active_caps = await probe_active_capabilities(parsed)
         counter.add(3)
         if active_caps:
-         # P1-05:
+            # P1-05:
             existing_caps = parsed.target_fingerprint.extra.get("capabilities", "")
             all_caps = set(existing_caps.split(",")) if existing_caps else set()
             for cap_key, cap_val in active_caps.items():
@@ -317,7 +327,7 @@ async def _run_background_probes(
             parsed.target_fingerprint.extra["capabilities"] = ",".join(sorted(all_caps))
             logger.info("Background: active probe detected: %s", sorted(all_caps))
     except Exception as e:
-     # P2-07: orchestration_log ()
+        # P2-07: orchestration_log ()
         logger.warning("Background: active probe failed: %s", e)
         _log_probe_failure(ctx, "active_capability", e, is_fatal=False)
 
@@ -329,7 +339,8 @@ async def _run_background_probes(
             # Use MCPSec bridge for dynamic MCP reconnaissance
             target_url = getattr(ctx.args, "target_url", None) if hasattr(ctx, "args") else None
             if target_url:
-                from tools.mcpsec_factory import get_shared_bridge
+                from strike.mcp.orchestrator import get_shared_bridge
+
                 bridge = get_shared_bridge()
                 if bridge.is_available:
                     mcp_info = await bridge.enumerate_surface(target_url)
@@ -352,10 +363,11 @@ async def _run_background_probes(
             logger.warning("Background: MCPSec MCP enumeration failed: %s", e)
             _log_probe_failure(ctx, "mcpsec_enum", e, is_fatal=False)
 
- # == P1-3: ( - ) ==
+    # == P1-3: ( - ) ==
     if counter.can_probe(3, _MAX_PROBE_COUNT):
         try:
-            from recon.system_prompt_extractor import extract_system_prompt
+            from recon.model.system_prompt_extract import extract_system_prompt
+
             # Derive stealth_mode from ctx.stealth_policy
             stealth_mode = True
             if ctx is not None:
@@ -365,14 +377,10 @@ async def _run_background_probes(
             sp_result = await extract_system_prompt(parsed, stealth_mode=stealth_mode)
             counter.add(3)
             if sp_result.get("system_prompt_leaked"):
-             # P1-05:
+                # P1-05:
                 parsed.target_fingerprint.system_prompt_leaked = True
-                parsed.target_fingerprint.extracted_system_prompt = sp_result.get(
-                    "extracted_system_prompt", ""
-                )
-                parsed.target_fingerprint.system_prompt_extraction_method = sp_result.get(
-                    "extraction_method", ""
-                )
+                parsed.target_fingerprint.extracted_system_prompt = sp_result.get("extracted_system_prompt", "")
+                parsed.target_fingerprint.system_prompt_extraction_method = sp_result.get("extraction_method", "")
                 logger.warning(
                     "Background: System prompt LEAKED via %s (length=%d)",
                     sp_result.get("extraction_method"),
@@ -381,19 +389,20 @@ async def _run_background_probes(
             else:
                 parsed.target_fingerprint.system_prompt_leaked = False
         except Exception as e:
-         # P2-07: orchestration_log ()
+            # P2-07: orchestration_log ()
             logger.warning("Background: system prompt extraction failed: %s", e)
             _log_probe_failure(ctx, "system_prompt", e, is_fatal=False)
 
- # == P2 ( deep_probe=True): ==
+    # == P2 ( deep_probe=True): ==
     if not deep_probe:
         logger.info("Background probes complete (deep probe disabled).")
         return
 
- # : deep_probe_capabilities ( 8 )
+    # : deep_probe_capabilities ( 8 )
     if counter.can_probe(8, _MAX_PROBE_COUNT):
         try:
             from recon.capability_probe import deep_probe_capabilities
+
             # Derive stealth_mode from ctx.stealth_policy
             stealth_mode = True
             if ctx is not None:
@@ -403,37 +412,43 @@ async def _run_background_probes(
             deep_caps = await deep_probe_capabilities(parsed, stealth_mode=stealth_mode)
             counter.add(8)
             if deep_caps:
-             # P1-05:
+                # P1-05:
                 existing_caps_str = parsed.target_fingerprint.extra.get("capabilities", "")
                 all_caps = set(existing_caps_str.split(",")) if existing_caps_str else set()
                 for cap_key in [
-                    "has_function_calling", "has_memory", "has_workflow",
-                    "has_multi_tenant", "has_session_auth", "has_mcp_protocol",
-                    "has_a2a_protocol", "has_embedding_rag",
+                    "has_function_calling",
+                    "has_memory",
+                    "has_workflow",
+                    "has_multi_tenant",
+                    "has_session_auth",
+                    "has_mcp_protocol",
+                    "has_a2a_protocol",
+                    "has_embedding_rag",
                 ]:
                     if deep_caps.get(cap_key):
                         all_caps.add(cap_key.replace("has_", ""))
                 parsed.target_fingerprint.extra["capabilities"] = ",".join(sorted(all_caps))
- # P1-05: , Schema extra dict
+                # P1-05: , Schema extra dict
                 for k in ("secret_format", "tool_schemas", "model_family"):
                     if deep_caps.get(k):
                         parsed.target_fingerprint.extra[k] = deep_caps[k]
- # Schema session_type
+                # Schema session_type
                 if deep_caps.get("session_type"):
                     parsed.target_fingerprint.session_type = deep_caps["session_type"]
- # extra
+                # extra
                 for k in ("model_ids", "api_behavior", "capability_confidence", "capability_recommendations"):
                     if deep_caps.get(k):
                         parsed.target_fingerprint.extra[k] = deep_caps[k]
         except Exception as e:
-         # P2-07: orchestration_log ()
+            # P2-07: orchestration_log ()
             logger.warning("Background: deep probe failed: %s", e)
             _log_probe_failure(ctx, "deep_capability", e, is_fatal=False)
 
- # OpenAPI ( deep_probe)
+    # OpenAPI ( deep_probe)
     if counter.can_probe(5, _MAX_PROBE_COUNT):
         try:
-            from recon.openapi_discoverer import discover_openapi_spec
+            from recon.api.openapi_discoverer import discover_openapi_spec
+
             # Derive stealth_mode from ctx.stealth_policy
             stealth_mode = True
             if ctx is not None:
@@ -441,18 +456,19 @@ async def _run_background_probes(
                 if isinstance(policy, dict) and policy.get("name") == "aggressive":
                     stealth_mode = False
             openapi_result = await discover_openapi_spec(
-                parsed, stealth_mode=stealth_mode,
+                parsed,
+                stealth_mode=stealth_mode,
             )
             counter.add(5)
             if openapi_result and openapi_result.endpoints:
-             # P1-05:
+                # P1-05:
                 parsed.target_fingerprint.openapi_spec_path = openapi_result.spec_path
                 parsed.target_fingerprint.openapi_endpoints = [
                     {"path": ep.path, "method": ep.method, "summary": ep.summary}
                     for ep in openapi_result.endpoints[:20]  #
                 ]
         except Exception as e:
-         # P2-07: orchestration_log ()
+            # P2-07: orchestration_log ()
             logger.warning("Background: OpenAPI discovery failed: %s", e)
             _log_probe_failure(ctx, "openapi_discovery", e, is_fatal=False)
 
@@ -461,9 +477,11 @@ async def _run_background_probes(
 
     logger.info("Background probes complete. Total probes: %d", counter.value)
 
+
 # ====================================================================
 # P0
 # ====================================================================
+
 
 async def _check_target_availability(parsed: Any) -> bool:
     """P0: API
@@ -491,6 +509,7 @@ async def _check_target_availability(parsed: Any) -> bool:
             check_headers[key] = value
 
     from recon.capability_detector import _build_probe_body
+
     check_body = _build_probe_body(parsed, "hi")
 
     try:
@@ -524,12 +543,14 @@ async def _check_target_availability(parsed: Any) -> bool:
         logger.error("Target availability check failed: %s", e)
         return False
 
+
 # ====================================================================
 # Adversarial / Scoring Target
 # ====================================================================
 
+
 def _create_adversarial_target() -> Any:
-    """imports .env adversarial chat """
+    """imports .env adversarial chat"""
     from pyrit.prompt_target import OpenAIChatTarget
 
     endpoint = os.environ.get("ADVERSARIAL_CHAT_ENDPOINT")
@@ -546,11 +567,9 @@ def _create_adversarial_target() -> Any:
             max_requests_per_minute=rpm,
         )
 
-    logger.warning(
-        "Adversarial target not configured. "
-        "Set ADVERSARIAL_CHAT_ENDPOINT and ADVERSARIAL_CHAT_KEY in .env."
-    )
+    logger.warning("Adversarial target not configured. Set ADVERSARIAL_CHAT_ENDPOINT and ADVERSARIAL_CHAT_KEY in .env.")
     return None
+
 
 def _create_extra_adversarial_targets() -> list[Any]:
     """L5 v10: adversarial targets ()"""
@@ -576,6 +595,7 @@ def _create_extra_adversarial_targets() -> list[Any]:
 
     return targets
 
+
 def _create_scoring_target(ctx: PipelineContext) -> Any:
     """imports .env ( adversarial)"""
     from pyrit.prompt_target import OpenAIChatTarget
@@ -598,27 +618,27 @@ def _create_scoring_target(ctx: PipelineContext) -> Any:
         logger.info("Scorer target not configured, reusing adversarial target")
         target = ctx.adversarial_target
 
- # D-04 (2026-09-06): recon -> assess
- # Capability verification assess Layer (assess/scorer.py:74,
- # assess/dual_judge.py:134, assess/judge_utils.py:998) ,
- # recon Layer, ""
+    # D-04 (2026-09-06): recon -> assess
+    # Capability verification assess Layer (assess/scorer.py:74,
+    # assess/dual_judge.py:134, assess/judge_utils.py:998) ,
+    # recon Layer, ""
     if target:
         logger.info("Scoring target created (capability validation deferred to assess layer)")
 
     return target
 
+
 # ====================================================================
 # Playwright Target ()
 # ====================================================================
 
+
 async def _create_playwright_target(ctx: PipelineContext, browser_url: str) -> None:
-    """ PyRIT PlaywrightTarget - Chat UI """
+    """PyRIT PlaywrightTarget - Chat UI"""
     import importlib.util
 
     if importlib.util.find_spec("playwright") is None:
-        raise ImportError(
-            "Playwright not installed. Install with: pip install playwright"
-        )
+        raise ImportError("Playwright not installed. Install with: pip install playwright")
 
     from pyrit.prompt_target import PlaywrightTarget
 
@@ -633,26 +653,23 @@ async def _create_playwright_target(ctx: PipelineContext, browser_url: str) -> N
             "textarea, input[type='text'], [contenteditable='true']",
             timeout=10000,
         )
-        input_selector = await page.query_selector("textarea") or \
-            await page.query_selector("input[type='text']") or \
-            await page.query_selector("[contenteditable='true']")
+        input_selector = (
+            await page.query_selector("textarea")
+            or await page.query_selector("input[type='text']")
+            or await page.query_selector("[contenteditable='true']")
+        )
 
         if input_selector is None:
             raise RuntimeError("Could not find input element on the page")
 
         await input_selector.fill(prompt_text)
-        send_button = await page.query_selector(
-            "button[type='submit'], button[aria-label*='send']"
-        )
+        send_button = await page.query_selector("button[type='submit'], button[aria-label*='send']")
         if send_button:
             await send_button.click()
         else:
             await input_selector.press("Enter")
 
-        response_selector = (
-            ".message:last-child, .response:last-child, "
-            "[data-role='assistant']:last-child"
-        )
+        response_selector = ".message:last-child, .response:last-child, [data-role='assistant']:last-child"
         try:
             await page.wait_for_selector(response_selector, timeout=30000)
             await page.wait_for_timeout(2000)
@@ -687,9 +704,11 @@ async def _create_playwright_target(ctx: PipelineContext, browser_url: str) -> N
     _playwright_handles["browser"] = _browser
     _playwright_handles["context"] = _context
 
+
 # ====================================================================
 # OpenAI Native Target (API )
 # ====================================================================
+
 
 async def _create_native_openai_target(
     ctx: PipelineContext,
@@ -729,16 +748,18 @@ async def _create_native_openai_target(
 
     _ensure_parsed_request_for_api_path(ctx, mode=api_type, model_name=model_name, endpoint=endpoint)
 
+
 # ====================================================================
 # LiteLLM Target ()
 # ====================================================================
+
 
 async def _create_litellm_target(
     ctx: PipelineContext,
     *,
     model_name: str,
 ) -> None:
-    """ PyRIT LiteLLMChatTarget - 100+ LLM """
+    """PyRIT LiteLLMChatTarget - 100+ LLM"""
     from pyrit.prompt_target import LiteLLMChatTarget
 
     api_key = os.environ.get("LITELLM_API_KEY")
@@ -750,6 +771,7 @@ async def _create_litellm_target(
     headers: dict[str, str] | None = None
     if headers_str:
         import json
+
         try:
             headers = json.loads(headers_str)
         except (json.JSONDecodeError, TypeError):
@@ -773,9 +795,11 @@ async def _create_litellm_target(
 
     _ensure_parsed_request_for_api_path(ctx, mode="litellm", model_name=model_name, endpoint=endpoint)
 
+
 # ====================================================================
 # Burp parsed_request
 # ====================================================================
+
 
 def _ensure_parsed_request_for_api_path(
     ctx: PipelineContext,
@@ -829,6 +853,7 @@ def _ensure_parsed_request_for_api_path(
     _path = ""
     if endpoint:
         from urllib.parse import urlparse
+
         _parsed_url = urlparse(endpoint)
         _use_tls = _parsed_url.scheme == "https"
         _host = _parsed_url.netloc or _parsed_url.path or endpoint

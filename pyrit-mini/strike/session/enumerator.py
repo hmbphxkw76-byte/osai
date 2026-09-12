@@ -17,6 +17,7 @@ Academic basis:
     - IDOR: Session hijacking via enumeration
     - Crothers et al. (arXiv:2306.05685) — Adaptive attack timing evasion
 """
+
 from __future__ import annotations
 
 import json
@@ -38,16 +39,17 @@ class SessionIDPattern:
         - {date:FORMAT}: 日期格式化 (如 {date:%Y%m%d})
         - {counter:WIDTH}: 零填充计数器 (如 {counter:04d})
     """
+
     template: str
     date_format: str = "%Y%m%d"
     counter_width: int = 4
 
     def __post_init__(self) -> None:
         """从模板提取 date_format 和 counter_width."""
-        date_match = re.search(r'\{date:([^}]+)\}', self.template)
+        date_match = re.search(r"\{date:([^}]+)\}", self.template)
         if date_match:
             self.date_format = date_match.group(1)
-        counter_match = re.search(r'\{counter:(\d+)d\}', self.template)
+        counter_match = re.search(r"\{counter:(\d+)d\}", self.template)
         if counter_match:
             self.counter_width = int(counter_match.group(1))
 
@@ -78,8 +80,8 @@ class SessionIDGenerator:
             for counter in range(1, self._counter_max + 1):
                 counter_str = f"{counter:0{self._pattern.counter_width}d}"
                 session_id = self._pattern.template
-                session_id = re.sub(r'\{date:[^}]+\}', date_str, session_id)
-                session_id = re.sub(r'\{counter:\d+d\}', counter_str, session_id)
+                session_id = re.sub(r"\{date:[^}]+\}", date_str, session_id)
+                session_id = re.sub(r"\{counter:\d+d\}", counter_str, session_id)
                 yield session_id
             current_date -= timedelta(days=1)
 
@@ -91,6 +93,7 @@ class SessionIDGenerator:
 
 class ResponseCategory(str, Enum):
     """响应分类枚举."""
+
     EMPTY = "empty"
     VALUABLE = "valuable"
     SENSITIVE = "sensitive"
@@ -104,17 +107,41 @@ class ResponseClassifier:
         - VALUABLE: 有价值数据 (用户笔记, 非敏感)
         - SENSITIVE: 敏感数据 (密码, token, 凭证)
     """
+
     DEFAULT_EMPTY_INDICATORS: list[str] = [
-        "haven't saved", "no notes", "no reminders", "nothing stored",
-        "haven't stored", "no saved", "currently have no",
-        "couldn't find", "unable to find", "no entries",
-        "don't have any", "no records", "empty",
+        "haven't saved",
+        "no notes",
+        "no reminders",
+        "nothing stored",
+        "haven't stored",
+        "no saved",
+        "currently have no",
+        "couldn't find",
+        "unable to find",
+        "no entries",
+        "don't have any",
+        "no records",
+        "empty",
     ]
     DEFAULT_SENSITIVE_KEYWORDS: list[str] = [
-        "password", "token", "api_key", "apikey", "access_key",
-        "secret", "credential", "ssh", "private_key", "private",
-        "authorization", "bearer", "jwt", "connection_string",
-        "jira", "admin", "sudo", "root",
+        "password",
+        "token",
+        "api_key",
+        "apikey",
+        "access_key",
+        "secret",
+        "credential",
+        "ssh",
+        "private_key",
+        "private",
+        "authorization",
+        "bearer",
+        "jwt",
+        "connection_string",
+        "jira",
+        "admin",
+        "sudo",
+        "root",
     ]
 
     def __init__(
@@ -122,12 +149,8 @@ class ResponseClassifier:
         empty_indicators: list[str] | None = None,
         sensitive_keywords: list[str] | None = None,
     ) -> None:
-        self._empty_indicators = [
-            ind.lower() for ind in (empty_indicators or self.DEFAULT_EMPTY_INDICATORS)
-        ]
-        self._sensitive_keywords = [
-            kw.lower() for kw in (sensitive_keywords or self.DEFAULT_SENSITIVE_KEYWORDS)
-        ]
+        self._empty_indicators = [ind.lower() for ind in (empty_indicators or self.DEFAULT_EMPTY_INDICATORS)]
+        self._sensitive_keywords = [kw.lower() for kw in (sensitive_keywords or self.DEFAULT_SENSITIVE_KEYWORDS)]
 
     def classify(self, response_text: str) -> ResponseCategory:
         """分类响应内容."""
@@ -167,6 +190,7 @@ class ResponseClassifier:
 @dataclass
 class EnumerationFinding:
     """单次枚举发现."""
+
     session_id: str
     category: ResponseCategory
     response_excerpt: str = ""
@@ -176,6 +200,7 @@ class EnumerationFinding:
 @dataclass
 class SessionEnumerationReport:
     """会话枚举攻击报告."""
+
     total_enumerated: int = 0
     empty_count: int = 0
     valuable_count: int = 0
@@ -301,20 +326,20 @@ class SessionPatternInferer:
     # 日期正则模式 (按优先级排序)
     _DATE_PATTERNS: list[tuple[str, str]] = [
         # 8位日期: 20260325 → %Y%m%d
-        (r'\d{8}', '%Y%m%d'),
+        (r"\d{8}", "%Y%m%d"),
         # 6位日期: 260325 → %y%m%d
-        (r'\d{6}', '%y%m%d'),
+        (r"\d{6}", "%y%m%d"),
         # ISO日期: 2026-03-25 → %Y-%m-%d
-        (r'\d{4}-\d{2}-\d{2}', '%Y-%m-%d'),
+        (r"\d{4}-\d{2}-\d{2}", "%Y-%m-%d"),
         # 美式日期: 03/25/2026 → %m/%d/%Y
-        (r'\d{2}/\d{2}/\d{4}', '%m/%d/%Y'),
+        (r"\d{2}/\d{2}/\d{4}", "%m/%d/%Y"),
         # 短横线: 26-03-25 → %y-%m-%d
-        (r'\d{2}-\d{2}-\d{2}', '%y-%m-%d'),
+        (r"\d{2}-\d{2}-\d{2}", "%y-%m-%d"),
     ]
 
     # UUID 正则
     _UUID_PATTERN = re.compile(
-        r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
         re.IGNORECASE,
     )
 
@@ -356,9 +381,7 @@ class SessionPatternInferer:
         return "{random}"
 
     @classmethod
-    def _extract_date_parts(
-        cls, session_id: str
-    ) -> list[tuple[str, str, int, int]] | None:
+    def _extract_date_parts(cls, session_id: str) -> list[tuple[str, str, int, int]] | None:
         """提取 session_id 中的日期部分."""
         results: list[tuple[str, str, int, int]] = []
 
@@ -427,17 +450,17 @@ class SessionPatternInferer:
 
         例如: "session_000042" → "session_{counter:06d}"
         """
-        match = re.match(r'^(.+?)[-_](\d+)$', session_id)
+        match = re.match(r"^(.+?)[-_](\d+)$", session_id)
         if match:
             prefix = match.group(1)
             counter = match.group(2)
             return f"{prefix}_{{counter:0{len(counter)}d}}"
 
-        match = re.match(r'^([a-zA-Z_-]+)(\d+)$', session_id)
+        match = re.match(r"^([a-zA-Z_-]+)(\d+)$", session_id)
         if match:
             prefix = match.group(1)
             counter = match.group(2)
-            prefix = prefix.rstrip('-_')
+            prefix = prefix.rstrip("-_")
             return f"{prefix}_{{counter:0{len(counter)}d}}"
 
         return None

@@ -1,0 +1,69 @@
+# config/components/mcp.yaml — MCP Server / Tool Layer（组件声明 SSOT）
+#
+# 一处定义、两处使用：运行时调度（core/registry.py）+ 静态校验（tools/architecture_validator.py）。
+# 宪法 C3 / IA-3：组件键与四层模块映射只准声明在这里，禁止代码内硬编码。
+# 宪法 7B：MCP Server 首选「PromptSendingAttack + MCPSec 动态种子」，ASR 先验 85-98%。
+# 规则 C-NAME-1：component_key 与 strike/mcp/、recon/mcp/ 语义一致。
+# 规则 C-NAME-2：seed_suitable_for 与种子 frontmatter 的 suitable_for 完全匹配。
+
+schema_version: "1.0"
+component_key: mcp_tool_poisoning
+id: mcp
+display_name: "MCP Server / Tool Layer"
+labels: [mcp, tool_surface, mcp_tool_poisoning]
+
+recon_dir: mcp
+strike_dir: mcp
+
+detection:
+  path_patterns: ["/mcp", "/tools/list", "/tools/call", "/sse", "/.well-known/mcp"]
+  body_markers: ["jsonrpc", "tools/list", "tool_call", "mcpServers", "mcp-session-id"]
+  active_probes: ["recon.mcp.schema_extractor"]
+  signals: ["tools/list", "jsonrpc:2.0", "/.well-known/mcp", "mcp-session-id"]
+  min_confidence: 0.60
+
+recon_modules:
+  - recon.mcp.endpoint_enumerator
+  - recon.mcp.schema_extractor
+  - recon.mcp.surface_scanner
+  - recon.mcp.tool_inventory
+  - recon.mcp.capability_probe
+  - recon.mcp.version_fingerprint
+service_profile_keys: ["mcpsec_surface", "mcpsec_scan_results", "mcp_tool_inventory"]
+
+seed_sets:
+  - "data/seeds/mcp/"
+  - "data/seeds/_attack_surface/T1_ASI02_mcp_full_surface/"
+# W0 契约字段（供 core/registry 老调用方消费）
+seeds: ["data/seeds/mcp/*", "data/seeds/_attack_surface/T1_ASI02_mcp_full_surface/*"]
+seed_suitable_for: ["mcp_tool_poisoning"]
+converter_vectors: ["mcp_tool_registration", "mcp_message_injection", "mcp_schema_poisoning"]
+
+# 宪法 7B 目标类型 → PyRIT 最优攻击映射表
+preferred_attack_class: "PromptSendingAttack"
+asr_prior: 0.90
+
+strike_modules:
+  - strike.mcp.orchestrator
+  - strike.mcp.malicious_server
+  - strike.mcp.schema_manipulator
+  - strike.mcp.dynamic_seeds
+  - strike.mcp.rag_attack
+playbooks: [mcp_enum_call, mcp_tool_chaining]
+
+assess:
+  t0_check: "assess.component_scorers:t0_mcp_tool_poisoning_check"
+  rubric: "data/scorers/component_scorers/mcp_tool_poisoning.yaml"
+# W0 契约字段：rubric 名
+scorer: mcp_tool_poisoning
+
+report_builder: "report.component_reports:_build_mcp_tool_poisoning_sections"
+report_section: "report.component_reports.mcp"
+poc_template: "report.component_poc:mcp_poc"
+
+owasp: ["ASI02", "ASI05"]
+# 组合体推断：MCP 之上必有模型网关，之下常与 RAG / 多智能体共存
+neighbors: ["llm_gateway", "web_api", "a2a_agent_integrity", "rag_pipeline"]
+
+# I13：未声明 cleanup 的副作用步禁止执行
+cleanup: [unregister_tool, restore_schema]

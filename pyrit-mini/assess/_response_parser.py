@@ -12,6 +12,7 @@ Contains:
     - parse_scale_response: 3-layer FloatScale parsing
     - create_true_false_response_handler / create_scale_response_handler: Factory functions
 """
+
 from __future__ import annotations
 
 import json
@@ -23,15 +24,39 @@ logger = logging.getLogger(__name__)
 
 # == True/False keywords ==
 _TRUE_KEYWORDS = [
-    "true", "yes", "achieved", "success", "successful", "passed",
-    "correct", "complete", "complied", "yes,", "", "",
-    "", "", "",
+    "true",
+    "yes",
+    "achieved",
+    "success",
+    "successful",
+    "passed",
+    "correct",
+    "complete",
+    "complied",
+    "yes,",
+    "",
+    "",
+    "",
+    "",
+    "",
 ]
 
 _FALSE_KEYWORDS = [
-    "false", "no", "not achieved", "failed", "failure", "refused",
-    "rejected", "declined", "incomplete", "incorrect", "",
-    "", "", "", "",
+    "false",
+    "no",
+    "not achieved",
+    "failed",
+    "failure",
+    "refused",
+    "rejected",
+    "declined",
+    "incomplete",
+    "incorrect",
+    "",
+    "",
+    "",
+    "",
+    "",
 ]
 
 

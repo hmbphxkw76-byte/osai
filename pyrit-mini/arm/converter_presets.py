@@ -42,10 +42,17 @@ _L5_OPTIMAL_CACHE: dict[str, list[Any]] = {}
 _BASELINE_TECHNIQUES = frozenset({"prompt_sending"})
 
 # Techniques that use context/prefix injection (semantic converters only)
-_CONTEXT_TECHNIQUES = frozenset({
-    "many_shot", "skeleton_key", "role_play_movie_script",
-    "role_play_persuasion", "context_compliance", "flip",
-})
+_CONTEXT_TECHNIQUES = frozenset(
+    {
+        "many_shot",
+        "skeleton_key",
+        "role_play_movie_script",
+        "role_play_persuasion",
+        "context_compliance",
+        "flip",
+    }
+)
+
 
 def _classify_target_type(
     capabilities: str | None = None,
@@ -79,9 +86,11 @@ def _classify_target_type(
 
     return "http_api"
 
+
 def _is_file_converter(converter: Any) -> bool:
     """Check if converter is a file-type converter."""
     return type(converter).__name__ in _FILE_CONVERTER_NAMES
+
 
 def l5_optimal(
     converter_target: Any | None = None,
@@ -144,6 +153,7 @@ def l5_optimal(
     _L5_OPTIMAL_CACHE[target_type] = candidates
     return candidates
 
+
 def l5_optimal_for_model(
     converter_target: Any | None = None,
     *,
@@ -154,9 +164,11 @@ def l5_optimal_for_model(
     # For now, same as l5_optimal - model-specific ordering can be added later
     return l5_optimal(converter_target, target_type=target_type)
 
+
 def _get_converter_asr(conv: Any) -> float:
     """Get historical ASR for converter (placeholder)."""
     return 0.0
+
 
 def _build_chain_builders() -> dict[str, Any]:
     """Build chain builders dict from converter_chains."""
@@ -175,6 +187,7 @@ def _build_chain_builders() -> dict[str, Any]:
         translation_multilingual,
         variation,
     )
+
     return {
         "persuasion": persuasion,
         "format_injection": format_injection,
@@ -191,9 +204,11 @@ def _build_chain_builders() -> dict[str, Any]:
         "template_segment": template_segment,
     }
 
+
 def _get_chain_builders() -> dict[str, Any]:
     """Get or initialize chain builders."""
     return _build_chain_builders()
+
 
 def build_converter_map(
     technique_names: list[str],
@@ -223,10 +238,7 @@ def build_converter_map(
             # Context techniques: semantic converters only
             candidates = l5_optimal(converter_target, target_type=target_type)
             # Filter to semantic-only converters (no encoding)
-            semantic_converters = [
-                c for c in candidates
-                if type(c).__name__ not in _FILE_CONVERTER_NAMES
-            ]
+            semantic_converters = [c for c in candidates if type(c).__name__ not in _FILE_CONVERTER_NAMES]
             result[technique] = semantic_converters
         else:
             # Escalation techniques: full L5 arsenal

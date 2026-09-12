@@ -13,6 +13,7 @@ Constitution compliance:
     - R-H3: 单一职责 — 仅分析模式, 不执行攻击
     - C1: 不使用 PyRIT (纯分析逻辑)
 """
+
 from __future__ import annotations
 
 import re
@@ -40,16 +41,16 @@ class SessionIDAnalyzer:
 
     # 日期正则模式 (按优先级排序)
     _DATE_PATTERNS: list[tuple[str, str]] = [
-        (r'\d{8}', '%Y%m%d'),
-        (r'\d{6}', '%y%m%d'),
-        (r'\d{4}-\d{2}-\d{2}', '%Y-%m-%d'),
-        (r'\d{2}/\d{2}/\d{4}', '%m/%d/%Y'),
-        (r'\d{2}-\d{2}-\d{2}', '%y-%m-%d'),
+        (r"\d{8}", "%Y%m%d"),
+        (r"\d{6}", "%y%m%d"),
+        (r"\d{4}-\d{2}-\d{2}", "%Y-%m-%d"),
+        (r"\d{2}/\d{2}/\d{4}", "%m/%d/%Y"),
+        (r"\d{2}-\d{2}-\d{2}", "%y-%m-%d"),
     ]
 
     # UUID 正则
     _UUID_PATTERN = re.compile(
-        r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
         re.IGNORECASE,
     )
 
@@ -95,9 +96,7 @@ class SessionIDAnalyzer:
         return "{random}"
 
     @classmethod
-    def _extract_date_parts(
-        cls, session_id: str
-    ) -> list[tuple[str, str, int, int]] | None:
+    def _extract_date_parts(cls, session_id: str) -> list[tuple[str, str, int, int]] | None:
         """提取 session_id 中的日期部分.
 
         Returns:
@@ -137,7 +136,7 @@ class SessionIDAnalyzer:
         if not suffix:
             return ""
 
-        clean = suffix.lstrip('-_')
+        clean = suffix.lstrip("-_")
         if clean.isdigit():
             return f"{{counter:{len(clean)}d}}"
 
@@ -156,17 +155,17 @@ class SessionIDAnalyzer:
     @classmethod
     def _extract_prefix_counter(cls, session_id: str) -> str | None:
         """提取前缀 + 计数器模式."""
-        match = re.match(r'^(.+?)[-_](\d+)$', session_id)
+        match = re.match(r"^(.+?)[-_](\d+)$", session_id)
         if match:
             prefix = match.group(1)
             counter = match.group(2)
             return f"{prefix}_{{counter:{len(counter)}d}}"
 
-        match = re.match(r'^([a-zA-Z_-]+)(\d+)$', session_id)
+        match = re.match(r"^([a-zA-Z_-]+)(\d+)$", session_id)
         if match:
             prefix = match.group(1)
             counter = match.group(2)
-            prefix = prefix.rstrip('-_')
+            prefix = prefix.rstrip("-_")
             return f"{prefix}_{{counter:{len(counter)}d}}"
 
         return None

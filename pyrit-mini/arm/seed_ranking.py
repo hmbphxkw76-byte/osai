@@ -1,9 +1,20 @@
 # arXiv:2402.12109 - Russinovich et al., Crescendo (10 turns ASR=82%)
 # arXiv:2402.01135 - Chao et al., Best-of-N (N=5 ASR 1.8x)
 # arXiv:2310.04451 - Mehrotra et al., AutoDAN (3x seed expansion)
-"""seed_ranking ??seed_ranker.py .
+"""seed_ranking — ASR ranking implementation (INTERNAL, Tier 2).
 
- ASR , ? , X.
+WARNING: This module is internal implementation.
+    External code must NOT import from this module directly.
+    Use the SSOT facade instead:
+        from arm.seed_ranker import load_seeds  # Tier 1 public API
+
+Responsibilities:
+    - _rank_by_asr(): UCB-based seed ranking algorithm
+    - load_asr_priors(): YAML ASR priors loading + caching
+    - update_asr_priors(): EMA-based priors update
+    - update_asr_history(): ASR history persistence
+    - rank_seeds_for_multi_turn(): MTOS multi-turn scoring
+    - _apply_category_diversity(): OWASP category diversity guarantee
 """
 
 import hashlib
@@ -34,8 +45,18 @@ _MODEL_FAMILY_PREFIXES = [
     ("gpt", ["gpt-4o-mini", "gpt-4o", "gpt-4.1", "gpt-4", "gpt-5"]),
     ("o", ["o1", "o3", "o4-mini"]),  # OpenAI o-series
     # Anthropic
-    ("claude", ["claude-3", "claude-3.5", "claude-3.5-haiku", "claude-3.5-sonnet",
-                "claude-4-sonnet", "claude-4.5-sonnet", "claude-4-opus"]),
+    (
+        "claude",
+        [
+            "claude-3",
+            "claude-3.5",
+            "claude-3.5-haiku",
+            "claude-3.5-sonnet",
+            "claude-4-sonnet",
+            "claude-4.5-sonnet",
+            "claude-4-opus",
+        ],
+    ),
     # Google
     ("gemini", ["gemini-1.5-pro", "gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro"]),
     ("gemma", ["gemma-2", "gemma-3"]),
@@ -67,6 +88,7 @@ _MODEL_FAMILY_PREFIXES = [
     ("command", ["command-a", "command-r-plus"]),
 ]
 
+
 def _get_model_family(model_name: str) -> str | None:
     """Extract model family from model name for hierarchical prior.
 
@@ -78,6 +100,7 @@ def _get_model_family(model_name: str) -> str | None:
         if model_lower.startswith(family) or model_lower == family:
             return family
     return None
+
 
 def _make_seed_key(objective: str) -> str:
     """Generate a collision-resistant seed ASR key using SHA256.
@@ -94,6 +117,7 @@ def _make_seed_key(objective: str) -> str:
     if not objective:
         return ""
     return hashlib.sha256(objective.encode("utf-8")).hexdigest()[:16]
+
 
 def _rank_by_asr(
     seed_groups: list[AttackSeedGroup],
@@ -116,7 +140,7 @@ def _rank_by_asr(
     if not asr_history:
         return seed_groups
 
- # ?ASR (?
+    # ?ASR (?
     seed_asr: dict[str, float] = {}
     seed_attempts: dict[str, int] = {}
     if _ASR_HISTORY_PATH.exists():
@@ -128,6 +152,7 @@ def _rank_by_asr(
             pass
 
     import math
+
     # 计算 UCB 探索因子 C 和总尝试次数 N
     # 基于总尝试次数动态调整探索率
     N = sum(seed_attempts.values()) if seed_attempts else 1
@@ -149,30 +174,34 @@ def _rank_by_asr(
                 meta = getattr(obj, "metadata", {}) or {}
                 severity = meta.get("severity", "medium")
 
- # ?ASR, EURX ASR
+        # ?ASR, EURX ASR
         asr = seed_asr.get(objective_text, 0.0)
         if asr == 0.0:
             asr = asr_history.get(objective_text, asr_history.get(str(i), 0.0))
 
         if asr > 0:
-         # L5 v8: UCB
+            # L5 v8: UCB
             n_i = seed_attempts.get(objective_text, 1)
             ucb_bonus = C * math.sqrt(2 * math.log(max(N, 1)) / max(n_i, 1))
             ucb_score = asr + ucb_bonus * 100  # +?ASR ?
             with_ucb.append((ucb_score, i, group))
             logger.debug(
                 "UCB seed '%s...': ASR=%.1f%%, attempts=%d, UCB=%.1f",
-                objective_text[:40], asr, n_i, ucb_score,
+                objective_text[:40],
+                asr,
+                n_i,
+                ucb_score,
             )
         else:
             without_ucb.append((severity, i, group))
 
- # UCB UCB X
+    # UCB UCB X
     with_ucb.sort(key=lambda x: (-x[0], x[1]))
- # ?UCB severity
+    # ?UCB severity
     without_ucb.sort(key=lambda x: (severity_order.get(x[0], 4), x[1]))
 
     return [g for _, _, g in with_ucb] + [g for _, _, g in without_ucb]
+
 
 def _apply_category_diversity(
     seed_groups: list[AttackSeedGroup],
@@ -219,7 +248,7 @@ def _apply_category_diversity(
 
     # Pass 2: Fill remaining slots
     if len(selected) < max_seeds:
-        selected.extend(remaining[:max_seeds - len(selected)])
+        selected.extend(remaining[: max_seeds - len(selected)])
 
     logger.info(
         "Category Diversity: %d seeds, OWASP coverage: %s",
@@ -229,21 +258,24 @@ def _apply_category_diversity(
 
     return selected[:max_seeds]
 
-def _get_asr_history_path() -> Path:
-    """erEUR?ASR X (X?monkey-patch seed_ranker._ASR_HISTORY_PATH)?
 
-     seed_ranker "?( monkey-patch yu),
-    EUREUR"a?
+def _get_asr_history_path() -> Path:
+    """Get ASR history path (reads from seed_ranker's re-exported constant).
+
+    Uses seed_ranker._ASR_HISTORY_PATH if available (monkey-patch safe),
+    otherwise falls back to local _ASR_HISTORY_PATH.
     """
     try:
         from arm import seed_ranker
- # seed_ranker._ASR_HISTORY_PATH ? yuEUR re-export ?
+
+        # seed_ranker._ASR_HISTORY_PATH ? yuEUR re-export ?
         sr_path = getattr(seed_ranker, "_ASR_HISTORY_PATH", None)
         if sr_path is not None:
             return sr_path
     except Exception:
         pass
     return _ASR_HISTORY_PATH
+
 
 def update_asr_history(
     technique_asr: dict[str, float],
@@ -269,18 +301,16 @@ def update_asr_history(
     seeds_dir = asr_history_path.parent
     seeds_dir.mkdir(parents=True, exist_ok=True)
 
- # ( threshold_history ?
+    # ( threshold_history ?
     existing_history: dict[str, Any] = {}
     if asr_history_path.exists():
         try:
-            existing_history = json.loads(
-                asr_history_path.read_text(encoding="utf-8")
-            )
+            existing_history = json.loads(asr_history_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, KeyError):
             pass
 
- # L5 v9: ?ASR (, =0.3)
- # [: UCB1 (arXiv:cs/0207052) ?
+    # L5 v9: ?ASR (, =0.3)
+    # [: UCB1 (arXiv:cs/0207052) ?
     existing_seed_asr: dict[str, float] = existing_history.get("seed_asr", {})
     existing_seed_attempts: dict[str, int] = existing_history.get("seed_attempts", {})
 
@@ -288,17 +318,13 @@ def update_asr_history(
         alpha = 0.3  # EMA
         for seed_key, new_asr in seed_asr.items():
             if seed_key in existing_seed_asr:
-                existing_seed_asr[seed_key] = round(
-                    alpha * new_asr + (1 - alpha) * existing_seed_asr[seed_key], 1
-                )
+                existing_seed_asr[seed_key] = round(alpha * new_asr + (1 - alpha) * existing_seed_asr[seed_key], 1)
             else:
                 existing_seed_asr[seed_key] = new_asr
 
     if seed_attempts:
         for seed_key, count in seed_attempts.items():
-            existing_seed_attempts[seed_key] = (
-                existing_seed_attempts.get(seed_key, 0) + count
-            )
+            existing_seed_attempts[seed_key] = existing_seed_attempts.get(seed_key, 0) + count
 
     history = {
         "last_run": datetime.now().isoformat(),
@@ -308,26 +334,28 @@ def update_asr_history(
         "threshold_history": existing_history.get("threshold_history", []),
     }
 
- # L5 v30: X threshold_history XXEURX?
- # [: Auer et al. (arXiv:cs/0207052) ?UCB1 EUR?ASR X
- # adaptive_threshold ?AdaptiveDualJudgeScorer X?
- # ?L5 v21 EUREUR?SelfAskTrueFalseScorer EEUR?
- # XX: ?save_asr_history Xyuyu ASR EUR?
+    # L5 v30: X threshold_history XXEURX?
+    # [: Auer et al. (arXiv:cs/0207052) ?UCB1 EUR?ASR X
+    # adaptive_threshold ?AdaptiveDualJudgeScorer X?
+    # ?L5 v21 EUREUR?SelfAskTrueFalseScorer EEUR?
+    # XX: ?save_asr_history Xyuyu ASR EUR?
     if technique_asr:
         from datetime import datetime as _dt
 
         avg_asr = sum(technique_asr.values()) / len(technique_asr)
- # EUREUR: ASR > 70% ?0.75, < 40% ?0.80, ?0.85
- # [: Zhang et al. (arXiv:2308.07920) ?XEUR
+        # EUREUR: ASR > 70% ?0.75, < 40% ?0.80, ?0.85
+        # [: Zhang et al. (arXiv:2308.07920) ?XEUR
         current_threshold = 0.75 if avg_asr > 70.0 else 0.80 if avg_asr < 40.0 else 0.85
 
         threshold_history = history["threshold_history"]
-        threshold_history.append({
-            "asr": round(avg_asr, 1),
-            "threshold": current_threshold,
-            "timestamp": _dt.now().isoformat(),
-        })
- # EUR?10 ?
+        threshold_history.append(
+            {
+                "asr": round(avg_asr, 1),
+                "threshold": current_threshold,
+                "timestamp": _dt.now().isoformat(),
+            }
+        )
+        # EUR?10 ?
         history["threshold_history"] = threshold_history[-10:]
 
     asr_history_path.write_text(
@@ -341,8 +369,9 @@ def update_asr_history(
         len(existing_seed_asr),
     )
 
+
 def load_asr_priors(model_name: str = "") -> dict[str, Any]:
-    """ ASR ?
+    """ASR ?
 
     [:
         - arXiv:2402.04249 ?HarmBench ?ASR
@@ -355,10 +384,10 @@ def load_asr_priors(model_name: str = "") -> dict[str, Any]:
     Returns:
         ,  technique_asr, converter_asr, mtos_weights EUR?
     """
- # L5 v41: cache priors per model_name to avoid redundant YAML reads.
- # Previously, load_asr_priors was called 42+ times per pipeline run
- # (once per seed x technique combination in converter_selector), each
- # time re-reading and parsing the YAML file + logging. Now we cache.
+    # L5 v41: cache priors per model_name to avoid redundant YAML reads.
+    # Previously, load_asr_priors was called 42+ times per pipeline run
+    # (once per seed x technique combination in converter_selector), each
+    # time re-reading and parsing the YAML file + logging. Now we cache.
     cache_key = model_name or "__default__"
     if cache_key in _ASR_PRIORS_CACHE:
         return _ASR_PRIORS_CACHE[cache_key]
@@ -369,6 +398,7 @@ def load_asr_priors(model_name: str = "") -> dict[str, Any]:
 
     try:
         import yaml
+
         with open(_ASR_PRIORS_PATH, encoding="utf-8") as f:
             priors = yaml.safe_load(f) or {}
         logger.info(
@@ -382,6 +412,7 @@ def load_asr_priors(model_name: str = "") -> dict[str, Any]:
     except Exception as e:
         logger.warning("Failed to load ASR priors: %s", e)
         return {}
+
 
 def get_technique_asr_prior(
     technique_name: str,
@@ -457,7 +488,11 @@ def get_technique_asr_prior(
                 blended = 0.8 * family_avg + 0.2 * global_default
                 logger.debug(
                     "P1-A: Family-weighted prior for %s/%s: %.1f (family=%s, n=%d)",
-                    technique_name, model_name, blended, family, len(family_values),
+                    technique_name,
+                    model_name,
+                    blended,
+                    family,
+                    len(family_values),
                 )
                 return round(blended, 1)
 
@@ -471,11 +506,15 @@ def get_technique_asr_prior(
         uncertain_prior = max(5.0, meta_avg * 0.9)
         logger.debug(
             "P1-A: Meta-learned default for %s/%s: %.1f (n=%d)",
-            technique_name, model_name, uncertain_prior, len(all_values),
+            technique_name,
+            model_name,
+            uncertain_prior,
+            len(all_values),
         )
         return round(uncertain_prior, 1)
 
     return float(tech_data.get("default", 0.0))
+
 
 # -> asr_priors.yaml technique_asr ( A )
 # priority_scheduler._TECHNIQUE_PRIOR_KEY , update_asr_priors
@@ -498,6 +537,7 @@ _RUNTIME_TO_PRIORS_KEY: dict[str, str] = {
     "embedding_inversion": "token_smuggling",
     "mcp_rag": "context_compliance",
 }
+
 
 def update_asr_priors(
     model_family: str | None,
@@ -528,6 +568,7 @@ def update_asr_priors(
 
     try:
         import yaml
+
         with open(_ASR_PRIORS_PATH, encoding="utf-8") as f:
             priors = yaml.safe_load(f) or {}
     except Exception as e:
@@ -538,12 +579,12 @@ def update_asr_priors(
     model_lower = model_family.lower()
     updated = False
 
- # A : _RUNTIME_TO_PRIORS_KEY asr_priors.yaml
+    # A : _RUNTIME_TO_PRIORS_KEY asr_priors.yaml
     tech_priors = priors.get("technique_asr", {})
     for tech, observed_asr in technique_asr.items():
         priors_key = _RUNTIME_TO_PRIORS_KEY.get(tech, tech)  # , fallback
         if priors_key in tech_priors:
-         # "?
+            # "?
             matched_key = None
             for key in list(tech_priors[priors_key].keys()):
                 if key == "default":
@@ -560,7 +601,11 @@ def update_asr_priors(
                     updated = True
                     logger.debug(
                         "ASR prior updated: %s[%s] %.1f -> %.1f (observed=%.1f, alpha=0.3)",
-                        priors_key, matched_key, old_val, new_val, observed_asr,
+                        priors_key,
+                        matched_key,
+                        old_val,
+                        new_val,
+                        observed_asr,
                     )
 
     if updated:
@@ -575,6 +620,7 @@ def update_asr_priors(
             )
         except Exception as e:
             logger.warning("Failed to write ASR priors: %s", e)
+
 
 def rank_seeds_for_multi_turn(
     seed_groups: list[AttackSeedGroup],
@@ -659,7 +705,11 @@ def rank_seeds_for_multi_turn(
 
         logger.debug(
             "MTOS seed '%s...': ASR=%.1f%%, severity=%s, cross=%.1f, score=%.1f",
-            seed_key[:40], asr, severity, cross_bonus, total_score,
+            seed_key[:40],
+            asr,
+            severity,
+            cross_bonus,
+            total_score,
         )
 
     # Sort by total score descending

@@ -12,6 +12,7 @@ Constitution compliance:
     - R-SIZE: < 800 lines
     - R-H3: Single-file module, no dual-track redundancy
 """
+
 from __future__ import annotations
 
 import json
@@ -31,12 +32,19 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# W0 修复：`build_http_target` 需要从解析结果重建原始 HTTP 报文。
+# 此前取用了 `ParsedBurpRequest` 上并不存在的 `raw_request` 字段 → AttributeError，
+# 在建靶阶段直接中断主链路。序列化器由 burp_parser 提供，此处补齐导入。
+from recon.burp_parser import build_raw_http_request  # noqa: E402
+
+
 # ====================================================================
 # TLS verify (SSOT)
 # ====================================================================
 def _get_tls_verify_default() -> bool | str:
     """Get TLS verification setting from SSOT config."""
     from recon.config_loader import get_tls_verify
+
     try:
         return get_tls_verify()
     except Exception:
@@ -49,6 +57,7 @@ _TLS_VERIFY: bool | str = _get_tls_verify_default()
 # ====================================================================
 # Chat ID State Manager - Session persistence for multi-turn attacks
 # ====================================================================
+
 
 class ChatIdStateManager:
     """Manages chat ID state for multi-turn conversation attacks.
@@ -74,7 +83,7 @@ class ChatIdStateManager:
 
         Priority: Object > Id > ChatId > SessionId > ConversationId > ConvId
         """
-        from recon.burp_parser import _extract_chat_id_from_response
+        from recon.burp_parser import extract_chat_id_from_response
 
         text: str | None = None
         if hasattr(response, "text") and response.text is not None:
@@ -85,7 +94,7 @@ class ChatIdStateManager:
             else:
                 text = str(response.content)
 
-        new_id = _extract_chat_id_from_response(text) if text else None
+        new_id = extract_chat_id_from_response(text) if text else None
         if new_id and new_id != self._chat_id:
             old = self._chat_id
             self._chat_id = new_id
@@ -106,6 +115,7 @@ class ChatIdStateManager:
 # ====================================================================
 # Request Preprocessor - HTTP request sanitization
 # ====================================================================
+
 
 class RequestPreprocessor:
     """Sanitizes HTTP requests for PyRIT HTTPTarget consumption.
@@ -178,6 +188,7 @@ class RequestPreprocessor:
 # Response Parser Selection
 # ====================================================================
 
+
 def _select_response_parser(parsed: Any) -> Any:
     """Select appropriate response parser based on parsed request.
 
@@ -189,9 +200,7 @@ def _select_response_parser(parsed: Any) -> Any:
     """
     # 1. JSON path callback
     if parsed.response_json_path:
-        callback = get_http_target_json_response_callback_function(
-            key=parsed.response_json_path
-        )
+        callback = get_http_target_json_response_callback_function(key=parsed.response_json_path)
         logger.debug("Using probed JSON callback with path: %s", parsed.response_json_path)
         return callback
 
@@ -258,7 +267,8 @@ def _make_adaptive_json_parser() -> Any:
         if not isinstance(data, dict):
             return content_str
 
-        from recon.burp_parser import _extract_nested_ci
+        from recon.api.sse_parser import _extract_nested_ci
+
         for keys in _CANDIDATE_PATHS:
             result = _extract_nested_ci(data, keys)
             if result is not None and str(result).strip() and str(result) != "None":
@@ -275,6 +285,7 @@ def _make_sse_response_parser() -> Any:
 
     Extracts JSON from data: lines in SSE stream.
     """
+
     def parse_sse_response(response: Any) -> str:
         content: str | None = None
         if hasattr(response, "content"):
@@ -323,6 +334,7 @@ def _make_sse_response_parser() -> Any:
 # Callback Assembly
 # ====================================================================
 
+
 def _assemble_callback(
     parsed: Any,
     chat_id_state: ChatIdStateManager | None = None,
@@ -334,6 +346,7 @@ def _assemble_callback(
     # Step 2: Create chat_id extractor if needed
     chat_id_extractor = None
     if parsed.has_chat_id_placeholder and chat_id_state:
+
         def chat_id_extractor(response: Any) -> None:
             """Extract chat_id from response and update state."""
             text: str | None = None
@@ -368,6 +381,7 @@ def _assemble_callback(
 # Main Entry Point - build_http_target
 # ====================================================================
 
+
 def build_http_target(
     parsed: Any,
     *,
@@ -395,7 +409,10 @@ def build_http_target(
     Returns:
         Configured HTTPTarget ready for attack execution
     """
-    raw_request = parsed.raw_request
+    # W0 修复：`ParsedBurpRequest` 无 `raw_request` 字段（历史重构后已移除），
+    # 直接取值会在建靶阶段抛 AttributeError 并中断整条主链路。
+    # 使用 burp_parser 提供的序列化器从解析结果重建原始 HTTP 报文。
+    raw_request = build_raw_http_request(parsed)
 
     # Chat ID state
     if chat_id_state is None and (parsed.has_chat_id_placeholder or parsed.chat_id):
@@ -439,6 +456,7 @@ def build_http_target(
     # Create SessionStateManager and wrap callback for session state tracking
     try:
         from strike.session import SessionConfig, SessionStateManager
+
         session_config = SessionConfig.default_config()
         session_manager = SessionStateManager(session_config)
         session_manager.activate()
@@ -453,11 +471,13 @@ def build_http_target(
         logger.debug("strike.session module not available, skipping session integration")
 
     logger.debug(
-        "PyRIT native HTTPTarget built: %s %s (TLS=%s, HTTP2=%s, SSE=%s, "
-        "callback=%s, multi_turn=%s)",
-        parsed.method, parsed.url, parsed.use_tls,
+        "PyRIT native HTTPTarget built: %s %s (TLS=%s, HTTP2=%s, SSE=%s, callback=%s, multi_turn=%s)",
+        parsed.method,
+        parsed.url,
+        parsed.use_tls,
         "HTTP/2" in (parsed.http_version or ""),
-        parsed.is_sse, getattr(callback, "__name__", "None"),
+        parsed.is_sse,
+        getattr(callback, "__name__", "None"),
         enable_multi_turn,
     )
 
@@ -477,13 +497,17 @@ def _build_target_configuration(
     )
 
     if enable_multi_turn:
-        policy = CapabilityHandlingPolicy(
-            behaviors={
-                CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.ADAPT,
-                CapabilityName.MULTI_TURN: UnsupportedCapabilityBehavior.RAISE,
-                CapabilityName.JSON_SCHEMA: UnsupportedCapabilityBehavior.ADAPT,
-            }
-        ) if enable_system_prompt_adapt else CapabilityHandlingPolicy()
+        policy = (
+            CapabilityHandlingPolicy(
+                behaviors={
+                    CapabilityName.SYSTEM_PROMPT: UnsupportedCapabilityBehavior.ADAPT,
+                    CapabilityName.MULTI_TURN: UnsupportedCapabilityBehavior.RAISE,
+                    CapabilityName.JSON_SCHEMA: UnsupportedCapabilityBehavior.ADAPT,
+                }
+            )
+            if enable_system_prompt_adapt
+            else CapabilityHandlingPolicy()
+        )
 
         return TargetConfiguration(
             capabilities=TargetCapabilities(
@@ -509,3 +533,44 @@ def _build_target_configuration(
                 policy=policy,
             )
         return None
+
+
+# ====================================================================
+# Backwards Compatibility Class Wrapper
+# TargetBuilder was extracted to functional API in v2.0.
+# ====================================================================
+
+
+class TargetBuilder:
+    """Backward-compatible wrapper for build_http_target().
+
+    This class provides the legacy interface that wraps the modern
+    functional API.
+    """
+
+    def build(
+        self,
+        parsed: Any,
+        *,
+        http_client: Any = None,
+        http2: bool = False,
+        chat_id_state: Any = None,
+        enable_multi_turn: bool = False,
+        enable_system_prompt_adapt: bool = True,
+        auto_discover_capabilities: bool = True,
+    ) -> Any:
+        """Build PyRIT HTTPTarget (legacy interface)."""
+        return build_http_target(
+            parsed,
+            http_client=http_client,
+            http2=http2,
+            chat_id_state=chat_id_state,
+            enable_multi_turn=enable_multi_turn,
+            enable_system_prompt_adapt=enable_system_prompt_adapt,
+            auto_discover_capabilities=auto_discover_capabilities,
+        )
+
+
+def build_target_from_burp(parsed: Any, **kwargs: Any) -> Any:
+    """Build target from parsed Burp request (convenience wrapper)."""
+    return build_http_target(parsed, **kwargs)

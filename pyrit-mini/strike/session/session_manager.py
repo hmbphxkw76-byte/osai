@@ -18,6 +18,7 @@ Academic basis:
     - Russinovich et al. (arXiv:2404.01833) — Multi-turn state tracking
     - PyRIT (arXiv:2407.01232) — Native callback integration
 """
+
 from __future__ import annotations
 
 import logging
@@ -118,9 +119,7 @@ class SessionStateManager:
         response_cookies = self._get_response_cookies(response)
 
         # 执行提取
-        extracted = self._extractor.extract_all(
-            response_text, response_headers, response_cookies
-        )
+        extracted = self._extractor.extract_all(response_text, response_headers, response_cookies)
 
         if extracted:
             self._previous_state = dict(self._current_state)
@@ -159,9 +158,7 @@ class SessionStateManager:
         Returns:
             ValidationResult 验证结果
         """
-        result = self._validator.validate_turn(
-            self._previous_state, self._current_state
-        )
+        result = self._validator.validate_turn(self._previous_state, self._current_state)
 
         if result.alerts:
             for alert in result.alerts:
@@ -250,6 +247,7 @@ class SessionStateManager:
         Returns:
             组合后的回调函数
         """
+
         def combined_callback(response: Any) -> str:
             # 1. 提取 session 状态
             try:

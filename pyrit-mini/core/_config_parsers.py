@@ -3,6 +3,7 @@
 Extracted from core/config.py: defaults, config file loading,
 CSV/normalization helpers, and individual field parsers.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -32,62 +33,111 @@ def _load_defaults() -> dict[str, Any]:
         logger.warning("Failed to load defaults.yaml: %s", e)
         return {}
 
+
 def _apply_defaults(args: argparse.Namespace, defaults: dict[str, Any]) -> None:
-    """ YAML args None ."""
-    key_map = {"scenario_timeout": "timeout"}
+    """YAML args None ."""
+    # key_map: defaults.yaml 键名 -> args 属性名（二者不同名时登记于此，C7 不可断链）
+    key_map = {
+        "scenario_timeout": "timeout",
+        # plan Wave 2.5 / C2：defaults.yaml `escalation_asr_threshold` 的唯一消费者是
+        # `_run_escalate_phase`。此前该键无任何读取方（C7 断链），升级阈值恒为硬编码 30.0。
+        "escalation_asr_threshold": "escalate_threshold",
+    }
     for yaml_key, default_val in defaults.items():
         arg_key = key_map.get(yaml_key, yaml_key)
         current = getattr(args, arg_key, None)
         if current is None:
             setattr(args, arg_key, default_val)
 
+
+# defaults.yaml 中的嵌套小节：展平为独立 args 键，保持 C7 配置数据流不断链。
+# 例：component_classification.weight_path -> args.weight_path
+_NESTED_SECTIONS: tuple[str, ...] = (
+    "component_classification",
+    "attack_budget",
+    "attack_chain",
+    "impact_chain",
+    "native_output",
+)
+
+
+def _flatten_nested_defaults(args: argparse.Namespace) -> None:
+    """把 defaults.yaml 的嵌套小节展平为 args 的标量键（C7：配置数据流不可断）。
+
+    嵌套小节经 `_apply_defaults` 落到 args 上是 dict，下游 `getattr(args, key)`
+    读不到标量。展平后 `args.weight_path` / `args.max_total_attacks` 等可直接消费，
+    与「defaults.yaml → parse_args → args → getattr」唯一链路一致。
+    """
+    for section in _NESTED_SECTIONS:
+        payload = getattr(args, section, None)
+        if not isinstance(payload, dict):
+            continue
+        for sub_key, value in payload.items():
+            if isinstance(value, dict):
+                continue  # 二级以上嵌套不展平，保持原样
+            if getattr(args, sub_key, None) is None:
+                setattr(args, sub_key, value)
+
+
+def _parse_components(raw: str | list[str] | None) -> list[str]:
+    """解析 `--components mcp_tool_poisoning,rag_pipeline` → list[str]。
+
+    同时接受组件键（mcp_tool_poisoning）、短名（mcp）与标签（tool_surface），
+    由 ComponentClassifier 在运行时统一解析；此处只做词法切分与去空去重。
+
+    Args:
+        raw: CLI 原始值（逗号分隔字符串 / 列表 / None）
+
+    Returns:
+        去重后的组件标识列表（保持输入顺序，保证可复现）。
+    """
+    if raw is None:
+        return []
+    if isinstance(raw, (list, tuple)):
+        items: list[str] = [str(x) for x in raw]
+    else:
+        items = [part for chunk in str(raw).split(",") for part in [chunk.strip()]]
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        if item and item not in seen:
+            seen.add(item)
+            out.append(item)
+    return out
+
+
 def _load_config_file(path: str) -> dict[str, Any]:
     """Load --config-file YAML
 
-     YAML  ( Campaign Schema v2.0):
-        name: string           # Campaign
-        description: string    # Campaign
-        version: string        #
-        targets: [string]      # Burp ( config/burp/burp/)
-        strategy:              #
-            mode: string       # single_turn | multi_turn | adaptive
-            intensity: string  # minimal | standard | maximum
-        attack_surface: string # ( asset_index.yaml)
-        orchestration:         #
-            seeds: [string]    #
-            converters: [string] #
-            techniques: [string] #
-            scorers: [string]  #
-        execution:             #
-            max_seeds: int
-            max_attempts: int
-            max_concurrency: int
-            timeout: int
-            escalation: bool
-            html_report: bool
-        memory_labels: dict    # ( CentralMemory)
-        seed_filters: dict     # (KEY=VALUE)
+    YAML  ( Generic Config Schema):
+       seeds: string          # ()
+       converters: string     # Converter (auto, l5_optimal, none, technique:converter.xxx )
+       techniques: string     # (auto, single, crescendo, ...)
+       burp: [string]         # Burp
+       max_seeds: int
+       max_attempts: int
+       max_concurrency: int
+       timeout: int
+       add_initializer: [string]  # Initializer
+       offensive: bool
+       escalation: bool
+       html_report: bool
+       rate_limit: int
+       target_api_endpoint: string
+       target_api_key: string
+       target_api_model: string
+       target_api_type: string  # chat | responses
+       litellm_model: string
+       browser_url: string
+       memory_labels: dict    # ( CentralMemory)
+       seed_filters: dict     # (KEY=VALUE)
 
-     ():
-        seeds: string          # ()
-        converters: string     # Converter (auto, l5_optimal, none, technique:converter.xxx )
-        techniques: string     # (auto, single, crescendo, ...)
-        burp: [string]         # Burp
-        max_seeds: int
-        max_attempts: int
-        max_concurrency: int
-        timeout: int
-        add_initializer: [string]  # Initializer
-        offensive: bool
-        escalation: bool
-        html_report: bool
-        rate_limit: int
-        target_api_endpoint: string
-        target_api_key: string
-        target_api_model: string
-        target_api_type: string  # chat | responses
-        litellm_model: string
-        browser_url: string
+    section ( args Layer):
+       scoring:       # - T0/J1/J2/J3
+       escalation:    # - Crescendo/TAP/PAIR
+       probe:         #
+       adaptive:      # PyRIT TextAdaptive
+       execution:     #
     """
     config_path = Path(path)
     if not config_path.is_absolute():
@@ -107,8 +157,9 @@ def _load_config_file(path: str) -> dict[str, Any]:
         logger.warning("Failed to load config file %s: %s", config_path, e)
         return {}
 
+
 def _normalize_list_to_csv(value: Any, key: str = "") -> Any:
-    """ YAML list ()
+    """YAML list ()
 
     :
         seeds: [core/, encoding/]  ->  "core/,encoding/"
@@ -121,8 +172,9 @@ def _normalize_list_to_csv(value: Any, key: str = "") -> Any:
         return ",".join(str(v).strip() for v in value if str(v).strip())
     return value
 
+
 def _apply_config_file(args: argparse.Namespace, config: dict[str, Any]) -> None:
-    """ --config-file YAML args None
+    """--config-file YAML args None
 
     : CLI --flag > --config-file > config/defaults.yaml >
     Therefore, args  None
@@ -176,26 +228,36 @@ def _apply_config_file(args: argparse.Namespace, config: dict[str, Any]) -> None
             techniques: list
             scorers: list
     """
- # == : seeds/converters/techniques/scorers list CSV ==
- # seeds: [core/, encoding/] seeds: "core/,encoding/"
+    # == : seeds/converters/techniques/scorers list CSV ==
+    # seeds: [core/, encoding/] seeds: "core/,encoding/"
     _list_to_csv_keys = ("seeds", "converters", "techniques", "scorers")
     for _key in _list_to_csv_keys:
         if _key in config:
             config[_key] = _normalize_list_to_csv(config[_key], _key)
 
- # /: None
+    # /: None
     _str_keys = [
-        "seeds", "converters", "techniques", "max_seeds", "max_attempts",
-        "max_concurrency", "timeout", "rate_limit",
-        "litellm_model", "target_api_endpoint", "target_api_key",
-        "target_api_model", "target_api_type", "browser_url",
+        "seeds",
+        "converters",
+        "techniques",
+        "max_seeds",
+        "max_attempts",
+        "max_concurrency",
+        "timeout",
+        "rate_limit",
+        "litellm_model",
+        "target_api_endpoint",
+        "target_api_key",
+        "target_api_model",
+        "target_api_type",
+        "browser_url",
     ]
     for key in _str_keys:
         yaml_val = config.get(key)
         if yaml_val is not None and getattr(args, key, None) is None:
             setattr(args, key, yaml_val)
 
- # burp: - config_file burp , args.burp None
+    # burp: - config_file burp , args.burp None
     burp_cfg = config.get("burp")
     if burp_cfg is not None and args.burp is None:
         if isinstance(burp_cfg, list):
@@ -203,7 +265,7 @@ def _apply_config_file(args: argparse.Namespace, config: dict[str, Any]) -> None
         else:
             args.burp = burp_cfg
 
- # bool : None/
+    # bool : None/
     if config.get("offensive") is not None and not args.offensive:
         args.offensive = bool(config["offensive"])
     if config.get("html_report") is not None and not args.html_report:
@@ -211,93 +273,108 @@ def _apply_config_file(args: argparse.Namespace, config: dict[str, Any]) -> None
     if config.get("escalation") is not None and args.escalation is None:
         args.escalation = bool(config["escalation"])
 
- # escalation_levels: config_file ( "L2,L4"), CLI
- # CLI --escalation-levels (None), config_file
- # parse_args _parse_escalation_levels
+    # escalation_levels: config_file ( "L2,L4"), CLI
+    # CLI --escalation-levels (None), config_file
+    # parse_args _parse_escalation_levels
     el_cfg = config.get("escalation_levels")
     if el_cfg is not None and getattr(args, "escalation_levels", None) is None:
         if isinstance(el_cfg, (str, list)):
             args.escalation_levels = ",".join(el_cfg) if isinstance(el_cfg, list) else el_cfg
 
- # memory_labels: config_file dict, CLI JSON
- # CLI --memory-labels (None), config_file
+    # memory_labels: config_file dict, CLI JSON
+    # CLI --memory-labels (None), config_file
     ml_cfg = config.get("memory_labels")
     if ml_cfg is not None and args.memory_labels is None:
         if isinstance(ml_cfg, dict):
             args.memory_labels = ml_cfg  # _parse_memory_labels dict
 
- # seed_filters: config_file dict, CLI KEY=VALUE
+    # seed_filters: config_file dict, CLI KEY=VALUE
     sf_cfg = config.get("seed_filters")
     if sf_cfg is not None and args.seed_filters is None:
         if isinstance(sf_cfg, dict):
-         # KEY=VALUE , _parse_seed_filters
+            # KEY=VALUE , _parse_seed_filters
             args.seed_filters = ",".join(f"{k}={v}" for k, v in sf_cfg.items())
 
- # add_initializer: config_file
+    # add_initializer: config_file
     ai_cfg = config.get("add_initializer")
     if ai_cfg is not None and args.add_initializer is None:
         if isinstance(ai_cfg, list):
             args.add_initializer = [str(x) for x in ai_cfg]
 
- # == Campaign Schema v2.0: targets -> burp ==
- # targets: [mocka, mockb] args.burp (CLI )
+    # == Config-file: targets -> burp (通用配置能力) ==
     targets_cfg = config.get("targets")
     if targets_cfg is not None and args.burp is None:
         if isinstance(targets_cfg, list):
-         # : , parse_args burp
             args.burp = [str(t) for t in targets_cfg]
-            logger.info("campaign schema v2.0: targets -> burp = %s", args.burp)
+            logger.info("config-file: targets -> burp = %s", args.burp)
         elif isinstance(targets_cfg, str):
             args.burp = [targets_cfg]
 
-    # == Campaign Schema v2.0: attack_surface args ==
-    attack_surface_cfg = config.get("attack_surface")
-    if attack_surface_cfg is not None:
-        args.attack_surface = str(attack_surface_cfg)
-        logger.info("campaign schema v2.0: attack_surface = %s", args.attack_surface)
-
- # == Campaign Schema v2.0: strategy adaptive_technique_filter ==
-    strategy_cfg = config.get("strategy")
-    if isinstance(strategy_cfg, dict):
-     # mode: single_turn / multi_turn / adaptive -> adaptive_technique_filter
-        strategy_mode = strategy_cfg.get("mode")
-        if strategy_mode and getattr(args, "adaptive_technique_filter", None) is None:
-            if strategy_mode == "single_turn":
-                args.adaptive_technique_filter = ["single_turn"]
-            elif strategy_mode == "multi_turn":
-                args.adaptive_technique_filter = ["multi_turn"]
-            elif strategy_mode == "adaptive":
-                args.adaptive_technique_filter = None  # None =
-            logger.info("campaign schema v2: strategy.mode -> adaptive_technique_filter = %s",
-                        args.adaptive_technique_filter)
-
- # == section: scoring / escalation / probe / adaptive / execution ==
- # section key args Layer ( defaults.yaml key )
- # _apply_config_file _apply_defaults ,
- # defaults.yaml ( None)
+    # == section: scoring / escalation / probe / adaptive / execution ==
+    # section key args Layer ( defaults.yaml key )
+    # _apply_config_file _apply_defaults ,
+    # defaults.yaml ( None)
     _section_keys = [
         # scoring section -
-        ("scoring", ["dual_judge_enabled", "dual_judge_high_confidence_threshold",
-                     "wilson_confidence_level", "scorer_timeout", "best_of_n_retries"]),
+        (
+            "scoring",
+            [
+                "dual_judge_enabled",
+                "dual_judge_high_confidence_threshold",
+                "wilson_confidence_level",
+                "scorer_timeout",
+                "best_of_n_retries",
+            ],
+        ),
         # escalation section -
-        ("escalation", ["escalation_asr_threshold", "post_l1_exit_threshold",
-                        "post_l2_exit_threshold", "max_escalation_targets",
-                        "crescendo_max_turns", "tap_tree_width", "tap_tree_depth",
-                        "tap_branching", "tap_success_threshold",
-                        "pair_tree_width", "pair_tree_depth", "escalation_levels",
-                        "priority_scheduler_enabled", "priority_scheduler_high_threshold",
-                        "priority_scheduler_low_threshold", "priority_scheduler_epsilon"]),
+        (
+            "escalation",
+            [
+                "escalation_asr_threshold",
+                "post_l1_exit_threshold",
+                "post_l2_exit_threshold",
+                "max_escalation_targets",
+                "crescendo_max_turns",
+                "tap_tree_width",
+                "tap_tree_depth",
+                "tap_branching",
+                "tap_success_threshold",
+                "pair_tree_width",
+                "pair_tree_depth",
+                "escalation_levels",
+                "priority_scheduler_enabled",
+                "priority_scheduler_high_threshold",
+                "priority_scheduler_low_threshold",
+                "priority_scheduler_epsilon",
+            ],
+        ),
         # probe section -
-        ("probe", ["probe_timeout", "probe_retries", "deep_probe_timeout",
-                   "parallel_probe_timeout", "max_concurrent_probes"]),
+        (
+            "probe",
+            ["probe_timeout", "probe_retries", "deep_probe_timeout", "parallel_probe_timeout", "max_concurrent_probes"],
+        ),
         # adaptive section - PyRIT TextAdaptive
-        ("adaptive", ["adaptive_epsilon", "adaptive_random_seed",
-                      "adaptive_max_attempts", "adaptive_technique_filter"]),
+        (
+            "adaptive",
+            ["adaptive_epsilon", "adaptive_random_seed", "adaptive_max_attempts", "adaptive_technique_filter"],
+        ),
         # execution section - ( _str_keys )
-        ("execution", ["scenario_timeout", "api_timeout", "rate_limit_retries",
-                       "timeout_max_retries", "timeout_max_delay",
-                       "l5_optimal_paths", "auto_seed_expansion_factor",
-                       "rate_limit", "max_concurrency", "max_attempts", "max_seeds"]),
+        (
+            "execution",
+            [
+                "scenario_timeout",
+                "api_timeout",
+                "rate_limit_retries",
+                "timeout_max_retries",
+                "timeout_max_delay",
+                "l5_optimal_paths",
+                "auto_seed_expansion_factor",
+                "rate_limit",
+                "max_concurrency",
+                "max_attempts",
+                "max_seeds",
+            ],
+        ),
     ]
 
     for section_name, keys in _section_keys:
@@ -308,13 +385,13 @@ def _apply_config_file(args: argparse.Namespace, config: dict[str, Any]) -> None
             if key not in section_data:
                 continue
             val = section_data[key]
- # args None (CLI )
+            # args None (CLI )
             if getattr(args, key, None) is None:
                 setattr(args, key, val)
                 logger.debug("config-file section '%s': %s = %s", section_name, key, val)
 
- # == Campaign Schema v2.0: orchestration section ==
- # orchestration.seeds/converters/techniques/scorers list -> CSV
+    # == Config-file: orchestration section (通用配置能力) ==
+    # orchestration.seeds/converters/techniques/scorers list -> CSV
     orch_cfg = config.get("orchestration")
     if isinstance(orch_cfg, dict):
         _orch_key_map = {
@@ -332,11 +409,13 @@ def _apply_config_file(args: argparse.Namespace, config: dict[str, Any]) -> None
                     setattr(args, _arg_key, ",".join(str(v).strip() for v in _val if str(v).strip()))
                 else:
                     setattr(args, _arg_key, str(_val))
-                logger.info("campaign schema v2: orchestration.%s -> args.%s = %s",
-                            _yaml_key, _arg_key, getattr(args, _arg_key))
+                logger.info(
+                    "config-file: orchestration.%s -> args.%s = %s", _yaml_key, _arg_key, getattr(args, _arg_key)
+                )
+
 
 def _parse_memory_labels(raw: Any) -> dict[str, str]:
-    """ --memory-labels dict
+    """--memory-labels dict
 
     :
         - JSON : '{"run_id":"r001","target":"deepseek"}'
@@ -357,8 +436,9 @@ def _parse_memory_labels(raw: Any) -> dict[str, str]:
             logger.warning("--memory-labels is not valid JSON: %s (value=%s)", e, raw[:100])
     return {}
 
+
 def _parse_seed_filters(raw: Any) -> dict[str, str]:
-    """ --seed-filters dict
+    """--seed-filters dict
 
     :
         -  KEY=VALUE: "owasp_id=LLM01,difficulty=high"
@@ -386,8 +466,9 @@ def _parse_seed_filters(raw: Any) -> dict[str, str]:
         return result
     return {}
 
+
 def _parse_converter_overrides(converters_str: str | None) -> dict[str, list[str]]:
-    """ --converters technique:converter.xxx
+    """--converters technique:converter.xxx
 
     : --converters "auto;tap:persuasion;pair:decomposition,base64"
     - :  converter ,  per-technique
@@ -412,8 +493,9 @@ def _parse_converter_overrides(converters_str: str | None) -> dict[str, list[str
             overrides[tech] = chain_list
     return overrides
 
+
 def _parse_converter_global(converters_str: str | None) -> str:
-    """ --converters converter ()
+    """--converters converter ()
 
     "auto;tap:persuasion" -> "auto"
     "l5_optimal" -> "l5_optimal"
@@ -425,8 +507,9 @@ def _parse_converter_global(converters_str: str | None) -> str:
         return converters_str.split(";")[0].strip()
     return converters_str.strip()
 
+
 def _parse_initializer_specs(raw: list[str] | None) -> list[dict[str, Any]]:
-    """ --add-initializer spec
+    """--add-initializer spec
 
     : ["ClassName,arg1=val1,arg2=val2", "OtherInit"]
     : [
@@ -455,8 +538,9 @@ def _parse_initializer_specs(raw: list[str] | None) -> list[dict[str, Any]]:
         specs.append({"class": class_name, "args": kwargs})
     return specs
 
+
 def _parse_escalation_levels(raw: str) -> set[int] | None:
-    """ --escalation-levels
+    """--escalation-levels
 
     :
         - : "L1,L2,L4" -> {1, 2, 4}
@@ -486,7 +570,7 @@ def _parse_escalation_levels(raw: str) -> set[int] | None:
         part = part.strip()
         if not part:
             continue
- # : L1-L4
+        # : L1-L4
         if "-" in part:
             range_parts = part.split("-")
             if len(range_parts) == 2:
@@ -499,7 +583,7 @@ def _parse_escalation_levels(raw: str) -> set[int] | None:
                 except ValueError:
                     logger.warning("Invalid escalation level range: %s", part)
             continue
- # : L1
+        # : L1
         try:
             num = int(part.lstrip("lL"))
             if 1 <= num <= 4:
@@ -513,4 +597,3 @@ def _parse_escalation_levels(raw: str) -> set[int] | None:
         logger.warning("No valid escalation levels parsed from '%s', using full chain", raw)
         return None
     return levels
-
