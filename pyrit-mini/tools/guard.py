@@ -904,7 +904,19 @@ def _register_all_extended_checks() -> None:
         logger.debug("Extended checks not available: %s", e)
 
 
+# === 注册门禁本体检查 (R-GATE-1~3) ===
+def _register_gate_checks() -> None:
+    try:
+        from tools.guard_gate import register_gate_checks
+
+        register_gate_checks(ArchitectureGuard)
+    except ImportError as e:
+        # 内部模块缺失属真实故障：显式告警（另登记 backlog，见 BL-067）
+        logger.warning("Gate checks not available: %s", e)
+
+
 _register_all_extended_checks()
+_register_gate_checks()
 
 
 if __name__ == "__main__":
