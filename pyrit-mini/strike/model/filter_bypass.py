@@ -109,10 +109,14 @@ async def execute_many_shot_attack(
     """
     from pyrit.executor.attack import ManyShotJailbreakAttack
 
+    from strike.strategies.params import many_shot_params
+
+    params = many_shot_params(getattr(ctx, "args", None))
     attack = ManyShotJailbreakAttack(
         objective_target=ctx.objective_target,
+        **params,
     )
-    logger.info("[Bypass] ManyShotJailbreakAttack via PyRIT native")
+    logger.info("[Bypass] ManyShotJailbreakAttack via PyRIT native (example_count=%s)", params.get("example_count"))
 
     result = await attack.execute_async(objective=objective)
     return result
@@ -131,10 +135,18 @@ async def execute_chunked_request_attack(
     """
     from pyrit.executor.attack import ChunkedRequestAttack
 
+    from strike.strategies.params import chunked_request_params
+
+    params = chunked_request_params(getattr(ctx, "args", None))
     attack = ChunkedRequestAttack(
         objective_target=ctx.objective_target,
+        **params,
     )
-    logger.info("[Bypass] ChunkedRequestAttack via PyRIT native")
+    logger.info(
+        "[Bypass] ChunkedRequestAttack via PyRIT native (chunk_size=%s, total_length=%s)",
+        params.get("chunk_size"),
+        params.get("total_length"),
+    )
 
     result = await attack.execute_async(objective=objective)
     return result
@@ -175,10 +187,14 @@ async def execute_red_teaming_attack(
     """
     from pyrit.executor.attack import RedTeamingAttack
 
+    from strike.strategies.params import red_teaming_params
+
+    params = red_teaming_params(getattr(ctx, "args", None))
     attack = RedTeamingAttack(
         objective_target=ctx.objective_target,
+        **params,
     )
-    logger.info("[Bypass] RedTeamingAttack via PyRIT native")
+    logger.info("[Bypass] RedTeamingAttack via PyRIT native (max_turns=%s)", params.get("max_turns"))
 
     result = await attack.execute_async(objective=objective)
     return result

@@ -222,6 +222,7 @@ async def run(argv: list[str] | None = None) -> None:
         output_dir=output_dir,
         enabled=not getattr(args, "no_events", False),
         run_id=getattr(args, "resume", None),
+        operator=getattr(args, "operator", None) or "",
     )
 
     # == W0-8: 终端展示层接入同一 EventLog（display 不持有 ctx，显式注入） ==

@@ -39,7 +39,7 @@ _CHAIN_DATAFLOW: dict[str, tuple[list[str], list[str]]] = {
     "web_api": (["reachable_endpoint", "auth_token"], []),
     "llm_gateway": (["system_prompt", "guardrail_profile"], ["reachable_endpoint"]),
     "rag_pipeline": (["poisoned_doc_id", "retrieved_context"], ["reachable_endpoint"]),
-    "embedding": (["vector_target", "similarity_probe"], ["reachable_endpoint"]),
+    "embedding": (["vector_target", "embedding_dimension"], ["reachable_endpoint"]),
     "mcp_tool_poisoning": (["tool_schema", "tool_invoke_capability"], ["reachable_endpoint"]),
     "a2a_agent_integrity": (["agent_card", "agent_trust"], ["reachable_endpoint"]),
     "session_memory": (["session_id", "memory_write"], ["auth_token"]),

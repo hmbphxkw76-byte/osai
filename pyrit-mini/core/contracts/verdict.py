@@ -51,6 +51,11 @@ class VerdictRecord(BaseModel):
     aggregation: Literal["or", "and", "single", "t0_only"] = "or"
     agreement: bool | None = None  # J1/J2 是否一致（None = 未双裁）
 
+    # REQ-152 / ADR-008：影响链四态（impact / exfil_confirmed / exfil_suspected / content_only）
+    impact_verdict: str = ""
+    # REQ-164：L1–L4 成功分层（附加证据强度维度，不改变 final_success 语义）
+    success_level: str = ""
+
     def add(self, verdict: JudgeVerdict) -> None:
         if verdict.judge_id.upper() == "T0":
             self.t0 = verdict

@@ -25,7 +25,6 @@ detection:
 
 recon_modules:
   - recon.embedding.vector_probe
-  - recon.embedding.similarity_probe
 service_profile_keys: ["embedding_profile", "vector_db_profile"]
 
 seed_sets:

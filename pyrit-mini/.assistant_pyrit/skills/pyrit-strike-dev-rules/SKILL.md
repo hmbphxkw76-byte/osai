@@ -18,6 +18,9 @@ description: AI assistant development rules for pyrit-red team pipeline. Use whe
 | `specs/20-REQUIREMENTS.md` | 需求规格 P0/P1/P2 |
 | `specs/30-TASKS.md` | 任务执行协议、生命周期 |
 | `specs/40-GUARDRAILS.md` | 护栏登记簿 v1.2 |
+| `specs/90-AI-DEV-ARCHITECTURE.md` | AI 编程总纲：需求→落点映射 / 遵循流程 / 差距指针 |
+
+> 编码前先读 `specs/90-AI-DEV-ARCHITECTURE.md`（需求→落点映射的导航入口；规则本体仍以上表 00–40 为准，冲突以金字塔为准）。
 
 ## Core Rules (10 Rules)
 
@@ -88,6 +91,15 @@ Run: `py -m tools.guard`
 | R-SIZE | 文件大小限制 (≤850行) |
 
 **权威规则清单**：见 `docs/specs/00-CONSTITUTION.md` 附录A
+
+## Product Requirements（需求索引）
+
+> **需求唯一登记处（SSOT）**：`docs/specs/20-REQUIREMENTS.md`（以 `REQ-xxx` 编号，分级 P0/P1/P2，含可勾选验收标准 DoD）。本文件**不重述**需求内容（宪法 C3 / 文档纪律 D1），只做索引。
+> 产品使命与裁决序见 `docs/specs/README.md` §0；架构与 `ctx` 字段契约见 `docs/specs/10-ARCHITECTURE.md`；攻击面缺口登记见 `docs/specs/55-ATTACK-GAP-CLOSURE.md`；活跃变更提案/执行计划见 `docs/specs/plans/`。
+
+**AI 义务**：实现任何功能前，必须先到 `20-REQUIREMENTS.md` 核对对应 `REQ` 的验收标准；**未登记的需求 = 不存在**（宪法 C6），须走 change-proposal 流程（见 `20` 第六章 / `specs/templates/change-proposal.md`），不得直接编码。
+
+**与需求强相关的硬规则**：PyRIT 原生优先（R2）；素材/策略选择须回溯到侦察命中能力；预算三维度受控；证据带 `schema_version`+内容哈希确保可复现（详见 `40-GUARDRAILS.md`）。
 
 ## Directory Structure
 

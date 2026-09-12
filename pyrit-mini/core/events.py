@@ -27,6 +27,7 @@ Academic basis:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import time
@@ -70,6 +71,11 @@ class Event:
     payload: dict[str, Any] = field(default_factory=dict)
     refs: dict[str, Any] = field(default_factory=dict)
     node_id: str | None = None
+    # REQ-169：审计防篡改 —— 操作员身份（who）+ SHA-256 哈希链（prev_hash → hash）。
+    # 老事件（无 hash 字段）在 verify_event_log 中按 legacy 处理，保持向后兼容。
+    operator: str = ""
+    prev_hash: str = ""
+    hash: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         """序列化为可 JSON 化的字典。"""
@@ -89,11 +95,19 @@ class EventLog:
         enabled: False 时全部写入为 no-op（`--no-events` 旁路）。
     """
 
-    def __init__(self, path: Path | None = None, run_id: str | None = None, enabled: bool = True) -> None:
+    def __init__(
+        self,
+        path: Path | None = None,
+        run_id: str | None = None,
+        enabled: bool = True,
+        operator: str = "",
+    ) -> None:
         self.path = path
         self.run_id = run_id or uuid.uuid4().hex[:12]
         self.enabled = enabled
+        self.operator = operator or ""  # REQ-169：who
         self._events: list[Event] = []
+        self._prev_hash = ""  # REQ-169：哈希链游标
         self._fh = None
         if self.enabled and self.path is not None:
             try:
@@ -113,10 +127,11 @@ class EventLog:
         output_dir: Path | None = None,
         enabled: bool = True,
         run_id: str | None = None,
+        operator: str = "",
     ) -> "EventLog":
         """在 INIT 阶段挂载到 ctx.event_log（唯一写入点）。"""
         out = Path(output_dir) if output_dir is not None else Path(getattr(ctx, "output_dir", "outputs"))
-        log = cls(path=out / "events.jsonl", run_id=run_id, enabled=enabled)
+        log = cls(path=out / "events.jsonl", run_id=run_id, enabled=enabled, operator=operator)
         try:
             ctx.event_log = log
         except Exception:  # ctx 不可写时降级为独立实例（不阻断）
@@ -148,15 +163,21 @@ class EventLog:
         """写入一条事件；禁用时返回 None（调用方无需判空以外的处理）。"""
         if not self.enabled:
             return None
-        evt = Event(
-            ts=time.time(),
-            run_id=self.run_id,
-            phase=phase,
-            etype=etype,
-            payload=payload or {},
-            refs=refs or {},
-            node_id=node_id,
-        )
+        # REQ-169：先构造字段 → 计算 SHA-256 哈希链 → 再实例化（hash 不参与自身哈希）
+        fields: dict[str, Any] = {
+            "ts": time.time(),
+            "run_id": self.run_id,
+            "phase": phase,
+            "etype": etype,
+            "payload": payload or {},
+            "refs": refs or {},
+            "node_id": node_id,
+            "operator": self.operator,
+            "prev_hash": self._prev_hash,
+        }
+        digest = _hash_event(fields)
+        evt = Event(**fields, hash=digest)
+        self._prev_hash = digest
         self._events.append(evt)
         if self._fh is not None:
             try:
@@ -219,3 +240,54 @@ def emit_event(
 ) -> Event | None:
     """便捷埋点：ctx 未挂载 EventLog 时自动 no-op。"""
     return get_event_log(ctx).emit(phase, etype, payload, refs, node_id)
+
+
+def _hash_event(event_fields: dict[str, Any]) -> str:
+    """Deterministic SHA-256 over an event's fields (excluding `hash` itself)."""
+    canonical = json.dumps(event_fields, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def verify_event_log(path: str | Path) -> dict[str, Any]:
+    """Offline tamper check for an EventLog JSONL hash chain (REQ-169 / NFR-17).
+
+    Returns:
+        {"valid": bool, "reason": str, "checked": int, "legacy": int, "broken_at": int|None}
+
+    Legacy lines without a `hash` field are counted (not failed) so pre-REQ-169
+    logs remain readable.
+    """
+    p = Path(path)
+    if not p.is_file():
+        return {"valid": False, "reason": "file_not_found", "checked": 0, "legacy": 0, "broken_at": None}
+
+    prev = ""
+    checked = 0
+    legacy = 0
+    for lineno, raw_line in enumerate(p.read_text(encoding="utf-8").splitlines(), start=1):
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            return {"valid": False, "reason": "invalid_json", "checked": checked, "legacy": legacy, "broken_at": lineno}
+        if not isinstance(data, dict) or "hash" not in data:
+            legacy += 1
+            continue
+        digest = str(data.get("hash"))
+        base = {k: v for k, v in data.items() if k != "hash"}
+        if str(base.get("prev_hash", "")) != prev:
+            return {
+                "valid": False,
+                "reason": "prev_hash_mismatch",
+                "checked": checked,
+                "legacy": legacy,
+                "broken_at": lineno,
+            }
+        if _hash_event(base) != digest:
+            return {"valid": False, "reason": "hash_mismatch", "checked": checked, "legacy": legacy, "broken_at": lineno}
+        prev = digest
+        checked += 1
+
+    return {"valid": True, "reason": "ok", "checked": checked, "legacy": legacy, "broken_at": None}

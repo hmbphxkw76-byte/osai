@@ -157,18 +157,21 @@ async def run_single_endpoint(
 
 #  —  _get_result_outcome
 def _get_result_outcome(result: Any) -> str:
-    """outcome (, from)"""
+    """Return the attack outcome via the single SSOT.
+
+    Delegates to `assess.asr_stats._get_outcome` ('success'/'failure'/'undecided').
+    The previous fallback treated any result carrying `converted_value` as
+    success, which disagreed with the T0→J1→J2 scoring cascade and inflated
+    success counts (C3 SSOT / R-H4). On ImportError we return 'undecided' —
+    never a false success.
+    """
     try:
         from assess.asr_stats import _get_outcome
 
         return _get_outcome(result)
     except ImportError:
-        pass
-
-    # Fallback
-    if hasattr(result, "converted_value"):
-        return "success"
-    return "failure"
+        logger.warning("[Execute] assess.asr_stats unavailable; outcome treated as undecided")
+        return "undecided"
 
 
 #  run_attack_pipeline ( endpoints )

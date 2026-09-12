@@ -89,7 +89,7 @@ def _collect() -> list[Finding]:
         findings.append(Finding("ROLLBACK", Severity.INFO, f"git 不可用（无法验证回滚）: {e}", "git"))
 
     # 5) 文档同步
-    for doc in ("README.md", "docs/archive/plan.md"):
+    for doc in ("README.md", "docs/specs/README.md"):
         if not (root / doc).exists():
             findings.append(Finding("DOC_MISSING", Severity.INFO, f"文档缺失: {doc}", "docs"))
 

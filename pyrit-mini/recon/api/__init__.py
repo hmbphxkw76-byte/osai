@@ -36,12 +36,6 @@ from recon.api.endpoint_sorter import (
     sort_burp_list_by_priority,
     sort_endpoints_by_priority,
 )
-from recon.api.openapi_capture import (
-    CaptureResult,
-    OpenAPICapture,
-    OpenAPISpec,
-    capture_openapi_spec,
-)
 from recon.api.openapi_discoverer import (
     OpenAPIDiscovery,
     OpenAPIEndpoint,
@@ -69,11 +63,6 @@ __all__ = [
     "sort_burp_list_by_priority",
     "sort_endpoints_by_priority",
     "classify_http_content",
-    # openapi_capture
-    "CaptureResult",
-    "OpenAPICapture",
-    "OpenAPISpec",
-    "capture_openapi_spec",
     # openapi_discoverer
     "OpenAPIEndpoint",
     "OpenAPIDiscovery",

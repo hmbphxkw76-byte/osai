@@ -234,10 +234,14 @@ async def create_target(ctx: PipelineContext) -> None:
         )
 
     # == Step 4 (P0): HTTPTarget (0 - HTTP ) ==
+    from core.resilience import build_target_resilience
+
     target = build_http_target(parsed)
+    _resilience = build_target_resilience(ctx, getattr(parsed, "url", "") or getattr(parsed, "host", ""))
     target = RateLimitedTarget(
         target=target,
         max_concurrency=ctx.args.max_concurrency or 3,
+        **_resilience,
     )
     ctx.objective_target = target
 
@@ -246,6 +250,7 @@ async def create_target(ctx: PipelineContext) -> None:
     multi_turn_target = RateLimitedTarget(
         target=multi_turn_target,
         max_concurrency=ctx.args.max_concurrency or 3,
+        **build_target_resilience(ctx, (getattr(parsed, "url", "") or getattr(parsed, "host", "")) + "#multi_turn"),
     )
     ctx.multi_turn_target = multi_turn_target
 

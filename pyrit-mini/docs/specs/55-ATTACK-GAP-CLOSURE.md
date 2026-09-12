@@ -990,7 +990,7 @@ Re-score → 评估绕过效果
 | R-NATIVE-1 | ✅ | 使用 PyRIT 原生 PromptSendingAttack |
 | R-H3 | ✅ | 无重复模块，增量信任构建器独立职责 |
 | R-DATA-1 | ✅ | 通过标准 PipelineContext 传递 |
-| R-DOC-1 | ✅ | CLI 参数已同步更新到 red-team-dev-guide.md 附录 D |
+| R-DOC-1 | ✅ | CLI 参数以代码 argparse 为唯一权威，每个 `--xxx` 具备非空 `help`（见 `tools/guard_extended.py`） |
 | R-DOC-5 | ✅ | 交付验收显示完整命令行用法（参数列表+示例） |
 
 ### 11.7 绕过策略详解

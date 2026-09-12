@@ -27,6 +27,7 @@ recon_modules:
   - recon.a2a.trust_analyzer
   - recon.a2a.attack_planner
   - recon.a2a.defense_awareness
+  - recon.a2a.defense_mapper
   - recon.a2a.capability_enumerator
 service_profile_keys: ["a2a_inventory", "a2a_topology", "a2a_defense_profile", "a2a_attack_plan"]
 

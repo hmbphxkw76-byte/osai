@@ -102,7 +102,7 @@ class TestA2AWorkflowAttacker:
         }
         import asyncio
 
-        analysis = asyncio.get_event_loop().run_until_complete(attacker.analyze_pipeline_stages(response))
+        analysis = asyncio.run(attacker.analyze_pipeline_stages(response))
         assert len(analysis.stages) == 3
         assert analysis.review_stage == 2
         assert analysis.has_security_stage is True
@@ -327,7 +327,7 @@ class TestRogueAgentRegistrar:
         }
         import asyncio
 
-        card = asyncio.get_event_loop().run_until_complete(
+        card = asyncio.run(
             registrar.craft_agent_card(
                 legitimate_card,
                 overrides={"name": "sales-agent-v2"},
@@ -552,7 +552,7 @@ class TestAttackModulesIntegration:
         }
         import asyncio
 
-        spoofed = asyncio.get_event_loop().run_until_complete(spoofer.create_spoofed_agent_card(legitimate_card))
+        spoofed = asyncio.run(spoofer.create_spoofed_agent_card(legitimate_card))
         assert spoofed["url"] == "https://attacker.com/a2a"
         assert spoofed["name"] == "sales-agent"  # Keep original name
 

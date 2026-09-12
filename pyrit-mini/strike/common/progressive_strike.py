@@ -178,16 +178,25 @@ if _yaml_data:
         len(YAML_STRATEGIES),
     )
 
-# Strategy → PyRIT Attack class mapping
+# Strategy → PyRIT 1.0.1 attack class mapping (verified real import paths).
+# The legacy `pyrit.attacks.*` namespace does not exist in PyRIT 1.0.1
+# (R-DRIFT-1 / R-NATIVE-1).
 STRATEGY_CLASS_MAP: dict[str, str] = {
     "prompt_sending": "pyrit.executor.attack.PromptSendingAttack",
-    "crescendo": "pyrit.executor.attack.multi_turn.CrescendoAttack",
-    "tap": "pyrit.executor.attack.multi_turn.TAPAttack",
-    "pair": "pyrit.executor.attack.multi_turn.PAIRAttack",
-    "gcg": "pyrit.executor.attack.single_turn.GCGAttack",
-    "many_shot": "pyrit.executor.attack.single_turn.ManyShotJailbreakAttack",
-    "figstep": "pyrit.executor.attack.single_turn.FigStepAttack",
-    "sleeper": "pyrit.executor.attack.single_turn.SleeperAgentAttack",
+    "crescendo": "pyrit.executor.attack.CrescendoAttack",
+    "tap": "pyrit.executor.attack.TAPAttack",
+    "pair": "pyrit.executor.attack.PAIRAttack",
+    "many_shot": "pyrit.executor.attack.ManyShotJailbreakAttack",
+}
+
+# Strategies declared for a target in _strategies.yaml that have no PyRIT-native
+# class and no progressive executor here. Their logic lives in the advanced-attack
+# modules below; _execute_phase() logs this explicitly and falls back to
+# single-turn (R-H1: no silent degradation, no pretending the strategy ran).
+PROGRESSIVE_UNSUPPORTED_STRATEGIES: dict[str, str] = {
+    "gcg": "ADR-002 suffix pool (strike.model)",
+    "figstep": "strike.model.multimodal (VLM carrier injection)",
+    "sleeper": "strike.model.backdoor (trigger activation)",
 }
 
 
@@ -427,6 +436,17 @@ class ProgressiveStrike:
                 return await self._execute_pair(phase)
             elif strategy == "many_shot":
                 return await self._execute_many_shot(phase)
+            elif strategy in PROGRESSIVE_UNSUPPORTED_STRATEGIES:
+                # Declared strategy without a progressive executor: its logic is
+                # owned by an advanced-attack module. Fall back to single-turn with
+                # an explicit, observable warning (R-H1).
+                logger.warning(
+                    "[PROGRESSIVE] Strategy '%s' has no progressive executor; owner=%s. "
+                    "Falling back to single-turn for this phase.",
+                    strategy,
+                    PROGRESSIVE_UNSUPPORTED_STRATEGIES[strategy],
+                )
+                return await self._execute_single_turn(phase)
             else:
                 # Default to single-turn for unknown strategies
                 logger.warning(

@@ -23,7 +23,6 @@ detection:
 recon_modules:
   - recon.api.auth_detector
   - recon.api.openapi_discoverer
-  - recon.api.openapi_capture
   - recon.api.endpoint_sorter
   - recon.api.recursive_expander
   - recon.api.sse_parser

@@ -3,7 +3,7 @@
 > **文档层级**：L2 / 五层规约金字塔第三层
 > **效力**：本项目"做什么"的唯一登记处。**未登记于此的需求 = 不存在**。AI 不得实现未登记需求（宪法 C6）。
 > **格式**：每条需求有 ID、一句话陈述、可勾选的验收标准（DoD）。验收标准是任务完成的**唯一**判据。
-> **版本**：v2.9（2026-09-12 REV-17：① 拆解 REQ-144 重号——原第五章"代码-文档同步"改号 **REQ-159**，REQ-144~146 专归跨模型审查；② 第十章追踪表与正文 ID 对齐；③ 组件面清单改读 `config/components/*.yaml`（D4）；④ 版本史外置）
+> **版本**：v3.0（2026-09-12 REV-20：新增 **第九章 D：用户诉求差距闭合需求**，登记 REQ-160~171 + NFR-17~19 + 红线 R-ROE-1/R-EVID-1/R-AUDIT-1；依据 `plans/CP-002-user-gap-closure.md`。REV-17 的 REQ-159 改号等项保持有效）
 > **版本史**：`git log -- docs/specs/20-REQUIREMENTS.md`
 
 > **ID 分配纪律**：REQ-xxx 全局唯一、只增不改。发现重号即为 P0 文档缺陷，须立即登记 backlog 并改号（不得改需求语义）。
@@ -116,7 +116,7 @@
 | REQ-141 | CLI 参数支持 | ① `--file-upload-target` 指定目标 URL；② `--upload-files` 指定文件列表；③ `--upload-endpoint` / `--trigger-endpoint` 指定端点路径 | `core/config.py` | ✅ |
 | REQ-142 | 流水线集成 | ① 集成到 `_run_file_upload_phase()`；② 结果存入 `ctx.attack_results`；③ 审计日志记录到 `orchestration_log` | `core/phases/strike.py` | ✅ |
 | REQ-143 | 测试覆盖 | ① 39 个测试用例覆盖全部核心功能；② CLI 参数解析测试；③ 边界情况测试 | `tests/test_file_upload_executor.py` | ✅ |
-| REQ-159 | 代码-文档同步 | ① CLI 参数变更必须同步更新 `docs/red team/red-team-dev-guide.md` 附录 D；② 新增攻击模块必须同步更新 `55-ATTACK-GAP-CLOSURE.md`；③ 新增需求/红线必须同步更新 `20-REQUIREMENTS.md` 和 `40-GUARDRAILS.md`；④ 规约文档遵守 `specs/README.md` §5 文档纪律（禁行号坐标 / 禁正文版本史 / 清单读代码） | `docs/specs/` + `docs/red team/` | ✅ |
+| REQ-159 | 代码-文档同步 | ① CLI 参数变更必须同步更新 `main.py`/`core/config.py` 的 argparse 定义（代码即 CLI 文档，运行 `--help` 即得；R-DOC-1 的 SSOT 目标）；② 新增攻击模块必须同步更新 `55-ATTACK-GAP-CLOSURE.md`；③ 新增需求/红线必须同步更新 `20-REQUIREMENTS.md` 和 `40-GUARDRAILS.md`；④ 规约文档遵守 `specs/README.md` §5 文档纪律（禁行号坐标 / 禁正文版本史 / 清单读代码） | `docs/specs/` | ✅ |
 
 > **改号说明**（REV-17）：本条原编号 REQ-144 与第九章 B 的「跨模型审查 REQ-144」重号。REQ-xxx 全局唯一，**本条改号 REQ-159**；语义不变。
 
@@ -251,9 +251,9 @@
 | 需求组 | 状态 | 备注 |
 |--------|------|------|
 | REQ-148 EventLog | ⚡ W0 已实施 | `core/events.py` + ctx 挂载/收尾 + `--no-events` + 5 阶段埋点 + 终端接入；17 测试通过；**W1 起成为报告/续跑消费方** |
-| REQ-149 TargetAdapter | 🟡 规约已登记 | W1-1~W1-3 |
+| REQ-149 TargetAdapter | ⚡ 已实施 | ①②③ 已落地：`recon/adapters/{base,http,sse,jsonrpc,multipart}.py` 提供统一 `send()/send_request()/close()`（`TargetAdapter` Protocol），认证态（Bearer/Cookie/API Key/OAuth/mTLS）与会话态（chat_id/thread_id/session_id）在 `AuthState`/`SessionState` 内闭环，编排层不可见协议差异；`build_adapter`/`choose_kind` 由入口特征自动择协议。另落地 `strike/targets/{mcp,rag,a2a}.py`（`MCPTarget` handshake→tools/list→tools/call、`RAGTarget` query→retrieve→generate、`A2ATarget` agent card→tasks/send），三者均为 PyRIT `PromptTarget` 子类。④ **零回归已证**（旧 Burp 路径未改动，全套 1812 测试通过）；**已闭环**：主链路按 `step.adapter` 选择 TargetAdapter 归 REQ-151 PlaybookEngine（BL-037 已 resolved）；`build_adapter(kind=mcp/rag/a2a)` 此前为死代码（choose_kind 永不返回这些 kind），现经 `_TargetAdapterWrapper` 真正路由到 `MCPTarget/RAGTarget/A2ATarget`（mcp 内部走 JSONRPCAdapter）。回归：`tests/common/test_adapters.py`（含 MockRange 端到端 + `TestAdapterContract` mcp/rag/a2a 契约） |
 | REQ-150 SurfaceGraph | 🟡 规约已登记 | W1-4~W1-9 |
-| REQ-151 PlaybookEngine | 🟡 规约已登记 | W2（先 RAG + MCP 两条深链，迁移非新建） |
+| REQ-151 PlaybookEngine | ⚡ 已实施 | `strike/playbook.py` 提供 `PlaybookEngine`：`_order_steps` 按 `depends_on` 做 Kahn 拓扑排序（环回退声明序），未知动作回退 `send`，单步失败不阻断整链（优雅降级）；`build_adapter` 经 `_TargetAdapterWrapper(BaseAdapter)` 把 PyRIT `MCPTarget/RAGTarget/A2ATarget` 包装为合规 `TargetAdapter`（`.name`/`.send`/`.close`/`.describe()` 含 auth/session，转发 `handshake/list_tools/call_tool/query/send_task/fetch_agent_card`），成为按 `step.adapter` 选择目标的唯一入口（IC-2）；落地 `config/playbooks/mcp_enum_call.yaml`（handshake→list_tools→call_tool，工具名动态解析）与 `rag_query.yaml` 两条链。回归：`tests/common/test_playbook_engine.py`（4 用例）+ `tests/common/test_adapters.py::TestAdapterContract`（含 mcp/rag/a2a 契约） |
 | REQ-152 ImpactChain/Exfil | 🟡 规约已登记 | W3（OOB 回执为准） |
 | REQ-153 ComponentRegistry | ⚡ W0 骨架已落地 | `core/registry.py` + `config/components/README.md` 契约；**空注册表（合法）**，W4 落齐 9 组件 |
 | REQ-154 副作用治理 | 🟡 规约已登记 | W2-3（随 Playbook 门禁） |
@@ -263,6 +263,50 @@
 | REQ-158 脱敏与可复现 | 🟡 规约已登记 | W3-5/W3-6 |
 
 > **前置门禁**：CP-001 批准 + 蓝图 v3.0 落点（I12/I13、ADR-007/008、ctx 新字段登记）完成前，本组需求**不得进入编码**（C6 规格先行）。
+
+---
+
+## 第九章 D：用户诉求差距闭合需求（v3.0 新增）
+
+> **背景**：针对用户提出的"企业主流 LLM 应用（agent / 多 agent / rag / mcp / embedding）红队测试框架"约 40 项架构、模块、横切问题，经 2026-09-12 全量代码核对后，识别出 12 类**未登记能力**。
+> **关联提案**：`docs/specs/plans/CP-002-user-gap-closure.md`
+> **关联执行计划**：`pyrit-mini-L5-expert-gap-closure`（用户会话批准）
+> **去重声明（C3）**：TargetAdapter（REQ-149）、SurfaceGraph（REQ-150）、ImpactChain/Exfil（REQ-152）、ComponentRegistry（REQ-153）、Mock 靶场（REQ-156）、交付物脱敏与版本快照（REQ-158）**已登记**，本组只引用/加严，不重复登记。
+> **前置门禁**：CP-002 批准前，本组需求**不得进入编码**（C6 规格先行）。
+
+### 第九章 D1：核心需求登记
+
+| ID | 陈述 | 验收标准 | 优先级 |
+|----|------|----------|--------|
+| REQ-160 | 多形态输入解析扩展 | ① 支持 Burp HAR 导出（保留请求/响应完整时序）；② 支持单文件多请求序列切分；③ 支持 Site Map（XML/JSON）与 Postman 集合导入；④ 支持裸 URL 入口的关联端点发现（如 `/api/chat` → `/api/tools`、`/api/embeddings`）；⑤ 全部解析结果**收敛进现有 `ctx.parsed_request` 契约**，禁止另立平行数据流（I12） | P1 |
+| REQ-161 | 侦察扩展：GraphQL / WAF / 限流 | ① GraphQL introspection 探测 + schema 提取（端点/类型/字段）；② WAF 指纹检测（含 Cloudflare / AWS WAF 等常见指纹）；③ 主链路速率限制探测（429 阈值 + 恢复窗口）；④ 结果写入 `target_fingerprint` / `service_profile`（recon 唯一输出总线） | P1 |
+| REQ-162 | 目标类型分类本体（Taxonomy） | ① 定义四维标签 schema：架构模式（单 LLM / ReAct Agent / Multi-Agent / RAG / MCP-Connected / 混合）、通信协议（REST / WebSocket / SSE / MCP(stdio·SSE) / gRPC）、输入模态（纯文本 / 多模态 / 文件上传 / 代码执行）、认证方式（无 / API Key / OAuth2 / Session Cookie）；② 节点为**多标签 + 分组件置信度**（IC-1）；③ 本体落在 `surface_graph`（REQ-150）内，单值视图仅为兼容派生（W5 删除）；④ 识别失败有 `fallback_labels` 兜底 | P1 |
+| REQ-163 | RoE 授权文件与强制边界 | ① 支持 `--roe-file` 加载授权文件（目标清单 + 授权时间窗 + 授权编号）；② `--require-roe` 时缺失/失效/越窗即**启动期拒绝**（满足 `R-ROE-1`）；③ **默认行为不改变**（未提供 `--roe-file` 时沿用现状：空名单 WARNING 留痕）；④ 授权时间窗外禁止发起攻击流量（涉及 R-S1） | P0 |
+| REQ-164 | 成功判定分层 L1–L4 + 语义 Scorer | ① 定义四层：L1 防护绕过 / L2 有害输出 / L3 目标达成 / L4 影响确认；② 新增 `ToolExecutionScorer`（判定 Agent 是否执行非预期工具调用）与 `RetrievalPoisoningScorer`（判定 RAG 是否返回投毒内容），二者均为 PyRIT `TrueFalseScorer` 子类（C1/R-NATIVE-3）；③ 各组件声明关注层级（MCP→L3、通用 LLM→L2）；④ 层级写入 `ctx.attack_success_levels`，报告分列；⑤ **L1–L4 为附加维度，不改变 success 二值的分子/分母**（`confirmed_asr` 不因此下降） | P0 |
+| REQ-165 | 证据不可否认性补强 | ① 证据文件产出 **SHA-256 打包哈希清单**（`evidence_manifest.sha256`，满足 `R-EVID-1` / NFR-18）；② 攻击链 **Kill Chain 时间线**（事件 `ts` 取自 `ctx.event_log`，按时间线串联证据）；③ **PyRIT Memory 导出**（SQLite/JSON 归档入证据包，作为原始证据）；④ 证据 ID 生成由 SHA-1 改为 SHA-256 并在报告标注算法版本；⑤ 版本化快照复用 REQ-158 ④，不重复实现 | P0 |
+| REQ-166 | 报告标准扩展 | ① 报告映射 **OWASP AI Testing Guide** 分层（Model / Implementation / System / Runtime）；② 报告含 **PTES 阶段结构**（Pre-engagement / Intelligence Gathering / Threat Modeling / Vulnerability Analysis / Exploitation / Post-Exploitation / Reporting）；③ 支持 **AI-SSCV** 评分；④ 作为 REQ-113 四段结构 + 现有 OWASP LLM/MITRE ATLAS/CVSS 映射的**增量 section**，不另立报告管线（C3） | P1 |
+| REQ-167 | 多租户与并行会话隔离 | ① 提供运行级租户/操作员标识（`--operator` / `--tenant`），写入 EventLog 与 memory labels；② 并发 run 的 PyRIT Memory 按 run 隔离，禁跨 run 污染；③ 提供会话注册/清理接口；④ 不改变单进程单 run 的默认行为 | P2 |
+| REQ-168 | 部署形态扩展 | ① 登记 REST API / SDK / 容器化三类部署形态需求；② **实施须另立任务**；③ 若引入 Web 框架等新依赖，必须另行走 NEG-4 提案，本需求不授权加依赖 | P2 |
+| REQ-169 | 审计防篡改与操作员身份 | ① EventLog 升级为**哈希链**（每条含前序哈希，满足 `R-AUDIT-1` / NFR-17）；② 提供离线校验入口（检出篡改）；③ 记录 `operator` 身份（who/when/what/why 完整）；④ 仍满足 I12（EventLog 为唯一派生源） | P1 |
+| REQ-170 | 熔断与瞬态故障弹性 | ① 目标 5xx/限流触发熔断，策略可配（暂停 / 降速 / 终止）；② 客户端 5xx 重试（退避 + jitter，尊重 `defaults.yaml`）；③ 接线 `ctx._circuit_breaker_states`（消除 stub）；④ 熔断决策写入 `ctx.orchestration_log` + EventLog | P1 |
+| REQ-171 | 运行期人工干预（HITL） | ① 支持运行中暂停/恢复；② 支持手动注入 seed；③ 支持策略覆盖钩子（人工指令优先级高于自主决策，NFR-10）；④ 全部动作写入 EventLog；⑤ 默认关闭，不影响非交互运行 | P2 |
+
+### 第九章 D2：非功能需求
+
+| ID | 维度 | 标准 |
+|----|------|------|
+| NFR-17 | 审计可验证性 | EventLog 每条事件含前序哈希（哈希链），提供离线校验入口；篡改可被检出 |
+| NFR-18 | 证据包可离线校验 | 报告产出含 `evidence_manifest.sha256`，逐文件哈希可离线复算（不依赖网络，对齐 NFR-7） |
+| NFR-19 | 交付可复现 | 容器化构建可复现（依赖锁定 + 固定基础镜像），构建产物与本地一致 |
+
+### 第九章 D3：本组需求状态追踪
+
+| 需求组 | 状态 | 备注 |
+|--------|------|------|
+| REQ-160~171（用户诉求闭合） | ⚡ 实施中 | 依据 CP-002。**已实施**：REQ-160 ①②③；REQ-161 ①②③（`recon.graphql_probe` + `recon.waf_detector`，WAF 接入 `recon.burp_parser._extract_fingerprint`）；REQ-162（`recon.taxonomy` + `core.phases.recon._attach_taxonomy`）；REQ-163（`core.roe` + `--roe-file/--require-roe`）；**REQ-164 ①②③④⑤**；REQ-165（`report.evidence_manifest` + 报告接线）；REQ-166（`report.standards` + `standards_alignment.md`）；**REQ-167**（`--tenant`/`--operator` 并入 memory labels）；**REQ-169**（`core.events` 哈希链 + `--operator` + `verify_event_log`）；**REQ-170**（`core.resilience` 熔断 + 5xx 退避重试，接线 `recon.target_wrapper` 4 个构造点并消费 `ctx._circuit_breaker_states`）；REQ-152（`assess.impact` + `tools/oob_listener`）；**REQ-156**（`targets/mock/` 5 靶标 + `tools.mock_range --check` + `tests/golden/golden_set.yaml` 量化门禁）。按 R-H1 摘除 5 桩声明。**待实施**：REQ-160 ④（BL-032）；REQ-161 GraphQL 接线（BL-033）+ MCP 接线（BL-029）；REQ-168（REST/SDK/容器，须 NEG-4 提案）；REQ-171（HITL）。关卡：BL-029~035（含 BL-035 跨模型审查待办） |
+| NFR-17~19 | 🟡 规约已登记 | 随对应 REQ 实施同步验证 |
+
+> **红线**：`R-ROE-1` / `R-EVID-1` / `R-AUDIT-1` 登记于 `40-GUARDRAILS.md` 1J-COMPLIANCE（检查器随实施落地，未实施前不产生门禁效力）。
 
 ---
 
@@ -285,6 +329,7 @@
 | NFR-13（ASR 度量口径） | 🟡 规约已登记 | reported/confirmed 双口径 + `target_asr` 锚点（defaults.yaml 已落盘）；报告双列分列待实施 |
 | NFR-14 ~ NFR-16（审查非功能） | 🟡 规约已登记 | 审查时效/存储/降级能力 |
 | REQ-148 ~ REQ-158（目标架构 v4.0） | ⚡ W0 已实施 | CP-001 已批准（代录入待追认）；W0-4~W0-8 完成（EventLog 埋点 / ctx 四字段 / Registry 骨架 / R-EVENT-1 护栏 / 终端接入）；剩余 W1~W5 |
+| REQ-160 ~ REQ-171（用户诉求差距闭合） | 🟡 规约已登记 | CP-002；含 NFR-17~19 与红线 R-ROE-1/R-EVID-1/R-AUDIT-1；按执行计划波次实施 |
 
 - 活跃需求（待实现）：**REQ-109** A2A 执行层落地（种子已有，需验证编排进升级链）；**REQ-148~158** 目标架构 v4.0 六大抽象（待 CP-001 批准）；
 - 本表为需求登记 SSOT；历史追踪文档 `requirement_traceability_matrix.md` 已于 2026-09-06 删除（D-09 债务消除）。

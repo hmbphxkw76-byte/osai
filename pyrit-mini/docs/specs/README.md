@@ -23,14 +23,15 @@
 | 层 | 文件 | 版本 | 职责 | 何时读 |
 |----|------|------|------|--------|
 | **L0** | [00-CONSTITUTION.md](00-CONSTITUTION.md) | v2.3 | AI 行为宪法：使命 / 裁决序 / C1–C14 / 违宪症状 / PyRIT 原生速查（7C）/ 考试附录 | 每会话开头（Step 1 宪法自检） |
-| **L1** | [10-ARCHITECTURE.md](10-ARCHITECTURE.md) | v3.1 | 技术蓝图：分层依赖 / ctx 字段契约（4.4 SSOT 总表）/ 不变量 I1–I13 / ADR / 债务簿 / 目标架构 v4.0 | 编码前声明架构落点时（Step 2） |
+| **L1** | [10-ARCHITECTURE.md](10-ARCHITECTURE.md) | v3.2 | 技术蓝图：分层依赖 / ctx 字段契约（4.4 SSOT 总表）/ 不变量 I1–I13 / ADR / 债务簿 / 目标架构 v4.0 | 编码前声明架构落点时（Step 2） |
 | **L1** | [80-COMPONENT-ARCHITECTURE-RULES.md](80-COMPONENT-ARCHITECTURE-RULES.md) | v2.0 | 组件化规则：双命名空间 / 目录命名 / 新增组件 Checklist | 新增或修改组件时 |
-| **L2** | [20-REQUIREMENTS.md](20-REQUIREMENTS.md) | v2.9 | 需求登记：P0/P1/P2、NFR、NEG。**未登记 = 不存在** | 领取任务时核对验收标准（Step 3） |
+| **L2** | [20-REQUIREMENTS.md](20-REQUIREMENTS.md) | v3.0 | 需求登记：P0/P1/P2、NFR、NEG。**未登记 = 不存在** | 领取任务时核对验收标准（Step 3） |
 | **L3** | [30-TASKS.md](30-TASKS.md) | v2.3 | 任务协议：生命周期 / 粒度上限 / 八步协议 / STOP-REPORT / 三栏汇报 | 每次编码任务全程 |
-| **L4** | [40-GUARDRAILS.md](40-GUARDRAILS.md) | v3.1 | 红线 R-* / 门禁纪律 / 三层防线 / 交付验证清单 / 考试合规 | 编码后验证（Step 7） |
+| **L4** | [40-GUARDRAILS.md](40-GUARDRAILS.md) | v3.4 | 红线 R-* / 门禁纪律 / 三层防线 / 交付验证清单 / 考试合规 | 编码后验证（Step 7） |
 | 配套 | [50-ROADMAP.md](50-ROADMAP.md) | v1.12 | 任务序列、考试 Runbook、考纲映射。**无裁决权威** | 领取下一个任务时 |
 | 配套 | [55-ATTACK-GAP-CLOSURE.md](55-ATTACK-GAP-CLOSURE.md) | v1.8 | 攻击面缺口登记处（R-DOC-2 依赖，**路径勿改**） | 新增攻击模块时登记 |
 | 配套 | [60-CROSS-MODEL-VERIFICATION.md](60-CROSS-MODEL-VERIFICATION.md) | v1.0 | 跨模型审查协议（C14 落地） | 变更 L0–L4 规约时 |
+| 配套 | [90-AI-DEV-ARCHITECTURE.md](90-AI-DEV-ARCHITECTURE.md) | v1.0 | AI 编程总纲：产品契约（5 需求）→ 架构落点映射 / 遵循流程 / 差距指针（无独立裁决权威，只引用不复制） | 新会话冷启动 / 实施任务前定位落点 |
 | 配套 | [plans/](plans/) | — | 活跃变更提案与执行计划 | 提案批准后才进入编码 |
 | 模板 | [templates/](templates/) | — | `task-spec.md` / `change-proposal.md` / `cross-model-review.md` | 起草规格时 |
 | 运行态 | [../backlog.md](../backlog.md) | — | 唯一待办池（AI 发现的非本任务问题一律入此，不动代码） | 会话收尾时 |
@@ -70,6 +71,8 @@ python -c "from core.registry import get_registry; print(get_registry().keys())"
 
 **2026-09-11 基线**（变更前后对照用，非验收标准）：guard `0 blocking / 71 warning`；架构体检 `PASS 158 / WARNING 6 / BLOCKING 0`；pytest `1402 passed / 7 skipped`。
 
+**2026-09-12 基线**（CP-002 五波次实施后，变更前后对照用，非验收标准）：guard `0 blocking / 79 warning`；架构体检 `PASS 154 / WARNING 0 / BLOCKING 0`；pytest `1812 passed / 7 skipped`；`python -m tools.mock_range --check` → PASS（5 类靶标）。L5 参数消费审计结论见 backlog `BL-034`；跨模型审查待办见 `BL-035`；深度探测预算与侦察接线残留见 `BL-036`；TargetAdapter 主链路归宿见 `BL-037`。
+
 ### 2.1 自动执行（防跑偏核心保障）
 
 门禁若只靠"记得跑"必然漂移。本项目用三层强制，使**不合规的变更无法进入仓库**：
@@ -107,7 +110,7 @@ python -c "from core.registry import get_registry; print(get_registry().keys())"
 | `pyrit-hooks` | `python -m tools.hooks` | 安装 Git hooks |
 
 > 别名规律：`python -m tools.<x>` = `pyrit-<x>`（entry_points 注册）。
-> 完整 CLI 参数参考见 **`docs/red team/red-team-dev-guide.md` 附录 D**（注意路径含空格；R-DOC-1 的 SSOT 目标）。
+> CLI 参数以 `main.py` 与 `core/config.py` 的 argparse 定义为唯一权威（运行 `python main.py --help` 即得完整清单）；specs 不另立参数文档（R-DOC-1 的 SSOT 目标即代码本身）。
 
 ---
 
@@ -121,8 +124,8 @@ python -c "from core.registry import get_registry; print(get_registry().keys())"
 | D2 | **禁止行号坐标**：引用代码用 `模块.符号` 或 grep 可验证的模式，不用 `file.py:417` | `utils/display.py:417`（次日即失效） |
 | D3 | **版本史外置**：正文只保留当前版本号，变更历史交 git log / CHANGELOG | 每个文件末尾 20 行版本记录表 |
 | D4 | **清单不进正文**：动态清单（组件、检查器、测试数）指向代码/命令，不手工抄写 | 手工维护"46 项检查器"计数 |
-| D5 | **路径必须存在**：文档引用的文件路径必须真实存在，含空格路径须引号包裹 | `docs/guides/red-team-dev-guide.md`（实际在 `docs/red team/`） |
-| D6 | **已完结内容归档**：完成态的执行记录/提案移入 `docs/archive/`，不留在活跃规约 | 已完成的 Wave 执行日志留在 specs |
+| D5 | **路径必须存在**：文档引用的文件路径必须真实存在，含空格路径须引号包裹 | 引用仓库中不存在的路径（如已删除的 `docs/red team/`、`docs/archive/`） |
+| D6 | **已完结内容归档**：完成态的执行记录/提案移出活跃规约（归档保留于 git 历史；物理目录 `docs/archive/` 当前未启用），不留在 specs 活跃文档 | 已完成的 Wave 执行日志留在 specs 活跃文档 |
 | D7 | **无占位符**：文档不得出现未填实的 `[CMD]` / `TASK-___` 等模板占位 | `[CROSSMODEL_CMD] --task TASK-___` |
 
 ---
@@ -141,11 +144,11 @@ python -c "from core.registry import get_registry; print(get_registry().keys())"
 
 ## 7. 归档与已删除清单
 
-**已归档**（内容仍在，不再维护）：
+**已归档 / 迁出**（内容或已合并入 specs，或仅存于 git 历史，不再维护）：
 
 | 原路径 | 现位置 / 去向 |
 |--------|--------------|
-| `docs/plan.md`、`docs/plan-execution-log.md` | `docs/archive/`（Wave 0–6 历史执行记录，含失效行号坐标，仅作考古用） |
+| `docs/plan.md`、`docs/plan-execution-log.md` | 已从仓库移除（Wave 0–6 历史执行记录仅存于 git 历史，含失效行号坐标，仅作考古用） |
 | `45-DATA-FLOW-INTEGRITY.md` | 已合并入 `10-ARCHITECTURE.md` 第四章，原文件删除 |
 | `60-REDTEAM-DELIVERY-FRAMEWORK.md` | 已合并入 `40-GUARDRAILS.md` 第七章 |
 

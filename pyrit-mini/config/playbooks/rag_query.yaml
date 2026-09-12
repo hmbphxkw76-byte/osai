@@ -1,0 +1,9 @@
+name: rag_query
+description: >-
+  RAG 知识库检索增强攻击（REQ-151 步骤选 adapter）。
+  `adapter: rag` 经 `recon.adapters.build_adapter` 解析为 `strike.targets.RAGTarget`，
+  `query` 动作触发 retrieve→generate 链路（RAGTarget 内部闭环）。
+steps:
+  - name: retrieve_then_generate
+    adapter: rag
+    action: query

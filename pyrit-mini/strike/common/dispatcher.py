@@ -49,17 +49,24 @@ logger = logging.getLogger(__name__)
 # Attack Module Imports (lazy-loaded to avoid circular imports)
 # ============================================================================
 
-# Strategy → PyRIT Attack class mapping
+# Strategy → PyRIT 1.0.1 attack class mapping (verified real import paths).
+# PyRIT 1.0.1 exposes these under `pyrit.executor.attack.*`; the legacy
+# `pyrit.attacks.*` namespace does not exist (R-DRIFT-1 / R-NATIVE-1).
 STRATEGY_MAP: dict[str, str] = {
-    "prompt_sending": "pyrit.attacks.single_turn.prompt_sending.PromptSendingAttack",
-    "crescendo": "pyrit.attacks.multi_turn.crescendo.CrescendoAttack",
-    "tap": "pyrit.attacks.multi_turn.tap.TAPAttack",
-    "pair": "pyrit.attacks.multi_turn.pair.PAIRAttack",
-    "gcg": "pyrit.attacks.single_turn.gcg.GCGAttack",
-    "many_shot": "pyrit.attacks.single_turn.many_shot.ManyShotJailbreakAttack",
-    "figstep": "pyrit.attacks.single_turn.fig_step.FigStepAttack",
-    "sleeper": "pyrit.attacks.single_turn.sleeper.SleeperAgentAttack",
+    "prompt_sending": "pyrit.executor.attack.PromptSendingAttack",
+    "crescendo": "pyrit.executor.attack.CrescendoAttack",
+    "tap": "pyrit.executor.attack.TAPAttack",
+    "pair": "pyrit.executor.attack.PAIRAttack",
+    "many_shot": "pyrit.executor.attack.ManyShotJailbreakAttack",
 }
+
+# Strategies with no direct PyRIT 1.0.1 single attack class:
+#   gcg     → suffix-pool optimization (ADR-002), no gradient/native class
+#   figstep → VLM carrier injection, implemented by strike/model/multimodal.py
+#   sleeper → backdoor trigger activation, implemented by strike/model/backdoor.py
+# These remain valid CLI strategy names (ALL_STRATEGIES) but are routed to the
+# native executor with an explicit warning — no silent fallback (R-H1).
+NON_NATIVE_STRATEGIES: frozenset[str] = frozenset({"gcg", "figstep", "sleeper"})
 
 # Target → Seed category mapping (which seed directories to load)
 # 与 data/seeds/ 目录结构对齐 (a2a/mcp/rag/model/web/memory/session)
@@ -99,7 +106,7 @@ TARGET_STRATEGY_COMPATIBILITY: dict[str, list[str]] = {
 ALL_TARGETS: set[str] = set(TARGET_SEED_MAP.keys())
 
 # All valid strategy names
-ALL_STRATEGIES: set[str] = set(STRATEGY_MAP.keys()) | {"native", "first_success"}
+ALL_STRATEGIES: set[str] = set(STRATEGY_MAP.keys()) | set(NON_NATIVE_STRATEGIES) | {"native", "first_success"}
 
 
 # ============================================================================
@@ -214,6 +221,15 @@ class AttackDispatcher:
                 result = await self._execute_first_success(ctx)
             elif self.strike in STRATEGY_MAP:
                 result = await self._execute_pyrit_attack(ctx, self.strike)
+            elif self.strike in NON_NATIVE_STRATEGIES:
+                # No PyRIT-native class for this strategy; its advanced-attack
+                # module owns the logic. Route to native executor explicitly.
+                logger.warning(
+                    "[DISPATCHER] Strategy '%s' has no PyRIT-native attack class; "
+                    "routing to native executor (advanced-attack module owns logic)",
+                    self.strike,
+                )
+                result = await self._execute_native(ctx)
             else:
                 # Default to prompt_sending
                 result = await self._execute_pyrit_attack(ctx, "prompt_sending")
@@ -319,6 +335,9 @@ class AttackDispatcher:
             ctx.attack_cls = attack_cls
             logger.info("[DISPATCHER] Loaded attack class: %s", attack_cls)
         except (ImportError, AttributeError) as e:
+            # Clear any stale class from a previous strategy so the executor
+            # cannot silently reuse the wrong attack class.
+            ctx.attack_cls = None
             logger.warning(
                 "[DISPATCHER] Failed to load %s: %s, falling back to native",
                 class_path,
@@ -393,8 +412,10 @@ def list_strategies() -> dict[str, str]:
         Dict mapping strategy names to PyRIT class paths
     """
     result = STRATEGY_MAP.copy()
-    result["native"] = "pyrit.attacks (native framework)"
+    result["native"] = "pyrit.executor.attack (native framework)"
     result["first_success"] = "strike.executor (FIRST_SUCCESS mode)"
+    for name in sorted(NON_NATIVE_STRATEGIES):
+        result[name] = f"strike.model (advanced-attack module; no PyRIT-native class) [{name}]"
     return result
 
 

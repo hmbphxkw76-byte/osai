@@ -1,0 +1,44 @@
+# targets/mock/fixtures/expected.yaml — 5 类 mock 靶标的期望签名（REQ-156）
+#
+# 用途：`python -m tools.mock_range --check` 与 `tests/common/test_mock_range.py`
+# 以此为 golden 断言，验证"靶标画像"未被无意改变（防回归）。
+# 纪律：本文件只描述**客观期望**（路径 / 必需键 / 结构），不记录主观评分。
+
+schema_version: "1.0"
+
+personas:
+  model:
+    method: POST
+    path: /v1/chat/completions
+    expect_keys: [choices, model, usage]
+    expect_choice_role: assistant
+
+  mcp:
+    method: POST
+    path: /mcp
+    rpc: tools/list
+    expect_keys: [jsonrpc, result]
+    expect_tool_names: [execute_command, file_write]
+    expect_tool_schema_keys: [inputSchema]
+
+  rag:
+    method: POST
+    path: /api/retrieve
+    expect_keys: [results, citations]
+    expect_chunk_keys: [chunk_id, score, source]
+
+  a2a:
+    method: GET
+    path: /.well-known/agent.json
+    expect_keys: [name, skills, capabilities]
+
+  embedding:
+    method: POST
+    path: /v1/embeddings
+    expect_keys: [data, model]
+    expect_dim: 8
+
+# 端到端最小断言（不做网络/真实目标，仅 mock 靶场）
+e2e:
+  min_personas_reachable: 5
+  require_json_content_type: true

@@ -3,7 +3,7 @@
 > **文档层级**：L1 / 五层规约金字塔第二层
 > **效力**：定义系统的目标架构、模块边界、数据契约与架构不变量。任何代码变更必须能在本蓝图上"落点"——落不了点的变更需要先走 change-proposal 修改蓝图。
 > **读者**：实施任务前的 AI（必读相关章节）、评审 diff 的人工/AI。
-> **版本**：v3.1（2026-09-12 REV-19：组件面清单一律改为读 `config/components/*.yaml`（不再手工抄写，D4）；分层表标注 v4.0 未落地子层；版本史外置）
+> **版本**：v3.2（2026-09-12 REV-20：4.4 ctx 字段总表新增 `attack_success_levels`（L1–L4 分层，REQ-164）与 `hitl_state`（运行期人工干预，REQ-171）；配套 CP-002）
 > **版本史**：`git log -- docs/specs/10-ARCHITECTURE.md`（文档纪律 D3，正文不再维护）
 > **已合并**：`45-DATA-FLOW-INTEGRITY.md` → 本文件第四章（原文件已删除）；其验证工具链 `tools/data_flow_validator.py` + `tools/dataflow/` + `tests/common/test_data_flow_integrity.py` 仍正常运行。
 
@@ -192,6 +192,8 @@ Q1: PyRIT 1.0.1 有现成组件吗？
 | `surface_graph` | SurfaceGraph | recon | arm/strike/report | 攻击面图谱：多标签+置信度+信任边界+数据流边（REQ-150） | 第十三章 |
 | `playbook_state` | PlaybookState | strike | report/续跑 | 攻击链执行状态（断点续跑，REQ-151/155） | 第十三章 |
 | `impact_verdicts` | list[ImpactVerdict] | assess | report | 影响链判定（impact / exfil / content_only，REQ-152） | 第十三章 |
+| `attack_success_levels` | dict | assess | report | L1–L4 成功分层（附加证据强度维度，不改变 success 二值；REQ-164） | 第九章 D |
+| `hitl_state` | dict | strike | report | 运行期人工干预状态（暂停/注入/覆盖，默认关闭；REQ-171） | 第九章 D |
 
 ## 第五章：Burp 目标数据流（输入契约）
 

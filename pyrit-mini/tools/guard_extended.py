@@ -1041,7 +1041,6 @@ def register_extended_checks(guard_cls) -> None:
 # ===============================================================================
 
 # Document paths
-_DOCS_GUIDE_PATH = "docs/red team/red-team-dev-guide.md"
 _DOCS_GAP_PATH = "docs/specs/55-ATTACK-GAP-CLOSURE.md"
 _DOCS_REQ_PATH = "docs/specs/20-REQUIREMENTS.md"
 _DOCS_GR_PATH = "docs/specs/40-GUARDRAILS.md"
@@ -1060,43 +1059,92 @@ def _read_file_safely(root: Path, rel_path: str) -> str:
 
 
 def check_cli_params_documented(self) -> None:  # type: ignore[override]
-    """R-DOC-1: CLI parameter changes must be documented in red-team-dev-guide.md Appendix D."""
+    """R-DOC-1: Every CLI option must be self-describing.
+
+    The CLI parameter SSOT is the code itself (argparse in core/config.py and
+    main.py). Each ``--xxx`` option must carry a non-empty ``help=`` so that
+    ``python main.py --help`` is the authoritative, always-in-sync reference
+    (specs/40-GUARDRAILS.md R-DOC-1). We no longer depend on an external
+    markdown doc, which drifted and was removed from the repo.
+    """
     Severity, Violation = _get_violation_classes()
 
-    config_content = _read_file_safely(self.root, _CONFIG_PATH)
-    guide_content = _read_file_safely(self.root, _DOCS_GUIDE_PATH)
+    cli_files = ["core/config.py", "main.py"]
+    missing = []
+    for rel in cli_files:
+        content = _read_file_safely(self.root, rel)
+        if not content:
+            continue
+        for call in _iter_add_argument_calls(content):
+            pre = re.split(r"[A-Za-z_]\w*\s*=", call, maxsplit=1)[0]
+            options = re.findall(r'["\'](--[\w-]+)["\']', pre)
+            if not options:
+                continue
+            if _call_has_help(call):
+                continue
+            missing.extend(options)
 
-    if not config_content or not guide_content:
-        return  # Cannot check, skip
-
-    # Extract CLI parameters from config.py (argparse --xxx args)
-    cli_params = re.findall(r'add_argument\(["\']--(\w[\w-]*)', config_content)
-    if not cli_params:
-        return
-
-    # Check each param exists in guide Appendix D
-    undocumented = []
-    for param in cli_params:
-        # Look for the param name in various formats
-        patterns = [
-            f"--{param}",
-            f"`--{param}`",
-            f"---{param}",
-        ]
-        if not any(p in guide_content for p in patterns):
-            undocumented.append(param)
-
-    if undocumented:
+    if missing:
+        uniq = sorted(set(missing))
         self.violations.append(
             Violation(
                 rule="R-DOC-1",
                 severity=Severity.WARNING,
-                file=_CONFIG_PATH,
+                file=", ".join(cli_files),
                 line=0,
-                description=f"CLI parameters not documented in red-team-dev-guide.md Appendix D: {', '.join(undocumented[:5])}{'...' if len(undocumented) > 5 else ''}",
-                fix_hint=f"Add the following parameters to 'docs/red team/red-team-dev-guide.md' Appendix D CLI reference (note the space in the directory name): {', '.join(f'--{p}' for p in undocumented[:5])}",
+                description=(
+                    f"CLI options without a non-empty help= (code is the CLI "
+                    f"SSOT; run `python main.py --help` to verify): "
+                    f"{', '.join(uniq[:5])}{'...' if len(uniq) > 5 else ''}"
+                ),
+                fix_hint=(
+                    "Add a non-empty help= to each add_argument(...) so the CLI "
+                    "is self-describing (specs/40-GUARDRAILS.md R-DOC-1)."
+                ),
             )
         )
+
+
+def _iter_add_argument_calls(content: str):
+    """Yield the text of each top-level ``add_argument(...)`` call in *content*."""
+    for m in re.finditer(r"add_argument\s*\(", content):
+        start = m.start()
+        i = content.index("(", start)
+        depth = 0
+        in_str = None
+        while i < len(content):
+            ch = content[i]
+            if in_str:
+                if ch == "\\":
+                    i += 2
+                    continue
+                if ch == in_str:
+                    in_str = None
+                i += 1
+                continue
+            if ch in ("'", '"'):
+                in_str = ch
+            elif ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    yield content[start : i + 1]
+                    break
+            i += 1
+
+
+def _call_has_help(call: str) -> bool:
+    """Return True if an ``add_argument(...)`` call sets a non-empty ``help=``."""
+    m = re.search(r"help\s*=\s*([^\n,)]+)", call)
+    if not m:
+        return False
+    rhs = m.group(1).strip().strip("\"'")
+    if rhs == "":
+        return False
+    if rhs.startswith("("):
+        return False
+    return True
 
 
 def check_attack_gap_documented(self) -> None:  # type: ignore[override]
@@ -2167,8 +2215,6 @@ _DEFENSE_CHECK_WHITELIST = {
     "recon/a2a/trust_analyzer.py": "目标信任链分析 (侦察, 用于绕过)",
     "recon/mcp/surface_scanner.py": "目标安全表面扫描 (侦察)",
     "recon/mcp/tool_inventory.py": "目标工具清单扫描 (侦察)",
-    "recon/model/capability_detector.py": "目标能力检测 (侦察)",
-    "recon/rag/embedding_scan.py": "目标嵌入维度扫描 (侦察)",
     "recon/session/session_auth_probe.py": "目标认证机制探测 (侦察)",
     "recon/session/session_id_analyzer.py": "目标会话ID分析 (侦察)",
     "recon/session/session_fixation_detector.py": "会话固定检测 (侦察)",
@@ -2262,6 +2308,7 @@ _ALLOWED_TOP_LEVEL_DIRS = {
     "outputs",  # 运行时生成
     "config",  # 配置文件目录
     "scripts",  # 维护脚本 (fix_recon_imports, migrate_seeds 等)
+    "targets",  # 靶场层：targets/mock/ 本地 mock 靶标（10-ARCHITECTURE 2.1 / REQ-156，非交付包）
 }
 
 # 允许的顶层文件

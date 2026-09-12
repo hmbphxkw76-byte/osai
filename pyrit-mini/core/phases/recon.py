@@ -86,6 +86,10 @@ async def _run_recon_phase(ctx: "PipelineContext", output_dir: Path) -> None:
         # 后续组件专项侦察按 ComponentGraph.nodes 调度（§3.1 流水线 ③）。
         await _run_component_identification(ctx)
 
+        # === REQ-162：目标类型分类本体（四维多标签 + 置信度）===
+        # 写入 target_fingerprint（recon 唯一输出总线），不新建并行通道（I12）。
+        _attach_taxonomy(ctx)
+
         # RAG Pipeline Probe (P1 enhancement): KB structure + citations + chunking
         # W0 fix: pre-initialize both locals. `rag_profile` was previously assigned
         # only inside try; when the import below failed, the later `rag_profile.has_rag`
@@ -206,6 +210,43 @@ async def _run_recon_phase(ctx: "PipelineContext", output_dir: Path) -> None:
         snapshot_hook(ctx, "post_recon")
     except Exception as e:
         logger.debug("[Recon] Data flow snapshot skipped: %s", e)
+
+
+def _attach_taxonomy(ctx: "PipelineContext") -> None:
+    """Derive the REQ-162 taxonomy and attach it to target_fingerprint.
+
+    Pure post-processing over already-collected recon observations (no IO, no new
+    data channel): the result is stored on the recon output bus
+    (`parsed_request.target_fingerprint.extra["taxonomy"]`) and logged to
+    `orchestration_log` for auditability (R-DECIDE-2 / ID-2).
+    """
+    try:
+        parsed = getattr(ctx, "parsed_request", None)
+        fp = getattr(parsed, "target_fingerprint", None) if parsed is not None else None
+        if fp is None:
+            return
+
+        from recon.taxonomy import derive_taxonomy, taxonomy_to_prompt_hint
+
+        caps = fp.get("capabilities") if hasattr(fp, "get") else getattr(fp, "capabilities", None)
+        taxonomy = derive_taxonomy(
+            fingerprint=fp,
+            capabilities=caps,
+            service_profile=getattr(ctx, "service_profile", None) or {},
+        )
+        fp.extra["taxonomy"] = taxonomy
+        ctx.orchestration_log.append(
+            {
+                "phase": "recon",
+                "decision": "taxonomy_derivation",
+                "input": {"capabilities": caps or [], "app_type": getattr(fp, "app_type", "")},
+                "output": {"taxonomy": taxonomy},
+                "reasoning": taxonomy_to_prompt_hint(taxonomy),
+            }
+        )
+        logger.info("[Recon] Taxonomy: %s", taxonomy_to_prompt_hint(taxonomy))
+    except Exception as e:
+        logger.debug("[Recon] taxonomy derivation skipped: %s", e)
 
 
 async def _run_component_identification(ctx: "PipelineContext") -> None:
@@ -452,7 +493,14 @@ async def _run_mcpsec_reconnaissance(ctx: "PipelineContext", target_url: str) ->
 
     bridge = get_shared_bridge()
     if not bridge or not bridge.is_available:
-        logger.info("[Recon] MCPSec not installed reconnaissance skipped")
+        # Honest degradation (R-H1/C9): the MCPSec bridge is a null object in this
+        # tree, so MCP surface enumeration is currently DISABLED — not silently
+        # skipped. Wiring recon/mcp/* as the real bridge is tracked under the
+        # recon-deep wave (REQ-161 / REQ-150 SurfaceGraph).
+        logger.warning(
+            "[Recon] MCPSec bridge unavailable (is_available=False); MCP surface "
+            "enumeration is disabled for this run. Fallback to recon/mcp/* is NOT yet wired."
+        )
         return
 
     mcpsec_start = time.monotonic()

@@ -184,6 +184,56 @@ async def _run_report_phase(ctx: "PipelineContext", output_dir: Path) -> None:
     )
 
     report_path = await generate_report(ctx, evidence, output_dir)
+
+    # == REQ-166：标准对齐 section（OWASP AITG / PTES / AI-SSCV）==
+    # 作为独立产物写入 output_dir，避免改动既有 markdown 模板（C3/C4）。
+    try:
+        from report.standards import build_standards_section
+
+        exfil_confirmed = any(
+            isinstance(v, dict) and v.get("verdict") == "exfil_confirmed"
+            for v in (getattr(ctx, "impact_verdicts", None) or [])
+        )
+        findings_payload: list[dict[str, Any]] = []
+        for ev in getattr(evidence, "evidence", None) or []:
+            meta = getattr(ev, "metadata", None) or {}
+            findings_payload.append(
+                {
+                    "title": str(getattr(ev, "evidence_id", "") or ""),
+                    "owasp_id": str(meta.get("owasp_id") or ""),
+                    "component_key": str(meta.get("component_type") or ""),
+                    "asr_percent": ctx.overall_asr,
+                    "exfil_confirmed": exfil_confirmed,
+                }
+            )
+        _standards_path = output_dir / "standards_alignment.md"
+        _standards_path.write_text(build_standards_section(findings_payload), encoding="utf-8")
+        ctx.orchestration_log.append(
+            {
+                "phase": "report",
+                "decision": "standards_alignment",
+                "output": {"path": str(_standards_path), "findings": len(findings_payload)},
+                "reasoning": "REQ-166：OWASP AITG 分层 + PTES 阶段 + AI-SSCV 评分",
+            }
+        )
+    except Exception as e:
+        logger.warning("[Report] standards alignment failed (non-fatal): %s", e)
+
+    # == REQ-165 / NFR-18：证据包 SHA-256 清单（不可否认性，离线可校验）==
+    try:
+        from report.evidence_manifest import write_evidence_manifest
+
+        _manifest = write_evidence_manifest(output_dir)
+        ctx.orchestration_log.append(
+            {
+                "phase": "report",
+                "decision": "evidence_manifest",
+                "output": {"count": _manifest["count"], "root_hash": _manifest["root_hash"]},
+                "reasoning": "证据包逐文件 SHA-256 清单（R-EVID-1 / NFR-18）",
+            }
+        )
+    except Exception as e:
+        logger.warning("[Report] evidence manifest failed (non-fatal): %s", e)
     print_report_card(
         total_attacks=evidence.total_attacks,
         successful_attacks=evidence.successful_attacks,

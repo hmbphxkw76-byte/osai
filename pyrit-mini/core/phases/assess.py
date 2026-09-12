@@ -74,6 +74,87 @@ def _build_score_manifest(ctx: "PipelineContext") -> None:
         ctx.score_manifest = None
 
 
+def _attach_success_levels(ctx: "PipelineContext") -> None:
+    """REQ-164：计算 L1–L4 分层并写入 `ctx.attack_success_levels`（附加维度）。
+
+    不改变 `overall_asr` / `asr_per_technique` 的分子分母（NFR-13 口径稳定）——
+    仅补充"成功证据强度"，供报告分列与后续 ImpactChain（REQ-152）消费。
+    失败只降级，不中断评分（IA-6）。
+    """
+    try:
+        from assess.success_levels import compute_success_levels
+
+        summary = compute_success_levels(
+            getattr(ctx, "attack_results", None),
+            impact_verdicts=getattr(ctx, "impact_verdicts", None),
+        )
+        ctx.attack_success_levels = summary
+        logger.info(
+            "[Assess] Success levels histogram=%s, highest=%s",
+            summary.get("histogram"),
+            summary.get("highest"),
+        )
+    except Exception as e:
+        logger.debug("[Assess] success-level computation skipped: %s", e)
+
+
+def _attach_impact_verdicts(ctx: "PipelineContext") -> None:
+    """REQ-152 / ADR-008：为每条攻击结果判定四态并写入 `ctx.impact_verdicts`。
+
+    **只记录非 `content_only` 的判定**——避免把"无任何影响信号"也写成 verdict 从而
+    让 `confirmed_asr` 从 `n/a` 突变为 0.0（口径突变）。有信号时才登记（IC-5/IC-6）。
+    失败只降级，不中断评分。
+    """
+    try:
+        from assess.impact.exfil import extract_canaries, get_receipt_log
+        from assess.impact.verdict import CONTENT_ONLY, decide_verdict
+
+        receipt_log = get_receipt_log()
+        verdicts: list[dict[str, object]] = []
+        for technique, results in (getattr(ctx, "attack_results", None) or {}).items():
+            for idx, result in enumerate(results):
+                text = getattr(result, "converted_value", "") or ""
+                canaries = extract_canaries(text)
+                outcome = decide_verdict(response_text=text, canaries=canaries, receipt_log=receipt_log)
+                if outcome.get("verdict") == CONTENT_ONLY:
+                    continue
+                verdicts.append(
+                    {
+                        "attack_id": f"{technique}#{idx}",
+                        "verdict": outcome["verdict"],
+                        "confirmed": outcome["confirmed"],
+                        "evidence": outcome["evidence"],
+                    }
+                )
+        ctx.impact_verdicts = verdicts
+        if verdicts:
+            logger.info("[Assess] impact verdicts recorded: %d", len(verdicts))
+    except Exception as e:
+        logger.debug("[Assess] impact-verdict computation skipped: %s", e)
+
+
+def _persist_verdicts(ctx: "PipelineContext") -> None:
+    """REQ-152 / NFR-13 ④：持久化 verdict 记录并计算双口径 ASR。
+
+    产物：`<output_dir>/verdicts.json` + `verdicts.jsonl`（含 schema_version +
+    content_hash，幂等去重）。报告阶段可经 `assess.persistence.load_verdicts` 读取
+    `reported_asr` / `confirmed_asr` 分列（NFR-13 ④）。
+    """
+    try:
+        from assess.persistence import build_verdict_records, persist_verdicts
+
+        records = build_verdict_records(
+            getattr(ctx, "attack_results", None),
+            impact_verdicts=getattr(ctx, "impact_verdicts", None),
+            success_levels=getattr(ctx, "attack_success_levels", None),
+        )
+        output_dir = getattr(ctx, "output_dir", None)
+        if output_dir:
+            persist_verdicts(output_dir, records)
+    except Exception as e:
+        logger.warning("[Assess] verdict persistence failed (non-fatal): %s", e)
+
+
 async def _run_assess_phase(ctx: "PipelineContext") -> None:
     """(5) ASSESS : + ASR"""
     from utils.display import print_assess_card, print_phase, print_status
@@ -134,6 +215,15 @@ async def _run_assess_phase(ctx: "PipelineContext") -> None:
         ctx.overall_asr,
     )
     ctx.wilson_ci = (wilson_lower, wilson_upper)
+
+    # == REQ-152：影响链四态判定（仅记录非 content_only 信号，避免口径突变）==
+    _attach_impact_verdicts(ctx)
+
+    # == REQ-164：L1–L4 成功分层（附加维度，不改变 ASR 分子/分母）==
+    _attach_success_levels(ctx)
+
+    # == REQ-152 / NFR-13 ④：verdict 持久化（幂等）+ 双口径 ASR ==
+    _persist_verdicts(ctx)
 
     # == plan Wave 5：评分运行清单（消费 adaptive_random_seed，修 C7 断链）==
     # `config/defaults.yaml:82 adaptive_random_seed` 此前无人读取 —— 配置写了却不生效。

@@ -25,12 +25,6 @@ Constitution compliance:
 """
 
 from recon.model.api_classifier import APICategory, detect_api_category
-from recon.model.capability_detector import (
-    CapabilityDetectionResult,
-    ModelCapability,
-    ModelCapabilityDetector,
-    detect_model_capabilities,
-)
 from recon.model.prompt_injector import (
     build_full_url,
     detect_and_inject_chat_id_placeholder,
@@ -55,11 +49,6 @@ __all__ = [
     # api_classifier
     "APICategory",
     "detect_api_category",
-    # capability_detector
-    "CapabilityDetectionResult",
-    "ModelCapability",
-    "ModelCapabilityDetector",
-    "detect_model_capabilities",
     # prompt_injector utilities
     "infer_tls",
     "build_full_url",

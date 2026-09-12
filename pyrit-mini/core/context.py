@@ -153,6 +153,8 @@ class PipelineContext:
     score_manifest: Any = None  # core.contracts.manifest.ScoreRunManifest
     # 预算控制（plan Wave 2 §4.4）：与 51 个模块接线同批落地的安全阀
     budget: Any = None  # strike.budget.BudgetController
+    # L1–L4 成功分层（REQ-164）：附加"证据强度"维度，**不改变** ASR 分子/分母
+    attack_success_levels: dict[str, Any] = field(default_factory=dict)
 
     # #6 : - ->->
     # "Orchestration Decision Log" ,
@@ -199,6 +201,8 @@ class PipelineContext:
     # 语义：空列表 = 未声明授权范围（启动期 WARNING 留痕，不阻断）；
     #       非空   = 白名单，任何不在名单内的目标 host 启动期即被拒绝（C9 诚实汇报）。
     authorized_targets: list[str] = field(default_factory=list)
+    # REQ-163：RoE 授权文件解析结果（仅 `--roe-file` 时非空），供报告/审计引用。
+    roe_policy: dict[str, Any] = field(default_factory=dict)
 
     # ================================================================
     # ASR-Centered Forensic Data Flow (Why Success/Refusal Classification)
@@ -383,6 +387,41 @@ def enforce_authorized_scope(args: Any, ctx: "PipelineContext") -> list[str]:
         SystemExit: 存在越界目标时，携带人类可读的拒绝原因。
     """
     authorized = normalize_authorized_targets(getattr(args, "authorized_targets", None))
+
+    # == REQ-163 / R-ROE-1：RoE 授权文件（opt-in；默认行为不变）==
+    # 仅当显式提供 `--roe-file` 时加载；仅当 `--require-roe` 时对缺失/失效拒绝启动。
+    roe_path = getattr(args, "roe_file", None)
+    require_roe = bool(getattr(args, "require_roe", False))
+    if roe_path:
+        try:
+            from core.roe import load_roe_file, merge_authorized_targets, validate_roe
+
+            policy = load_roe_file(roe_path)
+            problems = validate_roe(policy)
+            authorized = merge_authorized_targets(authorized, policy)
+            ctx.roe_policy = policy.to_dict()
+            if problems:
+                message = "[AUTHORIZATION][ROE] 授权文件存在问题：" + "；".join(problems)
+                if require_roe:
+                    raise SystemExit(message + f"（--require-roe 已启用，拒绝启动；file={roe_path}）")
+                logger.warning("%s（未启用 --require-roe，继续运行但请人工确认）", message)
+            else:
+                logger.info(
+                    "[AUTHORIZATION][ROE] 授权文件校验通过：ref=%s, targets=%d",
+                    policy.authorization_ref,
+                    len(policy.targets),
+                )
+        except SystemExit:
+            raise
+        except Exception as e:
+            if require_roe:
+                raise SystemExit(f"[AUTHORIZATION][ROE] 授权文件无法加载：{roe_path}（{e}）；--require-roe 已启用，拒绝启动。")
+            logger.warning("[AUTHORIZATION][ROE] 授权文件加载失败（未启用 --require-roe，继续运行）：%s", e)
+    elif require_roe:
+        raise SystemExit(
+            "[AUTHORIZATION][ROE] 已启用 --require-roe 但未提供 --roe-file；拒绝启动（R-ROE-1）。"
+        )
+
     ctx.authorized_targets = authorized
 
     hosts = collect_target_hosts(args)

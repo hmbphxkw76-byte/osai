@@ -3,7 +3,6 @@
 
 对 Embedding API 执行侦察:
 - 向量维度探测 (Vector Dimension Probe)
-- 相似度行为分析 (Similarity Behavior Analysis)
 - 嵌入空间边界测试 (Embedding Space Boundary Testing)
 
 模块清单:
@@ -21,12 +20,6 @@ Constitution compliance:
     - R-S1 (Embedding): 仅注册结果不执行黑盒 HTTP 不可测试内容
 """
 
-from recon.embedding.similarity_probe import (
-    EmbeddingSimilarityProbe,
-    SimilarityProfileResult,
-    SimilarityTest,
-    profile_embedding_similarity,
-)
 from recon.embedding.vector_probe import (
     EmbeddingVectorProbe,
     VectorProbeResult,
@@ -38,9 +31,4 @@ __all__ = [
     "EmbeddingVectorProbe",
     "VectorProbeResult",
     "probe_embedding_vector",
-    # similarity_probe
-    "EmbeddingSimilarityProbe",
-    "SimilarityProfileResult",
-    "SimilarityTest",
-    "profile_embedding_similarity",
 ]

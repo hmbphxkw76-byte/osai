@@ -52,6 +52,19 @@ from typing import Any
 
 from pyrit.prompt_target.common.prompt_target import PromptTarget
 
+from core.resilience import (
+    ON_OPEN_PAUSE,
+    ON_OPEN_SLOW,
+    ON_OPEN_TERMINATE,
+    CircuitOpenError,
+    CircuitTerminatedError,
+    ResiliencePolicy,
+    RetryPolicy,
+    counts_toward_breaker,
+    is_transient_error,
+    make_retry_policy,
+)
+
 logger = logging.getLogger(__name__)
 
 # Auth recovery: 401/403 status codes trigger token refresh
@@ -97,10 +110,22 @@ class RateLimitedTarget(PromptTarget):
         max_concurrency: int = 3,
         auth_state_manager: Any | None = None,
         auth_state: Any | None = None,
+        circuit_breaker: Any | None = None,
+        resilience_policy: Any | None = None,
+        retry_policy: Any | None = None,
+        on_breaker_event: Any | None = None,
     ) -> None:
         self._target = target
         self._endpoint = endpoint or getattr(target, "_endpoint", str(id(target)))
         self._semaphore = asyncio.Semaphore(max_concurrency)
+
+        # == REQ-170：熔断 + 瞬时故障重试 ==
+        # breaker 由 core.resilience.build_target_resilience(ctx, endpoint) 构造，
+        # 状态落在 ctx._circuit_breaker_states（既有字段，消除 stub）。
+        self._breaker = circuit_breaker
+        self._policy = (resilience_policy or ResiliencePolicy()).normalized()
+        self._retry_policy: RetryPolicy = retry_policy or make_retry_policy()
+        self._on_breaker_event = on_breaker_event
 
         # Auth recovery (optional)
         self._auth_manager = auth_state_manager
@@ -255,12 +280,13 @@ class RateLimitedTarget(PromptTarget):
         This layer adds auth recovery (401/403) not covered by PyRIT native.
         Academic basis: Heroux et al. (arXiv:2403.04206) Sec3.2 - Token lifecycle
         """
+        await self._await_circuit_clearance()
         try:
-            # Delegate: preserves @limit_requests_per_minute + @pyrit_target_retry
-            return await self._target._send_prompt_to_target_async(
+            result = await self._dispatch_with_transient_retry(
                 normalized_conversation=normalized_conversation,
             )
         except Exception as e:
+            self._record_breaker_failure(e)
             if not self._is_auth_recoverable(e):
                 raise
 
@@ -289,10 +315,119 @@ class RateLimitedTarget(PromptTarget):
                 self._target._headers = new_headers
             logger.info("Auth recovered, retrying with new credentials")
 
-            # Retry (preserves RateLimit/Timeout Retry via native decorators)
-            return await self._target._send_prompt_to_target_async(
+            result = await self._dispatch_with_transient_retry(
                 normalized_conversation=normalized_conversation,
             )
+        self._record_breaker_success()
+        return result
+
+    # ------------------------------------------------------------------
+    # REQ-170：熔断准入 / 瞬时重试 / 事件留痕
+    # ------------------------------------------------------------------
+    async def _await_circuit_clearance(self) -> None:
+        """按策略处置打开中的熔断：`pause` / `slow` 等待，`terminate` 直接终止。
+
+        `pause` 与 `slow` 的差异：`slow` 语义上表示"降速继续"（等待后仍走同一路径），
+        `pause` 表示"暂停后重试"；两者等待上限均由 `max_pause_seconds` 约束，
+        超限即拒绝（不无限阻塞 campaign）。
+        """
+        if self._breaker is None:
+            return
+        decision = self._breaker.before_request()
+        if decision.allowed:
+            return
+
+        strategy = self._policy.on_open
+        self._emit_breaker_event(
+            {
+                "state": decision.state,
+                "action": "blocked",
+                "strategy": strategy,
+                "retry_after": decision.retry_after,
+                "reason": decision.reason,
+            }
+        )
+        if strategy == ON_OPEN_TERMINATE:
+            raise CircuitTerminatedError(f"circuit open (terminate) for {self._endpoint}: {decision.reason}")
+
+        wait = min(decision.retry_after, self._policy.max_pause_seconds) if strategy in (ON_OPEN_PAUSE, ON_OPEN_SLOW) else 0.0
+        if wait > 0:
+            logger.warning(
+                "[Resilience] circuit open for %s; %s %.1fs before retry (reason=%s)",
+                self._endpoint,
+                strategy,
+                wait,
+                decision.reason,
+            )
+            await asyncio.sleep(wait)
+            decision = self._breaker.before_request()
+            if decision.allowed:
+                self._emit_breaker_event({"state": decision.state, "action": "resumed", "strategy": strategy})
+                return
+        raise CircuitOpenError(f"circuit open for {self._endpoint}: {decision.reason}")
+
+    async def _dispatch_with_transient_retry(
+        self,
+        *,
+        normalized_conversation: list[Any],
+    ) -> list[Any]:
+        """把原生派发包在瞬时故障重试里（5xx / 408 / 超时 / 连接）。
+
+        `429/RateLimit` **不在**本层重试 —— 交由 PyRIT 原生 `@pyrit_target_retry`
+        处理，避免双层退避放大（REQ-170 ②）。
+        """
+        attempt = 0
+        while True:
+            try:
+                # Delegate: preserves @limit_requests_per_minute + @pyrit_target_retry
+                return await self._target._send_prompt_to_target_async(
+                    normalized_conversation=normalized_conversation,
+                )
+            except Exception as e:
+                attempt += 1
+                if attempt >= self._retry_policy.max_attempts or not is_transient_error(e):
+                    raise
+                delay = self._retry_policy.delay_for(attempt)
+                logger.warning(
+                    "[Resilience] transient failure on %s (attempt %d/%d): %s; retrying in %.2fs",
+                    self._endpoint,
+                    attempt,
+                    self._retry_policy.max_attempts,
+                    e,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+
+    def _record_breaker_failure(self, exc: Exception) -> None:
+        if self._breaker is None or not counts_toward_breaker(exc):
+            return
+        self._breaker.record_failure(f"{type(exc).__name__}: {exc}")
+        snapshot = self._breaker.snapshot()
+        self._emit_breaker_event(
+            {
+                "state": snapshot.get("state"),
+                "action": "failure_recorded",
+                "failures": snapshot.get("failures"),
+                "reason": snapshot.get("last_reason", ""),
+            }
+        )
+
+    def _record_breaker_success(self) -> None:
+        if self._breaker is None:
+            return
+        previous = self._breaker.snapshot().get("state")
+        self._breaker.record_success()
+        if previous != "closed":
+            self._emit_breaker_event({"state": "closed", "action": "recovered", "previous": previous})
+
+    def _emit_breaker_event(self, event: dict[str, Any]) -> None:
+        """把熔断决策投递到注入的事件槽（ctx.orchestration_log + EventLog）。"""
+        if self._on_breaker_event is None:
+            return
+        try:
+            self._on_breaker_event(event)
+        except Exception as e:
+            logger.debug("[Resilience] breaker event sink failed: %s", e)
 
     @staticmethod
     def _is_auth_recoverable(exc: Exception) -> bool:

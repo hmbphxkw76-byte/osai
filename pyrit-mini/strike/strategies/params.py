@@ -39,6 +39,19 @@ _SPECS: dict[str, dict[str, tuple[str, Any]]] = {
     "pair": {
         "max_iterations": ("pair_max_iterations", 5),
     },
+    # BL-034 接真：以下三类参数此前只被 `_apply_defaults` 拷进 args、**无任何消费者**，
+    # 导致 terminal（technique_param_labels）展示的数值与 PyRIT 实际使用的默认值不一致
+    # （C9 诚实汇报违规）。现统一经本 SSOT 读取并传入 PyRIT 原生攻击类。
+    "many_shot": {
+        "example_count": ("many_shot_example_count", 100),
+    },
+    "chunked_request": {
+        "chunk_size": ("chunked_request_chunk_size", 50),
+        "total_length": ("chunked_request_total_length", 200),
+    },
+    "red_teaming": {
+        "max_turns": ("red_teaming_max_turns", 3),
+    },
 }
 
 
@@ -111,3 +124,21 @@ def tap_params(args: Any | None = None) -> dict[str, Any]:
 def pair_params(args: Any | None = None) -> dict[str, Any]:
     """PAIRAttack 参数（SSOT：`pair_max_iterations`）。"""
     return algo_params("pair", args)
+
+
+def many_shot_params(args: Any | None = None) -> dict[str, Any]:
+    """ManyShotJailbreakAttack 参数（SSOT：`many_shot_example_count`）。
+
+    Academic basis: Anthropic (arXiv:2402.05124) — many-shot jailbreaking，示例数直接决定 ASR。
+    """
+    return algo_params("many_shot", args)
+
+
+def chunked_request_params(args: Any | None = None) -> dict[str, Any]:
+    """ChunkedRequestAttack 参数（SSOT：`chunked_request_chunk_size` / `chunked_request_total_length`）。"""
+    return algo_params("chunked_request", args)
+
+
+def red_teaming_params(args: Any | None = None) -> dict[str, Any]:
+    """RedTeamingAttack 参数（SSOT：`red_teaming_max_turns`）。"""
+    return algo_params("red_teaming", args)

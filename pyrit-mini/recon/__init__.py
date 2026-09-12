@@ -87,8 +87,10 @@ from recon.api.recursive_expander import (
 # 顶层用于 AI 信号探测，core 子包用于结构化指纹构建。
 from recon.burp_parser import (
     ParsedBurpRequest,
+    TargetFingerprint,
     build_http_target,
     parse_burp_request,
+    parse_burp_requests,
 )
 from recon.confidence_scorer import (
     CapabilityResult,
@@ -106,7 +108,7 @@ from recon.embedding.vector_probe import (
 # --- recon.core (基础设施，指纹与隐身) ---
 from recon.fingerprint import (
     FingerprintBuilder,
-    TargetFingerprint,
+    FrameworkFingerprint,
     build_fingerprint,
 )
 from recon.guardrail_detector import (
@@ -199,8 +201,10 @@ __all__ = [
     # --- core ---
     "ParsedBurpRequest",
     "parse_burp_request",
+    "parse_burp_requests",
     "build_http_target",
     "FingerprintBuilder",
+    "FrameworkFingerprint",
     "TargetFingerprint",
     "build_fingerprint",
     "GuardrailReport",

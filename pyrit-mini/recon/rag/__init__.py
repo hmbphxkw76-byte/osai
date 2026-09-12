@@ -5,14 +5,10 @@
 - RAG 管道探测 (Pipeline Probe)
 - 元数据解析 (Metadata Parser)
 - 检索模式分析 (Retrieval Pattern Analysis)
-- 知识库枚举 (Knowledge Base Enumeration)
-- Embedding 维度扫描 (Embedding Dimension Scan)
 
 模块清单:
     - pipeline_probe    : RAG 管道探测器
     - metadata_parser   : RAG 元数据解析器
-    - kb_enumerator     : 知识库枚举器
-    - embedding_scan    : Embedding 维度扫描器
     - typo_fuzzer       : 拼写变体模糊测试
 
 Academic basis:
@@ -28,18 +24,6 @@ Constitution compliance:
     - R-S4: 测试全部 mock
 """
 
-from recon.rag.embedding_scan import (
-    EmbeddingDimension,
-    EmbeddingDimensionScanner,
-    EmbeddingScanResult,
-    scan_embedding_dimensions,
-)
-from recon.rag.kb_enumerator import (
-    KBEnumerator,
-    KBEnumResult,
-    KBInfo,
-    enumerate_rag_knowledge_bases,
-)
 from recon.rag.metadata_parser import (
     KnowledgeBaseMap,
     RAGResponseMetadata,
@@ -62,14 +46,4 @@ __all__ = [
     # pipeline_probe
     "RAGPipelineProfile",
     "run_rag_pipeline_probe",
-    # kb_enumerator
-    "KBEnumResult",
-    "KBEnumerator",
-    "KBInfo",
-    "enumerate_rag_knowledge_bases",
-    # embedding_scan
-    "EmbeddingDimension",
-    "EmbeddingDimensionScanner",
-    "EmbeddingScanResult",
-    "scan_embedding_dimensions",
 ]

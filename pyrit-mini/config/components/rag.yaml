@@ -21,9 +21,7 @@ detection:
 recon_modules:
   - recon.rag.pipeline_probe
   - recon.rag.metadata_parser
-  - recon.rag.kb_enumerator
   - recon.rag.typo_fuzzer
-  - recon.rag.embedding_scan
 service_profile_keys: ["rag_pipeline", "rag_kb_map", "rag_typo_fuzz"]
 
 seed_sets:

@@ -238,13 +238,13 @@ def extract_ai_sdk_from_request_headers(
 # =============================================================================
 
 
-class TargetFingerprint:
-    """Target fingerprint data class.
+class FrameworkFingerprint:
+    """AI framework/SDK fingerprint (response-header/title/body signals).
 
-    Recon output bus: Contains all detected target capabilities.
-
-    Defined here for backward compatibility. Canonical definition
-    is in recon.burp_parser.TargetFingerprint.
+    Renamed from the former local `TargetFingerprint` to remove a name
+    collision: the canonical target fingerprint is
+    `recon.burp_parser.TargetFingerprint` (the recon output bus). This class is
+    only the by-product of the 3-layer AI framework detection below.
     """
 
     def __init__(self) -> None:
@@ -257,7 +257,7 @@ class TargetFingerprint:
 def build_fingerprint(
     response_section: str,
     request_headers: dict[str, str] | None = None,
-) -> TargetFingerprint:
+) -> FrameworkFingerprint:
     """Build a composite fingerprint from response section.
 
     Args:
@@ -265,9 +265,9 @@ def build_fingerprint(
         request_headers: Optional request headers for SDK detection
 
     Returns:
-        TargetFingerprint with detected framework info
+        FrameworkFingerprint with detected framework info
     """
-    fp = TargetFingerprint()
+    fp = FrameworkFingerprint()
 
     # Extract framework from response
     fw_name, fw_category = extract_ai_framework_fingerprint(response_section)
@@ -294,7 +294,7 @@ class FingerprintBuilder:
     """
 
     def __init__(self) -> None:
-        self._fingerprint = TargetFingerprint()
+        self._fingerprint = FrameworkFingerprint()
         self._sources: list[str] = []
 
     def with_response(self, response_section: str) -> "FingerprintBuilder":
@@ -325,6 +325,6 @@ class FingerprintBuilder:
         self._sources.append("model_family")
         return self
 
-    def build(self) -> TargetFingerprint:
+    def build(self) -> FrameworkFingerprint:
         """Build and return the final fingerprint."""
         return self._fingerprint

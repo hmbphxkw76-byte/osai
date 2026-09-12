@@ -130,8 +130,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--timeout", type=int, default=None, help=" ( 1200)")
 
     # == ==
-    parser.add_argument("--escalation", action="store_true", default=None, help="")
-    parser.add_argument("--no-escalation", action="store_false", dest="escalation", help="")
+    parser.add_argument("--escalation", action="store_true", default=None, help="启用攻击升级链（escalation chain）；默认由框架按策略自动判断是否升级")
+    parser.add_argument("--no-escalation", action="store_false", dest="escalation", help="禁用攻击升级链（覆盖 --escalation 默认值）")
     parser.add_argument(
         "--escalate-threshold",
         type=float,
@@ -153,6 +153,35 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "L4 (RogueAgent+EmbeddingInversion+MCP/RAG)",
     )
 
+    # == RoE 授权文件 + 操作员身份 (REQ-163 / REQ-169) ==
+    parser.add_argument(
+        "--roe-file",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="RoE 授权文件（YAML/JSON：authorization_ref/targets/valid_from/valid_until）。默认不加载，行为不变。",
+    )
+    parser.add_argument(
+        "--require-roe",
+        action="store_true",
+        default=False,
+        help="强制要求有效 RoE 授权文件；缺失/失效/越授权窗时启动期拒绝执行（R-ROE-1）。",
+    )
+    parser.add_argument(
+        "--operator",
+        type=str,
+        default=None,
+        metavar="NAME",
+        help="操作员标识，写入 EventLog 审计链（who/when/what/why，REQ-169）。",
+    )
+    parser.add_argument(
+        "--tenant",
+        type=str,
+        default=None,
+        metavar="NAME",
+        help="租户/项目标识；并入 memory labels 实现按 run 的 Memory 隔离（REQ-167）。",
+    )
+
     # == (plan Wave 2.9 / R-S1) ==
     parser.add_argument(
         "--authorized-targets",
@@ -164,7 +193,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
 
     # == ==
-    parser.add_argument("--offensive", action="store_true", default=False, help="")
+    parser.add_argument("--offensive", action="store_true", default=False, help="声明本次为授权进攻性红队测试（合规/授权开关）")
     parser.add_argument("--rate-limit", type=int, default=None, help="API  (RPM)")
 
     # == R10: --dry-run token ==
@@ -610,7 +639,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--synergy",
         action="store_true",
         default=True,
-        help=" Burp + Scores + Seeds  (,  + )",
+        help="启用组件协同/组合攻击（Burp + Scores + Seeds 联动，默认开启）",
     )
 
     # == Advanced Attacks: Output Filter Bypass / Multimodal / Backdoor ==
@@ -727,7 +756,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--no-synergy",
         action="store_false",
         dest="synergy",
-        help=", ",
+        help="禁用组件协同/组合攻击（覆盖 --synergy 默认值，仅按单组件执行）",
     )
 
     # == Scenario (v60: ->) ==
@@ -1013,6 +1042,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     # JSON dict, args.memory_labels_parsed
     # main.py CentralMemory
     args.memory_labels_parsed = _parse_memory_labels(getattr(args, "memory_labels", None))
+
+    # == REQ-167：多租户 / 操作员标识并入 memory labels（按 run 隔离）==
+    # 显式 CLI 身份优先于 --memory-labels JSON 中的同名键；未提供时**不改变默认行为**。
+    _identity: dict[str, str] = {}
+    for _key, _value in (("operator", getattr(args, "operator", None)), ("tenant", getattr(args, "tenant", None))):
+        if _value:
+            _identity[_key] = str(_value)
+    if _identity:
+        _merged = dict(args.memory_labels_parsed or {})
+        _merged.update(_identity)
+        args.memory_labels_parsed = _merged
 
     # == : --seed-filters KEY=VALUE ==
     # KEY=VALUE dict, args.seed_filters_parsed

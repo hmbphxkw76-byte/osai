@@ -22,7 +22,6 @@ detection:
 recon_modules:
   - recon.model.api_classifier
   - recon.model.prompt_injector
-  - recon.model.capability_detector
   - recon.model.system_prompt_extract
   - recon.model.seed_mapper
 service_profile_keys: ["model_profile", "system_prompt", "guardrail_profile"]

@@ -3,7 +3,7 @@
 > **文档层级**：L4 / 五层规约金字塔第五层
 > **效力**：红线 = 绝对禁止，视同宪法级（裁决序见 00-CONSTITUTION 第二章）。质量门禁 = 完成任务的必要不充分条件。
 > **执行机制**：三层防线（静态 guard / 运行时 dry-run / git 钩子），继承 SKILL.md D2 条款并收编。
-> **版本**：v3.1（2026-09-12 REV-18：① 修复第六章损坏行与第八章小节编号冲突（7A~7D 与第七章重复 → 8A~8D）；② R-DOC-1 目标路径修正为真实存在的 `docs/red team/red-team-dev-guide.md`（原路径不存在 → 检查器恒失效）；③ 1F 登记簿改为"以代码为准"索引；④ 门禁命令统一引用 `specs/README.md` §2；⑤ 版本史外置）
+> **版本**：v3.4（2026-09-12 REV-21：R-L7 顶层目录许可清单同步纳入 `targets/` —— 依 `10-ARCHITECTURE.md` 2.1「靶场层」与 REQ-156，修复检查器白名单滞后于规格的 spec-code drift。REV-20 的 1J-COMPLIANCE 保持有效）
 > **版本史**：`git log -- docs/specs/40-GUARDRAILS.md`
 
 ---
@@ -22,6 +22,8 @@
 | R-L6 | 报告生成未调用 pyrit.output 原生模块 | `check_pyrit_native_output()` |
 | R-L7 | 根目录出现未授权顶层目录/文件 | `check_top_level_structure()` **[v2.9 已实现]** |
 | R-L8 | `--dry-run` 参数或实现缺失 | `check_dry_run_available()` |
+
+> **R-L7 许可清单（v3.4 同步）**：`check_top_level_structure()` 的顶层目录白名单除 `strike/arm/recon/core/assess/report/utils/tools/tests/data/docs/outputs/config/scripts` 外，**含 `targets/`** —— 依据 `10-ARCHITECTURE.md` 2.1「靶场层」（`targets/mock/`，**非交付包**）与 **REQ-156**（Mock 靶场与 CI 断言）。此前检查器白名单滞后于规格（spec-code drift / R-DRIFT-2），本次同步修复。
 
 ### 1A-DATA. 数据流完整性红线（v1.4 新增）
 
@@ -58,17 +60,18 @@
 
 | # | 红线 | guard 检查器 | 级别 |
 |---|------|-------------|------|
-| R-DOC-1 | CLI 参数变更必须同步更新 **`docs/red team/red-team-dev-guide.md`**（路径含空格）附录 D CLI 参数参考 | `check_cli_params_documented()` | WARNING |
+| R-DOC-1 | CLI 参数以 `core/config.py` / `main.py` 的 argparse 为唯一权威；每个 `--xxx` 须具备非空 `help`（代码自描述，运行 `--help` 即得） | `check_cli_params_documented()` | WARNING |
 | R-DOC-2 | 新增攻击模块必须同步更新 `docs/specs/55-ATTACK-GAP-CLOSURE.md` 对应缺口章节 | `check_attack_gap_documented()` | WARNING |
 | R-DOC-3 | 新增需求/红线必须同步更新 `docs/specs/20-REQUIREMENTS.md` 和 `docs/specs/40-GUARDRAILS.md` | `check_requirements_guardrails_synced()` | WARNING |
 | R-DOC-4 | 文档版本号变更必须同步更新 `docs/specs/README.md` 金字塔版本索引 | `check_readme_version_synced()` | INFO |
 | R-DOC-5 | **新增/修改 CLI 参数必须在交付验收时显示完整命令行用法**，包括：参数组合示例、与其他模块联合使用示例、完整参数列表 | `check_cli_usage_shown_in_delivery()` | WARNING |
 
 **R-DOC-1 判定**:
-- ✅ PASS: `core/config.py` 中新增的 `--xxx` 参数在 `docs/red team/red-team-dev-guide.md` 附录 D 中有对应条目
-- ❌ FAIL: 发现 CLI 参数未文档化 → WARNING (提示补充文档)
+- ✅ PASS: `core/config.py` / `main.py` 中新增的 `--xxx` 参数均具备非空 `help`（代码即文档，运行 `python main.py --help` 可核对）
+- ❌ FAIL: 存在无 `help=` 的 `--xxx` 参数（CLI 自描述缺失，违背 SSOT）→ WARNING (提示补充 `help=`)
 
-> **REV-18 修复**：本条原指向 `docs/guides/red-team-dev-guide.md`——**该路径不存在**（实际文件在 `docs/red team/`，目录名含空格），导致 `check_cli_params_documented()` 恒定失效（既检查不到目标文档，也永远报不出真实缺口）。已同步修正 `tools/guard_extended.py` 的 `_DOCS_GUIDE_PATH` 常量。
+> **REV-19 修复**：原 `docs/red team/red-team-dev-guide.md` 已从仓库移除（未被 git 跟踪），继续指向它会使 `check_cli_params_documented()` 再次恒定失效。CLI 参数 SSOT 改为代码 argparse 本身；检查器改为校验每个 `--xxx` 的 `help=` 非空，不再依赖外部 markdown（见 `tools/guard_extended.py`）。
+> **REV-18 修复（历史）**：本条曾指向 `docs/guides/red-team-dev-guide.md`——该路径不存在（实际在 `docs/red team/`），导致检查器恒定失效；REV-18 临时修正常量。REV-19 已彻底迁移到代码 SSOT。
 > **预防**：任何文档引用的路径必须可由 `Test-Path` / `os.path.exists` 验证（文档纪律 D5）。
 
 **R-DOC-2 判定**:
@@ -91,7 +94,7 @@
 
 | 变更类型 | 必须同步的文档 |
 |----------|---------------|
-| 新增 CLI 参数 | `docs/red team/red-team-dev-guide.md` 附录 D |
+| 新增 CLI 参数 | `core/config.py` / `main.py` 的 argparse `help=`（代码即 CLI 文档） |
 | 新增攻击模块 | `docs/specs/55-ATTACK-GAP-CLOSURE.md` |
 | 新增需求 | `docs/specs/20-REQUIREMENTS.md` |
 | 新增红线/护栏 | `docs/specs/40-GUARDRAILS.md` |
@@ -320,6 +323,30 @@ pyrit-drift --full --report
 
 **降级策略**：模型池不足（<2 可用）时，R-CROSS-1~4 降级为人工审查模式 + 代码存档记录，不阻断合入但标记 `needs-cross-model-pending`。
 
+### 1J-COMPLIANCE. 合规与取证红线（v3.3 新增）
+
+> **适用范围**：授权边界强制、证据不可否认性、审计防篡改。配套需求见 `20-REQUIREMENTS.md` 第九章 D（REQ-163 / REQ-165 / REQ-169）。
+> **检查器状态**：本节三条红线的 guard 检查器**随对应 REQ 的实施落地**（依 1F 纪律：先改代码、再同步登记簿）；未实施前本节为**登记占位，不产生门禁效力**（不新增 BLOCKING）。
+
+| # | 红线 | 级别 | 判定特征 | 检查器（待实施） |
+|---|------|------|----------|------------------|
+| R-ROE-1 | **RoE 强制边界**：启用 `--require-roe` 时，缺失/失效/越窗的授权文件必须在启动期拒绝执行（不得静默放行） | BLOCKING | 启用强制开关但无有效 RoE 仍启动 | `check_roe_enforcement()`（随 REQ-163） |
+| R-EVID-1 | **证据不可否认性**：成功攻击证据必须含 SHA-256 内容哈希与 EventLog 时间线引用 | WARNING | 成功证据缺哈希或时间线引用 | `check_evidence_hash_present()`（随 REQ-165） |
+| R-AUDIT-1 | **审计防篡改**：EventLog 必须为哈希链（每条含前序哈希），提供离线校验入口 | WARNING | EventLog 缺哈希链字段 | `check_event_log_hash_chain()`（随 REQ-169） |
+
+**R-COMPLIANCE-* 判定逻辑**：
+- ✅ PASS: 全部检测通过 → INFO (不阻断)
+- ⚠️ WARNING: R-EVID-1 / R-AUDIT-1 违规 → 提示修复，**不阻断 push**
+- 🔴 BLOCKING: R-ROE-1 违规 → **阻断 push**
+
+**与既有护栏的关系**：
+
+| 合规红线 | 关联既有护栏 | 关系 |
+|----------|-------------|------|
+| R-ROE-1 | R-S1（授权边界）/ R-DECIDE-1 | 强化：把"运行期复核"前置到"启动期强制" |
+| R-EVID-1 | R-S3（证据保留）/ 8B（证据完整性字段清单） | 补强：在字段非空之上增加哈希与时间线不可否认性 |
+| R-AUDIT-1 | R-H7（证据注水）/ I12（EventLog 唯一派生源） | 补强：防止证据/审计被事后篡改 |
+
 ## 第二章：质量门禁（强制，顺序固定）
 
 对应宪法 C10。**全部通过是任务 verified 的必要条件**。
@@ -458,8 +485,8 @@ py -m tools.guard > outputs/guard_baseline.json   # 记录当前违规基线
 - [ ] 交付验收显示完整参数列表（参数名/默认值/说明）
 - [ ] 交付验收显示基础用法示例（至少3个场景）
 - [ ] 交付验收显示组合攻击示例（与其他模块联合使用）
-- [ ] `docs/guides/red-team-dev-guide.md` 附录 D 已更新
-- [ ] `python main.py --help` 输出与文档一致
+- [ ] CLI 参数在 `main.py`/`core/config.py` 具备非空 `help=`（代码即文档），随变更同步
+- [ ] `python main.py --help` 为权威参考（输出即 CLI 文档）
 ```
 
 ### 7E. 自动化执行命令速查
