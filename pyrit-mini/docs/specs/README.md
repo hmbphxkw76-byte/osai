@@ -61,7 +61,7 @@ python -c "from core.registry import get_registry; print(get_registry().keys())"
 | 3 | `python -m pytest tests/ -q` | 0 失败 | 功能回归 |
 | 4 | `python main.py --dry-run --max-seeds 1` | 无 ImportError/AttributeError/KeyError/TypeError，到达 REPORT | 运行时数据流断点 |
 | 5 | `python -m tools.drift_detector --full` | 0 BLOCKING | 规范↔代码漂移 |
-| 6 | `python -m pytest tests/test_data_flow_integrity.py -q` | 全部通过 | ctx 字段契约违规 |
+| 6 | `python -m pytest tests/common/test_data_flow_integrity.py -q` | 全部通过 | ctx 字段契约违规 |
 
 > 步骤 5/6 为 `pre-push` 强制；步骤 1–4 为每次变更后强制。
 > **纪律**："改动很小"不豁免任何一步；guard 通过 ≠ 代码可用；门禁失败禁止标记任务完成。

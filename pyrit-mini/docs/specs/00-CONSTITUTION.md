@@ -154,7 +154,7 @@ ruff check .                                       # 2   代码风格
 python -m pytest tests/ -q                         # 3   回归测试
 python main.py --dry-run --max-seeds 1             # 4   0-token 运行时验证
 python -m tools.drift_detector --full              # 5   规范漂移（pre-push）
-python -m pytest tests/test_data_flow_integrity.py -q  # 6 数据流契约（pre-push）
+python -m pytest tests/common/test_data_flow_integrity.py -q  # 6 数据流契约（pre-push）
 ```
 
 - **判定**："guard 过了所以不用 dry-run" / "改动很小跳过验证" / "架构体检太耗时跳过" / 在任何文档中用与本表不一致的命令描述门禁 → 全部违例。

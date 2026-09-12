@@ -5,7 +5,7 @@
 > **读者**：实施任务前的 AI（必读相关章节）、评审 diff 的人工/AI。
 > **版本**：v3.1（2026-09-12 REV-19：组件面清单一律改为读 `config/components/*.yaml`（不再手工抄写，D4）；分层表标注 v4.0 未落地子层；版本史外置）
 > **版本史**：`git log -- docs/specs/10-ARCHITECTURE.md`（文档纪律 D3，正文不再维护）
-> **已合并**：`45-DATA-FLOW-INTEGRITY.md` → 本文件第四章（原文件已删除）；其验证工具链 `tools/data_flow_validator.py` + `tools/dataflow/` + `tests/test_data_flow_integrity.py` 仍正常运行。
+> **已合并**：`45-DATA-FLOW-INTEGRITY.md` → 本文件第四章（原文件已删除）；其验证工具链 `tools/data_flow_validator.py` + `tools/dataflow/` + `tests/common/test_data_flow_integrity.py` 仍正常运行。
 
 ---
 
