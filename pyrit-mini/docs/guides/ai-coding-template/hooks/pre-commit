@@ -1,8 +1,0 @@
-#!/bin/sh
-# pre-commit hook — 自动安装见 INSTALL_HOOKS_CMD
-# 直接委派给统一门禁的「快检」阶段（内置检查 + lint + typecheck）。
-# 工具未接入时自动 SKIP，绝不因缺工具而阻塞提交（详见 docs/ai-dev-guides.md §5）。
-set -e
-echo "[gate] pre-commit (stage=commit)..."
-${GUARD_CMD} --stage commit
-echo "[gate] PASS"
