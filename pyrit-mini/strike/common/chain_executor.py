@@ -48,15 +48,58 @@ def resolve_module(component_key: str, action: str) -> str | None:
     return spec.strike_modules[0] if spec.strike_modules else None
 
 
+def _local_callables(mod: Any) -> list[str]:
+    """列出模块**自身定义**（非 import 进来）的可调用名称，按字典序保证可复现。"""
+    names = []
+    for name in dir(mod):
+        fn = getattr(mod, name, None)
+        if callable(fn) and getattr(fn, "__module__", None) == getattr(mod, "__name__", None):
+            names.append(name)
+    return sorted(names)
+
+
 def _pick_entry(mod: Any, action: str) -> Any:
-    """在模块内挑选入口可调用对象。"""
+    """在模块内挑选入口可调用对象。
+
+    plan Wave 2.7（接线零调用点模块）：`ComponentSpec.strike_modules` 声明的是
+    **模块**，而 `AttackStep.action` 来自规划器，两者命名常不一致——
+    例如 action=`filter_bypass` 对应模块 `strike.model.filter_bypass`，
+    但其入口实际叫 `run_output_filter_bypass`；`strike.mcp.orchestrator` 的入口
+    是 `run_mcpsec_pyrit_attack`。只按 `run_<action>` 精确匹配会让**绝大多数链步骤
+    以「无可调用入口」失败**（实测 5/5 步骤全灭）。
+
+    匹配优先级（确定性、可复现）：
+        1. `run_<action>` 精确
+        2. `run_*` 且名称包含 action（语义近似）
+        3. 通用候选 `execute` / `run` / `main` / `run_attacks` / `execute_async`
+        4. 任意 `run_*` / `execute_*`（模块自带的攻击入口）
+
+    Returns:
+        可调用对象；无匹配返回 None（由调用方显式失败，禁止静默跳过）。
+    """
     named = getattr(mod, f"run_{action}", None)
     if callable(named):
         return named
+
+    local = _local_callables(mod)
+    token = action.replace("-", "_").lower()
+
+    # 2) 语义近似：run_* 名称包含 action
+    for name in local:
+        if name.startswith("run_") and token in name.lower():
+            return getattr(mod, name)
+
+    # 3) 通用候选
     for name in _ENTRY_CANDIDATES:
         fn = getattr(mod, name, None)
-        if callable(fn):
+        if callable(fn) and name in local:
             return fn
+
+    # 4) 模块自带的任意攻击入口
+    for name in local:
+        if name.startswith(("run_", "execute_")):
+            return getattr(mod, name)
+
     return None
 
 

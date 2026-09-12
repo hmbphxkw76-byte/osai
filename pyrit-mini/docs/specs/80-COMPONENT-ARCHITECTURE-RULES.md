@@ -1,168 +1,129 @@
-# 80 — 组件化架构规则：目录组织与命名规范（Component Architecture Rules）
+# 80 — 组件化架构规则（Component Architecture Rules）
 
-> **文档层级**：L1 / 五层规约金字塔第二层（架构规则补充）
-> **效力**：定义 PyRIT-Mini 组件化架构的目录组织规则、文件命名规范、组件注册流程。任何涉及新组件或目录变更的代码必须在本文档"落点"。
-> **读者**：实施组件化开发的 AI（必读）、评审 diff 的人工/AI。
-> **版本**：v1.0（2026-09-11 REV-01：首次发布，固化组件化架构优化经验）
-
----
-
-## 第一章：组件化架构概述
-
-### 1.1 设计哲学
-
-PyRIT-Mini 采用 **Hub-and-Spoke（中心辐射）** 组件化架构：
-
-```
-                    ┌──────────────────┐
-                    │   Framework      │
-                    │   (框架层)        │
-                    │                  │
-                    │  core/           │
-                    │  assess/         │
-                    │  report/         │
-                    │  arm/            │
-                    └────────┬─────────┘
-                             │
-              ┌──────────────┼──────────────┐
-              │              │              │
-              ▼              ▼              ▼
-        ┌──────────┐  ┌──────────┐  ┌──────────┐
-        │   MCP    │  │   A2A    │  │  Model   │
-        │ (spoke)  │  │ (spoke)  │  │ (spoke)  │
-        └──────────┘  └──────────┘  └──────────┘
-              │              │              │
-        ┌──────────┐  ┌──────────┐  ┌──────────┐
-        │   RAG    │  │ Session  │  │   Web    │
-        │ (spoke)  │  │ (spoke)  │  │ (spoke)  │
-        └──────────┘  └──────────┘  └──────────┘
-```
-
-**核心原则**：
-1. **框架层稳定**：`core/`/`assess/`/`report/`/`arm/` 提供通用调度能力，不随组件增加而膨胀
-2. **组件层独立**：每个 AI 核心组件（MCP/A2A/Model/RAG/Session/Web）拥有独立的攻击实现目录
-3. **注册式扩展**：新组件通过注册机制接入框架，无需修改框架层代码（开放-封闭原则）
-4. **数据流隔离**：组件间通过 `PipelineContext` 和 `component_type` 元数据交接，禁止直接 import
-
-### 1.2 组件分类
-
-| 组件类别 | 组件类型键 | 目录位置 | 职责 |
-|---------|-----------|---------|------|
-| MCP Server | `mcp_tool_poisoning` | `strike/mcp/`, `recon/mcp/` | 工具注册操纵、消息注入、Schema 投毒 |
-| A2A Protocol | `a2a_agent_integrity` | `strike/a2a/`, `recon/a2a/` | 跨代理注入、身份伪造、生命周期攻击 |
-| Model Output | `model_behavior_shift` | `strike/injection/`, `strike/evasion/` | 提示注入、越狱、后门触发、过滤绕过 |
-| RAG Pipeline | `rag_pipeline` | `strike/rag/`（预留） | 检索污染、上下文注入、向量库投毒 |
-| Session/Memory | `session_memory` | `strike/session/`（预留） | 上下文泄漏、记忆投毒、会话边界违反 |
-| Web/API | `web_api` | `strike/web/` | 认证绕过、限速规避、请求走私、网关绕过 |
+> **文档层级**：L1（架构规则补充）
+> **效力**：定义组件化架构的目录组织、命名、注册与归属规则。任何涉及组件的代码变更必须能在本文件"落点"。
+> **版本**：v2.0（2026-09-12 REV-02：与 `config/components/*.yaml` 严格对齐——引入双命名空间规则、修正组件状态登记表、新增组件 Checkpoint 改为注册表驱动）
+> **版本史**：`git log -- docs/specs/80-COMPONENT-ARCHITECTURE-RULES.md`
+> **读者**：新增/修改组件时**必读**；评审涉及组件的 diff 时**必读**。
 
 ---
 
-## 第二章：目录组织规则
+## 第一章：设计哲学
 
-### 2.1 攻击实现目录（Component-Specific）
+**Hub-and-Spoke（中心辐射）**：
 
-攻击实现代码必须按组件拆分到独立子目录：
+```
+              ┌──────────────────────────────┐
+              │  框架层（Hub）                │
+              │  core/ arm/ assess/ report/  │
+              │  + core/registry.py（SSOT）   │
+              └───────────────┬──────────────┘
+                              │ 注册表驱动，禁止硬编码组件名
+        ┌─────────┬───────────┼───────────┬──────────┐
+        ▼         ▼           ▼           ▼          ▼
+    mcp/      a2a/        rag/       session/    web_api/   ...（Spoke）
+```
+
+| 原则 | 含义 |
+|------|------|
+| 框架层稳定 | `core/ arm/ assess/ report/` 提供通用调度，**不随组件增加而膨胀** |
+| 组件层独立 | 每个组件拥有独立的 `strike/<id>/` 与 `recon/<id>/` 实现目录 |
+| 注册式扩展 | 新组件通过 `config/components/*.yaml` 声明接入，**不改框架层代码**（开放-封闭，IA-7） |
+| 数据流隔离 | 组件间只经 `PipelineContext` + 事件流交接，禁止直接 import（蓝图 2.2） |
+
+> **反模式**：在 `core/phases/`、`strike/common/dispatcher.py` 中 `if component == "mcp": ...`。
+> 这是 ADR-007 / R-EVENT-1 / REQ-153 明令禁止的硬编码组件名（guard BLOCKING）。
+
+---
+
+## 第二章：双命名空间（`id` vs `component_key`）—— 必读
+
+`core/registry.py` 同时维护两个键空间，**混用会导致运行时查不到组件**。这是本项目最容易踩的坑。
+
+| 键 | 定义 | 消费 API | 约束 |
+|----|------|---------|------|
+| **`id`** | **文件/目录标识**。`mcp.yaml` → `mcp`；用于定位 `strike/<id>/`、`recon/<id>/` | `get(id)`、`names()`、`by_label()`、`for_seed_component()` | **必须等于 YAML 文件名 stem** |
+| **`component_key`** | **语义键**（运行时调度主键）。形如 `mcp_tool_poisoning`，与种子 `suitable_for`、评分 rubric 名、报告章节对齐 | `keys()`、`spec(key)`、`specs()`、`by_neighbor(key)`、`validate_wiring()` | **全局唯一**，与 `labels` 至少有一个交集 |
+
+### 2.1 当前实际映射（2026-09-12 快照）
+
+| YAML 文件 | `id` | `component_key` | `id == stem`? |
+|-----------|------|-----------------|---------------|
+| `a2a.yaml` | `a2a` | `a2a_agent_integrity` | ✅ |
+| `audit.yaml` | `audit` | `audit_evasion` | ✅ |
+| `embedding.yaml` | `embedding` | `embedding` | ✅ |
+| `gateway.yaml` | `gateway` | `llm_gateway` | ✅ |
+| `mcp.yaml` | `mcp` | `mcp_tool_poisoning` | ✅ |
+| `model.yaml` | `model` | `model_behavior_shift` | ✅ |
+| `rag.yaml` | `rag` | `rag_pipeline` | ✅ |
+| `session.yaml` | `memory_session_tenant` | `session_memory` | ❌ **漂移**（stem 为 `session`） |
+| `supply_chain.yaml` | `supply_chain` | `supply_chain` | ✅ |
+| `web_api.yaml` | `web_infra` | `web_api` | ❌ **漂移**（stem 为 `web_api`） |
+
+> ⚠️ `session.yaml` / `web_api.yaml` 的 `id` 不等于文件名 stem，违反 2.1 约束。已登记 backlog（BL-024）。
+> **修正前禁止**编写依赖 `id == stem` 的代码；需要用目录标识时显式读 `spec.id`。
+
+### 2.2 权威读取方式（禁止从文档抄写清单）
+
+```bash
+# component_key 列表（运行时调度主键）
+python -c "from core.registry import get_registry; print(get_registry().keys())"
+# id 列表（文件/目录标识）
+python -c "from core.registry import get_registry; print(get_registry().names())"
+# 接线完整性（recon/seeds/assess/report 落点是否真实存在）
+python -c "from core.registry import get_registry; print(get_registry().validate_wiring() or 'OK')"
+```
+
+---
+
+## 第三章：目录组织规则
+
+### 3.1 攻击实现（Spoke）
 
 ```
 strike/
-├── mcp/              # MCP Server 组件攻击
-│   ├── __init__.py
-│   ├── attacks.py    # MCP 专用攻击实现
+├── <id>/            # 组件专属攻击实现（mcp/ a2a/ rag/ session/ web_api/ ...）
+│   ├── __init__.py  # 必须声明 __all__
 │   └── ...
-├── a2a/              # Agent-to-Agent 组件攻击
-│   ├── __init__.py
-│   ├── attacks.py
-│   └── ...
-├── injection/        # 模型注入攻击
-├── evasion/          # 绕过/逃逸攻击
-├── rag/              # RAG Pipeline 攻击（预留）
-├── session/          # Session/Memory 攻击（预留）
-├── web/              # Web/API 攻击
-│   ├── orchestrator.py
-│   ├── attacks.py
-│   └── ...
-└── common/           # 组件间共享工具
+├── injection/       # 跨组件的注入类实现
+├── evasion/         # 跨组件的绕过类实现
+└── common/          # 组件间共享工具（唯一允许的共享代码位）
 ```
 
-**规则 S-DIR-1**：`strike/` 根目录禁止放置攻击实现代码。所有攻击实现必须放入对应组件子目录，或放入 `strike/common/`（仅限跨组件共享工具）。
+**S-DIR-1**：`strike/` 根目录**禁止**放置攻击实现代码。
+**S-DIR-2**：每个组件子目录必须含 `__init__.py` 并声明 `__all__`。
+**S-DIR-3**：`recon/` 适用同规则（`recon/<id>/`）；框架层侦察（`fingerprint.py`、`stealth_timing.py`、`common/`）留在 `recon/` 根。
 
-**规则 S-DIR-2**：每个组件子目录必须包含 `__init__.py`，并在其中声明 `__all__` 导出公共 API。
+### 3.2 框架层（Hub）
 
-**规则 S-DIR-3**：`recon/` 目录遵循相同规则，侦察实现按组件拆分子目录：
+**F-DIR-1**：框架层通过 `_REGISTRY` 字典 + `register_*()` / `get_*()` 支持组件扩展。
+**F-DIR-2**：框架层**禁止**直接 `import` 组件实现，必须运行时注册动态加载。
 
-```
-recon/
-├── mcp/              # MCP 侦察
-├── a2a/              # A2A 侦察
-├── rag/              # RAG 侦察（预留）
-├── session/          # Session 侦察（预留）
-├── web/              # Web 侦察
-├── fingerprint.py    # 通用指纹构建（框架层）
-├── stealth_timing.py # 通用时序控制（框架层）
-└── common/           # 侦察共享工具
-```
+| 框架层调度器 | 职责 |
+|-------------|------|
+| `core/seed_router.py` | 按 `attack_vector` + `suitable_for` 路由种子到 Converter 链 |
+| `assess/component_router.py` | 按组件归属路由评分逻辑 |
+| `assess/component_scorers.py` | 组件 T0 零 token 启发式 + rubric 选择 |
+| `report/component_reports.py` | 组件专属报告章节 |
+| `report/component_poc.py` | 组件专属 PoC 生成 |
 
-### 2.2 框架层目录（Framework Layer）
-
-框架层目录提供通用调度能力，**不按组件拆分**：
-
-```
-core/
-├── seed_router.py       # 种子→转换器智能路由（dispatcher）
-├── seed_loader.py       # 组件化种子加载
-├── orchestrator.py      # 流水线编排
-├── context.py           # PipelineContext
-├── phases/
-│   ├── _component_bridge.py  # 组件类型元数据盖章
-│   └── ...
-└── ...
-
-assess/
-├── component_scorers.py # 组件感知评分器（dispatcher）
-├── component_router.py  # 组件感知评估路由
-├── judge_manager.py     # LLM Judge 管理
-└── ...
-
-report/
-├── component_reports.py # 组件感知报告构建器（dispatcher）
-├── component_poc.py     # 组件感知 PoC 生成器（dispatcher）
-└── ...
-
-arm/
-├── converter_selector.py # 转换器选择
-├── seed_ranker.py        # 种子排序
-└── ...
-```
-
-**规则 F-DIR-1**：框架层模块通过注册-调度模式支持组件扩展，内部使用 `_REGISTRY` / `_TEMPLATES` 字典映射组件类型到具体实现。
-
-**规则 F-DIR-2**：框架层模块**禁止**直接 import 组件实现，必须通过运行时注册机制动态加载。
-
-### 2.3 种子库目录
-
-种子库按组件组织，使用 `_attack_surface/` 前缀标记组件种子集：
+### 3.3 种子库
 
 ```
 data/seeds/
-├── _core/                      # 通用核心种子
+├── _core/                       # 通用核心种子
 ├── _attack_surface/
-│   ├── T1_ASI02_mcp_full_surface/      # MCP 组件种子集
-│   ├── T1_ASI06-09_multi_agent/        # A2A 组件种子集
-│   ├── T1_LLM08_rag_full_surface/      # RAG 组件种子集
-│   └── T1_MEMORY/                      # Memory 组件种子集
-├── _encoding_evasion/          # 编码逃逸种子
-├── _experimental/              # 实验性种子
-└── _multilingual/              # 多语言种子
+│   └── T{ID}_{COMPONENT}_{DESCRIPTOR}/    # 组件种子集
+├── _encoding_evasion/ _experimental/ _multilingual/
 ```
 
-**规则 D-DIR-1**：组件种子集目录命名格式：`T{ID}_{COMPONENT}_{DESCRIPTOR}/`，如 `T1_ASI02_mcp_full_surface/`。
-
-**规则 D-DIR-2**：种子文件使用 `.prompt` 扩展名，元数据通过 frontmatter 声明组件类型：
+**D-DIR-1**：组件种子集目录命名 `T{ID}_{COMPONENT}_{DESCRIPTOR}/`（如 `T1_ASI02_mcp_full_surface/`）。
+**D-DIR-2**：种子文件扩展名 `.prompt`，frontmatter 声明归属：
 
 ```markdown
 ---
 attack_vector: mcp_tool_registration
-suitable_for: [mcp_tool_poisoning, a2a_agent_integrity]
+suitable_for: [mcp_tool_poisoning, a2a_agent_integrity]   # 必须是 component_key，不是 id
 category: mcp
 owasp_id: ASI02
 ---
@@ -170,302 +131,112 @@ owasp_id: ASI02
 {ATTACK_PROMPT_CONTENT}
 ```
 
----
-
-## 第三章：文件命名规范
-
-### 3.1 组件实现文件命名
-
-| 场景 | 命名规则 | 示例 |
-|------|---------|------|
-| 组件专用攻击文件 | `{action}_{component}.py` | `attack_mcp.py`, `attack_a2a.py` |
-| 组件编排器 | `{component}_orchestrator.py` | `web_orchestrator.py`, `a2a_orchestrator.py` |
-| 组件侦察实现 | `{component}_scanner.py` | `mcp_scanner.py`, `a2a_scanner.py` |
-| 组件配置文件 | `{component}_config.py` | `mcp_config.py` |
-
-### 3.2 框架层文件命名
-
-| 场景 | 命名规则 | 示例 |
-|------|---------|------|
-| 组件感知调度器 | `component_{capability}.py` | `component_scorers.py`, `component_reports.py` |
-| 桥梁模块（桥接） | `_{capability}_bridge.py` | `_component_bridge.py` |
-| 注册中心 | `{capability}_registry.py` | `initializer_registry.py` |
-
-### 3.3 测试文件命名
-
-| 场景 | 命名规则 | 示例 |
-|------|---------|------|
-| 组件测试 | `test_{component}_*.py` | `test_mcp_attack.py`, `test_a2a_orchestrator.py` |
-| 集成测试 | `test_pipeline_integration.py` | 端到端流水线测试 |
-| 框架测试 | `test_{framework_module}.py` | `test_seed_router.py`, `test_component_scorers.py` |
+> **C-NAME-2**：`suitable_for` 的取值必须等于 **`component_key`**（不是 `id`）。`for_seed_component()` 按此匹配。
 
 ---
 
-## 第四章：组件注册框架规范
+## 第四章：命名规范
 
-### 4.1 注册模式
+| 场景 | 规则 | 示例 |
+|------|------|------|
+| 组件专用攻击文件 | `{action}_{id}.py` | `attack_mcp.py` |
+| 组件编排器 | `{id}_orchestrator.py` | `web_orchestrator.py` |
+| 组件侦察实现 | `{id}_scanner.py` | `mcp_scanner.py` |
+| 框架层调度器 | `component_{capability}.py` | `component_scorers.py` |
+| 桥梁模块 | `_{capability}_bridge.py` | `_component_bridge.py` |
+| 组件测试 | `test_{id}_*.py` | `test_mcp_attack.py` |
 
-所有组件感知的调度器必须使用统一的注册模式：
+**C-NAME-1（修订）**：`component_key` 与 `strike/<id>/`、`recon/<id>/` **语义一致**；`id` 与目录名**字面一致**。
+
+---
+
+## 第五章：组件归属与传递
+
+### 5.1 归属写入（CB-1）
+
+`core/phases/_component_bridge.py` 是 `component_type` / 组件归属的**唯一写者**，在攻击结果上盖章：
 
 ```python
-# 1. 声明注册表
-_MY_REGISTRY: dict[str, Any] = {}
-
-
-# 2. 注册函数
-def register_my_capability(component_type: str, impl: Any) -> None:
-    """Register an implementation for a component type."""
-    _MY_REGISTRY[component_type] = impl
-
-
-# 3. 获取函数
-def get_my_capability(component_type: str) -> Any | None:
-    """Get the implementation for a component type."""
-    return _MY_REGISTRY.get(component_type)
-
-
-# 4. 默认注册函数
-def _register_defaults() -> None:
-    """Register built-in implementations."""
-    register_my_capability("mcp_tool_poisoning", _mcp_impl)
-    register_my_capability("a2a_agent_integrity", _a2a_impl)
-    # ...新组件注册于此
-
-
-# 5. 模块导入时自动注册
-_register_defaults()
+attack_result.setdefault("metadata", {})["component_type"] = component_key
 ```
 
-### 4.2 组件类型键命名
+**CB-1**：禁止其他模块直接写该字段。
+**CB-2**：下游消费者统一读 `metadata.get("component_type")`。
 
-组件类型键使用 **snake_case**，格式：`{category}` 或 `{category}_{subcategory}`
+> **历史缺陷（已修）**：`VulnerabilityEvidence` 曾缺 `metadata` 字段，导致 `getattr(ev, "metadata", {})` 恒空 → 组件专属报告永不生成。新增任何证据结构时，必须自测 `metadata` 端到端可读。
 
-**规则 C-NAME-1**：组件类型键与目录名保持语义一致
-- `mcp_tool_poisoning` → `strike/mcp/`
-- `a2a_agent_integrity` → `strike/a2a/`
-- `rag_pipeline` → `strike/rag/`
-- `session_memory` → `strike/session/`
-- `web_api` → `strike/web/`
+### 5.2 多组件归属（IC-1，v4.0）
 
-**规则 C-NAME-2**：种子 frontmatter 中 `suitable_for` 字段的值必须与注册表中的组件类型键完全匹配。
+企业目标是**组合体**，单一标签不足表达：
 
-### 4.3 Component Bridge 规范
+- 目标态：归属为 `component_labels: list[str]` + `label_confidence: dict[str, float]`
+- 迁移期：单值 `component_type` 保留为**兼容派生视图**，W5 删除
+- **IC-3**：一个 finding 允许归属多个组件
 
-`core/phases/_component_bridge.py` 负责在攻击结果上盖章 `component_type` 元数据：
-
-```python
-def stamp_component_metadata(attack_result: dict, component_type: str) -> dict:
-    """Stamp component_type metadata on attack result for downstream use.
-    
-    Called by strike executor after attack completion.
-    Downstream consumers: assess/component_router, report/component_reports, report/component_poc
-    """
-    attack_result.setdefault("metadata", {})["component_type"] = component_type
-    return attack_result
-```
-
-**规则 CB-1**：`component_type` 元数据由 `_component_bridge.stamp()` 写入，禁止其他模块直接写入此字段。
-
-**规则 CB-2**：下游消费者读取 `component_type` 通过 `metadata.get("component_type")` 获取。
+迁移未完成前，新增代码**必须**同时能读单值与多值（用 `getattr` + 兜底），不得假设只有一种形态。
 
 ---
 
-## 第五章：Dispatcher 模式实现规范
+## 第六章：新增组件 Checklist
 
-### 5.1 三级调度架构
+> **顺序不可颠倒**：声明先行（YAML），实现其后。没有 YAML 声明的组件 = 不存在。
 
+### 6.1 声明（SSOT，必做）
+
+- [ ] 新建 `config/components/<id>.yaml`，`<id>` 与文件名 stem 一致
+- [ ] 填写新契约字段：`labels` / `detect.signals` / `detect.min_confidence` / `recon` / `seeds` / `scorer` / `cleanup`（字段定义见 `config/components/README.md`）
+- [ ] `component_key` 全局唯一，与 `labels` 有交集
+- [ ] **不写** W0 遗留字段（`component_key` 除外）：`seed_sets` / `converter_vectors` / `strike_modules` / `report_builder` 等为兼容层，**只减不增**
+
+### 6.2 实现
+
+- [ ] `strike/<id>/` + `recon/<id>/` 建立，含 `__init__.py` 与 `__all__`
+- [ ] 种子集落在 `data/seeds/_attack_surface/T{ID}_{COMPONENT}_{DESC}/`，frontmatter `suitable_for` 用 `component_key`
+- [ ] `assess/component_scorers.py` 注册 T0 检测函数 + rubric
+- [ ] `report/component_reports.py` 注册章节构建器；`report/component_poc.py` 注册 PoC 模板
+
+### 6.3 验证（缺一不可）
+
+```bash
+python -c "from core.registry import get_registry; r=get_registry(); print(r.spec('<component_key>')); print(r.validate_wiring() or 'wiring OK')"
+python -m tools.guard
+python tools/architecture_validator.py full
+python -m pytest tests/ -q
+python main.py --dry-run --max-seeds 1
 ```
-                    ┌─────────────────┐
-                    │   Entry Point   │
-                    │ (Public API)    │
-                    └────────┬────────┘
-                             │
-                    ┌────────▼────────┐
-                    │   Dispatcher    │  ← 根据 component_type 路由
-                    │ (Registry Lookup)│
-                    └────────┬────────┘
-                             │
-         ┌───────────────────┼───────────────────┐
-         │                   │                   │
-    ┌────▼────┐        ┌────▼────┐        ┌────▼────┐
-    │  MCP    │        │  A2A    │        │  ...    │  ← 组件特定实现
-    │ Handler │        │ Handler │        │ Handler │
-    └─────────┘        └─────────┘        └─────────┘
-```
 
-### 5.2 框架层调度器职责分配
+- [ ] 上述命令全部通过；`validate_wiring()` 无 blocking 错误
+- [ ] 未改动任何框架层调度逻辑（IA-7）
+- [ ] 测试 `tests/test_<id>_*.py` 存在且通过
 
-| 调度器 | 文件 | 职责 |
-|--------|------|------|
-| 种子路由器 | `core/seed_router.py` | 根据 `attack_vector` 和 `suitable_for` 路由种子到最优转换器链 |
-| 评分路由器 | `assess/component_router.py` | 根据 `component_type` 路由评分逻辑 |
-| T0 评分器 | `assess/component_scorers.py` | 组件特定零令牌启发式检测 + 评分 rubric 选择 |
-| 报告构建器 | `report/component_reports.py` | 组件特定报告章节生成 |
-| PoC 生成器 | `report/component_poc.py` | 组件特定 PoC 脚本生成 |
-
-### 5.3 调度器实现模板
-
-```python
-"""component_xxx - Component-specific XXX dispatcher for AI core components."""
-
-from __future__ import annotations
-import logging
-from typing import Any
-
-logger = logging.getLogger(__name__)
-
-# =============================================================================
-# Registry
-# =============================================================================
-_XXX_REGISTRY: dict[str, Any] = {}
-
-def register_xxx(component_type: str, impl_fn: Any) -> None:
-    """Register a XXX implementation for a component type."""
-    _XXX_REGISTRY[component_type] = impl_fn
-
-def get_xxx(component_type: str) -> Any | None:
-    """Get the XXX implementation for a component type."""
-    return _XXX_REGISTRY.get(component_type)
-
-# =============================================================================
-# MCP Component XXX
-# =============================================================================
-def _mcp_xxx_impl(...):
-    """MCP-specific XXX implementation."""
-    ...
-
-# =============================================================================
-# A2A Component XXX
-# =============================================================================
-def _a2a_xxx_impl(...):
-    """A2A-specific XXX implementation."""
-    ...
-
-# =============================================================================
-# Public API
-# =============================================================================
-def dispatch_xxx(evidence: dict[str, Any]) -> Any:
-    """Dispatch to appropriate XXX implementation based on component_type."""
-    metadata = evidence.get("metadata", {}) or {}
-    component_type = metadata.get("component_type")
-    
-    if not component_type:
-        # Infer from category
-        cat = metadata.get("category", "")
-        cat_lower = cat.lower()
-        if "mcp_" in cat_lower:
-            component_type = "mcp_tool_poisoning"
-        # ... other inference rules
-    
-    if not component_type:
-        return None
-    
-    impl_fn = get_xxx(component_type)
-    if impl_fn:
-        try:
-            return impl_fn(evidence)
-        except Exception as e:
-            logger.warning("XXX dispatch failed for %s: %s", component_type, e)
-            return None
-    return None
-
-# =============================================================================
-# Module Init
-# =============================================================================
-def _register_defaults() -> None:
-    register_xxx("mcp_tool_poisoning", _mcp_xxx_impl)
-    register_xxx("a2a_agent_integrity", _a2a_xxx_impl)
-
-_register_defaults()
-```
+> 完整门禁见 `specs/README.md` §2。
 
 ---
 
-## 第六章：新增组件开发 Checklist
-
-完成以下全部步骤后，方可认为新组件开发完毕：
-
-### 6.1 目录与文件
-
-- [ ] 在 `strike/` 下创建组件子目录（如 `strike/new_component/`）
-- [ ] 在子目录中创建 `__init__.py`，声明 `__all__`
-- [ ] 创建组件特定攻击实现文件（如 `attacks.py`、`orchestrator.py`）
-- [ ] 在 `recon/` 下创建对应侦察子目录（如适用）
-
-### 6.2 攻击向量注册
-
-- [ ] 在 `core/seed_router.py` 的 `_ATTACK_VECTOR_CONVERTER_MAP` 中添加组件攻击向量映射
-- [ ] 在 `data/seeds/_attack_surface/` 下创建组件种子集目录
-- [ ] 种子文件 frontmatter 中 `suitable_for` 包含新组件类型键
-
-### 6.3 评分扩展
-
-- [ ] 在 `assess/component_scorers.py` 中添加组件 T0 启发式检测函数
-- [ ] 在 `_COMPONENT_RUBRIC_MAP` 中注册组件 rubric 路径
-- [ ] 在 `_COMPONENT_T0_FUNCTIONS` 中注册 T0 检测函数
-- [ ] 在 `assess/component_router.py` 中更新 T0 路由器（如适用）
-
-### 6.4 报告扩展
-
-- [ ] 在 `report/component_reports.py` 中添加组件报告构建器函数
-- [ ] 在 `_assess_replay_complexity` 中添加组件 replay 复杂度逻辑
-- [ ] 在 `register_component_builder()` 中注册新构建器
-- [ ] 更新 dominant 组件检测逻辑（识别新组件 category 前缀）
-
-### 6.5 PoC 扩展
-
-- [ ] 在 `report/component_poc.py` 中添加组件 PoC 生成器函数
-- [ ] 在 `_register_default_templates()` 中注册新模板
-- [ ] 在 `generate_component_poc()` 的推断逻辑中添加组件前缀识别
-
-### 6.6 测试
-
-- [ ] 编写组件专用测试 `test/test_{component}_*.py`
-- [ ] 运行 `pytest tests/ -x` 确保全绿
-- [ ] 运行 `ruff check strike/ tests/` 确保无 lint 错误
-
-### 6.7 文档
-
-- [ ] 更新 `docs/specs/80-COMPONENT-ARCHITECTURE-RULES.md` 中的组件登记表
-- [ ] 在组件子目录中添加 `README.md` 或模块 docstring 说明
-
----
-
-## 第七章：架构不变量（Invariants）
-
-以下不变量任何变更不得破坏：
+## 第七章：架构不变量
 
 | # | 不变量 | 依据 |
 |---|--------|------|
-| IA-1 | `strike/` 根目录不含攻击实现代码（仅 `__init__.py` 和 README） | S-DIR-1 |
-| IA-2 | 框架层模块（core/assess/report/arm）不含组件特定攻击实现 | F-DIR-1 |
-| IA-3 | 组件类型键由注册中心统一管理，禁止重复注册 | C-NAME-1 |
-| IA-4 | `component_type` 元数据由 `_component_bridge` 统一写入 | CB-1 |
-| IA-5 | 种子 frontmatter 中 `suitable_for` 必须匹配注册中心组件类型键 | C-NAME-2 |
-| IA-6 | 调度器回退机制：未知组件类型必须返回 None 或默认实现，禁止崩溃 | 5.3 dispatch_xxx |
-| IA-7 | 新组件通过注册扩展，无需修改框架层模块的调度逻辑（开放-封闭原则） | 第四章总体 |
+| IA-1 | `strike/` 根目录不含攻击实现（仅 `__init__.py` 与文档） | S-DIR-1 |
+| IA-2 | 框架层不含组件专属攻击实现 | F-DIR-1 |
+| IA-3 | 组件类型键由 `core/registry.py` 统一管理，**禁止任何第二处硬编码映射** | C-NAME-1 / ADR-007 |
+| IA-4 | 组件归属由 `_component_bridge` 统一写入 | CB-1 |
+| IA-5 | 种子 `suitable_for` 取值必须等于 `component_key` | C-NAME-2 |
+| IA-6 | 未知组件返回 `None` / 默认实现，**禁止崩溃** | 调度器兜底 |
+| IA-7 | 新组件经注册扩展，**不改框架层调度逻辑**（开放-封闭） | 第四章 / 第六章 |
+| IA-8 | `id` 必须等于 YAML 文件名 stem | 第二章 |
 
 ---
 
-## 第八章：组件状态登记表
+## 第八章：组件接线状态（读代码，不读表）
 
-> 跟踪当前支持的组件及其实现状态。
+> 状态随时变化。**禁止**在本文件手工维护状态表（文档纪律 D4）。
 
-| 组件类型键 | 状态 | strike 目录 | recon 目录 | seed 集 | 评分 | 报告 | PoC |
-|-----------|------|------------|-----------|---------|------|------|-----|
-| `mcp_tool_poisoning` | ✅ 已实现 | `strike/mcp/` | `recon/mcp/` | T1_ASI02 | ✅ | ✅ | ✅ |
-| `a2a_agent_integrity` | ✅ 已实现 | `strike/a2a/` | `recon/a2a/` | T1_ASI06-09 | ✅ | ✅ | ✅ |
-| `model_behavior_shift` | ✅ 已实现 | `strike/injection/`, `strike/evasion/` | — | T1_LLM01-07 | ✅ | ✅ | ✅ |
-| `rag_pipeline` | 🟡 框架已扩展 | `strike/rag/`（预留） | — | T1_LLM08 | ✅ | ✅ | ✅ |
-| `session_memory` | 🟡 框架已扩展 | `strike/session/`（预留） | — | T1_MEMORY | ✅ | ✅ | ✅ |
-| `web_api` | ✅ 已实现 | `strike/web/` | — | T1_WEB | ✅ | ✅ | ✅ |
+```bash
+python -c "from core.registry import get_registry; r=get_registry(); [print(f'{s.component_key:<28} id={s.id:<20} recon={len(s.recon_modules)} seeds={len(s.seeds)} rubric={s.rubric}') for s in r.specs()]"
+python -c "from core.registry import get_registry; print(get_registry().validate_wiring() or 'ALL WIRING OK')"
+```
 
-**图例**：✅ 已实现 | 🟡 框架已扩展（待组件实现） | ❌ 未实现
+**判定**：`validate_wiring()` 返回空 = 全部组件接线完整。非空则按 `layer` 字段定位缺失落点（recon / seeds / assess / report / schema）。
 
----
-
-## 版本记录
-
-| 版本 | 日期 | 变更摘要 | 批准 |
-|------|------|---------|------|
-| v1.0 | 2026-09-11 | 初版：目录组织规则、命名规范、组件注册模板、开发 Checklist、架构不变量 IA-1~IA-7 | 当前会话 |
+> **注**：`supply_chain` 为侦察级组件，不计入 ASR 分母（蓝图 13.4 横切说明）。

@@ -301,9 +301,12 @@ async def create_target(ctx: PipelineContext) -> None:
     # P1-05:
     parsed.target_fingerprint.probe_count = _probe_counter.value
     parsed.target_fingerprint.probe_duration_seconds = round(_probe_duration, 2)
+    # W0-11 修复：此前多传了第三个实参（ctx._recon_background_tasks），而格式串只有
+    # 2 个占位符 → logging 抛 "not all arguments converted during string formatting"
+    # → 该条 INFO 被**静默丢弃**（C9）。后台任务句柄不参与消息，去掉多余实参。
     logger.info(
-        "Recon complete: %d probes sent, %.2fs duration (attack starts now, background probes continue)",
+        "Recon complete: %d probes sent, %.2fs duration (attack starts now, %d background probes continue)",
         _probe_counter.value,
         _probe_duration,
-        ctx._recon_background_tasks,
+        len(getattr(ctx, "_recon_background_tasks", None) or []),
     )

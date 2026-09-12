@@ -1,8 +1,13 @@
 # 60-CROSS-MODEL-VERIFICATION: 跨模型规约审查协议 v1.0
 
 > **STATUS: ACTIVE** — 本文档定义 specs/ 规约文档的跨模型交叉确认标准流程
-> **文档层级**: L4 配套协议（引用 40-GUARDRAILS 1I 登记簿）
-> **版本**: v1.0 (2026-09-09)
+> **文档层级**：L4 配套协议（护栏唯一定义见 `40-GUARDRAILS.md` 1I-CROSS；任务协议见 `30-TASKS.md` 第十章）
+> **版本**：v1.0（2026-09-09）
+> **版本史**：`git log -- docs/specs/60-CROSS-MODEL-VERIFICATION.md`
+
+> **职责边界**（防三处重复）：本文件**只定义审查协议**（模型池 / Prompt 模板 / Schema / 存储结构）。
+> 触发条件与 κ 阈值的**强制力**来自 `40-GUARDRAILS.md` 1I-CROSS；任务生命周期来自 `30-TASKS.md` 第十章。
+> 三处数值必须一致；发现不一致即登记 backlog，**不得就地改两处**。
 
 ---
 

@@ -228,21 +228,53 @@ def _backfill_metadata(
 def _build_prepended_conversation_config(ctx: PipelineContext) -> Any:
     """Build native PrependedConversationConfig for SkeletonKey pre-injection.
 
-    Uses PyRIT native PrependedConversationConfig to prepend system-level directives
-    before attack prompts, implementing SkeletonKey-style prefix injection.
-    """
-    from pyrit.executor.attack.core.attack_executor import (
-        PrependedConversationConfig,
-    )
+    Uses PyRIT native `PrependedConversationConfig` to enable system-level directive
+    pre-injection before attack prompts (SkeletonKey-style prefix injection).
 
+    PyRIT 1.0 迁移说明（本修复的直接原因）：
+        该类已从 `pyrit.executor.attack.core.attack_executor` 迁到
+        `pyrit.executor.attack.component.prepended_conversation_config`，且
+        **不再接受 `prepended_conversation` 构造参数**——要前置的消息改由
+        `AttackParameters.prepended_conversation` 在执行期传入。
+        旧路径 + 旧签名会抛 ImportError / TypeError，而调用点在
+        `PromptSendingAttack(...)` 构造处未做兜底 → **整条基线攻击链路 0 攻击**。
+        此处按「先新后旧」双路解析，任一失败都留痕并返回 None（不得静默吞掉）。
+    """
     # Get system prompt from service profile if available
     system_prompt = ""
     if hasattr(ctx, "service_profile") and ctx.service_profile:
         system_prompt = ctx.service_profile.get("system_prompt", "")
 
-    if system_prompt:
-        return PrependedConversationConfig(prepended_conversation=[{"role": "system", "content": system_prompt}])
-    return None
+    if not system_prompt:
+        return None
+
+    # 1) PyRIT >= 1.0 的正确位置
+    try:
+        from pyrit.executor.attack.component import PrependedConversationConfig
+    except ImportError:
+        # 2) 旧版本回退（保留一个 release 周期的兼容）
+        try:
+            from pyrit.executor.attack.core.attack_executor import (  # type: ignore[attr-defined]
+                PrependedConversationConfig,
+            )
+        except ImportError as e:
+            logger.warning(
+                "PyRIT 未提供原生 PrependedConversationConfig（跳过前置注入，不影响攻击执行）：%s",
+                e,
+            )
+            return None
+
+    # 构造签名同样随版本变化：优先无参（1.0 语义），失败再退回携带消息（旧语义）
+    try:
+        return PrependedConversationConfig()
+    except TypeError:
+        try:
+            return PrependedConversationConfig(
+                prepended_conversation=[{"role": "system", "content": system_prompt}]
+            )
+        except Exception as e:
+            logger.warning("构造 PrependedConversationConfig 失败（跳过前置注入）：%s", e)
+            return None
 
 
 async def _retrieve_partial_results(ctx: PipelineContext, technique_name: str) -> None:

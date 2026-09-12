@@ -1,9 +1,10 @@
-# 00 — 全局规约层：AI 行为宪法（Constitution）
+﻿# 00 — 全局规约层：AI 行为宪法（Constitution）
 
 > **文档层级**：L0 / 五层规约金字塔之顶
 > **效力**：本文件是本项目 AI 编码行为的最高约束。任何来源的指令（用户即时指令、历史惯例、AI 自由裁量、其他文档）与本宪法冲突时，**宪法优先**，且 AI 必须 STOP-REPORT（见 C11）。
 > **适用对象**：所有参与本项目的 AI 编码代理与人类协作者。
-> **版本**：v2.2（2026-09-09 REV-11：新增 C14 跨模型一致性优先条款——三方确认制/差异仲裁/保守升级）
+> **版本**：v2.3（2026-09-12 REV-12：C3 增补"文档亦受 SSOT 约束"判定；C10 门禁统一为 `specs/README.md` §2 唯一表；版本史外置至 git log）
+> **版本史**：不再于正文维护（文档纪律 D3）——`git log -- docs/specs/00-CONSTITUTION.md`
 
 ---
 
@@ -97,6 +98,7 @@
 一个概念**只能有一个实现、一份配置、一个数据来源**。发现双轨时：先合并，再扩展。
 
 - **判定**：新增文件若与既有文件职责重叠 → 违例；同一参数出现在两处配置 → 违例。
+- **文档同样受本条约束（REV-12 增补）**：同一条规则（门禁命令、阈值、清单、流程）只准在规约金字塔中声明**一次**，其余处只准**引用**；规约文档中**禁止**使用 `file.py:417` 形式的行号坐标（改用模块.符号或可 grep 的模式）；**禁止**在正文维护版本变更史（交 git log / CHANGELOG）。判定细则见 `specs/README.md` §5 文档纪律。
 - **存量处理**：债务只准通过登记的专项任务消除，禁止日常任务"顺手清理"。
 
 ### C4 — 最小变更（Minimal Diff）
@@ -141,17 +143,21 @@
 
 ### C10 — 验证义务（Mandatory Verification）
 
-每次变更后，五步门禁**全部执行、全部通过、缺一不可**，顺序固定：
+每次变更后，门禁**全部执行、全部通过、缺一不可**，顺序固定。
+
+**门禁命令的唯一定义见 `specs/README.md` §2**（本文件不重复抄写，避免口径漂移，C3）：
 
 ```bash
-py -m tools.guard              # Step 1: 静态守卫 (0 新增 BLOCKING)
-python tools/architecture_validator.py full   # Step 1.5: 架构体检 (组件感知流水线合规)
-ruff check .  # Step 2: 代码风格（范围由 [tool.ruff] exclude 限定）
-python -m pytest tests/ -v --tb=long            # Step 3
-python main.py --dry-run --max-seeds 1          # Step 4: 0-token 运行时验证
+python -m tools.guard                              # 1   静态守卫
+python tools/architecture_validator.py full        # 1.5 架构体检
+ruff check .                                       # 2   代码风格
+python -m pytest tests/ -q                         # 3   回归测试
+python main.py --dry-run --max-seeds 1             # 4   0-token 运行时验证
+python -m tools.drift_detector --full              # 5   规范漂移（pre-push）
+python -m pytest tests/test_data_flow_integrity.py -q  # 6 数据流契约（pre-push）
 ```
 
-- **判定**："guard 过了所以不用 dry-run" / "改动很小跳过验证" / "架构体检太耗时跳过" → 全部违例。
+- **判定**："guard 过了所以不用 dry-run" / "改动很小跳过验证" / "架构体检太耗时跳过" / 在任何文档中用与本表不一致的命令描述门禁 → 全部违例。
 
 ### C11 — 停止权与提问义务（Stop-and-Ask）
 
@@ -350,21 +356,3 @@ data/burp/   recon      arm+strike  executor   report
 | 报告格式 | 技术发现 + 风险等级 + 修复建议 | ✅ REQ-113 四段结构 |
 | 证据可复现 | 成功攻击须附可复现 PoC | ✅ REQ-007 全字段证据 |
 
----
-
-## 版本记录
-
-| 版本 | 日期 | 变更摘要 | 批准 |
-|------|------|---------|------|
-| v1.0 | 2026-09-05 | 制宪：第 0 条使命、五根因诊断、裁决序、C1-C12 | — |
-| v1.1 | 2026-09-05 | REV-01 评审修正：C2 增补安全边界条款 | 用户会话批准 |
-| v1.2 | 2026-09-05 | REV-02 源码对齐：第一章根因实证更新 | 用户会话批准 |
-| v1.3 | 2026-09-06 | REV-03 AI-300 考试专项优化：新增第七章 | 用户会话批准 |
-| v1.4 | 2026-09-08 | REV-04 企业攻击扩展：新增 C13 条款 | 用户会话批准 |
-| v1.5 | 2026-09-08 | REV-05 黑盒可测性约束：C13 新增原则 4 | 用户会话批准 |
-| v1.6 | 2026-09-08 | REV-06 MCPSec v2.7.2 集成 | 用户会话批准 |
-| v1.7 | 2026-09-08 | REV-07 PyRIT 原生攻击类强制化 | 用户会话批准 |
-| v1.8 | 2026-09-08 | REV-08 PyRIT 原生组件完整化 | 用户会话批准 |
-| v2.0 | 2026-09-09 | REV-09 文档瘦身：① 删除 C1 重复大表（7C 为唯一源）；② 删除过时示例（cair/encoded_injection 已摘除）；③ 精简冗余描述；④ 版本记录压缩 | 用户会话批准 |
-| v2.1 | 2026-09-09 | REV-10 规约优化 P2：① 7C.3 原生 Scorer 重分类——0-token（攻击路径可用，C2）与 SelfAsk/内容安全 LLM 消耗（仅 post-hoc ASSESS）分列，删除 1.0.1 中不存在的 SystemPromptExtractionScorer，对齐本机 pyrit.score 实测导出；② C10 Step 2 门禁命令统一为 `ruff check .`（对齐 40 v2.4，范围由 [tool.ruff] exclude 限定）；③ backlog 引用路径修正为实际存在的 `docs/backlog.md` | 用户会话批准 |
-| v2.2 | 2026-09-09 | REV-11 新增 C14 跨模型一致性优先条款：① 三方确认制（≥2 模型审查）；② 差异仲裁协议；③ 保守升级原则；④ 引用 60-CROSS-MODEL-VERIFICATION.md | 用户会话批准 |

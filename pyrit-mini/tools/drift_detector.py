@@ -115,7 +115,7 @@ _SPEC_NATIVE_TARGET_CLASSES: dict[str, str] = {
     "TextTarget": "pyrit.prompt_target",
 }
 
-# PipelineContext 字段契约 (从 10-ARCHITECTURE.md 第四章提取，原 45-DATA-FLOW-INTEGRITY.md 已合并)
+# PipelineContext 字段契约 (从 10-ARCHITECTURE.md 第四章 4.4 ctx 字段总表提取；原 45-DATA-FLOW-INTEGRITY.md 已合并并删除)
 # 注意: 嵌套字段(如 parsed_request.target_fingerprint)和运行时动态字段(如 evidence_collection)
 # 不在此处枚举，避免 INFO 级误报。
 _PIPELINE_CONTEXT_CONTRACTS: dict[str, list[str]] = {

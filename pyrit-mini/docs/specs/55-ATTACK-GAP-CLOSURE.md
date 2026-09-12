@@ -1,8 +1,13 @@
-# 55-ATTACK-GAP-CLOSURE.md — 攻击缺口完整优化方案
+# 55 — 攻击面缺口登记处（Attack Gap Registry）
 
-**版本**: v1.8 (2026-09-09 REV-18: 新增 gap 6 Workflow Evasion 安全扫描绕过)
-**状态**: 四大攻击缺口实施完成 + 文件上传攻击模块 + Workflow Evasion
-**作者**: AI Red Team
+> **文档层级**：配套（登记处，**非规约**）。R-DOC-2 依赖本路径，**禁止改名或移动**。
+> **版本**：v1.8（2026-09-09 REV-18：新增 gap 6 Workflow Evasion 安全扫描绕过）
+> **版本史**：`git log -- docs/specs/55-ATTACK-GAP-CLOSURE.md`
+> **状态**：四大攻击缺口实施完成 + 文件上传攻击模块 + Workflow Evasion
+> **作者**：AI Red Team
+
+> **本文件用法**：新增/修改攻击模块时，在对应缺口章节登记覆盖状态。
+> 它**不定义规则**——规则在 `40-GUARDRAILS.md`；它**只回答**"哪个攻击面由哪个模块覆盖、还有哪些缺口"。
 
 ## 1. 背景与目标
 

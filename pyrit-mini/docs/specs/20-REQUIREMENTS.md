@@ -1,9 +1,12 @@
-# 20 — 需求与规格层：做什么（Requirements & Specifications）
+﻿# 20 — 需求与规格层：做什么（Requirements & Specifications）
 
 > **文档层级**：L2 / 五层规约金字塔第三层
 > **效力**：本项目"做什么"的唯一登记处。**未登记于此的需求 = 不存在**。AI 不得实现未登记需求（宪法 C6）。
 > **格式**：每条需求有 ID、一句话陈述、可勾选的验收标准（DoD）。验收标准是任务完成的**唯一**判据。
-> **版本**：v2.8（2026-09-11 REV-16：三条主线复审补强——NFR-13 ④ 影响链口径收紧预告、REQ-150/151/152 验收加严（IC-1~IC-6））
+> **版本**：v2.9（2026-09-12 REV-17：① 拆解 REQ-144 重号——原第五章"代码-文档同步"改号 **REQ-159**，REQ-144~146 专归跨模型审查；② 第十章追踪表与正文 ID 对齐；③ 组件面清单改读 `config/components/*.yaml`（D4）；④ 版本史外置）
+> **版本史**：`git log -- docs/specs/20-REQUIREMENTS.md`
+
+> **ID 分配纪律**：REQ-xxx 全局唯一、只增不改。发现重号即为 P0 文档缺陷，须立即登记 backlog 并改号（不得改需求语义）。
 
 ---
 
@@ -113,7 +116,9 @@
 | REQ-141 | CLI 参数支持 | ① `--file-upload-target` 指定目标 URL；② `--upload-files` 指定文件列表；③ `--upload-endpoint` / `--trigger-endpoint` 指定端点路径 | `core/config.py` | ✅ |
 | REQ-142 | 流水线集成 | ① 集成到 `_run_file_upload_phase()`；② 结果存入 `ctx.attack_results`；③ 审计日志记录到 `orchestration_log` | `core/phases/strike.py` | ✅ |
 | REQ-143 | 测试覆盖 | ① 39 个测试用例覆盖全部核心功能；② CLI 参数解析测试；③ 边界情况测试 | `tests/test_file_upload_executor.py` | ✅ |
-| REQ-144 | 代码-文档同步 | ① CLI 参数变更必须同步更新 `red-team-dev-guide.md` 附录 D；② 新增攻击模块必须同步更新 `55-ATTACK-GAP-CLOSURE.md`；③ 新增需求/红线必须同步更新 `20-REQUIREMENTS.md` 和 `40-GUARDRAILS.md`；④ 文档版本号变更必须同步更新 `README.md` 金字塔索引 | `docs/specs/` + `docs/guides/` | ✅ |
+| REQ-159 | 代码-文档同步 | ① CLI 参数变更必须同步更新 `docs/red team/red-team-dev-guide.md` 附录 D；② 新增攻击模块必须同步更新 `55-ATTACK-GAP-CLOSURE.md`；③ 新增需求/红线必须同步更新 `20-REQUIREMENTS.md` 和 `40-GUARDRAILS.md`；④ 规约文档遵守 `specs/README.md` §5 文档纪律（禁行号坐标 / 禁正文版本史 / 清单读代码） | `docs/specs/` + `docs/red team/` | ✅ |
+
+> **改号说明**（REV-17）：本条原编号 REQ-144 与第九章 B 的「跨模型审查 REQ-144」重号。REQ-xxx 全局唯一，**本条改号 REQ-159**；语义不变。
 
 **CLI 参数清单**：
 
@@ -234,7 +239,7 @@
 | REQ-150 | SurfaceGraph 攻击面图谱：多标签 + 置信度 + 信任边界 + 数据流边 | ① 节点支持多标签与分组件置信度（非单值分类）；② 边含 `data_flow` / `trust_boundary` 类型；③ 每个节点可回溯到 EventLog 证据；④ 识别失败时有 `fallback_labels` 兜底路径；⑤ W5 前旧 `target_fingerprint` 兼容视图不丢字段；⑥ **`component_type: str` 迁移为 `component_labels: list[str]` + `label_confidence: dict`**（IC-1），单值视图仅为兼容派生（W5 删除），迁移期下游零回归；⑦ **一个 finding 可归属多个组件**（IC-3），`report/evidence.py` 的 `attack_surface` 增 `graph_ref` | P1 |
 | REQ-151 | PlaybookEngine 攻击链 DAG | ① 攻击链 YAML 每个 step 含 `precondition/action/verifier/cleanup`；② 支持 `depends_on` DAG 与 `on_fail`；③ 每步执行结果写入 EventLog；④ 至少落地 `rag_poison` 与 `mcp_enum_call` 两条链并在 mock 靶场端到端成功；⑤ **step 支持 `node_ref`（指向 SurfaceGraph 节点）+ `adapter`（选择 TargetAdapter）**，使跨组件链可表达（IC-2）；⑥ **迁移而非新建（IC-4）**：`strike/common/_executor_doc_poison.py`、`_executor_vuln_inject.py`、`strike/rag/data_poisoning.py`、`strike/mcp/malicious_server.py` 四条硬编码链迁为 `playbooks/*.yaml` 并删除原分支（删除期限登记 backlog），禁止出现第二套链机制 | P1 |
 | REQ-152 | ImpactChain + ExfilChannel 影响链判定 | ① 判定输出四态：`impact` / `exfil_confirmed` / `exfil_suspected` / `content_only`，仅前两者计入 `confirmed_asr`（ADR-008）；② 一期实现 3 类外传信道（markdown_image / tool_param / callback）+ canary 与 OOB 验真接口；③ **外传成立必须 OOB 回执**（`tools/oob_listener.py`，标准库实现，NEG-4 合规），现有响应文本正则降级为 `exfil_suspected`（IC-5）；④ **副作用成立必须二次独立请求确认**，payload 自证字段（`side_effects` 等）不计成立（IC-6）；⑤ 报告可渲染"影响链证据"章节并注明口径 | P1 |
-| REQ-153 | ComponentRegistry + 声明式攻击矩阵 YAML | ① `config/components/*.yaml` 覆盖 9 类组件（model/agent/mcp/a2a/rag/multimodal_upload/memory_session_tenant/web_infra/supply_chain）；② 每份声明 `detect/recon/seeds/converters/playbooks/scorer/report_section/cleanup`；③ `strike/common/dispatcher.py` 与 `core/phases/` 中零硬编码组件名；④ guard R-EVENT-1 对违规 BLOCKING | P1 |
+| REQ-153 | ComponentRegistry + 声明式攻击矩阵 YAML | ① 组件差异**唯一**声明于 `config/components/*.yaml`（字段契约见该文件目录 `README.md`），规约层不抄写清单；② `core/registry.py` 提供 `keys()/names()/spec()/specs()/by_neighbor()/validate_wiring()`；③ `strike/common/dispatcher.py` 与 `core/phases/` 中零硬编码组件名；④ guard R-EVENT-1 对违规 BLOCKING；⑤ 双命名空间（`id`=文件/目录标识，`component_key`=运行时调度主键）规则见 `80-COMPONENT-ARCHITECTURE-RULES.md` 第二章 | P1 |
 | REQ-154 | 副作用治理：dry-run / 隔离目标标记 / cleanup 钩子 | ① `dry-run` 可走通含副作用链而不产生真实写入；② 无 cleanup 声明的副作用步在非 dry-run 下被拒绝执行；③ 隔离目标标记生效；④ mock 靶场验证 cleanup 后靶标状态复原 | P1 |
 | REQ-155 | 断点续跑（`--resume <run_id>`） | ① 从 EventLog 恢复 playbook 状态；② 已完成 step 不重跑；③ 中断后已落盘证据不丢失 | P2 |
 | REQ-156 | Mock 靶场与 CI 断言 | ① `targets/mock/` 提供 5 类靶标（mcp_server / rag_service / a2a_agent / tool_agent / web_gateway）；② **标准库 `http.server` 实现，零新增运行时依赖**（NEG-4）；③ `tools/mock_range.py --up/--down/--list` 可用；④ `fixtures/expected.yaml` 含期望标签/链/判据/清理后状态；⑤ e2e 进 CI | P1 |
@@ -273,8 +278,8 @@
 | REQ-114 ~ REQ-126（P0-NEW + P0-EXAM） | ✅ implemented | 2026-09-08 修复/考试就绪 |
 | REQ-127 ~ REQ-134（Web 攻击层） | ✅ implemented | 认证/API Gateway/审计逃逸/编排器 |
 | REQ-135 ~ REQ-137（自主决策） | 🟡 架构设计完成 | 决策引擎框架 + Recon + ARM/Assess/Report |
-| REQ-138 ~ REQ-144（文件上传攻击） | ✅ implemented | 通用文件上传执行器 + CLI参数 + 流水线集成 + 39测试 + 文档同步 |
-| REQ-145 ~ REQ-147（跨模型审查） | 🟡 规约已登记 | 多模型并行/一致性指标/分级仲裁 |
+| REQ-138 ~ REQ-143 + REQ-159（文件上传 + 代码文档同步） | ✅ implemented | 通用文件上传执行器 + CLI 参数 + 流水线集成 + 39 测试 + 文档同步 |
+| REQ-144 ~ REQ-146（跨模型审查） | 🟡 规约已登记 | 多模型并行 / 一致性指标 / 分级仲裁 |
 | NFR-1 ~ NFR-8 | ✅ implemented | 非功能需求全部达成 |
 | NFR-9 ~ NFR-12（决策非功能） | 🟡 架构设计完成 | 决策透明度/人工覆盖/稳定性/可测试性 |
 | NFR-13（ASR 度量口径） | 🟡 规约已登记 | reported/confirmed 双口径 + `target_asr` 锚点（defaults.yaml 已落盘）；报告双列分列待实施 |
@@ -283,27 +288,16 @@
 
 - 活跃需求（待实现）：**REQ-109** A2A 执行层落地（种子已有，需验证编排进升级链）；**REQ-148~158** 目标架构 v4.0 六大抽象（待 CP-001 批准）；
 - 本表为需求登记 SSOT；历史追踪文档 `requirement_traceability_matrix.md` 已于 2026-09-06 删除（D-09 债务消除）。
+- **ID 唯一性自检**（每次新增需求后必跑，防止再次出现 REQ-144 重号）：
+
+```bash
+python -c "import re,collections,pathlib;rows=re.findall(r'^\|\s*(REQ-\d+)\s*\|',pathlib.Path('docs/specs/20-REQUIREMENTS.md').read_text(encoding='utf-8'),re.M);print('dups:',[k for k,v in collections.Counter(rows).items() if v>1] or 'none')"
+```
+
+> 期望输出 `dups: none`。同一命令可推广到 R-*/NFR-*/NEG-*（把正则中的 `REQ-` 换成对应前缀）。
 
 ---
 
-## 版本记录
+---
 
-| 版本 | 日期 | 变更摘要 | 批准 |
-|------|------|---------|------|
-| v1.0 | 2026-09-05 | 初版：P0/P1/P2 分级、REQ-001~008、REQ-101~108、NFR-1~6、NEG-1~6、变更流程 | — |
-| v1.1 | 2026-09-05 | REV-01：P0 总验收改条件式；REQ-003 加运营裁剪注；REQ-105 明确 EMA 回写目标；状态登记表实例化 | 用户会话批准 |
-| v1.2 | 2026-09-05 | REV-02：新增第 3A 章考域覆盖需求 REQ-109~113；新增 NFR-7/NEG-7；REQ-004 标注 Best-of-N stub 为 P0 缺口 | 用户会话批准 |
-| v1.3 | 2026-09-06 | REV-03：新增第 3B 章 P0-NEW 需求缺口 REQ-114~119（代码审计发现） | — |
-| v1.4 | 2026-09-06 | REV-04：新增第 3C 章 P0-EXAM 考试关键需求 REQ-120~126；新增 NFR-8 考试鲁棒性 | 用户会话批准 |
-| v1.5 | 2026-09-06 | REV-07 目录结构重构（Burp 目标文件迁移、Campaign 重命名） | 用户会话批准 |
-| v1.6 | 2026-09-08 | REV-08：新增第五章企业 Glue 层需求 REQ-127~134 | 用户会话批准 |
-| v1.7 | 2026-09-08 | REV-09：精简 Glue 层（移除向量 DB/Fine-tuning 攻击需求） | 用户会话批准 |
-| v2.0 | 2026-09-09 | REV-10 精简重构：① P0/P1 主链路需求归档为摘要表（REQ-001~008 + REQ-101~108）；② P0-NEW/P0-EXAM 合并为已修复归档（REQ-114~126 全部 implemented/exam-ready）；③ Web 攻击层需求精简（REQ-127~134，Glue→扁平化）；④ 修复两个"第七章"编号冲突（第七章负需求→第八章追踪）；⑤ 状态登记表重构（标记活跃缺口 REQ-109）；⑥ 删除 ~200 行冗余验收细节，文档从 269 行精简至 ~130 行 | 用户会话批准 |
-| v2.1 | 2026-09-09 | REV-11 新增第九章全链路自主决策需求：① REQ-135 决策引擎框架（P1）；② REQ-136 Recon 阶段自适应决策（P1）；③ REQ-137 ARM+Assess+Report 阶段决策（P2）；④ NFR-9~12 决策非功能需求（透明度/人工覆盖/稳定性/可测试性）；⑤ 原第八章"需求追踪"重命名为第十章 | 用户会话批准 |
-| v2.2 | 2026-09-09 | REV-12 P0 全面优化实施：① NFR-1 增补评分器精确度约束（T0 假阴性≤5%、J1/J2 假阳性≤8%、0-token 一致性≥85%、边界案例自动升级）；② NFR-11 增强升级链触发稳定性（Strike 完成度感知阈值） | 用户会话批准 |
-| v2.3 | 2026-09-09 | 规约优化 P1-B1~B3：① 新增 NFR-13 ASR 度量口径（reported/confirmed 双口径分列 + timeout/error 计失败规则）；② 目标锚点 SSOT `target_asr`（config/defaults.yaml，与 I11 联动）；③ REQ-135 护栏引用锚定 40-GUARDRAILS 1G 唯一定义 | 用户会话批准 |
-| v2.4 | 2026-09-09 | 新增第 5A 章文件上传攻击需求 REQ-138~143：① REQ-138 通用文件上传执行（multipart/form-data）；② REQ-139 处理触发机制（自定义 HTTP 方法）；③ REQ-140 多文件攻击链（分文档注入/知识库投毒）；④ REQ-141 CLI 参数支持（6 个新参数）；⑤ REQ-142 流水线集成；⑥ REQ-143 测试覆盖（39 个测试用例）；⑦ 更新需求追踪登记表 | 用户会话批准 |
-| v2.5 | 2026-09-09 | 新增 REQ-144 代码-文档同步需求：① CLI 参数变更必须同步更新 `red-team-dev-guide.md` 附录 D；② 新增攻击模块必须同步更新 `55-ATTACK-GAP-CLOSURE.md`；③ 新增需求/红线必须同步更新 `20-REQUIREMENTS.md` 和 `40-GUARDRAILS.md`；④ 文档版本号变更必须同步更新 `README.md` 金字塔索引 | 用户会话批准 |
-| v2.6 | 2026-09-09 | REV-14 新增第九章 B 跨模型规约审查需求：① REQ-145 多模型并行审查（≥3 模型+独立 JSON 输出+模型池可配置）；② REQ-146 一致性指标自动计算（Pairwise/Overall κ+阻断阈值）；③ REQ-147 分级仲裁（confirmed 自动采纳/single-model 标记/disputed 保守升级）；④ NFR-14~16 审查非功能需求（时效/存储/降级能力）；⑤ 更新需求追踪登记表新增 REQ-145~147 + NFR~14~16 条目 | 用户会话批准 |
-| v2.7 | 2026-09-11 | REV-15 新增第九章 C 目标架构 v4.0 需求：① REQ-148 EventLog 事件总线（终端/报告/证据/回放/续跑唯一派生源）；② REQ-149 TargetAdapter 协议/认证/会话归一；③ REQ-150 SurfaceGraph 攻击面图谱（多标签+置信度+信任边界）；④ REQ-151 PlaybookEngine 攻击链 DAG（含 cleanup）；⑤ REQ-152 ImpactChain + ExfilChannel 影响链判定；⑥ REQ-153 ComponentRegistry + 声明式攻击矩阵 YAML；⑦ REQ-154 副作用治理；⑧ REQ-155 断点续跑；⑨ REQ-156 Mock 靶场与 CI 断言（零新增依赖）；⑩ REQ-157 三个新组件面（多模态上传/记忆会话多租户/WebInfra）；⑪ REQ-158 交付物脱敏与版本化可复现；⑫ 状态登记表与活跃需求同步；⑬ 关联提案 CP-001 + 执行计划 PLAN-447be21 | 用户会话批准 |
-| v2.8 | 2026-09-11 | REV-16 三条主线复审补强（按"多组件组合体/有状态攻击链/影响链取证"全盘复审）：① NFR-13 增补 ④ 影响链口径收紧预告（判定四态，仅 impact 与 exfil_confirmed 计入 confirmed_asr，下降属口径收紧非能力退化）；② REQ-150 增补 ⑥⑦（component_type→component_labels+label_confidence、finding 多归属 + evidence.graph_ref）；③ REQ-151 增补 ⑤⑥（step 支持 node_ref/adapter、四条硬编码链迁移而非新建）；④ REQ-152 增补 ③④⑤（OOB 回执为准、T0 正则降级为 exfil_suspected、副作用需二次独立确认）；⑤ 对齐蓝图 IC-1~IC-6 与 ADR-008 四态判定 | 用户会话批准 |
+> **版本史**：不再于正文维护（文档纪律 D3）——`git log -- docs/specs/20-REQUIREMENTS.md`

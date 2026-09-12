@@ -32,7 +32,6 @@ from assess.score_pipeline import (
     _resolve_judge_concurrency,
 )
 
-
 # ── 5.1：置信表与拒绝表分离 ─────────────────────────────────────────────────
 
 
@@ -288,7 +287,6 @@ async def test_refusal_rationale_never_returns_early_success():
 @pytest.mark.asyncio
 async def test_high_confidence_rationale_shortcuts_j2():
     """中性高置信 rationale 才允许早返（J2 不运行）。"""
-    import asyncio
 
     from assess import score_pipeline
 

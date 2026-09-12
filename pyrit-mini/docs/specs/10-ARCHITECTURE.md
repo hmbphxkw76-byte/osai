@@ -1,10 +1,11 @@
-# 10 — 架构与设计层：技术蓝图（Architecture Blueprint）
+﻿# 10 — 架构与设计层：技术蓝图（Architecture Blueprint）
 
 > **文档层级**：L1 / 五层规约金字塔第二层
 > **效力**：定义系统的目标架构、模块边界、数据契约与架构不变量。任何代码变更必须能在本蓝图上"落点"——落不了点的变更需要先走 change-proposal 修改蓝图。
 > **读者**：实施任务前的 AI（必读相关章节）、评审 diff 的人工/AI。
-> **版本**：v3.0（2026-09-11 REV-18：新增 13.7 三条主线贯穿性约束 IC-1~IC-6（复审补强）+ ADR-008 修订为四态判定）
-> **归档文件**：`45-DATA-FLOW-INTEGRITY.md` 已合并入本文件的第四章，原文档不再独立维护（其验证工具链 `tools/data_flow_validator.py` + `tools/data_flow_hooks.py` + `tests/test_data_flow_integrity.py` 仍正常运行）
+> **版本**：v3.1（2026-09-12 REV-19：组件面清单一律改为读 `config/components/*.yaml`（不再手工抄写，D4）；分层表标注 v4.0 未落地子层；版本史外置）
+> **版本史**：`git log -- docs/specs/10-ARCHITECTURE.md`（文档纪律 D3，正文不再维护）
+> **已合并**：`45-DATA-FLOW-INTEGRITY.md` → 本文件第四章（原文件已删除）；其验证工具链 `tools/data_flow_validator.py` + `tools/dataflow/` + `tests/test_data_flow_integrity.py` 仍正常运行。
 
 ---
 
@@ -32,6 +33,11 @@ config/attack_surface_index.yaml  ← 统一攻击面索引（从 config/profile
 > **完整落点见第十三章**；六阶段流水线作为该架构的**运行实例**保留（不改变 1.1 阶段词汇映射）。
 > 立项背景：现有形态为"单组件 / 单轮 prompt / 以 ASR 为唯一判据"，与企业场景（认证态+多步会话+多协议+多租户的组合体）存在输入契约、识别输出、成功判据三处架构级误配。
 
+> **组件清单不由本章维护**（文档纪律 D4）。唯一事实源为 `config/components/*.yaml`，经 `core/registry.py` 加载。
+> 实时读取：`python -c "from core.registry import get_registry; print(get_registry().keys())"`
+> 接线自检：`python -c "from core.registry import get_registry; print(get_registry().validate_wiring())"`
+> 命名规则（`id` vs `component_key` 双命名空间）见 `80-COMPONENT-ARCHITECTURE-RULES.md` 第二章。
+
 ### 1.1 阶段词汇映射
 
 | 惯用口径 | 架构落点 | 备注 |
@@ -56,8 +62,8 @@ config/attack_surface_index.yaml  ← 统一攻击面索引（从 config/profile
 | 工具层 | `tools/` | CLI 开发/运维工具（宪法守卫、hooks 安装）；**所有带 `__main__` 的脚本必须放在此处** |
 | 支撑层 | `utils/` | 终端展示、日志、资源清理 |
 | 数据层 | `data/` + `config/` | 种子、评分器 rubric、ASR 先验、defaults（**全部为声明式资产**） |
-| 阶段层子层（v2.9 新增） | `recon/adapters/` `strike/playbook/` `assess/impact/` | 协议适配 / 攻击链编排 / 影响判定；只依赖 `core/`，与阶段层其余模块仅经 PipelineContext + EventLog 交接 |
-| 靶场层（v2.9 新增） | `targets/mock/` | 本地 mock 靶标（MCP/A2A/RAG/ToolAgent/WebGateway）；**不打包、不引入新运行时依赖**（NEG-4） |
+| 阶段层子层（v4.0 规划，**尚未落地**） | `recon/adapters/` `strike/playbook/` `assess/impact/` | 协议适配 / 攻击链编排 / 影响判定；只依赖 `core/`，与阶段层其余模块仅经 PipelineContext + EventLog 交接 |
+| 靶场层（v4.0 规划，**尚未落地**） | `targets/mock/` | 本地 mock 靶标（MCP/A2A/RAG/ToolAgent/WebGateway）；**不打包、不引入新运行时依赖**（NEG-4） |
 
 ### 2.2 依赖方向矩阵
 
@@ -262,21 +268,7 @@ Q1: PyRIT 1.0.1 有现成组件吗？
 
 **新增债务的流程**：发现新双轨/越界 → 登记 backlog（一行）→ 评估后入本表。**禁止直接修**。
 
-**已消除债务归档**（2026-09-06 ~ 2026-09-08）：
-- D-01 assess 双轨 → judge_manager/score_pipeline/asr_manager/response_parser 合并家族已删除
-- D-02 main/pipeline 镜像 → orchestrator.py 已删除，编排逻辑入 core/phases/
-- D-03 stub 模块 → 未实现模块已从升级链摘除
-- D-05 targets→recon → target_wrapper 已迁移至 recon/
-- D-06 display→arm 越界 → display.py 已瘦身，不再导入 arm
-- D-07 硬编码数据快照 → display.py 移除 _CONVERTER_ASR_LABEL
-- D-08 无代码加载配置 → target_profiles.yaml 已删除
-- D-09 规范冗余 → glue/ 目录已扁平化到 strike/
-- D-10 escalation 三件 → 合并为 executor.py 内单一实现
-- D-11 arm converter 三轨 → converter_selector.py 已清理死函数
-- D-12 arm 种子排序双轨 → seed_ranker/seed_ranking 关系已理清
-- D-13 data/代码污染 → 代码移出 data/ 层
-- D-14 display.py 巨石 → 从 ~119KB 瘦身至 ~20KB
-- D-15 judge 文件群 → judge_manager 已精简
+**已消除债务**：D-01 ~ D-15 全部消除（2026-09-06 ~ 2026-09-08），明细见 git 历史，正文不再维护（文档纪律 D3）。
 
 ---
 
@@ -610,12 +602,25 @@ L5 交付           统一报告骨架 + 组件 section 插件 + PoC/SARIF/HTML
 | **ImpactChain + ExfilChannel** | `assess/impact/{model,exfil,verdict,canary}.py` | L4 判定、L5 报告 | 152 |
 | **ComponentRegistry** | `core/registry.py` + `config/components/*.yaml` | 全层（组件差异唯一来源） | 153 |
 
-**组件矩阵 YAML 契约**（`config/components/<name>.yaml`）：
-`labels / detect / recon / seeds / converters / playbooks / scorer / report_section / cleanup`
+**组件矩阵 YAML 契约**：字段定义以 **`config/components/README.md`** 为唯一权威（与代码同目录、同批变更）。
+当前 `mcp.yaml` 等文件同时携带 W0 期旧字段（`component_key` / `seed_sets` / `strike_modules` / `assess` / `report_builder`）与新契约字段（`labels` / `detect` / `seeds` / `scorer` / `report_section` / `cleanup`）——**旧字段为兼容层，只减不增**，新增组件只准写新契约字段（已登记 backlog）。
 
-### 13.4 一期组件面（9 类）
+### 13.4 组件面
 
-`model` `agent` `mcp` `a2a` `rag` `multimodal_upload` `memory_session_tenant` `web_infra` `supply_chain`（末者为侦察级，不计入 ASR 分母）。
+> **SSOT**：`config/components/*.yaml`（当前 10 份声明）。本表**不抄写清单**，只规定读取与验收方式——手工抄写清单必然漂移（文档纪律 D4）。
+
+```bash
+# 声明的组件（component_key 视角，运行时调度主键）
+python -c "from core.registry import get_registry; print(get_registry().keys())"
+# 文件/目录标识（id 视角）
+python -c "from core.registry import get_registry; print(get_registry().names())"
+# 接线完整性（recon/seeds/assess/report 落点是否真实存在）
+python -c "from core.registry import get_registry; print(get_registry().validate_wiring())"
+```
+
+**验收**：`validate_wiring()` 返回空列表 = 全部组件接线完整（架构体检 `COMPONENT_WIRING` 项复用同一结果）。
+**新增组件**：按 `80-COMPONENT-ARCHITECTURE-RULES.md` 第六章 Checklist 执行，只增 YAML + 实现，**不改框架层调度逻辑**（开放-封闭，IA-7）。
+**已知漂移**：`session.yaml` 与 `web_api.yaml` 的 `id` 不等于文件名 stem（应为 `session` / `web_api`）——已登记 backlog，未修正前禁止依赖 `id == stem` 的假设。
 
 > **横切**：`ExfilChannel` 与 `ImpactChain` 不属于任何组件；所有组件的"成立"最终落到二者之一。
 
@@ -648,29 +653,6 @@ L5 交付           统一报告骨架 + 组件 section 插件 + PoC/SARIF/HTML
 
 ---
 
-## 版本记录
+---
 
-| 版本 | 日期 | 变更摘要 | 批准 |
-|------|------|---------|------|
-| v1.0 | 2026-09-05 | 初版：系统全景、分层与依赖矩阵、PyRIT 判定树、ctx 契约、Burp 数据流、不变量 I1-I10、ADR-001~006、债务簿 D-01~D-09 | — |
-| v1.1 | 2026-09-05 | REV-01：① §1.1 阶段词汇映射表（统一 recon/arm/strike/report/evidence 口径，防凭空造阶段或模块）；② I7 明确 asr_history（运行时唯一账本）与 asr_priors（人工先验唯一源）的 SSOT 关系；③ 依赖矩阵补 arm 读取 asr_history、"—"图例；④ 版本记录机制 | 用户会话批准 |
-| v1.2 | 2026-09-05 | REV-02 源码对齐（审计 @0b8e28c）：① 新登记债务 D-10~D-16（escalation 孪生、converter 三轨、seed 排序双轨、data/ 层代码污染、display 巨石、judge 文件群、工具链卫生）；② D-02/D-03 现状更新（main.py 87KB 巨石证实；Best-of-N stub 定性为 P0 缺口）；③ §1.1/§2.1 标注现状违例。架构本体（分层/契约/不变量/ADR）无变更 | 用户会话批准 |
-| v1.3 | 2026-09-06 | REV-03 代码审计修正（remediation/audit-remediation.md）：① D-01 量化修正（合并家族实际 ~3354 行死代码）；② D-10 修正（非 9 字节孪生，实为"门面+拆分"三件 + 编码损坏）；③ D-11 修正（非纯粹三轨，实为死函数 + _PRIORITY_MAP 孪生）；④ D-12 修正（非孪生，实为拆分+re-export+双向 import） | — |
-| v1.4 | 2026-09-06 | REV-04 D-13 消除：① data/asset_mapper.py → core/asset_mapper.py；② data/attack_surface_classifier.py → recon/attack_surface_classifier.py；③ data/scorer_selector.py 已删除；④ data/burp/ → config/targets/burp/；⑤ 全量更新 import 路径与文档引用；⑥ 4 测试文件路径同步更新 | 用户会话批准 |
-| v1.5 | 2026-09-06 | REV-05 recon 违宪整改（按 00-CONSTITUTION 优先级全部解决）：① P0-01 能力检测三轨合一 — `_probe_capabilities` 内部委托给 `confidence_scorer.score_capability()` SSOT，关键词与正则模式从 capability_detector.py 迁移至 confidence_scorer.py（含 capability_detector 中 MCP/Agent/RAG/Embedding 的结构化模式），原 capability_detector 中 ~200 行重复关键词/正则代码删除；② P0-02 探测风暴裁剪（保留 ≤2 个核心同步探针，其余移异步）— 已完成于会话前期；③ P0-03 自定义 Target 废弃（JSONSafeHTTPTarget → PyRIT 原生 HTTPTarget + ChatIdStateManager）— 已完成于会话前期 | 用户会话批准 |
-| v1.6 | 2026-09-06 | REV-06 AI-300 考试架构优化：① 新增第九章 PyRIT 原生攻击引擎架构（PyRIT→阶段落点映射 9.1、考试攻击路径决策树 9.2、ASR 优化策略 9.3、考试快速攻击模板速查 9.4）；② 架构本体（分层/契约/不变量/ADR）无变更 | 用户会话批准 |
-| v1.7 | 2026-09-06 | REV-07 目录结构重构：① Burp 目标文件从 config/campaigns/targets/ 扁平化迁移至 config/targets/；② asset_index.yaml 从 config/campaigns/ 迁移至 config/profiles/ (固定参数集)；③ 4 Campaign 重命名清晰化 (rapid_recon→quick_scan, full_spectrum_max_asr→deep_spectrum, mcp_agent_targeted→mcp_targeted, standard_redteam 保留) 并迁移至 config/profiles/；④ 删除 config/campaigns/ 目录 | 用户会话批准 |
-| v3.0 | 2026-09-10 | REV-16 删除 config/profiles/ 目录：① 5 个 profile YAML 文件删除（功能已被 --target/--strike 路由 + data/seeds/_attack_surface/ 覆盖）；② 清理 core/_config_parsers.py 中 profile 专属逻辑（attack_surface/strategy 字段处理）；③ 更新文档引用 | 用户会话批准 |
-| v1.8 | 2026-09-06 | REV-08 消除命名冲突：① config/targets/ 重命名为 config/burp/ (区分代码 targets/ 适配层与 Burp 输入契约)；② 更新 core/config.py、core/scenario_router.py 路径引用 | 用户会话批准 |
-| v1.9 | 2026-09-06 | REV-09 适配层重命名：① targets/ → adapters/ (精准描述 PyRIT 原生组件包装职责)；② 更新 recon/target_router.py import 路径 | 用户会话批准 |
-| v2.0 | 2026-09-08 | REV-10 企业AI红队融合解决方案：① 新增Glue层架构（模块清单、架构原则、攻击类型映射、依赖拓扑）；② 更新分层表新增Glue层；③ 更新依赖方向矩阵新增glue行 | 用户会话批准 |
-| v2.1 | 2026-09-08 | REV-11 过度工程化清理（黑盒可测性约束）：① 删除 vector_db_glue.py（向量DB SDK需直访，黑盒HTTP不可测试）；② 删除 fine_tuning_glue.py（需训练环境API，黑盒HTTP不可测试）；③ 精简 audit_evasion_glue.py 为仅日志注入（移除 SIEM/审计路径）；④ 同步化 enterprise_auth_glue.py；⑤ 更新 Glue 层架构图（3模块精简） | 用户会话批准 |
-| v2.2 | 2026-09-08 | REV-12 全面过度工程化清理后债务簿瘦身：① 债务登记从 16 项（D-01~D-16）精简至 2 项（D-04/D-16）；② 已消除 14 项债务移至归档区（含 assess 双轨、display 巨石、escalation 三件、judge 文件群等）；③ 章节编号修复（原两个"九章"冲突→九章/十章）；④ Glue 层重命名为 Web 攻击层（目录扁平化对齐） | 用户会话批准 |
-| v2.3 | 2026-09-09 | REV-13 合并 45-DATA-FLOW-INTEGRITY.md：① 第四章新增 Phase 字段契约（4.2）和数据传递规则（4.3）；② 数据流完整性验证工具链（DataFlowValidator/data_flow_hooks）保留在 tools/ 目录；③ 45-DATA-FLOW-INTEGRITY.md 标记为归档参见本文件 | 用户会话批准 |
-| v2.4 | 2026-09-09 | REV-14 新增第十一章全链路自主决策引擎架构：① 决策引擎在架构分层中的位置（11.1）；② 决策点与 ctx 字段契约（11.2）；③ 决策依赖引擎核心组件（11.3）；④ 决策触发条件与反馈闭环（11.4）；⑤ 决策系统架构不变量 ID-1~ID-5（11.5）；⑥ 决策引擎数据流契约（11.6） | 用户会话批准 |
-| v2.5 | 2026-09-09 | REV-15 P0 全面优化实施：① I4 增强动态升级链触发策略（Strike 完成度感知 + 预算感知）；② I8 增补端点价值量化公式；③ 9.3 ASR 优化策略表增补状态列 + 端点价值排序策略；④ 11.4 决策触发条件增补预算阈值触发和 Strike 进度触发 | 用户会话批准 |
-| v2.6 | 2026-09-09 | 规约优化 P0-A4：第四章新增 4.4 ctx 字段总表（SSOT 登记簿）——收敛 4.1/4.2/11.2/11.6/R-DATA-3 分散声明的 25+ 字段为唯一登记簿，新字段只允许在此登记；11.6 改为引用不重复登记 | 用户会话批准 |
-| v2.7 | 2026-09-09 | 规约优化 P2-C2：① 9.1 落点阶段编号对齐 1.1 阶段词汇映射（②ARM/③STRIKE/④ESCALATE/⑤ASSESS）；② 9.1 类名对齐 PyRIT 1.0.1 实测（T0=`SubStringScorer`+`TrueFalseInverterScorer`、J1/J2=`SelfAskTrueFalseScorer`+`SelfAskRefusalScorer`，删除不存在的 AzureAIScScorer 引用）；③ 删除第九章末尾过时重复的版本记录表（SSOT C3，权威版本记录唯一保留于文末） | 用户会话批准 |
-| v2.8 | 2026-09-09 | REV-16 新增第十二章跨模型规约审查架构：① 审查协议分层落位（12.1）；② 审查器与 ctx 字段契约（12.2）；③ 触发条件与流水线集成（12.3）；④ 审查架构不变量 ICM-1~ICM-4（12.4） | 用户会话批准 |
-| v2.9 | 2026-09-11 | REV-17 新增第十三章目标架构 v4.0：① 13.1 三处架构级误配（输入契约/识别输出/成功判据）；② 13.2 六层架构（L0 作用域→L5 交付）；③ 13.3 六个一等公民抽象与落点（EventLog/TargetAdapter/SurfaceGraph/PlaybookEngine/ImpactChain+ExfilChannel/ComponentRegistry）；④ 13.4 一期 9 类组件面 + 横切判据；⑤ 13.5 不变量 I12/I13 + 护栏 R-EVENT-1/2、R-COMP-1 引用；⑥ 13.6 兼容与收敛（防双轨长期化）；⑦ 第一章新增目标架构 v4.0 引述段；⑧ 2.1 分层表新增阶段层子层与靶场层；⑨ 2.2 依赖矩阵新增 adapters/playbook/impact 三行；⑩ 4.4 ctx 字段总表新增 event_log/surface_graph/playbook_state/impact_verdicts 四行；⑪ 不变量新增 I12/I13；⑫ ADR 新增 ADR-007/008 | 用户会话批准 |
-| v3.0 | 2026-09-11 | REV-18 三条主线复审补强：① 新增 13.7「三条主线贯穿性约束」（复审结论 + 代码证据 + IC-1~IC-6 BLOCKING 约束）；② IC-1 组件归属改 `component_labels: list[str]` + `label_confidence`（单值视图仅兼容派生）；③ IC-2 Playbook step 支持 `node_ref` + `adapter`（跨组件链前提）；④ IC-3 一个 finding 可归属多组件；⑤ IC-4 W2 为"迁移"非"新建"，列明四条硬编码链迁移对象；⑥ IC-5 外传须 OOB 回执、T0 正则降级 `exfil_suspected`；⑦ IC-6 副作用须二次独立请求确认；⑧ ADR-008 由三类分列修订为四态分列 + 口径收紧预告 | 用户会话批准 |
+> **版本史**：不再于正文维护（文档纪律 D3）——`git log -- docs/specs/10-ARCHITECTURE.md`

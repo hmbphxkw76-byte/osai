@@ -382,7 +382,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     # == A2A Multi-Agent Attack Vectors (v4.0: Direct exploitation) ==
     # Attack modules: workflow, sql_injection, rogue_agent, card_spoofing, data_poisoning
-    # Reference: docs/specs/56-A2A-MULTI-AGENT-ATTACK-OPTIMIZATION.md
+    # Reference: config/components/a2a.yaml (component_key: a2a_agent_integrity)
     # arXiv:2407.16924 - Eidam et al., A2A trust chain exploitation
     # Zhan et al. (arXiv:2307.00929) - Tool chain SQL injection via LLM agents
     # Greshake et al. (arXiv:2302.12173) - Indirect prompt injection via data

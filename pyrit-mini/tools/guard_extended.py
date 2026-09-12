@@ -1041,7 +1041,7 @@ def register_extended_checks(guard_cls) -> None:
 # ===============================================================================
 
 # Document paths
-_DOCS_GUIDE_PATH = "docs/guides/red-team-dev-guide.md"
+_DOCS_GUIDE_PATH = "docs/red team/red-team-dev-guide.md"
 _DOCS_GAP_PATH = "docs/specs/55-ATTACK-GAP-CLOSURE.md"
 _DOCS_REQ_PATH = "docs/specs/20-REQUIREMENTS.md"
 _DOCS_GR_PATH = "docs/specs/40-GUARDRAILS.md"
@@ -1175,18 +1175,25 @@ def check_readme_version_synced(self) -> None:  # type: ignore[override]
     # Extract version numbers from README
     versions_in_readme = {}
     for match in re.finditer(
-        r"\[(\d+)-(CONSTITUTION|ARCHITECTURE|REQUIREMENTS|GUARDRAILS|ROADMAP|ATTACK-GAP)\]\([^)]+\).*?(v[\d.]+)",
+        r"\[(\d+)-(CONSTITUTION|ARCHITECTURE|REQUIREMENTS|TASKS|GUARDRAILS|ROADMAP|ATTACK-GAP|COMPONENT|CROSS-MODEL)[^\]]*\]\([^)]+\).*?\b(v[\d.]+)\b",
         readme_content,
     ):
         doc_key = f"{match.group(1)}-{match.group(2)}"
         versions_in_readme[doc_key] = match.group(3)
 
     # Check individual doc files for mismatches
+    # 版本行格式：`> **版本**：vX.Y（...）`。冒号兼容全角/半角（历史文件两种都出现过）。
+    _VERSION_PATTERN = r"\*\*版本\*\*[:：]\s*(v[\d.]+)"
     doc_files = {
-        "00-CONSTITUTION": ("docs/specs/00-CONSTITUTION.md", r"\*\*版本\*\*: (v[\d.]+)"),
-        "20-REQUIREMENTS": ("docs/specs/20-REQUIREMENTS.md", r"\*\*版本\*\*: (v[\d.]+)"),
-        "40-GUARDRAILS": ("docs/specs/40-GUARDRAILS.md", r"\*\*版本\*\*: (v[\d.]+)"),
-        "55-ATTACK-GAP": ("docs/specs/55-ATTACK-GAP-CLOSURE.md", r"\*\*版本\*\*: (v[\d.]+)"),
+        "00-CONSTITUTION": ("docs/specs/00-CONSTITUTION.md", _VERSION_PATTERN),
+        "10-ARCHITECTURE": ("docs/specs/10-ARCHITECTURE.md", _VERSION_PATTERN),
+        "20-REQUIREMENTS": ("docs/specs/20-REQUIREMENTS.md", _VERSION_PATTERN),
+        "30-TASKS": ("docs/specs/30-TASKS.md", _VERSION_PATTERN),
+        "40-GUARDRAILS": ("docs/specs/40-GUARDRAILS.md", _VERSION_PATTERN),
+        "50-ROADMAP": ("docs/specs/50-ROADMAP.md", _VERSION_PATTERN),
+        "80-COMPONENT": ("docs/specs/80-COMPONENT-ARCHITECTURE-RULES.md", _VERSION_PATTERN),
+        "55-ATTACK-GAP": ("docs/specs/55-ATTACK-GAP-CLOSURE.md", _VERSION_PATTERN),
+        "60-CROSS-MODEL": ("docs/specs/60-CROSS-MODEL-VERIFICATION.md", _VERSION_PATTERN),
     }
 
     mismatches = []

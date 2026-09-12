@@ -1,210 +1,154 @@
-# specs/ — 规约金字塔（项目治理文件索引）
+# specs/ — 规约金字塔（唯一权威入口）
 
-本项目 AI 编码行为的全部规约。**裁决序**（宪法第二章）：00 宪法 > 10 蓝图 > 20 需求 > 30 任务 > 40 护栏 > 用户即时指令（仅经合法通道生效） > AI 自由裁量（默认权限为零）。护栏**红线部分**视同宪法级。
-
-> **双使命**：① 产品使命 = Burp 黑盒目标 ASR 最大化 + 可复现证据链；② 认证使命 = OffSec AI-300/OSAI 备考武器化（24h 实战 + 24h 报告）。
+> **本文件是整个项目文档体系的唯一入口。** 其他所有文档只准被本文件索引，不准自行复制本文件已声明的内容（宪法 C3）。
 
 ---
 
-## 🎯 三元组开发规范（最精简记忆）
+## 0. 三句话速记
 
-> **记忆口诀**：开发必看 → 开发必跑 → 开发必验
+| | |
+|---|---|
+| **使命** | 对 Burp 拦截的 LLM 应用（黑盒 HTTP 目标），以 **ASR 为首要度量**，交付可复现的完整攻击证据链。 |
+| **裁决一切分歧的终极问题** | **这个决定让 ASR 变高还是变低？**（仅在 R-S1~R-S5 授权边界之内） |
+| **裁决序** | 00 宪法 > 10 蓝图 > 20 需求 > 30 任务规格 > 40 护栏 > 用户即时指令（须经合法通道）> AI 自由裁量（默认 0 权限）。护栏**红线部分**视同宪法级。 |
 
-| 阶段 | 触发词 | 别名 | AI 自动执行 | 覆盖内容 |
-|------|--------|------|------------|---------|
-| **开发前** | **`开发规范`** | **开发必看** | 查看文档 | 宪法 / 蓝图 / 需求 / 红线 |
-| **开发中** | **`开发验证`** | **开发必跑** | 跑检查 + 自动修复 | guard → ruff → test → dry-run → drift → dataflow |
-| **开发后** | **`开发交付`** | **开发必验** | 跑验收清单 | 40-GUARDRAILS 第七章交付标准 |
-
-> **同义词**：
-> - `"开发必看"` = `"开发规范"`（开发前必看）
-> - `"开发必跑"` = `"开发验证"` = `"完整验证"` = `"规范对齐"`（开发中必跑）
-> - `"开发必验"` = `"开发交付"` = `"交付标准"`（开发后必验）
-
-### 📋 开发规范覆盖的文档（开发前必看）
-
-| 文档 | 内容 | 作用 |
-|------|------|------|
-| `00-CONSTITUTION` | AI 行为宪法、裁决序、C1-C15 | 了解 AI 行为边界 |
-| `10-ARCHITECTURE` | 分层依赖、ctx 契约、不变量 | 了解架构设计 |
-| `20-REQUIREMENTS` | P0/P1/P2 需求、NFR、NEG | 了解需求状态 |
-| `30-TASKS` | 任务生命周期、八步协议 | 了解任务执行流程 |
-| `40-GUARDRAILS` | 红线清单、R-CROSS 跨模型红线 | 了解红线与门禁 |
-| `50-ROADMAP` | 任务序列、会话模型 | 了解开发路线 |
-| `55-ATTACK-GAP` | 攻击缺口闭环状态 | 了解攻击覆盖 |
-| `60-CROSS-MODEL-VERIFICATION` | 跨模型审查协议、三级仲裁 | 了解跨模型一致性 |
-
-### 🔧 开发验证覆盖的工具（开发中必跑）
-
-| 工具/命令 | 作用 | 通过标准 |
-|-----------|------|---------|
-| `py -m tools.guard` | 架构守卫静态检查 | 0 BLOCKING |
-| `python tools/architecture_validator.py full` | 架构体检（组件感知流水线合规） | 0 BLOCKING |
-| `ruff check .` | 代码风格检查 | 0 errors |
-| `pytest tests/` | 全量测试 | 0 failed |
-| `python main.py --dry-run` | 运行时数据流验证 | 无异常 |
-| `py -m tools.drift_detector --full` | 规范漂移检测 | 0 BLOCKING |
-| `pytest tests/test_data_flow_integrity.py` | 数据流完整性 | 全部通过 |
-
-### 📝 开发交付覆盖的标准（开发后必验）
-
-| 标准 | 来源 | 格式 |
-|------|------|------|
-| 交付验证清单 | 40-GUARDRAILS 第七章 | 架构规则+代码质量+测试覆盖+集成点 |
-| 任务验收标准 | templates/task-spec.md | 任务规格验收 |
-| 待办闭环 | backlog.md | BL-xxx 状态更新 |
+> **第二使命**：OffSec AI-300 / OSAI 备考武器化（24h 实战 + 24h 报告）。映射与 Runbook 见 `50-ROADMAP.md`。
 
 ---
 
-## 🚀 完整验证（一键触发）
+## 1. 文档地图（按需加载）
 
-> **触发词**：**"完整验证"** / **"规范对齐"** / **"开发验证"** / **"开发必跑"**
+**规则**：只加载与当前任务相关的文件。禁止"全读一遍"。
 
-当用户对 AI 说出触发词时，自动执行以下 7 步验证 + 修复所有问题 + 汇报最终结果：
+| 层 | 文件 | 版本 | 职责 | 何时读 |
+|----|------|------|------|--------|
+| **L0** | [00-CONSTITUTION.md](00-CONSTITUTION.md) | v2.3 | AI 行为宪法：使命 / 裁决序 / C1–C14 / 违宪症状 / PyRIT 原生速查（7C）/ 考试附录 | 每会话开头（Step 1 宪法自检） |
+| **L1** | [10-ARCHITECTURE.md](10-ARCHITECTURE.md) | v3.1 | 技术蓝图：分层依赖 / ctx 字段契约（4.4 SSOT 总表）/ 不变量 I1–I13 / ADR / 债务簿 / 目标架构 v4.0 | 编码前声明架构落点时（Step 2） |
+| **L1** | [80-COMPONENT-ARCHITECTURE-RULES.md](80-COMPONENT-ARCHITECTURE-RULES.md) | v2.0 | 组件化规则：双命名空间 / 目录命名 / 新增组件 Checklist | 新增或修改组件时 |
+| **L2** | [20-REQUIREMENTS.md](20-REQUIREMENTS.md) | v2.9 | 需求登记：P0/P1/P2、NFR、NEG。**未登记 = 不存在** | 领取任务时核对验收标准（Step 3） |
+| **L3** | [30-TASKS.md](30-TASKS.md) | v2.3 | 任务协议：生命周期 / 粒度上限 / 八步协议 / STOP-REPORT / 三栏汇报 | 每次编码任务全程 |
+| **L4** | [40-GUARDRAILS.md](40-GUARDRAILS.md) | v3.1 | 红线 R-* / 门禁纪律 / 三层防线 / 交付验证清单 / 考试合规 | 编码后验证（Step 7） |
+| 配套 | [50-ROADMAP.md](50-ROADMAP.md) | v1.12 | 任务序列、考试 Runbook、考纲映射。**无裁决权威** | 领取下一个任务时 |
+| 配套 | [55-ATTACK-GAP-CLOSURE.md](55-ATTACK-GAP-CLOSURE.md) | v1.8 | 攻击面缺口登记处（R-DOC-2 依赖，**路径勿改**） | 新增攻击模块时登记 |
+| 配套 | [60-CROSS-MODEL-VERIFICATION.md](60-CROSS-MODEL-VERIFICATION.md) | v1.0 | 跨模型审查协议（C14 落地） | 变更 L0–L4 规约时 |
+| 配套 | [plans/](plans/) | — | 活跃变更提案与执行计划 | 提案批准后才进入编码 |
+| 模板 | [templates/](templates/) | — | `task-spec.md` / `change-proposal.md` / `cross-model-review.md` | 起草规格时 |
+| 运行态 | [../backlog.md](../backlog.md) | — | 唯一待办池（AI 发现的非本任务问题一律入此，不动代码） | 会话收尾时 |
 
-| 步骤 | 命令 | 通过标准 | 自动修复 |
-|------|------|---------|---------|
-| 1 | `py -m tools.guard` | 0 BLOCKING | 修复 BLOCKING 违规 |
-| 1.5 | `python tools/architecture_validator.py full` | 0 BLOCKING | 修复架构违规（阶段边界/组件传播/模块路由） |
-| 2 | `ruff check .` | 0 errors | `ruff check --fix` 自动修复 |
-| 3 | `pytest tests/ -v --tb=short` | 0 failed | 分析并修复 |
-| 4 | `python main.py --dry-run --max-seeds 1` | 无异常 | 修复数据流断点 |
-| 5 | `py -m tools.drift_detector --full` | 0 BLOCKING | 同步文档/代码 |
-| 6 | `pytest tests/test_data_flow_integrity.py -v` | 全部通过 | 修复契约违规 |
+> 版本列由 R-DOC-4（`check_readme_version_synced`）自动校验：此处版本号与各文档文件头 `**版本**：vX.Y` 必须一致；不一致 → INFO 级漂移告警。
 
-**详细规则文档**: `tools/__init__.py` — 【完整验证触发规则】
-**快速参考卡片**: `70-DEV-TRIAD-CHECKLIST.md` — 【开发全审速查表】
+### 1.1 组件键的唯一来源
 
----
+**`config/components/*.yaml` 是组件差异的唯一事实源**（ADR-007 / REQ-153）。规约层不得再抄写组件清单——本文件与 `80` 只定义**规则**，清单一律读 YAML：
 
-## 🎯 开发规范触发词汇总
+```bash
+python -c "from core.registry import get_registry; print(get_registry().keys())"
+```
 
-| 类别 | 触发词 | AI 自动执行 |
-|------|--------|------------|
-| **核心操作** | `"完整验证"` / `"规范对齐"` / `"开发验证"` / `"开发必跑"` | 7 步全流程验证 + 修复（含架构体检） |
-| | `"门禁"` | 五步质量门禁（含 Step 1.5 架构体检） |
-| | `"守卫"` | 架构守卫静态检查 |
-| | `"漂移"` | 规范漂移检测 |
-| | `"数据流"` | 数据流完整性验证 |
-| | `"交付标准"` / `"开发交付"` / `"开发必验"` | 按 40-GUARDRAILS 第七章生成验收清单 |
-| | `"架构体检"` / `"ArchCheck"` | 运行三层架构合规验证器 |
-| **开发流程** | `"开发规范"` / `"开发必看"` | 查看 宪法/蓝图/需求/红线 |
-| | `"领任务"` | 从 50-ROADMAP 查看下一个任务 |
-| | `"任务规格"` | 生成 TASK-xxx 规格文件 |
-| | `"宪法"` | 查看 00-CONSTITUTION 核心条款 |
-| | `"蓝图"` | 查看 10-ARCHITECTURE 架构设计 |
-| | `"需求"` | 查看 20-REQUIREMENTS 需求状态 |
-| | `"红线"` | 查看 40-GUARDRAILS 红线清单 |
-| **快速检查** | `"lint"` | ruff check . 代码风格检查 |
-| | `"dry-run"` | python main.py --dry-run 运行时验证 |
-| | `"测试"` | pytest tests/ 运行测试 |
-| | `"backlog"` | 查看/登记待办池 |
-| | `"hooks"` | 安装/检查 git hooks |
-| **跨模型审查** | `"跨模型审查"` | 执行跨模型规约审查（FULL 模式：3 模型并行 + κ 计算 + 仲裁） |
-| | `"交叉校验"` | 执行跨模型交叉确认（LIGHT 模式：1 模型快速审查） |
-| | `"审查报告"` | 查看最新跨模型审查报告 |
-| **考试场景** | `"考试模式"` | 切换为 OffSec AI-300 考试流程 |
-| | `"考试合规"` | 运行 7D 定期自检 |
-| | `"模板"` | 查看攻击模板速查表 (TPL-*) |
+双命名空间定义（`id` vs `component_key`）见 `80-COMPONENT-ARCHITECTURE-RULES.md` 第二章。
 
 ---
 
-| 层 | 文件 | 职责 | 版本 |
-|----|------|------|------|
-| L0 | [00-CONSTITUTION.md](00-CONSTITUTION.md) | AI 行为宪法：使命 / 裁决序 / C1-C14 (含跨模型一致性优先) / 违宪症状 / 制宪配套 / 考试专项附录 | v2.2 |
-| L1 | [10-ARCHITECTURE.md](10-ARCHITECTURE.md) | 技术蓝图：分层依赖 / ctx 契约（4.4 SSOT 总表） / 不变量 / ADR / 债务簿 / PyRIT攻击引擎 / Web攻击层 + 数据流完整性 / 全链路自主决策引擎 (第十一章) / 跨模型规约审查架构 (第十二章) / **目标架构 v4.0 (第十三章：六层架构 + 六大抽象 + I12/I13 + ADR-007/008 + 13.7 三条主线贯穿性约束 IC-1~IC-6)** | v3.0 |
-| L2 | [20-REQUIREMENTS.md](20-REQUIREMENTS.md) | 需求登记：P0 (已实现 ✅) / P1 (已实现 ✅) / 活跃需求 / NFR（含 NFR-13 ASR 双口径与 target_asr 锚点 + NFR-14~16 审查非功能） / NEG / 自主决策需求 / 文件上传攻击需求 (REQ-138~144) / 跨模型审查需求 (REQ-144~146) / **目标架构 v4.0 需求 (第九章 C, REQ-148~158；NFR-13 ④ 影响链口径收紧预告)** | v2.8 |
-| L3 | [30-TASKS.md](30-TASKS.md) | 任务协议：生命周期 / 粒度上限 / 八步协议 / STOP-REPORT / 考试速查 / 跨模型审查任务协议 (第十章) | v2.2 |
-| L4 | [40-GUARDRAILS.md](40-GUARDRAILS.md) | 红线 R-L / R-H / R-S / R-WEB (含R-WEB-6任意端口) / R-DRIFT / R-DATA / R-DECIDE / R-TOOLS / R-DOC (代码-文档同步，含R-DOC-5命令行文档) / R-CROSS (跨模型审查) / 四步门禁 / 三层防线 / 登记簿 (46项，1F 唯一，含R-L1/R-L7新实现) / 交付验证清单 (7D CLI文档验收) / 考试合规 / spec-code drift 修复 (v3.0) | v3.0 |
-| 配套 | [50-ROADMAP.md](50-ROADMAP.md) | 路线图：AI-300 考纲映射 / 红队实践 / 基准校准 (阶段 0.5) / 任务序列 / 会话模型 / Runbook / 考试日故障降级矩阵 / 跨模型审查系统 (阶段 1D) | v1.10 |
-| 配套 | [55-ATTACK-GAP-CLOSURE.md](55-ATTACK-GAP-CLOSURE.md) | 攻击缺口闭环：四大缺口分析 / 文件上传攻击缺口 (v1.4新增) / 黑盒可测性约束 (4.1-B) / 全链路自主决策架构 / 跨模型规约审查集成 (v1.5新增) / A2A多智能体侦察框架 (v1.7新增) / Workflow Evasion安全扫描绕过 (v1.8新增) | v1.8 |
-| 配套 | [56-A2A-MULTI-AGENT-ATTACK.md](56-A2A-MULTI-AGENT-ATTACK.md) | A2A多智能体攻击优化方案：五大攻击向量 (Workflow/SQL注入/Rogue Agent/Card Spoofing/Data Poisoning) / 59+测试 / 38+种子 | v1.0 |
-| 配套 | [60-CROSS-MODEL-VERIFICATION.md](60-CROSS-MODEL-VERIFICATION.md) | 跨模型规约审查协议：审查模型注册簿 / 触发规则 / Prompt模板 / 差异对齐 / 仲裁协议 / Schema标准 / 存储结构 / κ度量指标 / 工具链集成 | v1.0 |
-| 配套 | [templates/task-spec.md](templates/task-spec.md) | 任务规格模板 + 考试变体 | v1.1 |
-| 配套 | [templates/cross-model-review.md](templates/cross-model-review.md) | 跨模型审查报告模板（快速决策卡 + 差异对齐表 + κ指标 + 修复清单） | v1.0 |
-| 配套 | [templates/change-proposal.md](templates/change-proposal.md) | 变更提案模板 | v1.0 |
-| 配套 | [plans/CP-001-target-architecture-v4.0.md](plans/CP-001-target-architecture-v4.0.md) | 变更提案 CP-001：目标架构 v4.0（EventLog / TargetAdapter / SurfaceGraph / PlaybookEngine / ImpactChain+ExfilChannel / ComponentRegistry）+ 条款 diff + 影响面 + ASR 评估 + §3.5 三条主线复审（IC-1~IC-6） | v1.1 |
-| 配套 | [plans/447be21ad0594078a923a53f701087d3-EXECUTION-PLAN.md](plans/447be21ad0594078a923a53f701087d3-EXECUTION-PLAN.md) | 执行计划 PLAN-447be21：目标/非目标 / 交付物总表 / 六大抽象契约 / 9 类组件矩阵 / W0–W5 波次与门禁 / 靶场规格 / 测试 CI / 回滚 / 里程碑 / 风险登记 (RK-7/RK-8) | v1.1 |
+## 2. 唯一门禁（SSOT —— 其他文档只准引用本表）
 
-> **已归档文件**：
-> - `45-DATA-FLOW-INTEGRITY.md` → 合并入 `10-ARCHITECTURE.md` 第四章（PipelineContext 数据契约 + Phase 字段契约 + 数据传递规则）。原独立文档不再独立维护，验证工具链（`tools/data_flow_validator.py` + 29 项测试）仍正常运行。
-> - `60-REDTEAM-DELIVERY-FRAMEWORK.md` → 合并入 `40-GUARDRAILS.md` 第七章。原独立文档不再维护，验证工具链仍正常运行。
+宪法 C10。**全部执行、全部通过、缺一不可、顺序固定**。任何文档/脚本引用门禁命令时，必须与本表逐字一致。
+
+| 步 | 命令 | 通过标准 | 拦截什么 |
+|----|------|---------|---------|
+| 1 | `python -m tools.guard` | 0 **新增** BLOCKING | 红线 1A 架构模式违规 |
+| 1.5 | `python tools/architecture_validator.py full` | 0 BLOCKING | 阶段边界 / 组件传播 / 模块路由 / 组件接线 |
+| 2 | `ruff check .` | 0 违规 | 风格 / 导入 / 未用变量 |
+| 3 | `python -m pytest tests/ -q` | 0 失败 | 功能回归 |
+| 4 | `python main.py --dry-run --max-seeds 1` | 无 ImportError/AttributeError/KeyError/TypeError，到达 REPORT | 运行时数据流断点 |
+| 5 | `python -m tools.drift_detector --full` | 0 BLOCKING | 规范↔代码漂移 |
+| 6 | `python -m pytest tests/test_data_flow_integrity.py -q` | 全部通过 | ctx 字段契约违规 |
+
+> 步骤 5/6 为 `pre-push` 强制；步骤 1–4 为每次变更后强制。
+> **纪律**："改动很小"不豁免任何一步；guard 通过 ≠ 代码可用；门禁失败禁止标记任务完成。
+
+**2026-09-11 基线**（变更前后对照用，非验收标准）：guard `0 blocking / 71 warning`；架构体检 `PASS 158 / WARNING 6 / BLOCKING 0`；pytest `1402 passed / 7 skipped`。
 
 ---
 
-## AI 会话标准动线（30-TASKS 第四章八步协议的入口）
+## 3. 开发三元组（单一定义）
 
-**标准模式**（开发期）：
-1. 每会话至少读一次 00（Step 1 宪法自检）；
-2. 查 [50-ROADMAP.md](50-ROADMAP.md) 第四章任务序列领取下一个任务（顺序以路线图为准）；
-3. 按任务读 10 相关章节并**声明落点**（模块/依赖方向/ctx 字段/invariants）；
-4. 核对 20 对应 REQ 验收标准，抄入 task-spec；
-5. 全程遵守 30 八步协议，收尾跑 40 第二章四步门禁并按三栏格式汇报。
+| 阶段 | 触发词 | 动作 |
+|------|--------|------|
+| **开发必看** | `开发规范` / `开发必看` | 加载 §1 文档地图中对应层级文件 |
+| **开发必跑** | `开发验证` / `开发必跑` / `完整验证` / `规范对齐` | 按 §2 执行 6 步门禁，修复全部问题后汇报 |
+| **开发必验** | `开发交付` / `开发必验` / `交付标准` | 按 `40-GUARDRAILS.md` 第七章交付验证清单逐项打勾 |
 
-**考试模式**（OffSec AI-300 实战，使用 30-TASKS 第九章变体协议）：
-1. 考前读 00-第七章（7D 合规检查单）+ 确认 .env 就绪；
-2. 读 50-ROADMAP 第八章（8A 评分卡确认就绪等级 ≥ B）；
-3. 目标下发后：recon fingerprint → 查 00-7B 攻击匹配表选模板（TPL-*）；
-4. 按 50-ROADMAP 8C Playbook 执行四步压缩协议（S1→S4）；
-5. 每 4h 跑 40-第八章 7D 定期自检（目标/工具/证据/密钥/时间盒）。
+> 同义触发词以本表为准。禁止在其他文档重复定义触发词表。
 
 ---
 
-## 变更流程
+## 4. CLI 工具速查（`pip install -e .` 后可用）
 
-- **宪法**：C12 修正案——change-proposal + 人工批准 + 版本号与本索引同批更新 + 受影响 guard 检查器同步；
-- **蓝图 / 需求**：20-REQUIREMENTS 第五章流程（change-proposal → 登记 → 任务规格 → 编码）；
-- **路线图**：阶段与任务序列变更走 change-proposal（规格变更流程）；
-- **模板与索引**：随其服务层级变更，同批更新本表版本号。
+| 命令 | 等价模块调用 | 用途 |
+|------|-------------|------|
+| `pyrit-guard` | `python -m tools.guard` | 宪法守卫 |
+| `pyrit-drift [--full] [--report]` | `python -m tools.drift_detector` | 规范漂移检测 |
+| `pyrit-dataflow` | `python -m tools.dataflow.validator` | 数据流完整性 |
+| `pyrit-cross [--full\|--light]` | `python -m tools.cross_model_review` | 跨模型规约审查 |
+| `pyrit-quick <file>` | `python -m tools.quick_check` | 单文件快速检查 |
+| `pyrit-watch` | `python -m tools.watch_guard` | 实时文件监视 |
+| `pyrit-hooks` | `python -m tools.hooks` | 安装 Git hooks |
 
----
-
-## 项目使命（一切裁决的终极问题）
-
-对 Burp 拦截的、基于 LLM 开发的 AI 应用（黑盒 HTTP 目标），以攻击成功率（ASR）为首要度量，交付可复现的完整攻击证据链——**这个决定让 ASR 变高还是变低？**（仅限 R-S1~R-S5 授权边界之内，见宪法 C2 边界条款）
-
-第二使命（REV-02 登记）：OffSec AI-300/OSAI 备考武器化——本项目作为考试合法工具链（允许 PyRIT/Burp/自写脚本/个人笔记），映射与规划见 50-ROADMAP。
-
----
-
-## 项目级资产（docs/ 根目录）
-
-| 文件 | 职责 | 关联 |
-|------|------|------|
-| [backlog.md](../backlog.md) | 唯一待办池（宪法 C4 豁免通道） | 任务 BL-xxx 登记 → 转化为 REQ / DEBT / 任务规格 |
+> 别名规律：`python -m tools.<x>` = `pyrit-<x>`（entry_points 注册）。
+> 完整 CLI 参数参考见 **`docs/red team/red-team-dev-guide.md` 附录 D**（注意路径含空格；R-DOC-1 的 SSOT 目标）。
 
 ---
 
-## CLI 命令速查 (tools/)
+## 5. 文档纪律（R-DOC 摘要，完整版见 40-GUARDRAILS 1C-DOC）
 
-开发期常用工具入口 (`pip install -e .` 后 entry_points 可用)：
+规约文档自身也受宪法 C3 约束。违反以下任一条即为文档漂移，须登记 backlog：
 
-| 命令 | 功能 | 使用场景 |
-|------|------|----------|
-| `pyrit-guard` (或 `py -m tools.guard`) | 宪法守卫 (R-H1/H2/H3 + 红线护栏) | 每次开发后、提交前 |
-| `pyrit-drift` (或 `py -m tools.drift_detector`) | 规范漂移检测 (快速模式，不含版本锁定) | **开发时高频检测** |
-| `pyrit-drift --full` | 规范漂移检测 (全量模式，含版本锁定) | 发布前/CI/CD |
-| `pyrit-drift --full --report` | JSON 报告输出 | CI 集成 |
-| `pyrit-dataflow` (或 `py -m tools.dataflow.validator`) | 数据流完整性验证 (ARM→Strike→Assess) | commit/push 时自动触发 |
-| `pyrit-cross` (或 `py -m tools.cross_model_review`) | 跨模型规约审查（FULL 模式：3 模型并行 + κ 计算 + 仲裁） | 规约文档变更时触发 |
-| `pyrit-cross --full` | 全量跨模型审查 | L0-L4 核心文档变更时 |
-| `pyrit-cross --light` | 快速单模型审查 | 单文件 docstring/注释变更时 |
-| `pyrit-watch` (或 `py -m tools.watch_guard`) | 实时文件监视 | 开发期持续运行 |
-| `pyrit-quick` (或 `py -m tools.quick_check`) | 单文件快速架构检查 | 修改单个模块后 |
-| `pyrit-hooks` (或 `py -m tools.hooks`) | Git hooks 安装 | 初始化工作区 |
-
-**别名规律**：`py -m tools.xxx` = `pyrit-xxx`（entry_points 注册）
+| # | 纪律 | 反例（禁止） |
+|---|------|-------------|
+| D1 | **一概念一处声明**：同一规则/命令/阈值/清单只准在金字塔中声明一次，其余处只准引用 | 门禁命令在宪法、40、70、README 各写一份且不一致 |
+| D2 | **禁止行号坐标**：引用代码用 `模块.符号` 或 grep 可验证的模式，不用 `file.py:417` | `utils/display.py:417`（次日即失效） |
+| D3 | **版本史外置**：正文只保留当前版本号，变更历史交 git log / CHANGELOG | 每个文件末尾 20 行版本记录表 |
+| D4 | **清单不进正文**：动态清单（组件、检查器、测试数）指向代码/命令，不手工抄写 | 手工维护"46 项检查器"计数 |
+| D5 | **路径必须存在**：文档引用的文件路径必须真实存在，含空格路径须引号包裹 | `docs/guides/red-team-dev-guide.md`（实际在 `docs/red team/`） |
+| D6 | **已完结内容归档**：完成态的执行记录/提案移入 `docs/archive/`，不留在活跃规约 | 已完成的 Wave 执行日志留在 specs |
+| D7 | **无占位符**：文档不得出现未填实的 `[CMD]` / `TASK-___` 等模板占位 | `[CROSSMODEL_CMD] --task TASK-___` |
 
 ---
 
-## 边界说明
+## 6. 变更流程
 
-- 本目录**只含规约层文档**。被治理的代码库位于 github.com/hmbphxkw76-byte/osai/pyrit-mini。
-- 规约文件被修改时，**必须**同步更新：文件头版本号、文末版本记录表、本索引版本列。
-- **已删除文档**（2026-09-09 清理）：
-  - `35-MULTIMODAL_ASSESSMENT.md`
-  - `36-LLM06_SANDBOX_ESCAPE_OPTIMIZATION.md`
-  - `MIGRATION.md`
-  - `60-REDTEAM-DELIVERY-FRAMEWORK.md`（合并入 40-GUARDRAILS.md）
-  - `tasks/TASK-A2A-001.md` / `tasks/TASK-A2A-002.md`（stale 任务规格）
-  - `remediation/` 目录（历史审计报告已闭环）
+| 变更对象 | 流程 |
+|---------|------|
+| **宪法** | C12 修正案：`templates/change-proposal.md` → 人工批准 → 同批更新版本号、本索引、受影响 guard 检查器 → 跑 §2 门禁 |
+| **蓝图 / 需求** | `change-proposal` → 登记 REQ/DEBT → 任务规格 → 编码（20 第六章） |
+| **L0–L4 规约** | 先过跨模型审查（C14 / R-CROSS-1）→ 再走上述流程 |
+| **路线图** | `change-proposal`（序列变更） |
+| **模板 / 本索引** | 随其服务层级变更，同批更新版本号 |
+
+---
+
+## 7. 归档与已删除清单
+
+**已归档**（内容仍在，不再维护）：
+
+| 原路径 | 现位置 / 去向 |
+|--------|--------------|
+| `docs/plan.md`、`docs/plan-execution-log.md` | `docs/archive/`（Wave 0–6 历史执行记录，含失效行号坐标，仅作考古用） |
+| `45-DATA-FLOW-INTEGRITY.md` | 已合并入 `10-ARCHITECTURE.md` 第四章，原文件删除 |
+| `60-REDTEAM-DELIVERY-FRAMEWORK.md` | 已合并入 `40-GUARDRAILS.md` 第七章 |
+
+**已删除**（内容与规约重复或已被 SSOT 取代）：
+
+| 文件 | 删除理由 |
+|------|---------|
+| `70-DEV-TRIAD-CHECKLIST.md` | 与 §2/§3 逐条重复（C3）；且含虚构条款 C15 与未填实命令占位符（D7） |
+| `56-A2A-MULTI-AGENT-ATTACK.md` | 方案类文档；A2A 攻击面已由 `config/components/a2a.yaml` + `80` 承载（SSOT） |
+| `35-MULTIMODAL_ASSESSMENT.md` 等 | 见 git 历史（2026-09-09 清理） |
+
+---
+
+## 8. 边界说明
+
+- 本目录**只含规约层文档**。被治理的代码库为本仓库源码树。
+- 规约文件被修改时，**必须**同步：文件头版本号、§1 文档地图中该行描述（若职责变化）。**不得**在文末追加版本记录表（D3）。
+- 文档中出现的任何代码事实，必须有可执行的验证命令伴随；无法验证的陈述一律标注 `[未验证]`。

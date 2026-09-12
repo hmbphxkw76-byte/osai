@@ -101,7 +101,10 @@ def crescendo_params(args: Any | None = None) -> dict[str, Any]:
 
 
 def tap_params(args: Any | None = None) -> dict[str, Any]:
-    """TAPAttack 参数（SSOT：`tap_tree_width` / `tap_tree_depth`）。"""
+    """TAPAttack 参数（SSOT：`tap_tree_width` / `tap_tree_depth`）。
+
+    Academic basis: Mehrabi et al. (arXiv:2405.17350) — Tree of Attacks with Pruning
+    """
     return algo_params("tap", args)
 
 

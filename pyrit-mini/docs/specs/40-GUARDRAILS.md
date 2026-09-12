@@ -3,7 +3,8 @@
 > **文档层级**：L4 / 五层规约金字塔第五层
 > **效力**：红线 = 绝对禁止，视同宪法级（裁决序见 00-CONSTITUTION 第二章）。质量门禁 = 完成任务的必要不充分条件。
 > **执行机制**：三层防线（静态 guard / 运行时 dry-run / git 钩子），继承 SKILL.md D2 条款并收编。
-> **版本**：v3.0（2026-09-09 REV-17：修复 spec-code drift — R-L1/R-L7 真正实现，check_no_defense_in_attack_dirs + check_top_level_structure）
+> **版本**：v3.1（2026-09-12 REV-18：① 修复第六章损坏行与第八章小节编号冲突（7A~7D 与第七章重复 → 8A~8D）；② R-DOC-1 目标路径修正为真实存在的 `docs/red team/red-team-dev-guide.md`（原路径不存在 → 检查器恒失效）；③ 1F 登记簿改为"以代码为准"索引；④ 门禁命令统一引用 `specs/README.md` §2；⑤ 版本史外置）
+> **版本史**：`git log -- docs/specs/40-GUARDRAILS.md`
 
 ---
 
@@ -57,15 +58,18 @@
 
 | # | 红线 | guard 检查器 | 级别 |
 |---|------|-------------|------|
-| R-DOC-1 | CLI 参数变更必须同步更新 `docs/guides/red-team-dev-guide.md` 附录 D CLI 参数参考 | `check_cli_params_documented()` | WARNING |
+| R-DOC-1 | CLI 参数变更必须同步更新 **`docs/red team/red-team-dev-guide.md`**（路径含空格）附录 D CLI 参数参考 | `check_cli_params_documented()` | WARNING |
 | R-DOC-2 | 新增攻击模块必须同步更新 `docs/specs/55-ATTACK-GAP-CLOSURE.md` 对应缺口章节 | `check_attack_gap_documented()` | WARNING |
 | R-DOC-3 | 新增需求/红线必须同步更新 `docs/specs/20-REQUIREMENTS.md` 和 `docs/specs/40-GUARDRAILS.md` | `check_requirements_guardrails_synced()` | WARNING |
 | R-DOC-4 | 文档版本号变更必须同步更新 `docs/specs/README.md` 金字塔版本索引 | `check_readme_version_synced()` | INFO |
 | R-DOC-5 | **新增/修改 CLI 参数必须在交付验收时显示完整命令行用法**，包括：参数组合示例、与其他模块联合使用示例、完整参数列表 | `check_cli_usage_shown_in_delivery()` | WARNING |
 
 **R-DOC-1 判定**:
-- ✅ PASS: `core/config.py` 中新增的 `--xxx` 参数在 `docs/guides/red-team-dev-guide.md` 附录 D 中有对应条目
+- ✅ PASS: `core/config.py` 中新增的 `--xxx` 参数在 `docs/red team/red-team-dev-guide.md` 附录 D 中有对应条目
 - ❌ FAIL: 发现 CLI 参数未文档化 → WARNING (提示补充文档)
+
+> **REV-18 修复**：本条原指向 `docs/guides/red-team-dev-guide.md`——**该路径不存在**（实际文件在 `docs/red team/`，目录名含空格），导致 `check_cli_params_documented()` 恒定失效（既检查不到目标文档，也永远报不出真实缺口）。已同步修正 `tools/guard_extended.py` 的 `_DOCS_GUIDE_PATH` 常量。
+> **预防**：任何文档引用的路径必须可由 `Test-Path` / `os.path.exists` 验证（文档纪律 D5）。
 
 **R-DOC-2 判定**:
 - ✅ PASS: `strike/` 下新增攻击模块在 `55-ATTACK-GAP-CLOSURE.md` 中有对应缺口章节
@@ -87,7 +91,7 @@
 
 | 变更类型 | 必须同步的文档 |
 |----------|---------------|
-| 新增 CLI 参数 | `docs/guides/red-team-dev-guide.md` 附录 D |
+| 新增 CLI 参数 | `docs/red team/red-team-dev-guide.md` 附录 D |
 | 新增攻击模块 | `docs/specs/55-ATTACK-GAP-CLOSURE.md` |
 | 新增需求 | `docs/specs/20-REQUIREMENTS.md` |
 | 新增红线/护栏 | `docs/specs/40-GUARDRAILS.md` |
@@ -201,9 +205,14 @@ pyrit-drift --full --report
 | 手动开发 | `pyrit-drift` | 开发时实时检测 |
 | CI/CD | `pyrit-drift --full --report` | 定期审计/PR 检查 |
 
-### 1F. Guard 检查器登记簿（v3.1 新增 1 项，总计 47 项）
+### 1F. Guard 检查器登记簿（索引，非权威清单）
 
-规约各处引用的检查器汇总（**权威清单以 `tools/guard.py` + `tools/drift_detector.py` 实际实现为准**）：
+> **权威清单 = 代码**。本表只是"红线 → 检查器"的**分组索引**，用于回答"这条红线由谁守"，**允许滞后于代码**（文档纪律 D4）。
+> 计数与名称以 `tools/guard.py` + `tools/guard_extended.py` + `tools/drift_detector.py` 的 `def check_*` 为准：
+> ```bash
+> python -m tools.guard --list-checks 2>/dev/null || python -c "import re,pathlib,glob;print(sorted(re.findall(r'def (check_\w+)', ''.join(pathlib.Path(f).read_text(encoding='utf-8') for f in glob.glob('tools/*.py')))))"
+> ```
+> **新增/删除检查器时**：先改代码，再同步本表；本表出现代码中不存在的检查器名 = 文档漂移，登记 backlog。
 
 | 检查器 | 条款/红线 | 级别 | 分类 |
 |--------|----------|------|------|
@@ -311,19 +320,15 @@ pyrit-drift --full --report
 
 **降级策略**：模型池不足（<2 可用）时，R-CROSS-1~4 降级为人工审查模式 + 代码存档记录，不阻断合入但标记 `needs-cross-model-pending`。
 
-## 第二章：五步质量门禁（强制，顺序固定）
+## 第二章：质量门禁（强制，顺序固定）
 
-对应宪法 C10。**全部通过是任务 verified 的必要条件**：
+对应宪法 C10。**全部通过是任务 verified 的必要条件**。
 
-| 步 | 命令 | 通过标准 | 拦截什么 |
-|----|------|---------|---------|
-| 1 | `py -m tools.guard` | **0 新增 BLOCKING**（相对变更前基线） | 架构模式违规（红线 1A） |
-| 1.5 | `python tools/architecture_validator.py full` | 0 BLOCKING | 组件感知流水线架构违规（阶段边界/组件传播/模块路由/元数据连续性） |
-| 2 | `ruff check .`（范围由 [tool.ruff] exclude 限定） | 0 违规 | 风格/导入/未用变量 |
-| 3 | `python -m pytest tests/ -v --tb=long` | 0 失败 | 功能回归 |
-| 4 | `python main.py --dry-run --max-seeds 1` | 无 ImportError/AttributeError/KeyError/TypeError，到达 REPORT 阶段 | **运行时数据流断点**（静态检查抓不到的交接失败） |
+> **门禁命令的唯一定义见 `specs/README.md` §2**（文档纪律 D1：本文件不重复抄写命令，避免口径漂移）。
+> 本章只规定**纪律**，不定义命令。
 
-> **Step 1.5 说明**：架构体检（ArchCheck）是三层架构合规验证器，验证：> - **StaticAnalyzer**：模块路由完整性（recon→arm→strike→assess→report 组件化子包存在性）
+> **Step 1.5 说明**：架构体检（ArchCheck）是三层架构合规验证器，验证：
+> - **StaticAnalyzer**：模块路由完整性（recon→arm→strike→assess→report 组件化子包存在性）
 > - **ContractChecker**：阶段边界契约（各阶段 ctx 字段输出符合流水线契约）
 > - **RuntimeTracer**：数据流追踪（AttackResult component_type 元数据端到端连续性）
 
@@ -343,7 +348,7 @@ python main.py --max-seeds 1 --stage strike   # 最小真实验证：attack_resu
 
 | 层 | 机制 | 运行时机 | 失效后果 |
 |----|------|---------|---------|
-| L1 静态 | `tools/guard.py`（18 项检查，登记簿见 1D） | pre-commit/pre-push 钩子（`py -m tools.hooks` 安装）+ 手动 | BLOCKING 违规进库 |
+| L1 静态 | `tools/guard.py` + `tools/guard_extended.py` + `tools/drift_detector.py`（登记簿见 1F） | pre-commit/pre-push 钩子（`python -m tools.hooks` 安装）+ 手动 | BLOCKING 违规进库 |
 | L2 运行时 | `--dry-run` / Tier 2 | 每次变更后（C10） | 数据流断点漏检 |
 | L3 Git 门禁 | hooks 阻断提交 | 每次 commit/push | 无强制力 |
 
@@ -390,14 +395,18 @@ py -m tools.guard > outputs/guard_baseline.json   # 记录当前违规基线
 
 | 既有资产 | 在本层的地位 |
 |---------|-------------|
-| `tools/guard.py`（18 检查，82KB） | 1A 机器红线的唯一执行器；修改它=修改规则，走宪法 C12 |
+| `tools/guard.py` | 1A 机器红线的唯一执行器之一（核心 6 检查）；**修改它 = 修改规则，走宪法 C12**（NEG-5） |
+| `tools/guard_extended.py` | 扩展检查器主体（34 检查：PyRIT 原生 / 配置纪律 / 静默降级 / Web 攻击 / 文档同步 / 自主决策 / 跨模型）；同样受 NEG-5 约束 |
+| `tools/drift_detector.py` | 规范↔代码漂移检测（5 检查，1E-DRIFT） |
+| `tools/architecture_validator.py` | 架构体检（门禁 Step 1.5） |
 | `tools/hooks.py` | L3 Git 门禁安装器 |
-| `tools/guard.py`（~257 行）+ SKILL.md R1d_extende-R11 /~ 400 行，20+1-D则全集，继续有效；本文件结构化入口，冲突处以裁决序 |
-| SKILL.md 失败模式表 | 评审培训材料，保留 |
+| `.assistant_pyrit/skills/pyrit-strike-dev-rules/SKILL.md` | 编码期细则（**注意：不在仓库根，勿引用为 `SKILL.md`**）；与本层冲突处以本层为准（裁决序 ②>⑤） |
 | `implementation_checklist.md` | 已于 2026-09-06 删除；其职能由 `specs/templates/task-spec.md` 接管（D-09 债务消除） |
 | `specs/50-ROADMAP.md` | 无门禁效力；其任务序列仅供领任务顺序参考（REV-02） |
 | `tools/watch_guard.py` | L1 静态检查的实时监视模式（开发时后台运行） |
-| `tools/quick_check.py` | 单文件快速验证工具（< 1秒响应） |
+| `tools/quick_check.py` | 单文件快速验证工具（< 1 秒响应） |
+
+> **规模与计数一律以代码为准**（文档纪律 D4）：`python -c "import pathlib,glob;print(sum(len(__import__('re').findall(r'def check_',pathlib.Path(f).read_text(encoding='utf-8'))) for f in glob.glob('tools/*.py')))"`
 
 ---
 
@@ -516,7 +525,7 @@ git push origin main
 
 > **效力**：本章为考试场景的合规红线与证据完整性约束，视同 R-S* 安全合规红线级（宪法 C2 边界条款）。考试期间任何违反本章的行为 = 严重违宪。
 
-### 7A. 考试合规红线（Exam Compliance Red Lines）
+### 8A. 考试合规红线（Exam Compliance Red Lines）
 
 | # | 红线 | 违规后果 | 我们的防护 |
 |------|------|---------|------|
@@ -526,7 +535,7 @@ git push origin main
 | E-CL4 | **密钥泄露**： PoC/笔记中出现真实 API key | 可能导致成绩作废 | R-S2 密钥纪律 + PoC 端点环境变量化 |
 | E-CL5 | **报告抄袭**：直接复制他人报告 | 考试成绩作废 | 基于实际证据自动生成，无法抄袭 |
 
-### 7B. 证据完整性约束（Evidence Integrity Constraints）
+### 8B. 证据完整性约束（Evidence Integrity Constraints）
 
 > **目的**：OffSec 考试中成功攻击必须附可复现证据。本章定义证据链的完整字段集与验证标准。
 
@@ -547,7 +556,7 @@ git push origin main
 | `mitre_atlas_mapping` | ✅ | MITRE ATLAS 战术/技术映射 | findings |
 | `remediation` | ✅ | 修复建议（REQ-113 四段结构） | remediation |
 
-### 7C. 证据自动验证检查单
+### 8C. 证据自动验证检查单
 
 > **验证时机**：攻击成功后**立即执行**（Strike 阶段内，Assess 评分完成后 → 证据写入前）。
 > **失败处理**：任何字段验证失败 → 该攻击结果标记为 `partial` 并记录到 `ctx.partial_results`，**不阻断**后续攻击但报告中标注。
@@ -570,7 +579,7 @@ git push origin main
 - 验证失败 → 写入 `ctx.partial_results.append(evidence)` + `logger.warning("Evidence validation failed for ...")`
 - 报告生成时 → `partial_results` 在 findings 段落标注 `[PARTIAL]` 标签
 
-### 7D. 考试日定期自检规程
+### 8D. 考试日定期自检规程
 
 > **执行时机**：考试中每 4h 执行一次（建议在每个目标切换时）。
 
@@ -578,31 +587,12 @@ git push origin main
 |------|------|---------|
 | 目标白名单 | 确认当前目标在考试下发列表中 | ✅ 在列表内 |
 | 工具使用 | 确认未使用交互式 AI 聊天助手 | ✅ 仅用 PyRIT 攻击引擎 |
-| 证据完整性 | 跑 7C 检查单 | ✅ 全部字段非空 |
+| 证据完整性 | 跑 8C 检查单 | ✅ 全部字段非空 |
 | 密钥泄露扫描 | grep PoC 文件中 `sk-` / `api_key` 模式 | ✅ 零命中 |
 | 时间盒进度 | 检查已用时间 / 剩余目标数 | ✅ 在预算范围内 |
 
 ---
 
-## 版本记录
+---
 
-| 版本 | 日期 | 变更摘要 | 批准 |
-|------|------|---------|------|
-| v1.0 | 2026-09-05 | 初版：R-L/R-H/R-S 红线、四步门禁、三层防线、基线与回滚协议、评审清单 | — |
-| v1.1 | 2026-09-05 | REV-01：① 新增 1D 检查器登记簿（16 项引用汇总，级别标注，缺口登记 BL-003）；② 基线落盘路径改项目内 outputs/（Windows 兼容）；③ 第三章 L1 行交叉引用 1D | 用户会话批准 |
-| v1.2 | 2026-09-05 | REV-02：① 第二章登记 ruff pipeline/ 盲区缺口（D-16）及临时申报纪律；② R-H1/R-H3 判定特征补充源码实证（stub 注释自认降级、escalation 9 字节孪生）；③ R-S1 补考试场景授权边界说明；④ 第六章登记 50-ROADMAP 的无门禁地位；⑤ guard 实测规模 82KB 入表 | 用户会话批准 |
-| v1.3 | 2026-09-06 | REV-03 AI-300 考试合规优化：① 新增第七章 OffSec AI-300 考试合规与证据完整性（考试合规红线 7A、证据完整性约束 7B、证据自动验证检查单 7C、考试日定期自检规程 7D）；② 红线/门禁/防线本体无变更 | 用户会话批准 |
-| v1.4 | 2026-09-08 | REV-04 Glue 层专项护栏：① 新增第一章 1D Glue 层专项护栏（R-GLUE-1~R-GLUE-5：插件化隔离、PyRIT 原生委托、配置数据流、静默降级、学术留痕）；② 新增 Glue 层攻击向量白名单（JWT 混淆、向量 DB 投毒、HTTP 走私、审计日志注入、微调后门注入）；③ 1E 检查器登记簿新增 5 项 Glue 层检查器（总计 24 项） | 用户会话批准 | 
-| v1.5 | 2026-09-08 | REV-05 过度工程化清理（精简白名单）：① 白名单移除向量DB投毒和微调后门注入（黑盒HTTP不可测试）；② 适用范围移除已删除模块（vector_glue、finetuning_glue）；③ 护栏数量不变（R-GLUE-1~R-GLUE-5 仍适用保留的3个模块） | 用户会话批准 |
-| v1.6 | 2026-09-09 | REV-06 规范漂移检测系统：① 新增 1E-DRIFT 规范漂移检测护栏（R-DRIFT-1~R-DRIFT-5：PyRIT API 解析验证 BLOCKING / 规范表格-代码同步 WARNING / 版本变更锁定 BLOCKING / 契约消费验证 INFO / 原生模式违规 WARNING）；② 1F 检查器登记簿新增 5 项 Drift Detector 检查器（总计 29 项）；③ 调用方式：`pyrit-drift` / `py -m tools.drift_detector --full` | 用户会话批准 |
-| v2.0 | 2026-09-09 | REV-07 合并 60-REDTEAM-DELIVERY-FRAMEWORK.md：① 新增第七章"交付验证清单"（通用验证模板 + watch/quick 命令速查 + .env.local 配置 + Git Hooks 完整流程）；② 原第七章（考试合规）重命名为第八章；③ 删除冗余文档 `60-REDTEAM-DELIVERY-FRAMEWORK.md` | 用户会话批准 |
-| v2.1 | 2026-09-09 | REV-08 新增 R-DATA-2 ASR 中心性红线 + R-DATA-3 取证数据字段红线；R-DATA-1 实测 29 项测试 + R-DATA-2/3 同步覆盖 | 用户会话批准 |
-| v2.2 | 2026-09-09 | REV-09 新增自主决策系统护栏：① 新增 1G-DECIDE 自主决策系统护栏（R-DECIDE-1~R-DECIDE-5：安全边界保护 BLOCKING / 决策审计追踪 WARNING / 决策稳定性 WARNING / 人类控制权 INFO / 决策数据完整性 WARNING）；② 1H 检查器登记簿新增 5 项决策检查器（总计 34 项）；③ 决策护栏与既有护栏关系映射 | 用户会话批准 |
-| v2.3 | 2026-09-09 | REV-10 P0+P1+P2 文档优化：① 1F 检查器登记簿精简（移除冗余 v1.2/v1.4 锚定标注，新增 R-WEB-1~3 重命名映射，按分类分组）；② 7C 证据验证检查单增强（新增验证时机说明 + 失败处理逻辑 + 代码落点映射：`_validate_attack_evidence()` → `ctx.partial_results`） | 用户会话批准 |
-| v2.4 | 2026-09-09 | REV-11 规约优化三批实施：① 登记簿唯一化——1F 为唯一检查器登记簿，删除重复的 1H；② 引用修正——Web 攻击向量白名单三处错误归属（arXiv:2207.01077 / ANSI ISAAC 2023 / CVE-2023-50164）按可验证来源改写；③ R-DATA-1 测试数与 `tests/test_data_flow_integrity.py` 实测 29 项对齐；④ 新增 R-TOOLS-2（单模块行数上限 850 行，R-SIZE 编号归位、R-DELIVERY-3 作废）；⑤ 新增 R-DECIDE-6 策略先验优先；⑥ Step 2 命令统一为 `ruff check .`；⑦ 删除过时 D-16 注记 | 用户会话批准 |
-| v2.5 | 2026-09-09 | REV-12 P2-C4 修复：第二章四步门禁 Step 2 命令行字符损坏（mojibake），修复并统一为 `ruff check .`（范围由 [tool.ruff] exclude 限定），对齐宪法 C10 与 task-spec 模板 | 用户会话批准 |
-| v2.6 | 2026-09-09 | 新增文件上传攻击护栏：① 1D 适用范围扩展（新增 file_upload_executor.py）；② 新增 R-WEB-6 任意端口支持护栏（BLOCKING）；③ 白名单新增 2 个文件上传攻击向量（间接Prompt注入、RAG知识库投毒）；④ R-WEB-3 配置数据流扩展（文件上传目标URL）；⑤ R-WEB-5 学术留痕扩展（文件上传攻击向量） | 用户会话批准 |
-| v2.7 | 2026-09-09 | 新增 1C-DOC 代码-文档同步护栏：① R-DOC-1 CLI参数文档同步检查；② R-DOC-2 攻击模块缺口文档同步检查；③ R-DOC-3 需求/红线同步检查；④ R-DOC-4 README版本索引同步检查；⑤ 1F检查器登记簿新增4项检查器（总计 38 类）；⑥ 文档同步清单（代码变更必查） | 用户会话批准 |
-| v2.8 | 2026-09-09 | REV-15 新增跨模型规约审查护栏：① 1I-CROSS 跨模型规约审查护栏（R-CROSS-1~5：审查前置 BLOCKING / 一致性达标 BLOCKING / 审查记录完整 WARNING / 修复跟踪 WARNING / 审查时效 INFO）；② 1F 登记簿新增 5 项跨模型审查检查器（总计 44 项）；③ 降级策略与护栏关系映射 | 用户会话批准 |
-| v2.9 | 2026-09-09 | **REV-16：新增 R-DOC-5 命令行文档同步护栏**：① `check_cli_usage_shown_in_delivery()` 检查器 (WARNING)——新增/修改 CLI 参数必须在交付验收时显示完整命令行用法；② 第七章交付验证清单新增 7D CLI 文档验收项（参数列表+基础示例+组合攻击示例）；③ 1F 登记簿新增 1 项检查器（总计 46 项）；④ 文档同步清单新增交付验收项 | 用户会话批准 |
-| v3.0 | 2026-09-09 | **REV-17 修复 spec-code drift (R-L1/R-L7)**：① **R-L1 真正实现**——新增 `check_no_defense_in_attack_dirs()` 检查器 (BLOCKING)，检测攻击目录 (strike/arm/recon/attack_*) 中的防御逻辑 (Defense/Sandbox/Filter/Analyzer/Guard 类等)；含 `_DEFENSE_CHECK_WHITELIST` 白名单覆盖合法侦察代码 (guardrail_detector.py、stealth_config.py、session validation 等)；② **R-L7 真正实现**——新增 `check_top_level_structure()` 检查器 (BLOCKING)，基于 `_ALLOWED_TOP_LEVEL_DIRS` / `_ALLOWED_TOP_LEVEL_FILES` 白名单检测未授权顶层目录/文件；③ 1F 登记簿更新名称映射 (check_safety_guardrails→check_no_defense_in_attack_dirs, check_root_directory→check_top_level_structure)；④ R-L1 适用范围扩展至 attack_* 目录模式匹配（未来新增攻击目录自动覆盖） | 用户会话批准 |
+> **版本史**：不再于正文维护（文档纪律 D3）——`git log -- docs/specs/40-GUARDRAILS.md`

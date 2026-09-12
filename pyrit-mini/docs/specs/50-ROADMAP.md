@@ -1,8 +1,9 @@
-# 50 — 使命执行路线图（Roadmap & Vibe Coding Master Plan）
+﻿# 50 — 使命执行路线图（Roadmap & Vibe Coding Master Plan）
 
 > **文档层级**：配套资产（宪法第六章附则，v1.2）。**无裁决权威**——与 ③需求/④任务规格冲突时以后者为准；40-GUARDRAILS 对本文件无门禁效力。
 > **职能**：任务顺序与依赖、阶段退出条件、vibe coding 会话模型、考试日 Runbook 的**唯一登记处**。
-> **版本**：v1.11（2026-09-11 REV-11：依赖链新增阶段 2A 目标架构 v4.0 迁移（W0–W5），依赖阶段 1C）
+> **版本**：v1.12（2026-09-12 REV-12：① 第一章规模热点改为**以命令实测为准**（原手工数值已失效）；② 现状基线删除易腐快照，改为指向门禁基线；③ 版本史外置）
+> **版本史**：`git log -- docs/specs/50-ROADMAP.md`
 
 ---
 
@@ -25,16 +26,25 @@
 - D-09 规范文档冗余 → ✅ 确立 specs/ 金字塔唯一权威
 - D-10~D-16 新发现债务 → ✅ 全部消除（2026-09-08 红队精简审计）
 
-### 1.2 规模热点（Top 文件，2026-09-09 更新）
+### 1.2 规模热点（以命令实测为准，禁止手工维护）
+
+> **文档纪律 D4**：行数会变，手工抄写必然漂移。以下为**实时获取命令**，结果超过 `R-TOOLS-2`（850 行）即需在下次债务任务中拆分。
+
+```bash
+# Top 20 最大 Python 文件（Windows / Unix 通用）
+python -c "import pathlib;sorted_=sorted(((len(p.read_text(encoding='utf-8',errors='ignore').splitlines()),str(p)) for p in pathlib.Path('.').rglob('*.py') if '.git' not in str(p)),reverse=True);[print(f'{n:>6}  {f}') for n,f in sorted_[:20]]"
+```
+
+**2026-09-12 实测快照**（仅作当时参照，勿当作当前事实）：
 
 | 文件 | 行数 | 判定 |
 |------|------|------|
-| tools/guard.py | ~257行 | 门禁本体，规模可接受 |
-| tools/guard_extended.py | ~1400行 | 扩展检查器（20+ 规则），功能核心 |
-| recon/target_router.py | ~400行 | 功能核心 |
-| assess/judge_manager.py | ~1688行 | 评分 SSOT，功能核心 |
-| strike/executor.py | ~800行 | 攻击执行核心 |
-| utils/display.py | ~606行 | 统一展示门面 |
+| `tools/guard_extended.py` | ~2071 | 扩展检查器主体（34 检查）——**超 R-TOOLS-2**，已登记拆分候选 |
+| `tools/guard.py` | ~762 | 门禁本体，规模可接受 |
+| `tools/architecture_validator.py` | ~654 | 架构体检 |
+| `core/registry.py` | ~293 | 组件注册表 SSOT |
+
+> 拆分属债务消除，须持 DEBT-xxx 专项任务规格，**禁止日常任务顺手重构**（宪法 C4 / NEG-1）。
 
 ### 1.3 P0 状态
 
@@ -483,19 +493,6 @@ python main.py --stage assess --stage report
 
 ---
 
-## 版本记录
+---
 
-| 版本 | 日期 | 变更摘要 | 批准 |
-|------|------|---------|------|
-| v1.0 | 2026-09-05 | REV-02 创建：源码审计基线、双重使命与 AI-300 考纲映射、四阶段任务序列、vibe coding 会话操作模型、考试日 Runbook | 用户会话批准 |
-| v1.1 | 2026-09-06 | REV-03 AI-300 考试路线图优化：新增第八章 考试就绪评分卡与快速交战 Playbook | 用户会话批准 |
-| v1.2 | 2026-09-08 | REV-04 企业攻击路线图增补：新增阶段 1B 企业基础设施攻击（Glue 层实施） | 用户会话批准 |
-| v1.3 | 2026-09-08 | REV-05 过度工程化清理：删除 T1B-3/T1B-6（黑盒不可测试），精简 T1B-5 | 用户会话批准 |
-| v1.4 | 2026-09-09 | REV-06 任务状态标记更新：阶段 0/1B 全部标记完成 | 用户会话批准 |
-| v1.5 | 2026-09-09 | REV-07 文档瘦身与代码同步：① 删除过时引用（glue/、pipeline/、targets/、已删除模块）；② 修正债务状态（D-01~D-16 全部消除）；③ 更新规模热点（display.py 606行）；④ 精简冗余描述；⑤ 阶段 1 删除 T1-2（Embedding 黑盒不可测试） | 用户会话批准 |
-| v1.6 | 2026-09-09 | REV-08 新增阶段 1C 全链路自主决策引擎：① T1C-1 决策引擎框架（REQ-135）；② T1C-2 Recon 阶段决策（REQ-136）；③ T1C-3/4 ARM+Assess+Report 决策（REQ-137）；④ T1C-5 跨阶段反馈闭环；⑤ T1C-6 决策系统护栏（R-DECIDE-1~5）；⑥ 依赖链更新（阶段 1B → 阶段 1C → 阶段 2） | 用户会话批准 |
-| v1.7 | 2026-09-09 | REV-09 考试日故障降级矩阵增补：① 快速应急响应表增加 ASR 影响列 + 新增 2 种故障情形；② 新增 8C.2 故障降级决策树；③ 新增 8C.3 降级模式触发阈值表（5 种降级模式 + 报告标注规范） | 用户会话批准 |
-| v1.8 | 2026-09-09 | 规约优化 P0-A3/A5/A6：① T1C-6 与阶段 1C 退出条件更新至 R-DECIDE-1~6（唯一定义锚定 40-GUARDRAILS 1G）；② T0-1 Best-of-N 状态仲裁（stub 摘除 + 实装于 adaptive_executor.py，消除"实装→已摘除"表述矛盾）；③ 阶段 1B 八处 REQ 引用按 20-REQUIREMENTS 权威登记重对齐 | 用户会话批准 |
-| v1.9 | 2026-09-09 | 规约优化 P1-B4/B5：① 新增阶段 0.5 ASR 基准校准（T0.5-1~4：基线运行/双口径分列/target_asr 缺口/账本核对），依赖链改为 阶段 0 → 0.5 → 1/1B/1C；② 8C.3 增补 SKIP_UPGRADE 口径裁定（2 次应急降级 ≠ R-DECIDE-3 ≥3 次策略切换，裁定锚点蓝图 6.1 统一表） | 用户会话批准 |
-| v1.10 | 2026-09-09 | REV-10 新增阶段 1D 跨模型规约审查系统：① T1D-1~10 任务清单（审查引擎/Prompt模板/差异对齐/κ计算/仲裁逻辑/报告生成/Hooks集成/健康检查/CLI/测试）；② 9D.2 退出条件（6 项验证标准）；③ 9D.3 依赖链更新（阶段 1C → 1D → 2/3） | 用户会话批准 |
-| v1.11 | 2026-09-11 | REV-11 依赖链新增**阶段 2A 目标架构 v4.0 迁移**：① 位置：阶段 1C 之后、阶段 2 之前，依赖阶段 1C；② 内容：六大抽象（EventLog / TargetAdapter / SurfaceGraph / PlaybookEngine / ImpactChain+ExfilChannel / ComponentRegistry）+ Mock 靶场；③ W0–W5 共 6 波，W2 结束为最早可演示点；④ 需求 REQ-148~158（20-REQUIREMENTS 第九章 C）；⑤ 提案 CP-001批准后方可编码（C6 规格先行）；⑥ 执行计划 PLAN-447be21ad0594078a923a53f701087d3 | 用户会话批准 |
+> **版本史**：不再于正文维护（文档纪律 D3）——`git log -- docs/specs/50-ROADMAP.md`
