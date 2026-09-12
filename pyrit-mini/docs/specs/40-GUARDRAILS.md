@@ -364,6 +364,7 @@ pyrit-drift --full --report
 | **R-GATE-1** | **门禁等价**：`tools/gate.py` 的阶段步骤必须覆盖规约声明的全部步骤（NFR-20） | BLOCKING | `COMMIT_STEPS`/`PUSH_STEPS` 缺失 guard/architecture/ruff/pytest/dry-run/drift/dataflow 任一 | `check_gate_stage_parity()` |
 | **R-GATE-2** | **门禁不得静默跳过**：依赖缺失 / 命令不存在 = 环境不合格 = 阻塞（NEG-9） | BLOCKING | gate.py 中出现 `[SKIP]` / "非阻塞" 降级分支 | `check_gate_no_silent_skip()` |
 | **R-GATE-3** | **hooks 在线性**：pre-commit / pre-push 必须已安装（三层防线 L3） | WARNING | 真实 git 目录的 `hooks/` 下缺钩子 | `check_hooks_installed()` |
+| **R-GATE-4** | **检查器注册不得静默失败**：扩展/门禁检查器导入失败必须暴露，禁止 `logger.debug` 吞掉（BL-067） | BLOCKING | `tools/guard.py` 的 `_FAILED_REGISTRATIONS` 非空 | `check_checks_registered()` |
 
 **R-GATE-* 判定逻辑**：
 - ✅ PASS: 全部通过 → INFO（不阻断）
