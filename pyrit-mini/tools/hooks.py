@@ -109,10 +109,11 @@ _PYTHON_EXE = _find_python_exe()
 # Hook 模板 - 使用 {python_exe} 占位符
 # 注意: {{ 和 }} 是 Python format 转义，输出为单个 { 和 }
 _PRE_COMMIT_HOOK = """#!/bin/sh
-# Combined pre-commit hook for {repo_name} + architecture_guard + data_flow_validator
-# Auto-installed by: py -m tools.install_hooks
+# Unified dev gate pre-commit hook for {repo_name}
+# Auto-installed by: py -m tools.hooks
 # Compatible: Windows Git Bash (MSYS2) / WSL / Linux / macOS
-# Strategy: fail-open on env issues, block only on guard violations
+# Strategy: fail-open if Python missing; block only on gate BLOCKING violations
+# 门禁 SSOT: tools/gate.py (见 docs/specs/README.md §2)
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PROJECT_DIR="$REPO_ROOT/{project_name}"
@@ -144,42 +145,32 @@ fi
 
 cd "$PROJECT_DIR" || exit 0
 
-# --- 1. data_flow_validator ---
-echo "  [1/2] Running data flow integrity tests..."
-DF_OUTPUT=$($PYTHON -m pytest tests/test_data_flow_integrity.py -q --tb=line -p no:cacheprovider --no-header 2>&1)
-DF_EXIT=$?
-if [ $DF_EXIT -ne 0 ]; then
-    echo "  [WARN] data flow tests failed (non-blocking)"
-    echo "$DF_OUTPUT" | tail -3
-else
-    echo "  [PASS] data_flow_validator"
-fi
-
-# --- 2. architecture_guard (BLOCKING) ---
-echo "  [2/2] Running architecture_guard..."
-GUARD_OUTPUT=$($PYTHON -m tools.guard 2>&1)
-GUARD_EXIT=$?
-if [ $GUARD_EXIT -ne 0 ]; then
+# --- unified dev gate (SSOT: tools/gate.py) ---
+echo "  [1/1] Running unified dev gate (tools.gate --stage commit)..."
+GATE_OUTPUT=$($PYTHON -m tools.gate --stage commit 2>&1)
+GATE_EXIT=$?
+if [ $GATE_EXIT -ne 0 ]; then
     echo ""
-    echo "$GUARD_OUTPUT" | tail -10
+    echo "$GATE_OUTPUT" | tail -25
     echo ""
     echo "  COMMIT BLOCKED - Fix BLOCKING violations listed above"
-    echo "  Verify with: py -m tools.guard"
+    echo "  Verify with: py -m tools.gate"
     exit 1
 fi
-echo "  [PASS] architecture_guard"
-
+echo "  [PASS] tools.gate"
 echo ""
 echo "  All checks passed. Commit allowed."
 exit 0
 """
 
 _PRE_PUSH_HOOK = """#!/bin/sh
-# Combined pre-push hook for {project_name}
-# Runs: data_flow_validator + architecture_guard + drift_detector
-# Strategy: push blocked only on actual test/guard failures
+# Unified dev gate pre-push hook for {project_name}
+# Auto-installed by: py -m tools.hooks
+# Compatible: Windows Git Bash (MSYS2) / WSL / Linux / macOS
+# Strategy: fail-open if Python missing; block only on gate BLOCKING violations
+# 门禁 SSOT: tools/gate.py (见 docs/specs/README.md §2)
 
-REPOROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PROJECT_DIR="$REPO_ROOT/{project_name}"
 
 # --- 0. Locate Python ---
@@ -209,43 +200,20 @@ fi
 
 cd "$PROJECT_DIR" || exit 0
 
-# --- 1. data_flow_validator ---
-echo "  [1/3] Running data flow integrity tests..."
-if [ -f "$PROJECT_DIR/tools/data_flow_validator.py" ]; then
-    DF_OUTPUT=$($PYTHON -m pytest tests/test_data_flow_integrity.py -q --tb=line -p no:cacheprovider --no-header 2>&1)
-    DF_EXIT=$?
-    if [ $DF_EXIT -ne 0 ]; then
-        echo "  [FAIL] data flow tests failed"
-        echo "$DF_OUTPUT" | tail -5
-        echo "  PUSH BLOCKED"
-        exit 1
-    fi
-    echo "  [PASS] data_flow_validator"
-fi
-
-# --- 2. architecture_guard ---
-echo "  [2/3] Running architecture_guard..."
-GUARD_OUTPUT=$($PYTHON -m tools.guard 2>&1)
-GUARD_EXIT=$?
-if [ $GUARD_EXIT -ne 0 ]; then
-    echo "$GUARD_OUTPUT" | tail -10
-    echo "  PUSH BLOCKED - BLOCKING violations found"
+# --- unified dev gate (SSOT: tools/gate.py) ---
+echo "  [1/1] Running unified dev gate (tools.gate --stage push)..."
+GATE_OUTPUT=$($PYTHON -m tools.gate --stage push 2>&1)
+GATE_EXIT=$?
+if [ $GATE_EXIT -ne 0 ]; then
+    echo ""
+    echo "$GATE_OUTPUT" | tail -25
+    echo ""
+    echo "  PUSH BLOCKED - Fix BLOCKING violations listed above"
+    echo "  Verify with: py -m tools.gate"
     exit 1
 fi
-echo "  [PASS] architecture_guard"
-
-# --- 3. drift_detector ---
-echo "  [3/3] Running drift_detector..."
-if [ -f "$PROJECT_DIR/tools/drift_detector.py" ]; then
-    DRIFT_OUTPUT=$($PYTHON -m tools.drift_detector --full 2>&1)
-    DRIFT_EXIT=$?
-    if [ $DRIFT_EXIT -ne 0 ]; then
-        echo "  [FAIL] drift_detector: blocking drift detected"
-        exit 1
-    fi
-    echo "  [PASS] drift_detector"
-fi
-
+echo "  [PASS] tools.gate"
+echo ""
 echo "  All checks passed. Push allowed."
 exit 0
 """
