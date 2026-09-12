@@ -22,15 +22,16 @@
 
 | 层 | 文件 | 版本 | 职责 | 何时读 |
 |----|------|------|------|--------|
+| **入口** | [../../AGENTS.md](../../AGENTS.md) | v1.0 | AI 编码代理唯一入口（跨 IDE/跨模型自动加载）：冷启动顺序 / 编辑 specs 纪律 S1–S6 / 跨模型 review-only | 每个 AI 会话开头 |
 | **L0** | [00-CONSTITUTION.md](00-CONSTITUTION.md) | v2.3 | AI 行为宪法：使命 / 裁决序 / C1–C14 / 违宪症状 / PyRIT 原生速查（7C）/ 考试附录 | 每会话开头（Step 1 宪法自检） |
 | **L1** | [10-ARCHITECTURE.md](10-ARCHITECTURE.md) | v3.2 | 技术蓝图：分层依赖 / ctx 字段契约（4.4 SSOT 总表）/ 不变量 I1–I13 / ADR / 债务簿 / 目标架构 v4.0 | 编码前声明架构落点时（Step 2） |
 | **L1** | [80-COMPONENT-ARCHITECTURE-RULES.md](80-COMPONENT-ARCHITECTURE-RULES.md) | v2.0 | 组件化规则：双命名空间 / 目录命名 / 新增组件 Checklist | 新增或修改组件时 |
 | **L2** | [20-REQUIREMENTS.md](20-REQUIREMENTS.md) | v3.0 | 需求登记：P0/P1/P2、NFR、NEG。**未登记 = 不存在** | 领取任务时核对验收标准（Step 3） |
 | **L3** | [30-TASKS.md](30-TASKS.md) | v2.3 | 任务协议：生命周期 / 粒度上限 / 八步协议 / STOP-REPORT / 三栏汇报 | 每次编码任务全程 |
-| **L4** | [40-GUARDRAILS.md](40-GUARDRAILS.md) | v3.5 | 红线 R-* / 门禁纪律 / 三层防线 / 交付验证清单 / 考试合规 | 编码后验证（Step 7） |
+| **L4** | [40-GUARDRAILS.md](40-GUARDRAILS.md) | v3.6 | 红线 R-* / 门禁纪律 / 三层防线 / 交付验证清单 / 考试合规 | 编码后验证（Step 7） |
 | 配套 | [50-ROADMAP.md](50-ROADMAP.md) | v1.12 | 任务序列、考试 Runbook、考纲映射。**无裁决权威** | 领取下一个任务时 |
 | 配套 | [55-ATTACK-GAP-CLOSURE.md](55-ATTACK-GAP-CLOSURE.md) | v1.8 | 攻击面缺口登记处（R-DOC-2 依赖，**路径勿改**） | 新增攻击模块时登记 |
-| 配套 | [60-CROSS-MODEL-VERIFICATION.md](60-CROSS-MODEL-VERIFICATION.md) | v1.0 | 跨模型审查协议（C14 落地） | 变更 L0–L4 规约时 |
+| 配套 | [60-CROSS-MODEL-VERIFICATION.md](60-CROSS-MODEL-VERIFICATION.md) | v1.1 | 跨模型审查协议（C14 落地）：审查级别 / review-only 落笔权（§4.4）/ Schema | 变更 L0–L4 规约时 |
 | 配套 | [90-AI-DEV-ARCHITECTURE.md](90-AI-DEV-ARCHITECTURE.md) | v1.0 | AI 编程总纲：产品契约（5 需求）→ 架构落点映射 / 遵循流程 / 差距指针（无独立裁决权威，只引用不复制） | 新会话冷启动 / 实施任务前定位落点 |
 | 配套 | [plans/](plans/) | — | 活跃变更提案与执行计划 | 提案批准后才进入编码 |
 | 模板 | [templates/](templates/) | — | `task-spec.md` / `change-proposal.md` / `cross-model-review.md` | 起草规格时 |

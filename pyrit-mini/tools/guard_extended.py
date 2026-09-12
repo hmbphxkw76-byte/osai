@@ -2337,6 +2337,7 @@ _ALLOWED_TOP_LEVEL_FILES = {
     ".gitignore",
     ".env.local",
     ".env",
+    "AGENTS.md",  # AI 编码代理唯一入口（跨 IDE/跨模型自动加载）；规约索引见 specs/README.md §1
 }
 
 

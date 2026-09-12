@@ -2,7 +2,7 @@
 
 > **STATUS: ACTIVE** — 本文档定义 specs/ 规约文档的跨模型交叉确认标准流程
 > **文档层级**：L4 配套协议（护栏唯一定义见 `40-GUARDRAILS.md` 1I-CROSS；任务协议见 `30-TASKS.md` 第十章）
-> **版本**：v1.0（2026-09-09）
+> **版本**：v1.1（2026-09-12 REV-1：新增 §4.4 角色与落笔权（review-only），将 C14 的"交叉确认"落地为"评审模型只读、不落笔"，消除多模型并发编辑导致的规约整篇重写。初版 v1.0 2026-09-09）
 > **版本史**：`git log -- docs/specs/60-CROSS-MODEL-VERIFICATION.md`
 
 > **职责边界**（防三处重复）：本文件**只定义审查协议**（模型池 / Prompt 模板 / Schema / 存储结构）。
@@ -223,6 +223,27 @@ def align_reviews(reviews: list[dict]) -> dict:
 | 三方 severity 分歧 | 取保守级别 | WARNING 升 BLOCKING |
 | 三方完全不同 | 第四模型介入 | deepseek-v2 投票 |
 | 涉及 L0/L4 变更 | 人工终审 | 人工审批记录 |
+
+### 4.4 Phase 0：角色与落笔权（review-only，v1.1 新增）
+
+> **问题驱动**：多模型并发编辑同一份规约文件是"规约被整篇重写"的主要来源——后一个模型为对齐自身理解，会覆盖前一个模型的全篇结构与编号。
+> **本节强制力**来自 `40-GUARDRAILS.md` 1I-CROSS（R-CROSS-1）；审查级别见 §3.1，κ 动作见 `30-TASKS.md` 第十章。
+
+| 角色 | 权限 | 产物 |
+|------|------|------|
+| **Author（落笔模型）** | 唯一允许编辑 `docs/specs/` 的角色；产出 patch | 文档/代码 diff + confirmed findings 的修复回写 |
+| **Reviewer（评审模型）** | **只读**；禁止编辑任何文件；只输出 findings | `raw/{model}.json`（目录约定 §6.1，Schema §5.1） |
+| **Human（人工）** | 终审、仲裁与合并裁决 | `adjudication/decision.json` + `summary.md` |
+
+**硬规则**：
+
+1. **禁止两个模型对同一份规约文件同时落笔**：Author 完成合并前，Reviewer 不得编辑任何文件。
+2. **Reviewer 只输出 findings**：不得给出改写后的文档正文；修改建议一律走 `suggestion` 字段，由 Author 转译为定点替换。
+3. **合并权只在 Author + 人工**：Reviewer 的直接编辑一律回滚。
+4. **降级**：可用模型 < 2 时按 R-CROSS-1 降级条款转人工审查模式，标记 `needs-cross-model-pending` 并登记 `docs/backlog.md`，不阻断合入。
+5. **编辑纪律**：Author 落笔时遵守 `AGENTS.md` §2（S1–S6）——先读后写、增量编辑、禁止重排章节号、最小同步面。
+
+> **工具链现状（勿按已落地引用）**：`pyrit-cross` / `tools/cross_model_review.py` 未实施（BL-042），当前为人工编排模式。
 
 ---
 

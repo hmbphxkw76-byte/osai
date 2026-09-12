@@ -3,7 +3,7 @@
 > **文档层级**：L4 / 五层规约金字塔第五层
 > **效力**：红线 = 绝对禁止，视同宪法级（裁决序见 00-CONSTITUTION 第二章）。质量门禁 = 完成任务的必要不充分条件。
 > **执行机制**：三层防线（静态 guard / 运行时 dry-run / git 钩子），继承 SKILL.md D2 条款并收编。
-> **版本**：v3.5（2026-09-12 REV-22：新增 **1K-GATE 门禁本体护栏**（R-GATE-1~3）+ 1F 登记簿同步三条检查器 + BL-070 路径解析纪律；REV-21 的 R-L7 白名单与 REV-20 的 1J-COMPLIANCE 保持有效）
+> **版本**：v3.6（2026-09-12 REV-23：R-L7 顶层**文件**许可清单纳入 `AGENTS.md`（AI 编码代理唯一入口，跨 IDE/跨模型自动加载）；跨模型 review-only 协议见 `60-CROSS-MODEL-VERIFICATION.md` §4.4。REV-22 的 1K-GATE 与 REV-21 的 `targets/` 目录许可保持有效）
 > **v3.4 摘要**（REV-21）：R-L7 顶层目录许可清单同步纳入 `targets/` —— 依 `10-ARCHITECTURE.md` 2.1「靶场层」与 REQ-156，修复检查器白名单滞后于规格的 spec-code drift。
 > **版本史**：`git log -- docs/specs/40-GUARDRAILS.md`
 
@@ -25,6 +25,8 @@
 | R-L8 | `--dry-run` 参数或实现缺失 | `check_dry_run_available()` |
 
 > **R-L7 许可清单（v3.4 同步）**：`check_top_level_structure()` 的顶层目录白名单除 `strike/arm/recon/core/assess/report/utils/tools/tests/data/docs/outputs/config/scripts` 外，**含 `targets/`** —— 依据 `10-ARCHITECTURE.md` 2.1「靶场层」（`targets/mock/`，**非交付包**）与 **REQ-156**（Mock 靶场与 CI 断言）。此前检查器白名单滞后于规格（spec-code drift / R-DRIFT-2），本次同步修复。
+>
+> **R-L7 顶层文件白名单（v3.6 同步）**：`main.py` / `pyproject.toml` / `README.md` / `DEV-TRIAD-CHECKLIST.md` / `AGENTS.md` —— 后者为 AI 编码代理唯一入口（跨 IDE/跨模型自动加载），内容只做入口指向与编辑纪律，不声明新规则（C3）。
 
 ### 1A-DATA. 数据流完整性红线（v1.4 新增）
 
