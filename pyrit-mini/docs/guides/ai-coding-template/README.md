@@ -61,7 +61,9 @@ ai-coding-template/
 ## 依赖
 
 - Python 3.8+；`init.py` 需要 `PyYAML`（`pip install pyyaml`）。
-- 模板已自带通用 `tools/gate.py`（零依赖、开箱即跑）：内置文件体积与红线启发式检查，并按 `audit_config.yaml` 编排外部关卡。`lint`/`test`/`drift` 等具体命令需在 `audit_config.yaml` 中接入项目真实工具（留空则自动 SKIP，不阻塞）。
+- 模板已自带通用 `tools/gate.py`（零依赖、开箱即跑）。门禁分两层，确保**复制即用就有真实护栏**：
+  - **内置检查（初始化后即生效，零外部依赖）**：文件体积 BLOCK、疑似硬编码密钥 BLOCK、L5 规范骨架存在性 BLOCK、裸 except/桩函数 WARN、提交粒度（>300 行）WARN。
+  - **外部关卡（按需接入）**：`lint`/`typecheck`/`test`/`drift`/`dataflow` 在 `audit_config.yaml` 的 `commands:` 中声明；**留空则自动 SKIP（非阻塞）**，接好工具且返回非零才 BLOCK。升级路径见 `audit_config.yaml.example`（已含 ruff/pytest/drift 等示例命令）。
 
 ## 配套文档（本模板 `docs/` 下）
 

@@ -15,6 +15,7 @@ components:
 thresholds:
   file_size_warning: 850
   file_size_blocking: 1500
+  diff_limit: 300
   min_purity: 0.90
   min_coverage: 0.60
 commands:

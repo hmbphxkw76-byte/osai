@@ -117,7 +117,9 @@ def main() -> None:
             print(f"  ${{{key}}}  (in {len(files)} file(s))")
 
     if not subs:
-        print("\n[WARN] 'substitutions' is empty -- nothing was replaced.")
+        print("\n[ERROR] 'substitutions' 为空 —— 未做任何替换，生成的骨架不可用。")
+        print("         请先在 template.config.yaml 的 substitutions: 下填写 PROJECT_NAME 等真实值，再运行 init.py。")
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
