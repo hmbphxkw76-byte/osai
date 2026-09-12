@@ -895,13 +895,19 @@ def main() -> None:
 
 
 # === 注册扩展检查 (R-PIPE / R-IMPORT / R-REDTEAM / R-EVID / R-REPORT) ===
+# 注册失败登记处（BL-067：原先以 logger.debug 静默吞掉 ImportError，
+# 导致扩展检查器整体失效时无人察觉；现由 check_checks_registered 暴露为 BLOCKING）
+_FAILED_REGISTRATIONS: list[str] = []
+
+
 def _register_all_extended_checks() -> None:
     try:
         from tools.guard_extended import register_extended_checks
 
         register_extended_checks(ArchitectureGuard)
     except ImportError as e:
-        logger.debug("Extended checks not available: %s", e)
+        _FAILED_REGISTRATIONS.append(f"tools.guard_extended（34 检查器）: {e}")
+        logger.warning("Extended checks NOT registered: %s", e)
 
 
 # === 注册门禁本体检查 (R-GATE-1~3) ===
@@ -911,8 +917,8 @@ def _register_gate_checks() -> None:
 
         register_gate_checks(ArchitectureGuard)
     except ImportError as e:
-        # 内部模块缺失属真实故障：显式告警（另登记 backlog，见 BL-067）
-        logger.warning("Gate checks not available: %s", e)
+        _FAILED_REGISTRATIONS.append(f"tools.guard_gate（R-GATE-1~3）: {e}")
+        logger.warning("Gate checks NOT registered: %s", e)
 
 
 _register_all_extended_checks()
