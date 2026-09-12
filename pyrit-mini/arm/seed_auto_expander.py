@@ -5,6 +5,8 @@ L5 v27: +3x seed expansion, EUR UCB-C selection.
 
 import asyncio
 import logging
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from pyrit.models import AttackSeedGroup
@@ -12,11 +14,52 @@ from pyrit.models import AttackSeedGroup
 logger = logging.getLogger(__name__)
 
 
+@lru_cache(maxsize=1)
+def _load_defaults() -> dict[str, Any]:
+    """读取 `config/defaults.yaml`（进程内缓存一次）。"""
+    path = Path(__file__).resolve().parents[1] / "config" / "defaults.yaml"
+    if not path.exists():
+        logger.warning("defaults.yaml 缺失：%s（回退内置常量）", path)
+        return {}
+    try:
+        import yaml
+
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception as e:
+        logger.warning("defaults.yaml 读取失败：%s（回退内置常量）", e)
+        return {}
+
+
+def _resolve_expansion_factor(explicit: int | None = None) -> int:
+    """种子自动扩充倍数（C7 SSOT：`config/defaults.yaml:auto_seed_expansion_factor`）。
+
+    BL-038 接真（CP-003）：该键此前零消费者，扩充倍数恒为形参默认值 3。
+    现由 SSOT 提供；形参显式传入时优先（CLI/调用方覆盖，NFR-10 人类控制权）。
+
+    Args:
+        explicit: 调用方显式指定的倍数；None 表示走配置。
+
+    Returns:
+        扩充倍数，clamp 到 [1, 10]（防配置误填导致种子爆炸）。
+    """
+    if isinstance(explicit, int) and not isinstance(explicit, bool) and explicit >= 1:
+        return min(10, explicit)
+    raw = _load_defaults().get("auto_seed_expansion_factor")
+    try:
+        value = int(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        logger.warning("auto_seed_expansion_factor 取值非法 %r，回退 3", raw)
+        return 3
+    return max(1, min(10, value))
+
+
 async def auto_generate_seeds_async(
     base_seeds: list[AttackSeedGroup],
     converter_target: Any | None = None,
     *,
-    expansion_factor: int = 3,
+    expansion_factor: int | None = None,
 ) -> list[AttackSeedGroup]:
     """L5 v27: Auto-generate seed variants using VariationConverter.
 
@@ -91,10 +134,11 @@ async def auto_generate_seeds_async(
             logger.debug("Variant generation failed for idx %d: %s", variant_idx, e)
         return None
 
-    # Generate variants for each seed
+    # Generate variants for each seed（倍数走 C7 SSOT，见 `_resolve_expansion_factor`）
+    _factor = _resolve_expansion_factor(expansion_factor)
     tasks = []
     for seed in base_seeds:
-        for idx in range(expansion_factor - 1):
+        for idx in range(_factor - 1):
             tasks.append(_generate_variant(seed.value, {}, idx))
 
     if tasks:
@@ -146,7 +190,7 @@ def auto_generate_seeds(
     base_seeds: list[AttackSeedGroup],
     converter_target: Any | None = None,
     *,
-    expansion_factor: int = 3,
+    expansion_factor: int | None = None,
 ) -> list[AttackSeedGroup]:
     """Synchronous auto_generate_seeds wrapper."""
     return _auto_generate_seeds_sync(base_seeds, converter_target, expansion_factor=expansion_factor)
@@ -156,7 +200,7 @@ def _auto_generate_seeds_sync(
     base_seeds: list[AttackSeedGroup],
     converter_target: Any | None = None,
     *,
-    expansion_factor: int = 3,
+    expansion_factor: int | None = None,
 ) -> list[AttackSeedGroup]:
     """Synchronous wrapper for auto_generate_seeds_async."""
     try:

@@ -338,14 +338,9 @@ def _apply_config_file(args: argparse.Namespace, config: dict[str, Any]) -> None
                 "tap_tree_width",
                 "tap_tree_depth",
                 "tap_branching",
-                "tap_success_threshold",
                 "pair_tree_width",
                 "pair_tree_depth",
                 "escalation_levels",
-                "priority_scheduler_enabled",
-                "priority_scheduler_high_threshold",
-                "priority_scheduler_low_threshold",
-                "priority_scheduler_epsilon",
             ],
         ),
         # probe section -
@@ -354,9 +349,11 @@ def _apply_config_file(args: argparse.Namespace, config: dict[str, Any]) -> None
             ["probe_timeout", "probe_retries", "deep_probe_timeout", "parallel_probe_timeout", "max_concurrent_probes"],
         ),
         # adaptive section - PyRIT TextAdaptive
+        # BL-038/CP-003：`adaptive_epsilon` / `adaptive_max_attempts` 随 TextAdaptive
+        # 未实现一并摘除（R-H1）；保留 `adaptive_random_seed`（core.contracts.manifest 消费）。
         (
             "adaptive",
-            ["adaptive_epsilon", "adaptive_random_seed", "adaptive_max_attempts", "adaptive_technique_filter"],
+            ["adaptive_random_seed", "adaptive_technique_filter"],
         ),
         # execution section - ( _str_keys )
         (
@@ -364,7 +361,6 @@ def _apply_config_file(args: argparse.Namespace, config: dict[str, Any]) -> None
             [
                 "scenario_timeout",
                 "api_timeout",
-                "rate_limit_retries",
                 "timeout_max_retries",
                 "timeout_max_delay",
                 "l5_optimal_paths",

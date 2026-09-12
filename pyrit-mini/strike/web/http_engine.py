@@ -20,6 +20,8 @@ import asyncio
 import concurrent.futures
 import logging
 import uuid
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
@@ -28,6 +30,46 @@ logger = logging.getLogger(__name__)
 # 传输方式标识：写进每条结果，让报告能区分「原生执行」与「降级执行」（C9 诚实汇报）
 TRANSPORT_NATIVE = "pyrit.HTTPTarget"
 TRANSPORT_FALLBACK = "urllib-fallback"
+
+
+_FALLBACK_API_TIMEOUT = 30.0
+
+
+@lru_cache(maxsize=1)
+def _load_defaults() -> dict[str, Any]:
+    """读取 `config/defaults.yaml`（进程内缓存一次；依赖方向合规：不跨阶段层导入）。"""
+    path = Path(__file__).resolve().parents[2] / "config" / "defaults.yaml"
+    if not path.exists():
+        logger.warning("defaults.yaml 缺失：%s（回退内置常量）", path)
+        return {}
+    try:
+        import yaml
+
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception as e:
+        logger.warning("defaults.yaml 读取失败：%s（回退内置常量）", e)
+        return {}
+
+
+def _resolve_api_timeout() -> float:
+    """Web 攻击引擎读超时（C7 SSOT：`config/defaults.yaml:api_timeout`）。
+
+    BL-038 接真（CP-003）：此前硬编码 30.0 且 `api_timeout` 键零消费者。
+    兜底 30.0 与改造前一致，保证配置缺失时零回归；采用 SSOT 值后放宽读超时，
+    减少慢端点因超时被判失败造成的假阴性（C2）。
+    """
+    raw = _load_defaults().get("api_timeout")
+    try:
+        value = float(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        logger.warning("api_timeout 取值非法 %r，回退 %ss", raw, _FALLBACK_API_TIMEOUT)
+        return _FALLBACK_API_TIMEOUT
+    if value <= 0:
+        logger.warning("api_timeout 必须为正数，实际 %s，回退 %ss", value, _FALLBACK_API_TIMEOUT)
+        return _FALLBACK_API_TIMEOUT
+    return value
 
 
 def _run_coroutine_sync(coro: Any) -> Any:
@@ -55,14 +97,16 @@ class HTTPAttackEngine:
         仅当原生通道不可用时才降级，且降级原因必须留痕并写进结果（`transport` 字段）。
     """
 
-    def __init__(self, target_endpoint: str, default_timeout: float = 30.0):
+    def __init__(self, target_endpoint: str, default_timeout: float | None = None):
         """
         Args:
             target_endpoint: 目标API endpoint
-            default_timeout: 默认超时时间
+            default_timeout: 默认超时时间；None 时读 SSOT `config/defaults.yaml:api_timeout`
+                （BL-038 接真 / CP-003：此前硬编码 30.0 且该键零消费者）。
+                放宽到 SSOT 值可提高慢端点存活率，减少因读超时导致的假阴性（C2）。
         """
         self.endpoint = target_endpoint
-        self.timeout = default_timeout
+        self.timeout = default_timeout if default_timeout is not None else _resolve_api_timeout()
         # 原生通道不可用原因：只探测一次，避免每个 payload 重复告警刷屏
         self._native_unavailable_reason: str | None = None
 

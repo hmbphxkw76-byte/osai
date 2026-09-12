@@ -55,6 +55,26 @@ _TLS_VERIFY: bool | str = _get_tls_verify_default()
 
 
 # ====================================================================
+# HTTP 读超时 (SSOT: config/defaults.yaml:api_timeout)
+# ====================================================================
+def _get_api_timeout_default() -> float:
+    """Get HTTP read timeout from SSOT config (BL-038 接真 / CP-003).
+
+    此前 `httpx.AsyncClient(timeout=120.0)` 为硬编码字面量（C7 断链），
+    且 `api_timeout` 键零消费者。现统一由 defaults.yaml 提供。
+    """
+    from recon.config_loader import get_positive_float
+
+    try:
+        return get_positive_float("api_timeout", 120.0)
+    except Exception:
+        return 120.0
+
+
+_API_TIMEOUT: float = _get_api_timeout_default()
+
+
+# ====================================================================
 # Chat ID State Manager - Session persistence for multi-turn attacks
 # ====================================================================
 
@@ -422,7 +442,7 @@ def build_http_target(
     shared_client = http_client
     if shared_client is None:
         shared_client = httpx.AsyncClient(
-            timeout=120.0,
+            timeout=_API_TIMEOUT,
             follow_redirects=True,
             verify=_TLS_VERIFY,
             http2=http2,

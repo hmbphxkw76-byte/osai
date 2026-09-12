@@ -126,6 +126,11 @@ class PipelineContext:
     # L5 v9: scorer ,
     scorer: Any = None
 
+    # Decision Engine (REQ-135③/REQ-136): 所有自主决策统一落盘点
+    decision_log: list[dict[str, Any]] = field(default_factory=list)
+    # REQ-136: Recon 自适应决策产出的探测深度（shallow/standard/deep）
+    probe_level: str | None = None
+
     # Scenario
     scenario_result_id: str | None = None
     scenario_result: "ScenarioResult | None" = None

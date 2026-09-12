@@ -136,10 +136,18 @@ def _toplevel_exports(path: Path) -> tuple[set[str], bool]:
 
 def _resolve_relative(base_module: str, level: int, module: str | None) -> str:
     parts = base_module.split(".") if base_module else []
-    if level > 1:
-        parts = parts[: -(level - 1)] if len(parts) >= level - 1 else []
+    if module is None:
+        # `from . import X` —— X 是 base_module 自身的符号，锚点即模块本身。
+        anchor = parts
+    else:
+        # `from .sibling import X` —— 锚点是「第 level 级父包」：
+        #   level=1 (.sibling)  → 当前包 (去掉模块自身这一级)
+        #   level=2 (..sibling) → 父包的父包，依此类推。
+        # 历史实现误将 level=1 的锚点取为模块本身，导致 `from .sibling` 被解析成
+        # `pkg.module.sibling`（不存在），使合法的同级相对导入被误判为断链。
+        anchor = parts[: len(parts) - level] if len(parts) >= level else []
     tail = module.split(".") if module else []
-    return ".".join([*parts, *tail])
+    return ".".join([*anchor, *tail])
 
 
 def collect_import_breakages(root: Path = PROJECT_ROOT) -> list[str]:

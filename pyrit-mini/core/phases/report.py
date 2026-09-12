@@ -132,6 +132,8 @@ async def _run_report_phase(ctx: "PipelineContext", output_dir: Path) -> None:
     collector = EvidenceCollector(
         target_model=ctx.model_name,
         target_fingerprint=target_fingerprint,
+        # REQ-150：把攻击面图谱交给证据层，产出多标签归属 + graph_ref（IC-1/IC-3）
+        surface_graph=getattr(ctx, "surface_graph", None),
     )
     evidence = collector.collect(
         attack_results=ctx.attack_results,

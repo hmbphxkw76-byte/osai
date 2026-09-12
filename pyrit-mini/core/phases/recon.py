@@ -90,6 +90,11 @@ async def _run_recon_phase(ctx: "PipelineContext", output_dir: Path) -> None:
         # 写入 target_fingerprint（recon 唯一输出总线），不新建并行通道（I12）。
         _attach_taxonomy(ctx)
 
+        # === REQ-150：攻击面图谱（多标签 + 置信度 + 信任边界 + 数据流边）===
+        # 依赖上面的 ComponentGraph 与 taxonomy，故必须在其后执行。
+        # 只写 ctx.surface_graph（蓝图 4.4 已登记字段），不新建并行通道（I12）。
+        _attach_surface_graph(ctx)
+
         # RAG Pipeline Probe (P1 enhancement): KB structure + citations + chunking
         # W0 fix: pre-initialize both locals. `rag_profile` was previously assigned
         # only inside try; when the import below failed, the later `rag_profile.has_rag`
@@ -210,6 +215,95 @@ async def _run_recon_phase(ctx: "PipelineContext", output_dir: Path) -> None:
         snapshot_hook(ctx, "post_recon")
     except Exception as e:
         logger.debug("[Recon] Data flow snapshot skipped: %s", e)
+
+
+def _attach_surface_graph(ctx: "PipelineContext") -> None:
+    """Build the REQ-150 SurfaceGraph from already-collected recon observations.
+
+    纯后处理（无 I/O、无新数据通道，I12）：以 ComponentGraph + taxonomy +
+    target_fingerprint 为输入，产出 `ctx.surface_graph`，并把**字段不丢失**的
+    旧 `target_fingerprint` 兼容视图写回同一指纹对象（REQ-150 ⑤ / W5 删除）。
+
+    R-H1 纪律：构建失败必须 WARNING 留痕并置 `ctx.surface_graph = None`，
+    禁止静默降级——下游据此走通用 LLM 扫描路径。
+    """
+    parsed = getattr(ctx, "parsed_request", None)
+    fp = getattr(parsed, "target_fingerprint", None) if parsed is not None else None
+    if fp is None:
+        logger.debug("[Recon] SurfaceGraph skipped: no target_fingerprint")
+        return
+
+    try:
+        from recon.surface import build_surface_graph, legacy_fingerprint_view
+
+        _taxonomy = _current_taxonomy(fp)
+        graph = build_surface_graph(
+            fingerprint=fp,
+            service_profile=getattr(ctx, "service_profile", None) or {},
+            component_graph=getattr(ctx, "component_graph", None),
+            taxonomy=_taxonomy,
+            endpoint=getattr(parsed, "url", None),
+        )
+        ctx.surface_graph = graph
+
+        # 旧视图写回（字段不丢失），下游零回归
+        view = legacy_fingerprint_view(fp, graph=graph, taxonomy=_taxonomy)
+        if hasattr(fp, "update"):
+            for key, value in view.items():
+                if key not in ("extra",):
+                    try:
+                        fp[key] = value
+                    except Exception:
+                        setattr(fp, key, value)
+        else:
+            for key in ("component_labels", "label_confidence", "surface_ref", "taxonomy_labels"):
+                if key in view:
+                    try:
+                        setattr(fp, key, view[key])
+                    except Exception:
+                        pass
+
+        ctx.orchestration_log.append(
+            {
+                "phase": "recon",
+                "decision": "surface_graph_build",
+                "input": {
+                    "component_keys": list(getattr(getattr(ctx, "component_graph", None), "keys", list)() or []),
+                },
+                "output": {
+                    "labels": graph.labels(),
+                    "nodes": len(graph.nodes),
+                    "edges": len(graph.edges),
+                    "unknown": graph.unknown,
+                },
+                "reasoning": (
+                    f"SurfaceGraph: {len(graph.nodes)} nodes / {len(graph.edges)} edges, "
+                    f"labels={graph.labels()[:5]}"
+                    + ("（识别失败，已启用兜底标签）" if graph.unknown else "")
+                ),
+            }
+        )
+        logger.info(
+            "[Recon] SurfaceGraph: nodes=%d edges=%d labels=%s",
+            len(graph.nodes),
+            len(graph.edges),
+            graph.labels(),
+        )
+    except Exception as e:
+        ctx.surface_graph = None
+        logger.warning("[Recon] SurfaceGraph 构建失败，降级为无图谱流水线: %s", e)
+
+
+def _current_taxonomy(fp: Any) -> dict[str, Any] | None:
+    """读取已挂载到 fingerprint 上的 taxonomy（REQ-162 产物）。"""
+    try:
+        extra = fp.get("extra") if hasattr(fp, "get") else getattr(fp, "extra", None)
+        if isinstance(extra, dict):
+            value = extra.get("taxonomy")
+            return value if isinstance(value, dict) else None
+    except Exception:
+        return None
+    return None
 
 
 def _attach_taxonomy(ctx: "PipelineContext") -> None:

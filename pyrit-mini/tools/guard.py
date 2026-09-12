@@ -44,7 +44,6 @@ _SIZE_BYPASS_WHITELIST = {
     "arm/seed_ranking.py",  # 675行，稳定运行，含完整测试覆盖
     "tools/guard_extended.py",  # 迁移后路径
     "core/orchestrator.py",
-    "recon/rag_metadata_parser.py",
     "recon/health_probe.py",  # 860行，4层侦察完整实现，含stealth集成
     "utils/display.py",
     "report/report_markdown.py",
@@ -52,58 +51,39 @@ _SIZE_BYPASS_WHITELIST = {
     # R-DELIVERY-1 豁免: 300-600 行文件，单一职责，稳定运行
     "recon/_target_router_helpers.py",  # 858行
     "report/poc_generator.py",  # 1033行
-    "strike/executor.py",  # 1133行
-    "strike/escalation_runtime.py",  # 467行
-    "strike/asr_forensics.py",  # 346行
-    "strike/rag_targeted_consumer.py",  # 769行
-    "strike/file_upload_executor.py",  # 650行
-    "strike/mcpsec_orchestrator.py",  # 561行
-    "strike/web_page_injector.py",  # 606行
+    "strike/common/executor.py",  # 1133行 (重构: strike/executor.py -> strike/common/executor.py)
+    "strike/common/escalation_runtime.py",  # 467行 (重构: strike/ -> strike/common/)
+    "strike/common/asr_forensics.py",  # 346行 (重构: strike/ -> strike/common/)
+    "strike/injection/file_upload_executor.py",  # 650行 (重构: strike/ -> strike/injection/)
     "report/evidence.py",  # 607行
-    "recon/prompt_injector.py",  # 633行
+    "recon/model/prompt_injector.py",  # 633行 (重构: recon/ -> recon/model/)
     "recon/capability_probe.py",  # 657行
-    "recon/rag_typo_fuzzer.py",  # 609行
-    "tools/data_flow_validator.py",  # 760行
     "tools/drift_detector.py",  # 586行
     "tools/guard.py",  # 430行
     "assess/adaptive_dual_judge.py",  # 545行
     "assess/judge_manager.py",  # 714行
     "assess/score_pipeline.py",  # 751行
     "core/config.py",  # 814行
+    "core/_arg_parser.py",  # parse_args CLI 解析 (从 config.py 抽出，单一职责)
     "core/phases/arm.py",  # 723行
     "core/phases/strike.py",  # 766行
     # 2026-09-09: 第二批 300-600 行文件豁免 (R-DELIVERY-1)
     "recon/capability_detector.py",  # 521行
     "recon/burp_parser.py",  # 514行
     "recon/target_builder.py",  # 511行
-    "recon/rag_pipeline_probe.py",  # 464行
     "recon/guardrail_detector.py",  # 444行
-    "recon/endpoint_sorter.py",  # 439行
+    "recon/api/endpoint_sorter.py",  # 439行 (重构: recon/ -> recon/api/)
     "recon/confidence_scorer.py",  # 425行
-    "recon/a2a_discoverer.py",  # 417行 -> 688行 (v3.0: multi-port scanner added)
-    "recon/openapi_discoverer.py",  # 414行
+    "recon/api/openapi_discoverer.py",  # 414行 (重构: recon/ -> recon/api/)
     # 2026-09-09: 第三批 300-600 行A2A侦察框架文件 (R-DELIVERY-1)
-    "recon/multi_agent_topology.py",  # 369行 (topology analysis + pattern detection)
-    "recon/a2a_defense_awareness.py",  # 306行 (defense detection + evasion)
-    "recon/a2a_attack_planner.py",  # 396行 (attack path planning + risk assessment)
     "recon/target_wrapper.py",  # 374行
-    "recon/recursive_expander.py",  # 366行
-    "recon/system_prompt_extractor.py",  # 358行
+    "recon/api/recursive_expander.py",  # 366行 (重构: recon/ -> recon/api/)
     "recon/trust_chain_probe.py",  # 334行
-    "recon/a2a_agent_card.py",  # 326行
     "recon/trust_level_enum.py",  # 320行
     # 2026-09-09: 攻击面映射框架 (R-DELIVERY-1 豁免: 636行，单一职责)
     "arm/attack_surface_mapper.py",  # 636行，统一攻击面枚举框架
     "recon/target_router.py",  # 311行
-    "strike/malicious_mcp_server.py",  # 476行
-    "strike/backdoor_attack.py",  # 444行
-    "strike/auth_attacks.py",  # 440行
-    "strike/http_attack_engine.py",  # 406行
-    "strike/document_poisoner.py",  # 404行
-    "strike/multimodal_injection.py",  # 374行
-    "strike/dynamic_mcp_seeds.py",  # 352行
-    "strike/_executor_helpers.py",  # 329行
-    "strike/output_filter_bypass.py",  # 310行
+    "strike/injection/auth_attacks.py",  # 440行 (重构: strike/ -> strike/injection/)
     "assess/asr_manager.py",  # 460行
     "assess/asr_stats.py",  # 358行
     "assess/_judge_init.py",  # 329行
@@ -122,7 +102,17 @@ _SIZE_BYPASS_WHITELIST = {
     "report/report_sections.py",  # 423行
     "report/_poc_templates.py",  # 446行
     "tools/hooks.py",  # 304行
-    "strike/_executor_attack_paths.py",  # 324行 - executor内部攻击路径
+    "strike/common/_executor_attack_paths.py",  # 324行 (重构: strike/ -> strike/common/)
+    "strike/common/_executor_helpers.py",  # 329行 (重构: strike/ -> strike/common/)
+    # 2026-09-12: 白名单路径对账 (配合目录重构)
+    # 11 个文件已按重构后的子包路径重映射 (recon/api, recon/model, strike/common, strike/injection)。
+    # 20 个失效条目已移除: 对应文件在重构中重命名/删除，按文件名全仓检索无匹配
+    # (recon/a2a_*, recon/rag_metadata_parser, recon/rag_pipeline_probe, recon/rag_typo_fuzzer,
+    #  recon/system_prompt_extractor, strike/malicious_mcp_server, strike/backdoor_attack,
+    #  strike/mcpsec_orchestrator, strike/web_page_injector, strike/http_attack_engine,
+    #  strike/document_poisoner, strike/multimodal_injection, strike/dynamic_mcp_seeds,
+    #  strike/output_filter_bypass, strike/rag_targeted_consumer, tools/data_flow_validator 等)。
+    # 若这些稳定模块仍需豁免，请提供重构后的新路径，再补回白名单。
 }
 
 # ===============================================================================
@@ -508,7 +498,7 @@ class ArchitectureGuard:
 
 
 # === Quick Check 功能 (合并自 tools/quick_check.py) ===
-_MAX_LINE_LIMIT = 300  # R-DELIVERY-1
+# R-DELIVERY-1 行数阈值已与 R-SIZE 治理统一（见 _check_file_size：850 警告 / 1500 阻塞 + 白名单）。
 _MODULE_DOCSTRING_REQUIRED = True  # R-DELIVERY-5
 
 # Forbidden cross-layer imports (R-DELIVERY-3)
@@ -518,16 +508,39 @@ _FORBIDDEN_CROSS_LAYER = {
 }
 
 
-def _check_file_size(filepath: Path) -> list[str]:
-    """R-DELIVERY-1: Check module line count."""
+def _check_file_size(filepath: Path, project_root: Path | None = None) -> list[str]:
+    """R-DELIVERY-1: 模块行数检查 —— 与 R-SIZE 治理对齐（850 警告 / 1500 阻塞 + 白名单）。
+
+    历史硬编码 300 行阈值会误伤 70+ 个稳定、已充分测试的模块，与项目实际的
+    R-SIZE 治理（850 警告 / 1500 阻塞 + `_SIZE_BYPASS_WHITELIST`）严重不一致，
+    长期成为纯噪声。现统一口径：白名单内豁免；超 850 行警告、超 1500 行阻塞。
+    已手动拆分至 ≤300 行的模块（如 core/resilience.py、core/phases/_component_bridge.py）
+    仍保持整洁，不受阈值放宽影响。
+    """
     violations = []
     try:
         content = filepath.read_text(encoding="utf-8", errors="replace")
-        lines = len(content.splitlines())
-        if lines > _MAX_LINE_LIMIT:
-            violations.append(f"  R-DELIVERY-1 [WARNING] {filepath.name}: {lines} lines (limit: {_MAX_LINE_LIMIT})")
+        line_count = len(content.splitlines())
     except OSError:
-        pass
+        return violations
+
+    # 白名单豁免（与 R-SIZE 一致），兼容 Windows 路径分隔符
+    if project_root is not None:
+        try:
+            rel_path = str(filepath.relative_to(project_root)).replace("\\", "/")
+            if rel_path in _SIZE_BYPASS_WHITELIST:
+                return violations
+        except ValueError:
+            pass
+
+    if line_count >= _SIZE_BLOCKING_THRESHOLD:
+        violations.append(
+            f"  R-DELIVERY-1 [BLOCKING] {filepath.name}: {line_count} lines (limit: {_SIZE_BLOCKING_THRESHOLD})"
+        )
+    elif line_count >= _SIZE_WARNING_THRESHOLD:
+        violations.append(
+            f"  R-DELIVERY-1 [WARNING] {filepath.name}: {line_count} lines (limit: {_SIZE_WARNING_THRESHOLD})"
+        )
     return violations
 
 
@@ -580,7 +593,7 @@ def _check_cross_layer_imports(filepath: Path) -> list[str]:
     return violations
 
 
-def run_quick_check(filepath: Path) -> list[str]:
+def run_quick_check(filepath: Path, project_root: Path | None = None) -> list[str]:
     """Run all quick checks on a single file."""
     if not filepath.exists():
         print(f"Error: {filepath} not found")
@@ -591,7 +604,7 @@ def run_quick_check(filepath: Path) -> list[str]:
         return []
 
     all_violations = []
-    all_violations.extend(_check_file_size(filepath))
+    all_violations.extend(_check_file_size(filepath, project_root))
     all_violations.extend(_check_docstring(filepath))
     all_violations.extend(_check_cross_layer_imports(filepath))
     return all_violations
@@ -611,7 +624,7 @@ def run_quick_check_all(project_root: Path) -> tuple[list[str], list[str]]:
     all_violations = []
     blocking_violations = []
     for f in files:
-        violations = run_quick_check(f)
+        violations = run_quick_check(f, project_root)
         all_violations.extend(violations)
         for v in violations:
             if "[BLOCKING]" in v:

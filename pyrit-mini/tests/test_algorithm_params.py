@@ -30,14 +30,17 @@ def test_crescendo_params_read_from_yaml():
 
 def test_tap_params_read_from_yaml():
     params = tap_params()
-    assert {"width", "depth"} <= set(params)
-    assert isinstance(params["width"], int) and isinstance(params["depth"], int)
+    # P0（2026-09-12）：PyRIT TAPAttack 形参为 tree_width/tree_depth（非 width/depth）。
+    assert {"tree_width", "tree_depth", "branching_factor"} <= set(params)
+    assert isinstance(params["tree_width"], int) and isinstance(params["tree_depth"], int)
+    assert isinstance(params["branching_factor"], int)
 
 
 def test_pair_params_read_from_yaml():
+    # P0：PAIRAttack 无 max_iterations 形参；其迭代深度即 tree_depth。
     params = pair_params()
-    assert "max_iterations" in params
-    assert isinstance(params["max_iterations"], int)
+    assert {"tree_width", "tree_depth"} <= set(params)
+    assert isinstance(params["tree_width"], int) and isinstance(params["tree_depth"], int)
 
 
 def test_yaml_declares_all_algorithm_keys():
@@ -45,14 +48,23 @@ def test_yaml_declares_all_algorithm_keys():
     from core._config_parsers import _load_defaults
 
     defaults = _load_defaults()
-    for key in ("crescendo_max_backtracks", "tap_tree_width", "tap_tree_depth", "pair_max_iterations"):
+    for key in (
+        "crescendo_max_backtracks",
+        "crescendo_max_turns",
+        "tap_tree_width",
+        "tap_tree_depth",
+        # BL-038 接真（CP-003）：`tap_branching` → TAPAttack(branching_factor=...)
+        "tap_branching",
+        "pair_tree_width",
+        "pair_tree_depth",
+    ):
         assert key in defaults, f"defaults.yaml 缺少算法参数 {key}"
 
 
 def test_args_override_yaml_c7_priority():
     """CLI/配置文件优先级高于 defaults.yaml（C7 单向数据流）。"""
-    args = SimpleNamespace(tap_tree_width=9, tap_tree_depth=8)
-    assert tap_params(args) == {"width": 9, "depth": 8}
+    args = SimpleNamespace(tap_tree_width=9, tap_tree_depth=8, tap_branching=4)
+    assert tap_params(args) == {"tree_width": 9, "tree_depth": 8, "branching_factor": 4}
 
 
 def test_unknown_algorithm_returns_empty_and_does_not_crash(caplog):
@@ -63,15 +75,29 @@ def test_unknown_algorithm_returns_empty_and_does_not_crash(caplog):
 
 
 def test_params_are_kwargs_compatible_with_pyrit_constructors():
-    """参数键名必须与 PyRIT 原生攻击类构造参数一致（C1：不得自研命名）。"""
-    assert set(crescendo_params()) == {"max_backtracks"}
-    assert set(tap_params()) == {"width", "depth"}
-    assert set(pair_params()) == {"max_iterations"}
+    """参数键名必须与 PyRIT 原生攻击类构造参数一致（C1：不得自研命名）。
+
+    改为**对真实 PyRIT 签名断言**（不再手工抄写键集合）：任何自研命名或 PyRIT
+    升级导致的 API 失效都会在此暴露（R-DRIFT-1 的功能侧补强）。
+    """
+    import inspect
+
+    from pyrit.executor.attack.multi_turn import CrescendoAttack, PAIRAttack, TAPAttack
+
+    cases = (
+        (crescendo_params(), CrescendoAttack),
+        (tap_params(), TAPAttack),
+        (pair_params(), PAIRAttack),
+    )
+    for params, cls in cases:
+        accepted = set(inspect.signature(cls.__init__).parameters)
+        unknown = set(params) - accepted
+        assert not unknown, f"{cls.__name__} 不接受参数 {sorted(unknown)}（C1：不得自研命名）"
 
 
 def test_pair_params_default_matches_converged_value():
-    """PAIR 的 5/10 双口径必须收敛为单一值。"""
-    assert pair_params()["max_iterations"] == 5
+    """PAIR 的迭代深度 SSOT 收敛：tree_depth 取 pair_tree_depth（消除 5/10 双口径）。"""
+    assert pair_params()["tree_depth"] == 4
 
 
 # ── 4.4：`_is_success` 单一事实源 ───────────────────────────────────────────

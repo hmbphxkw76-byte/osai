@@ -108,6 +108,43 @@ ALL_TARGETS: set[str] = set(TARGET_SEED_MAP.keys())
 # All valid strategy names
 ALL_STRATEGIES: set[str] = set(STRATEGY_MAP.keys()) | set(NON_NATIVE_STRATEGIES) | {"native", "first_success"}
 
+# BL-031 闭合：technique 标签 → Executor 策略。
+# 此前 `ctx.techniques` 只喂 Converter（`build_converter_map`），不驱动执行；
+# 此处把 technique 名映射到 dispatcher 的合法 strategy，使 `--techniques tap`
+# 真正强制 TAPAttack 执行（非仅影响 Converter 链）。归属 REQ-151 PlaybookEngine
+# 的同一调度通道（AttackDispatcher），不新建第二套链机制（C3）。
+TECHNIQUE_STRATEGY_MAP: dict[str, str] = {
+    "tap": "tap",
+    "pair": "pair",
+    "crescendo": "crescendo",
+    "prompt_sending": "prompt_sending",
+    "many_shot": "many_shot",
+    "gcg": "gcg",
+    "figstep": "figstep",
+    "sleeper": "sleeper",
+    "first_success": "first_success",
+}
+
+
+def resolve_technique_strategy(
+    techniques: list[str] | None,
+    target: str | None = None,
+    fallback: str = "prompt_sending",
+) -> str:
+    """BL-031：从 `ctx.techniques` 派生 Executor 策略（首项合法即命中）。
+
+    仅当策略与目标兼容（或在 native/first_success 通用档）时才采纳，否则回退。
+    """
+    if not techniques:
+        return fallback
+    compat = TARGET_STRATEGY_COMPATIBILITY.get(target) if target else None
+    for tech in techniques:
+        strat = TECHNIQUE_STRATEGY_MAP.get(tech)
+        if strat and strat in ALL_STRATEGIES:
+            if compat is None or strat in compat or strat in ("native", "first_success"):
+                return strat
+    return fallback
+
 
 # ============================================================================
 # Attack Dispatcher
@@ -193,6 +230,25 @@ class AttackDispatcher:
         """Get PyRIT attack class path for the current strategy"""
         return STRATEGY_MAP.get(self.strike)
 
+    def bias_strategy_from_techniques(self, ctx: Any) -> str:
+        """BL-031：未显式指定策略（用默认 prompt_sending）且 `ctx.techniques` 提供时，
+        按技术标签派生 Executor 策略，使 `--techniques` 真正驱动执行（非仅 Converter）。
+
+        显式 `--strike` 优先级最高；progressive 模式（strike 即 target）不覆盖。
+        """
+        if self._is_progressive or self.strike != "prompt_sending":
+            return self.strike
+        derived = resolve_technique_strategy(
+            getattr(ctx, "techniques", None) or [], target=self.target,
+            fallback=self.strike,
+        )
+        if derived != self.strike:
+            logger.info(
+                "[DISPATCHER] BL-031: techniques=%s → strategy=%s",
+                getattr(ctx, "techniques", None), derived,
+            )
+        return derived
+
     async def execute(self, ctx: Any) -> DispatchResult:
         """Execute attack pipeline for the configured target + strategy
 
@@ -205,6 +261,9 @@ class AttackDispatcher:
         # If in progressive mode, delegate to progressive executor
         if self._is_progressive:
             return await self.execute_progressive(ctx)
+
+        # BL-031：技术路由闭合——让 ctx.techniques 驱动 Executor 策略选择
+        self.strike = self.bias_strategy_from_techniques(ctx)
 
         logger.info(
             "[DISPATCHER] Target=%s, Strategy=%s, Seeds=%s",

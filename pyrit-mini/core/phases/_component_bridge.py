@@ -28,6 +28,27 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from ._component_inference import (
+    _component_from_graph,
+    _derive_single_from_labels,
+    _extract_prompt_from_result,
+    _infer_component_from_category,
+    _infer_component_from_text,
+    _stamp_multi_labels,
+)
+
+# 重新导出内部助手：保持 `tests/*` 与下游对 `_component_bridge.*` 的直接引用零回归。
+__all__ = [
+    "stamp_component_metadata",
+    "get_component_stats",
+    "_stamp_multi_labels",
+    "_derive_single_from_labels",
+    "_extract_prompt_from_result",
+    "_infer_component_from_text",
+    "_component_from_graph",
+    "_infer_component_from_category",
+]
+
 logger = logging.getLogger(__name__)
 
 
@@ -36,6 +57,7 @@ def stamp_component_metadata(
     seed_metadata_map: dict[str, dict[str, Any]] | None = None,
     *,
     component_graph: Any = None,
+    surface_graph: Any = None,
 ) -> dict[str, list[Any]]:
     """Stamp component_type metadata on attack results.
 
@@ -46,10 +68,18 @@ def stamp_component_metadata(
         3. Existing metadata (category, attack_vector)
         4. RECON 已识别的 ComponentGraph（plan Wave 6：最优来源，优先于纯文本推断）
 
+    IC-1 / IC-3（REQ-150）：除单值 `component_type`（兼容派生视图，W5 删除）外，
+    同时写入**多标签**归属：
+        - `component_labels`   : list[str]           —— 该结果归属的全部组件（IC-3）
+        - `label_confidence`   : dict[str, float]    —— 每个标签的置信度
+        - `graph_ref`          : dict                —— 回指 SurfaceGraph 节点，供取证
+    单值仍由多标签**派生**（置信度最高者），保证下游零回归。
+
     Args:
         attack_results: Dict mapping technique names to lists of AttackResult
         seed_metadata_map: Optional mapping from seed/prompt value to metadata dict
         component_graph: Optional ComponentGraph（core.contracts.component_graph）
+        surface_graph: Optional SurfaceGraph（recon.surface.graph，REQ-150）
 
     Returns:
         The same attack_results dict (modified in-place for efficiency)
@@ -72,6 +102,9 @@ def stamp_component_metadata(
                     result.metadata = meta
                 except AttributeError:
                     continue  # Can't set metadata on this result type
+
+            # IC-1：无论单值是否已盖章，多标签归属都要补齐（幂等）
+            _stamp_multi_labels(meta, technique_name, surface_graph)
 
             if meta.get("component_type"):
                 continue  # Already stamped
@@ -113,6 +146,13 @@ def stamp_component_metadata(
                     meta["component_type"] = comp
                     stamped = True
 
+            # IC-1：单值缺失时，从多标签派生（保证下游 CB-2 永不恒空）
+            if not stamped and meta.get("component_labels"):
+                derived = _derive_single_from_labels(meta)
+                if derived:
+                    meta["component_type"] = derived
+                    stamped = True
+
             if stamped:
                 total_stamped += 1
 
@@ -124,132 +164,6 @@ def stamp_component_metadata(
         )
 
     return attack_results
-
-
-def _extract_prompt_from_result(result: Any) -> str | None:
-    """Extract the original prompt value from an attack result.
-
-    Args:
-        result: AttackResult object
-
-    Returns:
-        Prompt value string or None
-    """
-    # Try various attributes where prompt might be stored
-    for attr in ("prompt", "seed_prompt", "seed_value", "original_prompt"):
-        val = getattr(result, attr, None)
-        if val:
-            if isinstance(val, str):
-                return val
-            # Handle SeedPrompt objects
-            inner_val = getattr(val, "value", None)
-            if inner_val and isinstance(inner_val, str):
-                return inner_val
-    return None
-
-
-def _infer_component_from_text(text: str) -> str | None:
-    """Infer component type from technique/objective text.
-
-    Args:
-        text: Combined technique_name + objective text
-
-    Returns:
-        Component type key or None
-    """
-    text_lower = text.lower()
-
-    # MCP indicators
-    mcp_indicators = ["mcp", "tool", "schema", "server"]
-    if any(ind in text_lower for ind in mcp_indicators):
-        return "mcp_tool_poisoning"
-
-    # A2A indicators
-    a2a_indicators = ["a2a", "agent", "agent_card", "workflow", "trust", "registration"]
-    if any(ind in text_lower for ind in a2a_indicators):
-        return "a2a_agent_integrity"
-
-    # Model indicators
-    model_indicators = ["backdoor", "filter", "persona", "jailbreak"]
-    if any(ind in text_lower for ind in model_indicators):
-        return "model_behavior_shift"
-
-    # RAG indicators
-    rag_indicators = ["rag", "retrieval", "vector", "knowledge_base", "embedding"]
-    if any(ind in text_lower for ind in rag_indicators):
-        return "rag_pipeline"
-
-    # Session/Memory indicators
-    session_indicators = ["session", "memory", "context_leak", "context_persist"]
-    if any(ind in text_lower for ind in session_indicators):
-        return "session_memory"
-
-    # Web/API indicators
-    web_indicators = ["web", "auth", "jwt", "rate_limit", "smuggling", "gateway", "api_scope"]
-    if any(ind in text_lower for ind in web_indicators):
-        return "web_api"
-
-    return None
-
-
-def _component_from_graph(technique_name: str, graph: Any) -> str | None:
-    """从 RECON 识别出的 ComponentGraph 中挑出与该技术最匹配的组件。
-
-    匹配顺序：技术名直接命中组件键 → 技术名命中组件短名/标签 → 图的 dominant 组件。
-    全程只读（IA-6：图缺失或异常返回 None，不抛异常）。
-    """
-    try:
-        nodes = getattr(graph, "nodes", None)
-        if not nodes:
-            return None
-        tech = (technique_name or "").lower()
-
-        # 1) 技术名直接命中组件键
-        for node in nodes:
-            key = str(getattr(node, "component_key", "") or "")
-            if key and (key in tech or key.replace("_", "") in tech.replace("_", "")):
-                return key
-
-        # 2) 取置信度最高的**已确认**节点（跳过组合体推断出的弱节点）
-        confirmed = [n for n in nodes if not (getattr(n, "attributes", None) or {}).get("inferred")]
-        pool = confirmed or list(nodes)
-        if not pool:
-            return None
-        best = max(pool, key=lambda n: float(getattr(n, "confidence", 0.0) or 0.0))
-        return str(getattr(best, "component_key", "") or "") or None
-    except Exception as e:
-        logger.debug("[ComponentBridge] 从组件图推断失败（忽略）: %s", e)
-        return None
-
-
-def _infer_component_from_category(category: str) -> str | None:
-    """Infer component type from metadata category.
-
-    Args:
-        category: Metadata category string
-
-    Returns:
-        Component type key or None
-    """
-    if not category or not isinstance(category, str):
-        return None
-
-    cat_lower = category.lower()
-
-    if cat_lower.startswith("mcp_"):
-        return "mcp_tool_poisoning"
-    if cat_lower.startswith("a2a_") or cat_lower.startswith("agent_"):
-        return "a2a_agent_integrity"
-    if cat_lower.startswith("model_") or "backdoor" in cat_lower or "filter_bypass" in cat_lower:
-        return "model_behavior_shift"
-    if cat_lower.startswith("rag_") or "retrieval" in cat_lower or "vector" in cat_lower:
-        return "rag_pipeline"
-    if cat_lower.startswith("session_") or "memory" in cat_lower or "context_leak" in cat_lower:
-        return "session_memory"
-    if cat_lower.startswith("web_") or cat_lower.startswith("auth_") or "jwt" in cat_lower:
-        return "web_api"
-
-    return None
 
 
 def get_component_stats(

@@ -22,16 +22,28 @@
 并未治愈 C3。所有算法参数可从 YAML 读取这一验收项因此成立。
 """
 
+from strike.strategies.adversarial import (
+    accepted_kwargs,
+    build_adversarial_config,
+    build_native_attack_kwargs,
+)
 from strike.strategies.params import (
     algo_params,
     crescendo_params,
+    many_shot_params,
     pair_params,
+    red_teaming_params,
     tap_params,
 )
 
 __all__ = [
+    "accepted_kwargs",
     "algo_params",
+    "build_adversarial_config",
+    "build_native_attack_kwargs",
     "crescendo_params",
+    "many_shot_params",
     "pair_params",
+    "red_teaming_params",
     "tap_params",
 ]

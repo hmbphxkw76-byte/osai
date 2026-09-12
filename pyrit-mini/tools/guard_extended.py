@@ -1828,8 +1828,9 @@ def check_session_context_integration(self) -> None:
 # 不依赖于特定模块，任意功能优化均自动验证
 # ===============================================================================
 
-# R-DELIVERY-1: 模块行数限制 (建议阈值)
-_DELIVERY_MODULE_LINE_LIMIT = 300
+# R-DELIVERY-1: 模块行数限制阈值统一定义在 tools.guard
+# (_SIZE_WARNING_THRESHOLD=850 / _SIZE_BLOCKING_THRESHOLD=1500 + _SIZE_BYPASS_WHITELIST)，
+# 由 check_delivery_module_size 直接 import 复用，避免重复硬编码/漂移。
 
 # R-DELIVERY-2: 需要测试覆盖的包
 _DELIVERY_PACKAGES_REQUIRING_TESTS = [
@@ -1970,19 +1971,24 @@ _DELIVERY_MODULES_REQUIRING_DOCSTRING = [
 
 
 def check_delivery_module_size(self) -> None:
-    """R-DELIVERY-1: 检查交付模块行数限制 (WARNING)
+    """R-DELIVERY-1: 检查交付模块行数限制 (与 R-SIZE 治理统一)
 
-    确保新增模块遵循单一职责原则，不超过建议行数。
-    通用规则：适用于 strike/recon/arm/assess/core/report/utils 所有包。
-    与 R-SIZE 规则互补：R-SIZE 检查全局 (>850行警告)，
-    R-DELIVERY-1 检查新模块建议 (<300行)。
+    与项目实际的 R-SIZE 治理对齐：**850 行警告 / 1500 行阻塞** + 稳定模块白名单
+    (`_SIZE_BYPASS_WHITELIST`)。历史上硬编码 300 行阈值会误伤 70+ 个稳定、已充分
+    测试的模块，长期成为纯噪声，与 R-SIZE 严重不一致。统一后 R-DELIVERY-1 仍是有效
+    的交付门禁（真正超 850 行的新模块仍会告警/阻塞），但不再对既有的大型稳定模块刷屏。
     """
     Severity, Violation = _get_violation_classes()
 
-    try:
-        from tools.guard import _SIZE_BYPASS_WHITELIST as _bypass_whitelist
-    except ImportError:
-        _bypass_whitelist = set()
+    # 单一真相源：阈值与白名单一律来自 tools.guard，禁止在此重复硬编码。
+    # 若导入失败则显式抛出，避免静默回退到过时的魔法数字导致治理漂移。
+    from tools.guard import (
+        _SIZE_BLOCKING_THRESHOLD,
+        _SIZE_WARNING_THRESHOLD,
+    )
+    from tools.guard import (
+        _SIZE_BYPASS_WHITELIST as _bypass_whitelist,
+    )
 
     for pkg in _DELIVERY_ARCHITECTURE_LAYERS:
         pkg_dir = self.root / pkg
@@ -1999,20 +2005,31 @@ def check_delivery_module_size(self) -> None:
             except OSError:
                 continue
 
-            if line_count > _DELIVERY_MODULE_LINE_LIMIT:
-                rel_path = str(py_file.relative_to(self.root))
-                norm_path = rel_path.replace("\\", "/")
-                if norm_path in _bypass_whitelist:
-                    continue
+            rel_path = str(py_file.relative_to(self.root))
+            norm_path = rel_path.replace("\\", "/")
+            if norm_path in _bypass_whitelist:
+                continue
 
+            if line_count >= _SIZE_BLOCKING_THRESHOLD:
+                self.violations.append(
+                    Violation(
+                        rule="R-DELIVERY-1",
+                        severity=Severity.BLOCKING,
+                        file=rel_path,
+                        line=0,
+                        description=f"模块超过阻塞行数: {rel_path} ({line_count} >= {_SIZE_BLOCKING_THRESHOLD})",
+                        fix_hint=f"必须拆分 {rel_path} 为多个子模块（God Object 风险）",
+                    )
+                )
+            elif line_count >= _SIZE_WARNING_THRESHOLD:
                 self.violations.append(
                     Violation(
                         rule="R-DELIVERY-1",
                         severity=Severity.WARNING,
                         file=rel_path,
                         line=0,
-                        description=f"模块超过建议行数: {rel_path} ({line_count} > {_DELIVERY_MODULE_LINE_LIMIT})",
-                        fix_hint=f"考虑拆分 {rel_path} 为多个子模块，保持单一职责",
+                        description=f"模块超过建议行数: {rel_path} ({line_count} >= {_SIZE_WARNING_THRESHOLD})",
+                        fix_hint=f"建议拆分 {rel_path} 为多个子模块，保持单一职责",
                     )
                 )
 

@@ -273,14 +273,23 @@ async def execute_multi_turn_accumulation(
     """
     from pyrit.executor.attack.multi_turn import CrescendoAttack
 
+    from strike.strategies.adversarial import build_native_attack_kwargs
+
     results: list[Any] = []
 
     try:
         # Use CrescendoAttack for progressive escalation
         # plan Wave 4.3：参数外置到 config/defaults.yaml（SSOT）
+        # P0 修复（2026-09-12）：attack_adversarial_config 为必填（此前缺失 → 静默空转）
+        _kwargs = build_native_attack_kwargs(
+            ctx, CrescendoAttack, crescendo_params(getattr(ctx, "args", None))
+        )
+        if _kwargs is None:
+            logger.warning("[Backdoor] CrescendoAttack 不可构造：缺少 adversarial_target（I5）")
+            return results
         attack = CrescendoAttack(
             objective_target=ctx.objective_target,
-            **crescendo_params(getattr(ctx, "args", None)),
+            **_kwargs,
         )
 
         result = await attack.execute_async(objective=objective)

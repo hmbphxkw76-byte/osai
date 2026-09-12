@@ -50,6 +50,8 @@ __all__ = [
 _FALLBACK_HIGH_CONFIDENCE_THRESHOLD = 0.85
 _FALLBACK_JUDGE_CONCURRENCY = 10
 _FALLBACK_ADAPTIVE_BAND = 0.10
+# 单次 Judge 评分超时兜底（秒）；对应 config/defaults.yaml:scorer_timeout
+_FALLBACK_SCORER_TIMEOUT = 30.0
 
 
 def _defaults_yaml() -> dict[str, Any]:
@@ -107,6 +109,14 @@ def _as_positive_int(value: Any) -> int | None:
     return value if value > 0 else None
 
 
+def _as_positive_float(value: Any) -> float | None:
+    """校验正浮点数（用于秒级超时等非负连续量）。"""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    value = float(value)
+    return value if value > 0 else None
+
+
 def _resolve_high_confidence_threshold(ctx: Any) -> float:
     """解析双裁判高置信阈值：ctx.args > defaults.yaml > 内置兜底（C7）。"""
     return _resolve_from_config(ctx, "dual_judge_high_confidence_threshold", _FALLBACK_HIGH_CONFIDENCE_THRESHOLD, validator=_as_unit_float)
@@ -115,6 +125,46 @@ def _resolve_high_confidence_threshold(ctx: Any) -> float:
 def _resolve_judge_concurrency(ctx: Any) -> int:
     """解析 Judge 并发上限：ctx.args > defaults.yaml > 内置兜底（C7）。"""
     return _resolve_from_config(ctx, "judge_max_concurrency", _FALLBACK_JUDGE_CONCURRENCY, validator=_as_positive_int)
+
+
+async def _score_with_timeout(awaitable: Any, *, timeout: float | None, label: str) -> Any:
+    """用 `asyncio.wait_for` 包裹单次评分调用（C7：`scorer_timeout`）。
+
+    Args:
+        awaitable: `scorer.score_async(...)` 协程。
+        timeout: 秒数；None 表示不限时（配置为非正值时）。
+        label: 日志标签（J1 / J2）。
+
+    Returns:
+        评分结果列表。
+
+    Raises:
+        Exception: 超时或评分异常——由调用方按既有语义降级为空列表。
+    """
+    if timeout is None:
+        return await awaitable
+    return await asyncio.wait_for(awaitable, timeout=timeout)
+
+
+def _resolve_scorer_timeout(ctx: Any) -> float | None:
+    """解析单次评分超时（秒）：ctx.args > defaults.yaml > 内置兜底（C7）。
+
+    BL-038 接真（CP-003）：`scorer_timeout` 此前为零消费者死键；J1/J2 的
+    `score_async` 为**裸 await**（等价 +∞），单个 Judge 卡死会拖垮整个
+    `asyncio.gather`，使本轮评分整体超时 → 全批判 failure（C2 系统性假阴性）。
+    加超时属**纯韧性增强**：仅在卡死时生效，正常路径零行为变更。
+
+    Returns:
+        秒数（>0）；配置为 0 / 负数 / 非数值时返回 None 表示不限制。
+    """
+    raw = _resolve_from_config(
+        ctx, "scorer_timeout", _FALLBACK_SCORER_TIMEOUT, validator=_as_positive_float
+    )
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return float(_FALLBACK_SCORER_TIMEOUT)
+    return value if value > 0 else None
 
 
 def _resolve_adaptive_band(ctx: Any) -> float:
@@ -376,6 +426,9 @@ async def precompute_outcomes_async(
     except Exception:
         _adaptive_threshold = _threshold_baseline
 
+    # BL-038 接真（CP-003）：单次 Judge 评分超时（`scorer_timeout`）。
+    _scorer_timeout = _resolve_scorer_timeout(ctx)
+
     from assess.judge_manager import (
         _get_judge_scorer,
         _heuristic_second_judge_success,
@@ -412,7 +465,11 @@ async def precompute_outcomes_async(
             try:
                 if j1_scorer is None:
                     raise RuntimeError("J1 scorer not found")
-                scores1 = await j1_scorer.score_async(request_response, objective=objective)
+                scores1 = await _score_with_timeout(
+                    j1_scorer.score_async(request_response, objective=objective),
+                    timeout=_scorer_timeout,
+                    label="J1",
+                )
             except Exception:
                 scores1 = []
 
@@ -451,7 +508,11 @@ async def precompute_outcomes_async(
             try:
                 if j2_scorer is None:
                     raise RuntimeError("J2 scorer not found")
-                scores2 = await j2_scorer.score_async(request_response, objective=objective)
+                scores2 = await _score_with_timeout(
+                    j2_scorer.score_async(request_response, objective=objective),
+                    timeout=_scorer_timeout,
+                    label="J2",
+                )
             except Exception:
                 scores2 = []
 

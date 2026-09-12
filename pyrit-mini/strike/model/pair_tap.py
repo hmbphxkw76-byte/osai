@@ -77,28 +77,41 @@ async def execute_pair_attack(
         ctx: PipelineContext.
         target: PyRIT target object.
         objective: Attack objective.
-        max_iterations: Maximum refinement iterations. 为 None 时从
-            config/defaults.yaml:pair_max_iterations 读取（plan Wave 4.3，
+        max_iterations: 迭代精化深度（映射到 PyRIT `tree_depth`）。为 None 时从
+            config/defaults.yaml:pair_tree_depth 读取（plan Wave 4.3，
             消除此前 5 / 10 双口径硬编码）。
 
     Returns:
         Dict with attack results and metadata.
     """
-    # plan Wave 4.3：未显式指定时统一取 SSOT，消除 5/10 双口径
+    # plan Wave 4.3：未显式指定时统一取 SSOT，消除 5/10 双口径。
+    # P0 修复（2026-09-12）：PyRIT 1.0.1 PAIRAttack 无 `max_iterations` 形参，
+    # 其迭代深度即 `tree_depth`；且 `attack_adversarial_config` 为必填。
     if max_iterations is None:
-        max_iterations = int(pair_params(getattr(ctx, "args", None))["max_iterations"])
-    logger.info("[PAIR] Starting PAIR attack (max_iterations=%d)", max_iterations)
+        max_iterations = int(pair_params(getattr(ctx, "args", None))["tree_depth"])
+    logger.info("[PAIR] Starting PAIR attack (tree_depth=%d)", max_iterations)
 
     try:
         from pyrit.executor.attack.multi_turn import PAIRAttack
 
+        from strike.strategies.adversarial import build_native_attack_kwargs
+
+        _kwargs = build_native_attack_kwargs(
+            ctx, PAIRAttack, {**pair_params(getattr(ctx, "args", None)), "tree_depth": max_iterations}
+        )
+        if _kwargs is None:
+            logger.warning("[PAIR] PAIRAttack 不可构造：缺少 adversarial_target（I5）")
+            return {
+                "strategy": "pair",
+                "success": False,
+                "error": "PAIRAttack unavailable: missing adversarial_target",
+            }
         attack = PAIRAttack(
             objective_target=target,
-            attack_strategy=objective,
-            max_iterations=max_iterations,
+            **_kwargs,
         )
 
-        result = await attack.execute_async()
+        result = await attack.execute_async(objective=objective)
 
         success = is_attack_successful(result)
         logger.info("[PAIR] Complete: success=%s", success)
@@ -151,24 +164,37 @@ async def execute_tap_attack(
         Dict with attack results and metadata.
     """
     # plan Wave 4.3：未显式指定时统一取 SSOT，消除 3/3/5 与 3/2/3 多口径硬编码
+    # P0 修复（2026-09-12）：PyRIT 1.0.1 形参名为 tree_width / tree_depth，
+    # 且 `attack_adversarial_config` 为必填；旧调用用 width/depth + attack_strategy
+    # 属 0.x API，构造必抛异常 → 被 except 吞掉后静默失败。
     _defaults = tap_params(getattr(ctx, "args", None))
     if width is None:
-        width = int(_defaults["width"])
+        width = int(_defaults["tree_width"])
     if depth is None:
-        depth = int(_defaults["depth"])
-    logger.info("[TAP] Starting TAP attack (width=%d, depth=%d)", width, depth)
+        depth = int(_defaults["tree_depth"])
+    logger.info("[TAP] Starting TAP attack (tree_width=%d, tree_depth=%d)", width, depth)
 
     try:
         from pyrit.executor.attack.multi_turn import TAPAttack
 
+        from strike.strategies.adversarial import build_native_attack_kwargs
+
+        _kwargs = build_native_attack_kwargs(
+            ctx, TAPAttack, {**_defaults, "tree_width": width, "tree_depth": depth}
+        )
+        if _kwargs is None:
+            logger.warning("[TAP] TAPAttack 不可构造：缺少 adversarial_target（I5）")
+            return {
+                "strategy": "tap",
+                "success": False,
+                "error": "TAPAttack unavailable: missing adversarial_target",
+            }
         attack = TAPAttack(
             objective_target=target,
-            attack_strategy=objective,
-            width=width,
-            depth=depth,
+            **_kwargs,
         )
 
-        result = await attack.execute_async()
+        result = await attack.execute_async(objective=objective)
 
         success = is_attack_successful(result)
         logger.info("[TAP] Complete: success=%s", success)

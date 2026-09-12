@@ -9,8 +9,10 @@ Preserved: only symbols with actual consumers in the attack pipeline.
 from __future__ import annotations
 
 import logging
+import pathlib as _pathlib
 import re as _re
 import sys as _sys
+from functools import lru_cache as _lru_cache
 from typing import TYPE_CHECKING, Any
 
 from utils.attack_utils import _is_success  # P0-3: SSOT import
@@ -50,6 +52,55 @@ if _sys.platform == "win32":
 
 # == Internal: ANSI regex for visual width ==
 _ANSI_RE = _re.compile(r"\033\[[0-9;]*m")
+
+# == 技术展示元数据（C7 SSOT：config/defaults.yaml）==
+# BL-038 接真（CP-003）：`technique_categories` / `technique_converter_descriptions`
+# 此前为零消费者死键，且原注释"display.py 消费"为不实描述（C9）。现由本模块真实消费。
+_DEFAULTS_YAML = _pathlib.Path(__file__).resolve().parents[1] / "config" / "defaults.yaml"
+
+
+@_lru_cache(maxsize=1)
+def _load_display_defaults() -> dict[str, Any]:
+    """读取 config/defaults.yaml（进程内缓存一次）。"""
+    if not _DEFAULTS_YAML.exists():
+        logger.debug("defaults.yaml 缺失：%s（技术展示元数据回退为空）", _DEFAULTS_YAML)
+        return {}
+    try:
+        import yaml
+
+        with open(_DEFAULTS_YAML, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception as e:
+        logger.debug("defaults.yaml 读取失败：%s（技术展示元数据回退为空）", e)
+        return {}
+
+
+def technique_category(tech: str) -> str | None:
+    """返回技术所属分类（SSOT：`defaults.yaml:technique_categories`）。
+
+    Args:
+        tech: 技术名（如 `tap` / `crescendo`）。
+
+    Returns:
+        分类名（如 `multi_turn`）；未登记时返回 None（IA-6：未知不崩溃）。
+    """
+    categories = _load_display_defaults().get("technique_categories")
+    if not isinstance(categories, dict):
+        return None
+    for category, members in categories.items():
+        if isinstance(members, (list, tuple)) and tech in members:
+            return str(category)
+    return None
+
+
+def technique_converter_description(tech: str) -> str | None:
+    """返回技术的 Converter 语义描述（SSOT：`defaults.yaml:technique_converter_descriptions`）。"""
+    descriptions = _load_display_defaults().get("technique_converter_descriptions")
+    if not isinstance(descriptions, dict):
+        return None
+    value = descriptions.get(tech)
+    return str(value) if value is not None else None
 
 
 def _asr_color(asr: float) -> str:
@@ -266,6 +317,14 @@ def print_arm_card(tech: str, seeds_count: int, converters: list[str], max_seeds
         ("Seeds", f"{seeds_count} (max={max_seeds})"),
         ("Converters", ", ".join(converters[:4]) if converters else "raw"),
     ]
+    # BL-038 接真（CP-003）：消费 `technique_categories` / `technique_converter_descriptions`。
+    # 二者此前为零消费者死键；未登记的技术静默省略该行（IA-6：未知不崩溃）。
+    _category = technique_category(tech)
+    if _category:
+        rows.append(("Category", _category))
+    _conv_desc = technique_converter_description(tech)
+    if _conv_desc:
+        rows.append(("Strategy", _conv_desc))
     if ctx:
         budget = getattr(ctx, "probe_budget", None)
         if budget:

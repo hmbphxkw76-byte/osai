@@ -66,6 +66,23 @@ ignore = ["E501"]
 "strike/link_evasion.py" = ["F401"]
 "strike/sql_injection_evasion.py" = ["F401"]
 "strike/stealth_exec.py" = ["F401"]
+# SRP split facades: re-export modules. F401 is intentional (public-API surface);
+# I001 is suppressed so ruff --fix won't reorder imports and disturb the partial-init
+# ordering that avoids latent circular imports (e.g. recon.burp_parser <-> target_builder).
+"arm/converter_chains.py" = ["F401", "I001"]
+"arm/attack_surface_mapper.py" = ["F401", "I001"]
+"core/config.py" = ["F401", "I001"]
+"core/phases/strike.py" = ["F401", "I001"]
+"recon/burp_parser.py" = ["F401", "I001"]
+"recon/health_probe.py" = ["F401", "I001"]
+"report/report_markdown.py" = ["F401", "I001"]
+"report/poc_generator.py" = ["F401", "I001"]
+"core/resilience.py" = ["F401", "I001"]
+"recon/_target_router_helpers.py" = ["F401", "I001"]
+"recon/rag/metadata_parser.py" = ["F401", "I001"]
+"recon/rag/rag_collection.py" = ["F401", "I001"]
+"recon/rag/rag_response_parser.py" = ["F401", "I001"]
+"recon/rag/rag_query_stealth.py" = ["F401", "I001"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

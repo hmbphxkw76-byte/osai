@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -24,8 +25,48 @@ from strike.strategies.params import (
 
 
 @pytest.fixture
-def _ctx() -> SimpleNamespace:
-    return SimpleNamespace(objective_target=MagicMock(), args=SimpleNamespace())
+def pyrit_memory():
+    """PyRIT 1.0.1 的 `AttackAdversarialConfig` / `AttackScoringConfig` 构造需要已初始化的 CentralMemory。
+
+    CentralMemory 是进程级 singleton，用内存库挂上、测试后还原（与
+    `tests/test_native_attack_construction.py` 同款做法）。
+    """
+    from pyrit.memory import CentralMemory, SQLiteMemory
+
+    previous = getattr(CentralMemory, "_memory_instance", None)
+    CentralMemory.set_memory_instance(SQLiteMemory(db_path=":memory:"))
+    try:
+        yield CentralMemory.get_memory_instance()
+    finally:
+        CentralMemory._memory_instance = previous
+
+
+def _make_target():
+    """构造声明了多轮 + 系统提示能力的哑目标（PyRIT 1.0.1 会校验能力）。"""
+    from pyrit.prompt_target import TextTarget
+    from pyrit.prompt_target.common.target_capabilities import TargetCapabilities
+    from pyrit.prompt_target.common.target_configuration import TargetConfiguration
+
+    capabilities = TargetCapabilities(
+        supports_multi_turn=True,
+        supports_multi_message_pieces=True,
+        supports_editable_history=True,
+        supports_system_prompt=True,
+    )
+    return TextTarget(custom_configuration=TargetConfiguration(capabilities=capabilities))
+
+
+@pytest.fixture
+def _ctx(pyrit_memory) -> SimpleNamespace:
+    # I5 三角色分离：需要对抗侧 LLM 的原生攻击（RedTeaming/Crescendo/TAP/PAIR）
+    # 必须能从 ctx 取到 adversarial_target，否则适配器会显式降级（不得静默）。
+    # 该目标必须是真实 PromptTarget 子类（AttackAdversarialConfig 会做 pydantic 校验），
+    # 故用声明了能力的 TextTarget 而非 MagicMock。
+    return SimpleNamespace(
+        objective_target=_make_target(),
+        adversarial_target=_make_target(),
+        args=SimpleNamespace(),
+    )
 
 
 class TestSpecsRegistration:
@@ -67,12 +108,30 @@ class TestExecutorWiring:
         assert cls.call_args.kwargs["total_length"] == 200
 
     def test_red_teaming_passes_max_turns(self, _ctx: SimpleNamespace) -> None:
+        import inspect
+
+        from pyrit.executor.attack import RedTeamingAttack
+
         from strike.model.filter_bypass import execute_red_teaming_attack
 
-        with patch("pyrit.executor.attack.RedTeamingAttack") as cls:
-            cls.return_value.execute_async = AsyncMock(return_value="r")
-            asyncio.run(execute_red_teaming_attack(_ctx, "objective"))
-        assert cls.call_args.kwargs["max_turns"] == 3
+        # 捕获真实构造参数：包装 __init__ 但要**保留真实签名**，否则适配器
+        # `accepted_kwargs` 读不到 max_turns（R-DRIFT-1 会把合法参数当漂移剔掉）。
+        captured: dict[str, Any] = {}
+        real_init = RedTeamingAttack.__init__
+        real_sig = inspect.signature(real_init)
+
+        def _spy_init(self: Any, *args: Any, **kwargs: Any) -> None:
+            captured.update(kwargs)
+            real_init(self, *args, **kwargs)
+
+        _spy_init.__signature__ = real_sig  # 关键：让 inspect.signature 返回真实签名
+
+        with patch.object(RedTeamingAttack, "execute_async", new=AsyncMock(return_value="r")):
+            with patch.object(RedTeamingAttack, "__init__", _spy_init):
+                asyncio.run(execute_red_teaming_attack(_ctx, "objective"))
+        assert captured["max_turns"] == 3
+        assert "attack_adversarial_config" in captured
+        assert "attack_scoring_config" in captured
 
     def test_ctx_args_override_reaches_attack(self, _ctx: SimpleNamespace) -> None:
         from strike.model.filter_bypass import execute_many_shot_attack
@@ -127,8 +186,10 @@ class TestDeadKeysRemoved:
             "best_of_n_retries",
             "tap_tree_width",
             "tap_tree_depth",
-            "pair_max_iterations",
+            "pair_tree_width",
+            "pair_tree_depth",
             "crescendo_max_backtracks",
+            "crescendo_max_turns",
             "many_shot_example_count",
             "chunked_request_chunk_size",
             "chunked_request_total_length",

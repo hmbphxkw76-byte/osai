@@ -61,8 +61,10 @@ from core.resilience import (
     ResiliencePolicy,
     RetryPolicy,
     counts_toward_breaker,
+    is_timeout_error,
     is_transient_error,
     make_retry_policy,
+    make_timeout_retry_policy,
 )
 
 logger = logging.getLogger(__name__)
@@ -125,6 +127,8 @@ class RateLimitedTarget(PromptTarget):
         self._breaker = circuit_breaker
         self._policy = (resilience_policy or ResiliencePolicy()).normalized()
         self._retry_policy: RetryPolicy = retry_policy or make_retry_policy()
+        # 超时档（SSOT：defaults.yaml timeout_max_retries / timeout_max_delay）
+        self._timeout_retry_policy: RetryPolicy = make_timeout_retry_policy()
         self._on_breaker_event = on_breaker_event
 
         # Auth recovery (optional)
@@ -385,14 +389,18 @@ class RateLimitedTarget(PromptTarget):
                 )
             except Exception as e:
                 attempt += 1
-                if attempt >= self._retry_policy.max_attempts or not is_transient_error(e):
+                # BL-038 接真（CP-003）：超时类故障走**独立档位**
+                # （`timeout_max_retries` / `timeout_max_delay`），其余瞬时故障走通用档。
+                policy = self._timeout_retry_policy if is_timeout_error(e) else self._retry_policy
+                if attempt >= policy.max_attempts or not is_transient_error(e):
                     raise
-                delay = self._retry_policy.delay_for(attempt)
+                delay = policy.delay_for(attempt)
                 logger.warning(
-                    "[Resilience] transient failure on %s (attempt %d/%d): %s; retrying in %.2fs",
+                    "[Resilience] transient failure on %s (attempt %d/%d, %s): %s; retrying in %.2fs",
                     self._endpoint,
                     attempt,
-                    self._retry_policy.max_attempts,
+                    policy.max_attempts,
+                    "timeout" if is_timeout_error(e) else "transient",
                     e,
                     delay,
                 )

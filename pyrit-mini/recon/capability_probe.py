@@ -58,6 +58,10 @@ def _load_ssot_int(key: str, default: int) -> int:
 _PROBE_TIMEOUT = _load_ssot_int("deep_probe_timeout", 15)
 _PARALLEL_TIMEOUT = _load_ssot_int("parallel_probe_timeout", 20)
 _MAX_CONCURRENT_PROBES = _load_ssot_int("max_concurrent_probes", 10)
+# BL-038 接真（CP-003）：`probe_retries` 此前为零消费者死键，探测重试次数恒为
+# 硬编码 `retries=1`（即 0 次重试）。PyRIT `discover_target_capabilities_async`
+# 的 `retries` 语义为「总尝试次数」，故最小夹到 1（不得为 0）。
+_PROBE_RETRIES = max(1, _load_ssot_int("probe_retries", 1))
 
 # Secret patterns - generic regex, not target-specific
 _SECRET_PATTERNS = {
@@ -563,7 +567,7 @@ async def _run_pyrit_native_capability_probe(parsed_request: Any) -> Any:
         discovered = await discover_target_capabilities_async(
             target=target,
             per_probe_timeout_s=10.0,
-            retries=1,
+            retries=_PROBE_RETRIES,
             apply=False,
         )
         return discovered

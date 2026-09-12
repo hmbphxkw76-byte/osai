@@ -497,10 +497,18 @@ class ProgressiveStrike:
         try:
             from pyrit.executor.attack.multi_turn import CrescendoAttack
 
+            from strike.strategies.adversarial import build_native_attack_kwargs
+
             # plan Wave 4.3：参数外置到 config/defaults.yaml（SSOT）
+            # P0 修复：CrescendoAttack 的 attack_adversarial_config 为必填（此前缺失 → 静默空转）
+            _kwargs = build_native_attack_kwargs(
+                self.ctx, CrescendoAttack, crescendo_params(getattr(self.ctx, "args", None))
+            )
+            if _kwargs is None:
+                raise RuntimeError("CrescendoAttack 不可构造：缺少 adversarial_target（I5）")
             attack = CrescendoAttack(
                 objective_target=getattr(self.ctx, "objective_target", None),
-                **crescendo_params(getattr(self.ctx, "args", None)),
+                **_kwargs,
             )
 
             # Execute with failed objectives from previous phase
@@ -548,10 +556,18 @@ class ProgressiveStrike:
         try:
             from pyrit.executor.attack.multi_turn import TAPAttack
 
+            from strike.strategies.adversarial import build_native_attack_kwargs
+
             # plan Wave 4.3：参数外置到 config/defaults.yaml（SSOT）
+            # P0 修复：必填 attack_adversarial_config + 形参为 tree_width/tree_depth
+            _kwargs = build_native_attack_kwargs(
+                self.ctx, TAPAttack, tap_params(getattr(self.ctx, "args", None))
+            )
+            if _kwargs is None:
+                raise RuntimeError("TAPAttack 不可构造：缺少 adversarial_target（I5）")
             attack = TAPAttack(
                 objective_target=getattr(self.ctx, "objective_target", None),
-                **tap_params(getattr(self.ctx, "args", None)),
+                **_kwargs,
             )
 
             failed_objectives = getattr(self.ctx, "_failed_objectives", [])
@@ -598,10 +614,18 @@ class ProgressiveStrike:
         try:
             from pyrit.executor.attack.multi_turn import PAIRAttack
 
+            from strike.strategies.adversarial import build_native_attack_kwargs
+
             # plan Wave 4.3：参数外置到 config/defaults.yaml（SSOT）
+            # P0 修复：必填 attack_adversarial_config；PAIRAttack 无 max_iterations 形参
+            _kwargs = build_native_attack_kwargs(
+                self.ctx, PAIRAttack, pair_params(getattr(self.ctx, "args", None))
+            )
+            if _kwargs is None:
+                raise RuntimeError("PAIRAttack 不可构造：缺少 adversarial_target（I5）")
             attack = PAIRAttack(
                 objective_target=getattr(self.ctx, "objective_target", None),
-                **pair_params(getattr(self.ctx, "args", None)),
+                **_kwargs,
             )
 
             failed_objectives = getattr(self.ctx, "_failed_objectives", [])

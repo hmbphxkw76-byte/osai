@@ -31,6 +31,10 @@ class PlaybookStep:
     action: str = "send"
     params: dict[str, Any] = field(default_factory=dict)
     depends_on: list[str] = field(default_factory=list)
+    # --- REQ-154 副作用治理 ---
+    side_effect: bool = False          # 该步产生真实写入（副作用）
+    cleanup: str | None = None         # cleanup 钩子/清理步名（I13：副作用步必须声明）
+    isolated_target: bool = False      # 该步要求隔离靶标（沙箱）执行
 
 
 @dataclass
@@ -61,6 +65,9 @@ def load_playbook(path: str | Path) -> Playbook:
             action=s.get("action", "send"),
             params=s.get("params", {}) or {},
             depends_on=s.get("depends_on", []) or [],
+            side_effect=bool(s.get("side_effect", False)),
+            cleanup=s.get("cleanup"),
+            isolated_target=bool(s.get("isolated_target", False)),
         )
         for i, s in enumerate(doc.get("steps", []))
     ]
@@ -134,21 +141,83 @@ class PlaybookEngine:
         *,
         headers: dict[str, str] | None = None,
         timeout: float = 30.0,
+        dry_run: bool = False,
+        isolated_base_url: str | None = None,
+        cleanup_hooks: dict[str, Any] | None = None,
     ) -> list[StepResult]:
+        """执行 playbook，含 REQ-154 副作用治理。
+
+        Args:
+            dry_run: 真时走通整条链（DAG 顺序/依赖保留）但**不构建/调用真实 adapter**，
+                故副作用步也不会产生真实写入（R10 零 token 验证）。
+            isolated_base_url: 提供时，声明 `isolated_target` 的步路由到此隔离靶标执行。
+            cleanup_hooks: `{钩子名: callable}`；副作用步成功且 `cleanup` 命中时执行，
+                用于复原靶标状态（REQ-154 ④）。
+
+        副作用治理规则（I13 / REQ-154 ②③）：
+            - 非 dry-run 下，副作用步（side_effect=True）若未声明 cleanup → 拒绝执行（不调用 adapter）。
+            - 非 dry-run 下，隔离步（isolated_target=True）若未配置隔离靶标 → 拒绝执行。
+        """
+        cleanup_hooks = cleanup_hooks or {}
         results: list[StepResult] = []
         by_name: dict[str, StepResult] = {}
         for step in _order_steps(playbook.steps):
-            adapter = adapters.build_adapter(
-                url=base_url,
-                kind=step.adapter,
-                headers=headers,
-                timeout=timeout,
-                verify=self._verify,
-            )
+            # --- REQ-154 ②：非 dry-run 下，副作用步必须声明 cleanup（I13） ---
+            if step.side_effect and not dry_run and not step.cleanup:
+                results.append(
+                    StepResult(
+                        name=step.name, adapter=step.adapter, action=step.action,
+                        status="rejected",
+                        data={"error": "side-effect step without cleanup declaration (REQ-154 I13)",
+                              "side_effect": True},
+                    )
+                )
+                by_name[step.name] = results[-1]
+                continue
+
+            # --- REQ-154 ③：隔离目标标记生效（未配置隔离靶标则拒绝非 dry-run 执行） ---
+            if step.isolated_target and not dry_run and not isolated_base_url:
+                results.append(
+                    StepResult(
+                        name=step.name, adapter=step.adapter, action=step.action,
+                        status="rejected",
+                        data={"error": "isolated_target step requires isolated_base_url",
+                              "isolated_target": True},
+                    )
+                )
+                by_name[step.name] = results[-1]
+                continue
+
+            step_url = isolated_base_url if (step.isolated_target and isolated_base_url) else base_url
+
+            # --- REQ-154 ①：dry-run 走通链但不产生真实写入（跳过真实 adapter I/O） ---
+            if dry_run:
+                results.append(
+                    StepResult(
+                        name=step.name, adapter=step.adapter, action=step.action,
+                        status="dry_run",
+                        data={"dry_run": True, "side_effect": step.side_effect,
+                              "isolated_target": step.isolated_target},
+                    )
+                )
+                by_name[step.name] = results[-1]
+                continue
+
+            adapter = None
             try:
+                adapter = adapters.build_adapter(
+                    url=step_url,
+                    kind=step.adapter,
+                    headers=headers,
+                    timeout=timeout,
+                    verify=self._verify,
+                )
                 text, data = await self._dispatch(adapter, step, prompt, by_name)
                 status = "ok"
-            except Exception as e:  # 单步失败不阻断整条 playbook（优雅降级）
+                data = dict(data)
+                data["isolated_target"] = step.isolated_target
+                data["isolated"] = bool(step.isolated_target and isolated_base_url)
+            except Exception as e:  # 单步失败（含适配器构造）不阻断整条 playbook（优雅降级）
                 logger.warning("Playbook step '%s' failed: %s", step.name, e)
                 text, data, status = "", {"error": str(e)}, "error"
             results.append(
@@ -158,14 +227,27 @@ class PlaybookEngine:
                 )
             )
             by_name[step.name] = results[-1]
-            try:
-                closer = adapter.close
-                if inspect.iscoroutinefunction(closer):
-                    await closer()
-                else:
-                    closer()
-            except Exception:
-                pass
+
+            # --- REQ-154 ④：副作用步成功后执行 cleanup 钩子复原靶标状态 ---
+            if status == "ok" and step.side_effect and step.cleanup:
+                hook = cleanup_hooks.get(step.cleanup)
+                if hook is not None:
+                    try:
+                        r = hook()
+                        if inspect.iscoroutine(r):
+                            await r
+                    except Exception as e:
+                        logger.warning("cleanup hook '%s' failed: %s", step.cleanup, e)
+
+            if adapter is not None:
+                try:
+                    closer = adapter.close
+                    if inspect.iscoroutinefunction(closer):
+                        await closer()
+                    else:
+                        closer()
+                except Exception:
+                    pass
         return results
 
     @staticmethod

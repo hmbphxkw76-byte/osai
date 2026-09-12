@@ -88,6 +88,41 @@ def get_tls_verify() -> bool | str:
     return True
 
 
+def get_positive_float(key: str, fallback: float) -> float:
+    """读取 defaults.yaml 中的正浮点标量与 `fallback`。
+
+    BL-038 接真（CP-003）：为 `api_timeout` / `probe_retries` 等此前零消费者的
+    标量键提供统一读取入口，保证 C7「defaults.yaml → config_loader → 调用方」
+    唯一链路；取值非法时 WARNING 留痕并回退（C9 禁止静默）。
+
+    Args:
+        key: defaults.yaml 顶层键名。
+        fallback: 缺失或非法时的兜底值。
+
+    Returns:
+        正浮点数。
+    """
+    config = _load_config()
+    raw = config.get(key, None)
+    if raw is None:
+        logger.warning("%s 未在 defaults.yaml 声明（C7 断链），回退 %s", key, fallback)
+        return fallback
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        logger.warning("%s 取值非法 %r（期望数值），回退 %s", key, raw, fallback)
+        return fallback
+    if value <= 0:
+        logger.warning("%s 必须为正数，实际 %s，回退 %s", key, value, fallback)
+        return fallback
+    return value
+
+
+def get_positive_int(key: str, fallback: int) -> int:
+    """读取 defaults.yaml 中的正整数标量（语义同 `get_positive_float`）。"""
+    return int(get_positive_float(key, float(fallback)))
+
+
 def clear_config_cache() -> None:
     """cache ()"""
     global _cached_config

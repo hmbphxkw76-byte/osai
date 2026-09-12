@@ -26,6 +26,16 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+# 故障分类与瞬时判定（抽出到 `_resilience_classify`，R-DELIVERY-1）——
+# 重新导出以保持 `core.resilience.*` 公共 API 零回归。
+from core._resilience_classify import (
+    classify_status,
+    counts_toward_breaker,
+    is_timeout_error,
+    is_transient_error,
+    status_from_exception,
+)  # noqa: F401
+
 logger = logging.getLogger(__name__)
 
 # 熔断状态
@@ -38,29 +48,6 @@ ON_OPEN_PAUSE = "pause"
 ON_OPEN_SLOW = "slow"
 ON_OPEN_TERMINATE = "terminate"
 ON_OPEN_STRATEGIES: tuple[str, ...] = (ON_OPEN_PAUSE, ON_OPEN_SLOW, ON_OPEN_TERMINATE)
-
-# 瞬时（可重试）HTTP 状态；429 **不在此列**（由 PyRIT 原生重试处理，避免双重退避）
-_TRANSIENT_STATUS = frozenset({408, 500, 502, 503, 504, 507, 509})
-# 计入熔断的失败状态（含 429：限流本身是"目标在拒绝服务"的信号）
-_BREAKER_FAILURE_STATUS = frozenset(_TRANSIENT_STATUS | {429})
-
-_TRANSIENT_EXC_NAMES = frozenset(
-    {
-        "APIStatusError",
-        "InternalServerError",
-        "BadGatewayError",
-        "ServiceUnavailableError",
-        "GatewayTimeoutError",
-        "TimeoutException",
-        "APITimeoutError",
-        "APIConnectionError",
-        "ConnectError",
-        "ReadTimeout",
-        "ConnectTimeout",
-        "RemoteProtocolError",
-        "ServerDisconnectedError",
-    }
-)
 
 
 class CircuitOpenError(RuntimeError):
@@ -98,54 +85,6 @@ class RetryPolicy:
         if not self.jitter:
             return round(raw, 3)
         return round(self._rng.uniform(0.0, raw), 3)
-
-
-def classify_status(status: int | None) -> str:
-    """Map an HTTP status into a resilience category."""
-    if status is None:
-        return "unknown"
-    if 200 <= status < 300:
-        return "success"
-    if status == 429:
-        return "rate_limited"
-    if status in _TRANSIENT_STATUS:
-        return "transient"
-    if status in (401, 403):
-        return "auth"
-    return "permanent"
-
-
-def status_from_exception(exc: BaseException) -> int | None:
-    """Best-effort extraction of an HTTP status code from an exception."""
-    for attr in ("status_code", "http_status", "code"):
-        value = getattr(exc, attr, None)
-        if isinstance(value, int) and 100 <= value < 600:
-            return value
-    response = getattr(exc, "response", None)
-    code = getattr(response, "status_code", None)
-    if isinstance(code, int):
-        return code
-    return None
-
-
-def is_transient_error(exc: BaseException) -> bool:
-    """True for retryable transient failures (5xx / 408 / timeout / connection)."""
-    status = status_from_exception(exc)
-    if status is not None:
-        return status in _TRANSIENT_STATUS
-    name = type(exc).__name__
-    if name in _TRANSIENT_EXC_NAMES:
-        return True
-    text = str(exc).lower()
-    return any(token in text for token in ("timeout", "connection reset", "temporarily unavailable", "502", "503", "504"))
-
-
-def counts_toward_breaker(exc: BaseException) -> bool:
-    """True when the failure should increment the breaker counter (incl. 429)."""
-    status = status_from_exception(exc)
-    if status is not None:
-        return status in _BREAKER_FAILURE_STATUS
-    return is_transient_error(exc)
 
 
 class CircuitBreaker:
@@ -244,7 +183,12 @@ class ResiliencePolicy:
 
 
 def default_settings() -> dict[str, Any]:
-    """Read `config/defaults.yaml:resilience` with module-level fallbacks."""
+    """Read `config/defaults.yaml:resilience` with module-level fallbacks.
+
+    BL-038 接真（CP-003）：`timeout_max_retries` / `timeout_max_delay` 是**顶层**键
+    （不在 `resilience:` 小节内），此前零消费者。现由本函数一并读入，
+    作为超时档重试策略的 SSOT（C7：defaults.yaml → 本函数 → RetryPolicy）。
+    """
     fallback: dict[str, Any] = {
         "breaker_failure_threshold": 5,
         "breaker_cooldown_seconds": 30.0,
@@ -255,6 +199,8 @@ def default_settings() -> dict[str, Any]:
         "retry_base_delay": 1.0,
         "retry_max_delay": 20.0,
         "retry_jitter": True,
+        "timeout_max_attempts": 5,
+        "timeout_max_delay": 120.0,
     }
     try:
         from core._config_parsers import _load_defaults
@@ -263,6 +209,12 @@ def default_settings() -> dict[str, Any]:
         block = data.get("resilience") if isinstance(data, dict) else None
         if isinstance(block, dict):
             fallback.update({k: v for k, v in block.items() if k in fallback})
+        if isinstance(data, dict):
+            # 顶层超时档键 → 小节内键名（保持与 RetryPolicy 形参一致的命名）
+            if isinstance(data.get("timeout_max_retries"), int):
+                fallback["timeout_max_attempts"] = int(data["timeout_max_retries"])
+            if isinstance(data.get("timeout_max_delay"), (int, float)):
+                fallback["timeout_max_delay"] = float(data["timeout_max_delay"])
     except Exception as e:  # 配置不可用不得阻断攻击主链路
         logger.debug("[Resilience] defaults 读取失败，使用内置缺省: %s", e)
     return fallback
@@ -274,6 +226,21 @@ def make_retry_policy(settings: dict[str, Any] | None = None) -> RetryPolicy:
         max_attempts=int(s.get("retry_max_attempts", 3)),
         base_delay=float(s.get("retry_base_delay", 1.0)),
         max_delay=float(s.get("retry_max_delay", 20.0)),
+        jitter=bool(s.get("retry_jitter", True)),
+    )
+
+
+def make_timeout_retry_policy(settings: dict[str, Any] | None = None) -> RetryPolicy:
+    """超时档重试策略（SSOT：`timeout_max_retries` / `timeout_max_delay`）。
+
+    与非超时档共用 `retry_base_delay` / `retry_jitter`，仅覆盖次数与退避上限：
+    超时需要更多尝试与更长等待才有救回价值（见 `is_timeout_error` 说明）。
+    """
+    s = settings or default_settings()
+    return RetryPolicy(
+        max_attempts=int(s.get("timeout_max_attempts", 5)),
+        base_delay=float(s.get("retry_base_delay", 1.0)),
+        max_delay=float(s.get("timeout_max_delay", 120.0)),
         jitter=bool(s.get("retry_jitter", True)),
     )
 

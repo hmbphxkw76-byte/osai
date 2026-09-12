@@ -28,16 +28,27 @@ _DEFAULTS_YAML = _PROJECT_ROOT / "config" / "defaults.yaml"
 
 # 算法参数 → (defaults.yaml 键, 兜底常量)
 # 兜底常量仅在 YAML 缺失/损坏时生效，并会 WARNING 留痕（C9 禁止静默回退）。
+# 参数名必须与 PyRIT 原生攻击类的**构造形参名逐字一致**（C1：不得自研命名）。
+# 2026-09-12 修正：TAP/PAIR 的形参是 `tree_width` / `tree_depth`（不是 `width` / `depth`），
+# PAIRAttack **不存在** `max_iterations` —— 旧映射使三个多轮攻击类构造必然抛异常
+# 并被静默吞掉，L2/L3/L4 升级链 100% 空转。回归见 `tests/test_native_attack_construction.py`。
 _SPECS: dict[str, dict[str, tuple[str, Any]]] = {
     "crescendo": {
         "max_backtracks": ("crescendo_max_backtracks", 2),
+        "max_turns": ("crescendo_max_turns", 10),
     },
     "tap": {
-        "width": ("tap_tree_width", 3),
-        "depth": ("tap_tree_depth", 3),
+        "tree_width": ("tap_tree_width", 3),
+        "tree_depth": ("tap_tree_depth", 3),
+        # BL-038 接真（CP-003）：`tap_branching` 此前为零消费者死键。
+        # 对应 PyRIT TAPAttack(branching_factor=...)，默认 2 与 YAML 值一致 → 零行为变更。
+        "branching_factor": ("tap_branching", 2),
     },
     "pair": {
-        "max_iterations": ("pair_max_iterations", 5),
+        # PAIRAttack 无 `max_iterations` 形参：其"迭代精化轮次"就是 `tree_depth`。
+        # 故以 `pair_tree_depth` 为深度 SSOT，消除与 `pair_max_iterations` 的双口径。
+        "tree_width": ("pair_tree_width", 1),
+        "tree_depth": ("pair_tree_depth", 4),
     },
     # BL-034 接真：以下三类参数此前只被 `_apply_defaults` 拷进 args、**无任何消费者**，
     # 导致 terminal（technique_param_labels）展示的数值与 PyRIT 实际使用的默认值不一致

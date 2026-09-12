@@ -21,6 +21,9 @@ from core.context import PipelineContext
 
 logger = logging.getLogger(__name__)
 
+# L5 路径预算兜底（仅当 ctx.args 未注入 l5_optimal_paths 时生效，与既有 `[:10]` 行为一致）
+_DEFAULT_PATH_BUDGET = 10
+
 # == Converter priority map (SSOT) ==
 # Lower number = higher priority. Based on empirical ASR from academic benchmarks.
 # LLM-Based converters (ASR 30-60%) > Selective (25-40%) > Translation (25-35%) > ...
@@ -329,11 +332,34 @@ def _apply_priority_overrides(
     return priority_map
 
 
+def _resolve_path_budget(ctx: PipelineContext) -> int:
+    """并行攻击路径数上限（C7 SSOT：`config/defaults.yaml:l5_optimal_paths`）。
+
+    BL-038 接真（CP-003）：`l5_optimal_paths` 此前为零消费者死键，实际生效上限是本模块
+    的硬编码 `[:10]`。现改为唯一读取点；YAML 值由 7 上调为 10（NEG-6：只准上调）——
+    依据 C2 ASR 至上：多路径 = SequentialAttack 独立子路径 + FIRST_SUCCESS，
+    下调会直接压低 ASR 上限。边际收益见 Wei et al. (arXiv:2307.15043)。
+
+    Args:
+        ctx: 流水线上下文（`ctx.args.l5_optimal_paths`）。
+
+    Returns:
+        路径数上限整数，clamp 到 [1, 32]（防配置误填导致路径爆炸）。
+    """
+    raw = getattr(getattr(ctx, "args", None), "l5_optimal_paths", None)
+    if not isinstance(raw, int) or isinstance(raw, bool):
+        logger.warning(
+            "l5_optimal_paths 未从 defaults.yaml 注入（C7 断链），回退 10 条路径",
+        )
+        return _DEFAULT_PATH_BUDGET
+    return max(1, min(32, raw))
+
+
 def _get_candidate_converters(ctx: PipelineContext) -> list[Any]:
-    """Select top-10 converter candidates for parallel attack paths.
+    """Select top-N converter candidates for parallel attack paths.
 
     L5 v35: Deduplicate + ASR-prune + priority-rank converters from ctx.converter_map.
-    Returns up to 10 converters (Wei et al. arXiv:2307.15043: >5 paths show diminishing returns).
+    路径数 N 由 `l5_optimal_paths` 决定（C7 SSOT，见 `_resolve_path_budget`）。
 
     Priority order:
         1. OWASP override (from asr_priors.yaml)
@@ -363,8 +389,9 @@ def _get_candidate_converters(ctx: PipelineContext) -> list[Any]:
 
     unique_converters.sort(key=_priority)
 
-    # Top-10 candidates
-    top_candidates = unique_converters[:10]
+    # Top-N candidates（N = l5_optimal_paths，C7 SSOT）
+    _path_budget = _resolve_path_budget(ctx)
+    top_candidates = unique_converters[:_path_budget]
 
     logger.info("Selected %d candidate converters for SequentialAttack", len(top_candidates))
     for i, c in enumerate(top_candidates):

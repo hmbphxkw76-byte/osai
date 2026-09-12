@@ -187,12 +187,18 @@ async def execute_red_teaming_attack(
     """
     from pyrit.executor.attack import RedTeamingAttack
 
+    from strike.strategies.adversarial import build_native_attack_kwargs
     from strike.strategies.params import red_teaming_params
 
     params = red_teaming_params(getattr(ctx, "args", None))
+    # P0 修复（2026-09-12）：RedTeamingAttack 的 attack_adversarial_config 为必填
+    kwargs = build_native_attack_kwargs(ctx, RedTeamingAttack, params)
+    if kwargs is None:
+        logger.warning("[Bypass] RedTeamingAttack 不可构造：缺少 adversarial_target（I5），显式跳过")
+        return None
     attack = RedTeamingAttack(
         objective_target=ctx.objective_target,
-        **params,
+        **kwargs,
     )
     logger.info("[Bypass] RedTeamingAttack via PyRIT native (max_turns=%s)", params.get("max_turns"))
 

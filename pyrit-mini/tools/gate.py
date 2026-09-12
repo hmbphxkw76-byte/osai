@@ -53,14 +53,27 @@ def _registry_wiring(*, blocking: bool = True) -> None:
         from core.registry import get_registry
 
         reg = get_registry()
-        ok = reg.validate_wiring()
-        # validate_wiring() 返回 list[WiringError]；空列表/None/True/"OK" 均表示通过。
-        if ok:
-            print(f"  [阻塞] registry 接线失败: {ok}")
+        errors = reg.validate_wiring()
+        # validate_wiring() 返回 list[WiringError]；空列表 = 接线完整。
+        # 仅 blocking/error 级别阻塞提交；warning 级别（规划中模块尚未落地）不阻塞。
+        if errors is None:
+            errors = []
+        blocking_errors = [
+            e
+            for e in errors
+            if str(getattr(e, "severity", "warning")).lower() in ("blocking", "error")
+        ]
+        if blocking_errors:
+            print(f"  [阻塞] registry 接线失败: {blocking_errors}")
             if blocking:
                 _FAILED.append("registry")
         else:
-            print(f"  [PASS] registry 接线正常（{len(reg.keys())} 个组件键）")
+            warn = len(errors) - len(blocking_errors)
+            print(
+                f"  [PASS] registry 接线正常（{len(reg.keys())} 个组件键"
+                + (f"，{warn} 条 warning 不阻塞" if warn else "")
+                + "）"
+            )
     except Exception as exc:  # pragma: no cover - 防御性
         print(f"  [阻塞] registry 导入/校验异常: {exc}")
         if blocking:

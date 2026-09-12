@@ -220,6 +220,7 @@ class EvidenceCollection:
     # == plan Wave 6：组合体 / 攻击链 / 影响链 / 预算的可交付投影 ==
     # 报告是交付物，识别与链执行的结果必须落到报告里，而不是只留在日志。
     component_graph: dict[str, Any] = field(default_factory=dict)  # ComponentGraph.to_dict()
+    surface_graph: dict[str, Any] = field(default_factory=dict)  # SurfaceGraph.to_dict()（REQ-150）
     attack_chain: dict[str, Any] = field(default_factory=dict)  # StatefulAttackChain.to_dict()
     impact_chains: list[dict[str, Any]] = field(default_factory=list)  # list[ImpactChain.to_dict()]
     impact_gaps: list[dict[str, Any]] = field(default_factory=list)  # 因果链缺口（举证不完整项）
@@ -271,9 +272,12 @@ class EvidenceCollector:
         *,
         target_model: str = "",
         target_fingerprint: dict[str, str] | None = None,
+        surface_graph: Any | None = None,
     ) -> None:
         self._target_model = target_model
         self._target_fingerprint = target_fingerprint or {}
+        # REQ-150：攻击面图谱（多标签 + 置信度 + 信任边界 + 数据流边）
+        self._surface_graph = surface_graph
         # W6: 采集器级单调序号 + 已发号集合，保证 EVD-* 全局唯一（证据文件不被覆盖）
         self._evidence_seq = 0
         self._issued_evidence_ids: set[str] = set()
@@ -386,6 +390,52 @@ class EvidenceCollector:
             "mcp_tool_safety": fp.get("mcp_tool_safety", []),
             "mcp_tool_safety_risky_count": sum(1 for t in fp.get("mcp_tool_safety", []) if t.get("risks")),
         }
+
+        # == REQ-150 / IC-1 / IC-3：多标签归属与图谱反向引用 ==
+        # 单值 `component_type` 无法表达组合体；报告投影同时给出多标签与置信度，
+        # `graph_ref` 使每个 finding 可回溯到 SurfaceGraph 节点（取证可验证）。
+        _surface_graph = getattr(self, "_surface_graph", None) or getattr(self, "surface_graph", None)
+        if _surface_graph is not None:
+            try:
+                collection.attack_surface["component_labels"] = list(_surface_graph.labels())
+                collection.attack_surface["label_confidence"] = {
+                    label: max(
+                        (
+                            float(node.label_confidence.get(label, 0.0))
+                            for node in _surface_graph.nodes
+                            if label in node.labels
+                        ),
+                        default=0.0,
+                    )
+                    for label in _surface_graph.labels()
+                }
+                collection.attack_surface["graph_ref"] = {
+                    "schema_version": getattr(_surface_graph, "schema_version", "1.0"),
+                    "entry_node_id": getattr(_surface_graph, "entry_node_id", "entry"),
+                    "nodes": [
+                        {
+                            "node_id": node.node_id,
+                            "labels": list(node.sorted_labels()),
+                            "trust_boundary": bool(node.trust_boundary),
+                            "evidence": list(node.evidence),
+                        }
+                        for node in _surface_graph.nodes
+                    ],
+                    "edges": [
+                        {"src": e.src, "dst": e.dst, "type": e.type, "confidence": e.confidence}
+                        for e in _surface_graph.edges
+                    ],
+                    "unknown": bool(getattr(_surface_graph, "unknown", False)),
+                    "fallback_labels": list(getattr(_surface_graph, "fallback_labels", []) or []),
+                }
+                collection.surface_graph = _surface_graph.to_dict()
+            except Exception as e:  # 图谱投影失败不得阻断报告（NFR-8）
+                logger.warning("[Evidence] SurfaceGraph 投影失败（降级为无图谱证据）: %s", e)
+        else:
+            # 无图谱时给出显式空值，避免下游 `attack_surface` 键缺失导致 KeyError
+            collection.attack_surface.setdefault("component_labels", [])
+            collection.attack_surface.setdefault("label_confidence", {})
+            collection.attack_surface.setdefault("graph_ref", None)
 
         # OWASP
         owasp_web_stats: dict[str, dict[str, Any]] = {
