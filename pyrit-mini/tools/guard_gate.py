@@ -14,7 +14,42 @@
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
+
+
+def _resolve_git_hooks_dir(root: Path) -> Path | None:
+    """解析真实 git hooks 目录（`pyrit-mini` 可能是仓库子目录）。
+
+    优先 `git rev-parse --git-dir`；失败则向上最多 5 级查找 `.git`。
+    找不到返回 None（非 git 环境，调用方应静默跳过）。
+    """
+    try:
+        # 注意：不传 text=True —— 仓库路径可能含非 ASCII（如 D:/文档/...），
+        # git 输出为 UTF-8，按 locale(GBK) 解码会得到乱码路径并导致误判。
+        proc = subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            cwd=str(root),
+            capture_output=True,
+            check=False,
+        )
+        raw = proc.stdout or b""
+        if proc.returncode == 0 and raw.strip():
+            text = raw.decode("utf-8", errors="replace").strip()
+            git_dir = Path(text)
+            return git_dir if git_dir.is_absolute() else (root / git_dir)
+    except Exception:  # git 不可用
+        pass
+
+    current = root.resolve()
+    for _ in range(5):
+        candidate = current / ".git"
+        if candidate.exists():
+            return candidate
+        if current.parent == current:
+            break
+        current = current.parent
+    return None
 
 # 规约六步（README §2）在 gate.py 中的步骤标识
 _REQUIRED_STEPS = ("guard", "architecture", "ruff", "pytest", "dry-run", "drift", "dataflow")
@@ -87,15 +122,23 @@ def register_gate_checks(guard_cls) -> None:
                     break
 
     def check_hooks_installed(self) -> None:
-        """R-GATE-3: Git 钩子必须已安装（README §2.1 三层防线的 L3）。"""
-        hooks_dir = self.root / ".git" / "hooks"
+        """R-GATE-3: Git 钩子必须已安装（README §2.1 三层防线的 L3）。
+
+        Note: 本目录（`pyrit-mini/`）**常常是仓库子目录**，`.git` 位于上级（真实仓库根）。
+        因此必须用 `git rev-parse --git-dir` 解析，禁止直接拼 `<root>/.git/hooks`
+        ——那样会恒定误报（同 E-12 的路径假设错误）。
+        """
+        git_dir = _resolve_git_hooks_dir(self.root)
+        if git_dir is None:
+            return  # 非 git 环境（如导出包），不产生噪声
+        hooks_dir = git_dir / "hooks"
         missing = [name for name in ("pre-commit", "pre-push") if not (hooks_dir / name).exists()]
         if missing:
             self.violations.append(
                 Violation(
                     rule="R-GATE-3",
                     severity=Severity.WARNING,
-                    file=".git/hooks",
+                    file=str(hooks_dir),
                     line=0,
                     description=f"Git 钩子未安装: {missing}（三层防线实际只有两层）",
                     fix_hint="运行 python -m tools.hooks 安装；无法安装时须在任务汇报声明",
