@@ -2168,6 +2168,11 @@ logging:
 --auto-seeds                        # 自动根据目标模型选择最优种子集
 --max-seeds N                       # 最大种子数量（默认: 50）
 --seed-file FILE                    # 自定义种子文件路径（YAML格式）
+--list-seeds                        # 列出全部可用种子集后退出（默认: False）
+
+# 武器化与攻击路由
+--converters MODE                   # Converter 选择模式（默认: auto；可选 auto / l5_optimal / none / 逗号分隔列表）
+--techniques MODE                   # 攻击技术选择（默认: auto；可选 auto / single / crescendo / 逗号分隔列表）
 
 # 执行控制与并发
 --max-concurrency N                 # 最大并发请求数（默认: 3, 最大: 3 for SQLite WAL）

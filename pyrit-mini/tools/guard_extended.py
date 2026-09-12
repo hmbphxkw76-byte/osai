@@ -1094,7 +1094,7 @@ def check_cli_params_documented(self) -> None:  # type: ignore[override]
                 file=_CONFIG_PATH,
                 line=0,
                 description=f"CLI parameters not documented in red-team-dev-guide.md Appendix D: {', '.join(undocumented[:5])}{'...' if len(undocumented) > 5 else ''}",
-                fix_hint=f"Add the following parameters to docs/guides/red-team-dev-guide.md Appendix D CLI reference: {', '.join(f'--{p}' for p in undocumented[:5])}",
+                fix_hint=f"Add the following parameters to 'docs/red team/red-team-dev-guide.md' Appendix D CLI reference (note the space in the directory name): {', '.join(f'--{p}' for p in undocumented[:5])}",
             )
         )
 
