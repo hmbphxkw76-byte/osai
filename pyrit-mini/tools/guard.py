@@ -167,6 +167,11 @@ class ArchitectureGuard:
             ".idea",
             ".vscode",
             "pyrit_strike.egg-info",
+            # 非代码目录：docs(文档/模板示例)、data(prompt 语料)、config(YAML 配置)
+            # 不是 Python 包，不应参与架构守卫扫描，避免模板示例误报 R-TOOLS-1。
+            "docs",
+            "data",
+            "config",
         }
         self._source_files = []
         for path in self.root.rglob("*.py"):

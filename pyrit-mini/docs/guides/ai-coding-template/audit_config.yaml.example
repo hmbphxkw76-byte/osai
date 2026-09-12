@@ -1,0 +1,64 @@
+# =====================================================================
+# audit_config.yaml — 运行时审计配置（供 guard / 审计脚本读取）
+# 复制为项目根目录的 audit_config.yaml 并按需调整。
+# 对应 ai-dev-guides.md §5.1 与 ai-dev-audit.md §8.1。
+# =====================================================================
+
+project:
+  name: "my-ai-project"
+  root: "."
+
+# 模块目录映射（用于架构 / 依赖审计）
+modules:
+  core: "core"
+  feature: "feature"
+  util: "util"
+  report: "report"
+  data: "data"
+
+# 组件注册（用于组件审计 / 纯净度）
+components:
+  core: ["auth", "api", "db"]
+  extended: []
+
+# 审计阈值
+thresholds:
+  file_size_warning: 850
+  file_size_blocking: 1500
+  min_purity: 0.90
+  min_coverage: 0.60
+  min_seeds_per_component: 3
+
+# 命令绑定（与 template.config.yaml 的 substitutions 保持一致）
+commands:
+  guard: "python -m tools.gate"
+  lint: "ruff check . --fix"
+  test: "pytest tests/ -v"
+  typecheck: "mypy src"
+  drift: "python -m tools.drift_detector"
+  component_audit: "python -m tools.audit_component"
+  dataflow: "pytest tests/test_data_flow.py"
+
+# 跨模型一致性（详见 ai-dev-audit.md §5）
+cross_model:
+  enabled: false
+  models: ["model_a", "model_b", "model_c"]
+  kappa_p0: 0.75
+  kappa_p1: 0.60
+  pearson_r: 0.85
+
+# 规范漂移健康阈值（超过即告警，见 ai-dev-audit.md §7.2）
+drift_health:
+  api_sync_max: 0.01      # DRIFT-API  <1%
+  file_max: 0.02          # DRIFT-FILE <2%
+  version_lock_max: 0.00  # 版本锁定 0 偏离
+  contract_drift_max: 0.05
+  spec_link_max: 0.05
+
+# 门禁豁免（WARNING 无法立即修复时，须审批+过期日，见 ai-dev-audit.md §4.3）
+exemptions: []
+  # - rule: "R-SIZE"
+  #   file: "core/orchestrator.py"
+  #   reason: "单责稳定模块，拆分风险高于收益"
+  #   approved_by: "tech_lead"
+  #   expires: "2026-12-31"

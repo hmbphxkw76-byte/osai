@@ -148,9 +148,14 @@
 **门禁命令的唯一定义见 `specs/README.md` §2**（本文件不重复抄写，避免口径漂移，C3）：
 
 ```bash
+# 统一入口（推荐，等价于下表明细，且被 pre-commit/pre-push 钩子与 CI 自动调用）：
+python -m tools.gate                 # commit 阶段（ruff+guard+registry）
+python -m tools.gate --stage push    # pre-push / CI（再 + drift + data-flow）
+
+# 等效明细：
 python -m tools.guard                              # 1   静态守卫
 python tools/architecture_validator.py full        # 1.5 架构体检
-ruff check .                                       # 2   代码风格
+python -m ruff check .                            # 2   代码风格
 python -m pytest tests/ -q                         # 3   回归测试
 python main.py --dry-run --max-seeds 1             # 4   0-token 运行时验证
 python -m tools.drift_detector --full              # 5   规范漂移（pre-push）

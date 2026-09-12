@@ -53,6 +53,8 @@ python -c "from core.registry import get_registry; print(get_registry().keys())"
 
 宪法 C10。**全部执行、全部通过、缺一不可、顺序固定**。任何文档/脚本引用门禁命令时，必须与本表逐字一致。
 
+> **统一入口（推荐）**：`python -m tools.gate`（commit 阶段）/ `python -m tools.gate --stage push`（pre-push）/ `python -m tools.gate`（CI 全量）。该命令是上表的唯一代码实现（`tools/gate.py`），手写命令易漂移，统一走 `tools.gate`。
+
 | 步 | 命令 | 通过标准 | 拦截什么 |
 |----|------|---------|---------|
 | 1 | `python -m tools.guard` | 0 **新增** BLOCKING | 红线 1A 架构模式违规 |
@@ -67,6 +69,16 @@ python -c "from core.registry import get_registry; print(get_registry().keys())"
 > **纪律**："改动很小"不豁免任何一步；guard 通过 ≠ 代码可用；门禁失败禁止标记任务完成。
 
 **2026-09-11 基线**（变更前后对照用，非验收标准）：guard `0 blocking / 71 warning`；架构体检 `PASS 158 / WARNING 6 / BLOCKING 0`；pytest `1402 passed / 7 skipped`。
+
+### 2.1 自动执行（防跑偏核心保障）
+
+门禁若只靠"记得跑"必然漂移。本项目用三层强制，使**不合规的变更无法进入仓库**：
+
+1. **本地钩子（个人强制）**：`pre-commit` 跑 `tools.gate --stage commit`（ruff+guard+registry），`pre-push` 跑 `--stage push`（再 + drift + data-flow）。任一阻塞项直接中止提交/推送。绕过须显式 `git commit --no-verify`，而**绕过门禁本身即 C10 违例**，须登记 STOP-REPORT。
+2. **CI（团队强制）**：`.github/workflows/spec-gate.yml` 在每次 push/PR 执行全量 `tools.gate`；CI 红灯 = 禁止合并。
+3. **规范漂移回看（周期强制）**：见 §6 / backlog，定期跑 `python -m tools.drift_detector --full` 复核 SSOT 是否仍与代码一致。
+
+> 钩子文件位于 `.git/hooks/`；CI 位于 `.github/workflows/`。两者命令**只许调用 `tools.gate`**，不得各自抄写明细（C3）。
 
 ---
 

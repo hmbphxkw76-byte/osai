@@ -1,0 +1,35 @@
+# audit_config.yaml — 运行时审计配置（供 tools/gate.py 读取）
+# 默认即「开箱即跑」：命令留空 → 自动 SKIP（非阻塞）。
+# 接好工具后，把对应命令从引号注释改为真实命令即可启用拦截。
+project:
+  name: "${PROJECT_NAME}"
+modules:
+  core: "core"
+  feature: "feature"
+  util: "util"
+  report: "report"
+  data: "data"
+components:
+  core: []
+  extended: []
+thresholds:
+  file_size_warning: 850
+  file_size_blocking: 1500
+  min_purity: 0.90
+  min_coverage: 0.60
+commands:
+  # 接入工具后取消注释；留空则 SKIP
+  lint: ""            # e.g. "ruff check . --fix"
+  typecheck: ""       # e.g. "mypy src"
+  test: ""            # e.g. "pytest tests/ -v"（建好 tests/ 再启用，否则会 BLOCK）
+  drift: ""           # e.g. "python -m tools.drift_detector"
+  dataflow: ""        # e.g. "pytest tests/test_data_flow.py"
+cross_model:
+  enabled: false
+drift_health:
+  api_sync_max: 0.01
+  file_max: 0.02
+  version_lock_max: 0.00
+  contract_drift_max: 0.05
+  spec_link_max: 0.05
+exemptions: []

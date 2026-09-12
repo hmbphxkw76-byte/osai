@@ -12,7 +12,7 @@ tools/dev_audit_full.py — 一键开发全审脚本 (A→L)
     F. Data Flow         — py -m pytest tests/common/test_data_flow_integrity.py -v
     G. Drift Detection   — py -m tools.drift_detector --full
     H. Final Check       — py -m tools.guard (R-DELIVERY 规则快速扫描)
-    (Phases I-L removed: one-off audit tools deprecated)
+    (Phases I-L implemented: security/test/dependency/release audit)
     J. Test Audit        — py -m tools.test_audit (覆盖率/质量/边界/隔离/变异)
     K. Dependency Audit  — py -m tools.dependency_audit (版本/许可证/漏洞/树健康/源)
     L. Release Audit     — py -m tools.release_audit (版本/变更日志/生产就绪/回滚/文档)
@@ -134,28 +134,28 @@ AUDIT_PHASES: list[Phase] = [
         id="i",
         name="Security Audit",
         description="密钥扫描 + 漏洞检测 + 注入检测 + 输入验证 + 权限检查",
-        command=None,  # Manual: tools.security_audit module pending implementation
+        command=[sys.executable, "-m", "tools.security_audit"],
         timeout=180,
     ),
     Phase(
         id="j",
         name="Test Audit",
         description="覆盖率分析 + 测试质量 + 边界条件 + 测试隔离 + 变异测试",
-        command=None,  # Manual: tools.test_audit module pending implementation
+        command=[sys.executable, "-m", "tools.test_audit"],
         timeout=300,
     ),
     Phase(
         id="k",
         name="Dependency Audit",
         description="版本一致性 + 许可证合规 + 已知漏洞 + 依赖树健康 + 源验证",
-        command=None,  # Manual: tools.dependency_audit module pending implementation
+        command=[sys.executable, "-m", "tools.dependency_audit"],
         timeout=180,
     ),
     Phase(
         id="l",
         name="Release Audit",
         description="版本号规范 + 变更日志 + 生产就绪 + 回滚验证 + 文档同步",
-        command=None,  # Manual: tools.release_audit module pending implementation
+        command=[sys.executable, "-m", "tools.release_audit"],
         timeout=120,
     ),
 ]

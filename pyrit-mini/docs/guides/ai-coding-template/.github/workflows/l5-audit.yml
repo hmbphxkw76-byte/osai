@@ -1,0 +1,22 @@
+name: L5 Audit
+
+on: [push, pull_request]
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -e ".[dev]"   # 改为项目实际依赖安装方式
+      - name: Architecture guard
+        run: ${GUARD_CMD}
+      - name: Lint
+        run: ${LINT_CMD}
+      - name: Tests
+        run: ${TEST_CMD}
+      - name: Drift detection
+        run: ${DRIFT_CMD}
