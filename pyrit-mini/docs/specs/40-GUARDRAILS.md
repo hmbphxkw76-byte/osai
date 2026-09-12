@@ -3,7 +3,8 @@
 > **文档层级**：L4 / 五层规约金字塔第五层
 > **效力**：红线 = 绝对禁止，视同宪法级（裁决序见 00-CONSTITUTION 第二章）。质量门禁 = 完成任务的必要不充分条件。
 > **执行机制**：三层防线（静态 guard / 运行时 dry-run / git 钩子），继承 SKILL.md D2 条款并收编。
-> **版本**：v3.4（2026-09-12 REV-21：R-L7 顶层目录许可清单同步纳入 `targets/` —— 依 `10-ARCHITECTURE.md` 2.1「靶场层」与 REQ-156，修复检查器白名单滞后于规格的 spec-code drift。REV-20 的 1J-COMPLIANCE 保持有效）
+> **版本**：v3.5（2026-09-12 REV-22：新增 **1K-GATE 门禁本体护栏**（R-GATE-1~3）+ 1F 登记簿同步三条检查器 + BL-070 路径解析纪律；REV-21 的 R-L7 白名单与 REV-20 的 1J-COMPLIANCE 保持有效）
+> **v3.4 摘要**（REV-21）：R-L7 顶层目录许可清单同步纳入 `targets/` —— 依 `10-ARCHITECTURE.md` 2.1「靶场层」与 REQ-156，修复检查器白名单滞后于规格的 spec-code drift。
 > **版本史**：`git log -- docs/specs/40-GUARDRAILS.md`
 
 ---
@@ -258,8 +259,12 @@ pyrit-drift --full --report
 | check_decision_stability | R-DECIDE-3 | WARNING | 自主决策 |
 | check_human_override | R-DECIDE-4 | INFO | 自主决策 |
 | check_decision_data_source | R-DECIDE-5 | WARNING | 自主决策 |
+| check_gate_stage_parity | R-GATE-1 | BLOCKING | 门禁本体 |
+| check_gate_no_silent_skip | R-GATE-2 | BLOCKING | 门禁本体 |
+| check_hooks_installed | R-GATE-3 | WARNING | 门禁本体 |
 
 **保留注记**：
+- **门禁本体检查器落点**：上表三条位于 `tools/guard_gate.py`（未塞进已超限的 `tools/guard_extended.py`，见 BL-053）；由 `tools/guard.py` 的 `_register_gate_checks()` 注册。
 - **specs-guard 联动**: guard 启动时读取 `00-CONSTITUTION.md` 版本号并输出至报告脚注（裁决序基准）；版本不匹配时以 guard 实现为准、规约文档视为待同步。
 - **R9 误报白名单**: `display.py`、`display_stages.py` 中通过 `_resolve('param', default)` 包裹的动态配置读取，视为已修复配置数据流断点（不报 R9）。
 
@@ -346,6 +351,29 @@ pyrit-drift --full --report
 | R-ROE-1 | R-S1（授权边界）/ R-DECIDE-1 | 强化：把"运行期复核"前置到"启动期强制" |
 | R-EVID-1 | R-S3（证据保留）/ 8B（证据完整性字段清单） | 补强：在字段非空之上增加哈希与时间线不可否认性 |
 | R-AUDIT-1 | R-H7（证据注水）/ I12（EventLog 唯一派生源） | 补强：防止证据/审计被事后篡改 |
+
+### 1K-GATE. 门禁本体护栏（v3.5 新增）
+
+> **适用范围**：`tools/gate.py`（统一门禁本体）自身。
+> **为什么需要**：门禁一旦"默默地少跑几步"，C10「全部执行」就形同虚设，而**没有任何其他检查器能发现**
+> ——E-01（声称六步、实际三步，长期未被发现）即由此而来。故把门禁本体纳入被守护范围。
+> **检查器**：`tools/guard_gate.py`（登记簿见 1F）。
+
+| # | 红线 | 级别 | 判定特征 | 检查器 |
+|---|------|------|----------|--------|
+| **R-GATE-1** | **门禁等价**：`tools/gate.py` 的阶段步骤必须覆盖规约声明的全部步骤（NFR-20） | BLOCKING | `COMMIT_STEPS`/`PUSH_STEPS` 缺失 guard/architecture/ruff/pytest/dry-run/drift/dataflow 任一 | `check_gate_stage_parity()` |
+| **R-GATE-2** | **门禁不得静默跳过**：依赖缺失 / 命令不存在 = 环境不合格 = 阻塞（NEG-9） | BLOCKING | gate.py 中出现 `[SKIP]` / "非阻塞" 降级分支 | `check_gate_no_silent_skip()` |
+| **R-GATE-3** | **hooks 在线性**：pre-commit / pre-push 必须已安装（三层防线 L3） | WARNING | 真实 git 目录的 `hooks/` 下缺钩子 | `check_hooks_installed()` |
+
+**R-GATE-* 判定逻辑**：
+- ✅ PASS: 全部通过 → INFO（不阻断）
+- ⚠️ WARNING: R-GATE-3 违规 → 提示安装 `python -m tools.hooks`（无法安装时须在任务汇报 ⚠️ 栏声明）
+- 🔴 BLOCKING: R-GATE-1 阶段不等价 / R-GATE-2 存在静默降级 → **阻断 push**
+
+**路径解析纪律（BL-070 教训）**：`pyrit-mini/` **常为仓库子目录**，真实 `.git` 在上层。
+判定钩子/仓库路径时**必须**用 `git rev-parse --git-dir` 解析，且输出须**显式按 UTF-8 解码**
+（仓库路径含非 ASCII 时，按 locale/GBK 解码会得到乱码路径 → "文件不存在"类假缺陷）。
+禁止硬拼 `<root>/.git/hooks`（BL-045 即因此误判为"钩子未安装"）。
 
 ## 第二章：质量门禁（强制，顺序固定）
 

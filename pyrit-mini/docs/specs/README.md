@@ -27,7 +27,7 @@
 | **L1** | [80-COMPONENT-ARCHITECTURE-RULES.md](80-COMPONENT-ARCHITECTURE-RULES.md) | v2.0 | 组件化规则：双命名空间 / 目录命名 / 新增组件 Checklist | 新增或修改组件时 |
 | **L2** | [20-REQUIREMENTS.md](20-REQUIREMENTS.md) | v3.0 | 需求登记：P0/P1/P2、NFR、NEG。**未登记 = 不存在** | 领取任务时核对验收标准（Step 3） |
 | **L3** | [30-TASKS.md](30-TASKS.md) | v2.3 | 任务协议：生命周期 / 粒度上限 / 八步协议 / STOP-REPORT / 三栏汇报 | 每次编码任务全程 |
-| **L4** | [40-GUARDRAILS.md](40-GUARDRAILS.md) | v3.4 | 红线 R-* / 门禁纪律 / 三层防线 / 交付验证清单 / 考试合规 | 编码后验证（Step 7） |
+| **L4** | [40-GUARDRAILS.md](40-GUARDRAILS.md) | v3.5 | 红线 R-* / 门禁纪律 / 三层防线 / 交付验证清单 / 考试合规 | 编码后验证（Step 7） |
 | 配套 | [50-ROADMAP.md](50-ROADMAP.md) | v1.12 | 任务序列、考试 Runbook、考纲映射。**无裁决权威** | 领取下一个任务时 |
 | 配套 | [55-ATTACK-GAP-CLOSURE.md](55-ATTACK-GAP-CLOSURE.md) | v1.8 | 攻击面缺口登记处（R-DOC-2 依赖，**路径勿改**） | 新增攻击模块时登记 |
 | 配套 | [60-CROSS-MODEL-VERIFICATION.md](60-CROSS-MODEL-VERIFICATION.md) | v1.0 | 跨模型审查协议（C14 落地） | 变更 L0–L4 规约时 |
@@ -50,24 +50,44 @@ python -c "from core.registry import get_registry; print(get_registry().keys())"
 
 ---
 
-## 2. 唯一门禁（SSOT —— 其他文档只准引用本表）
+## 2. 唯一门禁（SSOT —— 命令以代码为准，文档只描述阶段）
 
-宪法 C10。**全部执行、全部通过、缺一不可、顺序固定**。任何文档/脚本引用门禁命令时，必须与本表逐字一致。
+宪法 C10。**全部执行、全部通过、缺一不可、顺序固定**。
 
-> **统一入口（推荐）**：`python -m tools.gate`（commit 阶段）/ `python -m tools.gate --stage push`（pre-push）/ `python -m tools.gate`（CI 全量）。该命令是上表的唯一代码实现（`tools/gate.py`），手写命令易漂移，统一走 `tools.gate`。
+> ### ⚠️ 命令的唯一权威是 `tools/gate.py`，不是本表（ADR-009 / NFR-20）
+>
+> 本表只描述"**阶段 → 步骤 → 拦截什么**"。具体命令行由代码生成：
+>
+> ```bash
+> python -m tools.gate --describe     # 输出 commit / push 两阶段的完整步骤清单
+> ```
+>
+> 任何文档、钩子、CI **禁止手抄命令**——历史教训：本表曾长期声称 `tools.gate`
+> 是"唯一代码实现"，而 gate 实际只跑了六步中的三步（E-01），手抄表无法发现这类失效。
+> 现在由 `R-GATE-1` 检查器守护"阶段覆盖 ≡ 规约步骤"，不等价即 BLOCKING。
 
-| 步 | 命令 | 通过标准 | 拦截什么 |
-|----|------|---------|---------|
-| 1 | `python -m tools.guard` | 0 **新增** BLOCKING | 红线 1A 架构模式违规 |
-| 1.5 | `python tools/architecture_validator.py full` | 0 BLOCKING | 阶段边界 / 组件传播 / 模块路由 / 组件接线 |
-| 2 | `ruff check .` | 0 违规 | 风格 / 导入 / 未用变量 |
-| 3 | `python -m pytest tests/ -q` | 0 失败 | 功能回归 |
-| 4 | `python main.py --dry-run --max-seeds 1` | 无 ImportError/AttributeError/KeyError/TypeError，到达 REPORT | 运行时数据流断点 |
-| 5 | `python -m tools.drift_detector --full` | 0 BLOCKING | 规范↔代码漂移 |
-| 6 | `python -m pytest tests/common/test_data_flow_integrity.py -q` | 全部通过 | ctx 字段契约违规 |
+**统一入口（唯一）**：
 
-> 步骤 5/6 为 `pre-push` 强制；步骤 1–4 为每次变更后强制。
+| 场景 | 命令 |
+|------|------|
+| 每次变更后 | `python -m tools.gate --stage commit` |
+| pre-push / CI | `python -m tools.gate --stage push` |
+
+**阶段 → 步骤映射**（名称与 `tools/gate.py` 的 `STEP_DESCRIPTIONS` 一一对应）：
+
+| 阶段 | 步骤 | 拦截什么 |
+|------|------|---------|
+| **commit** | 1 `guard` · 1.5 `architecture` · 2 `ruff` · 4 `dry-run` | 红线违规 / 架构越界 / 风格 / 运行时数据流断点 |
+| **push**（含上列全部） | 3 `pytest` · 5 `drift` · 6 `dataflow` · 7 `e2e` | 功能回归 / 规范↔代码漂移 / ctx 契约 / 靶场端到端 |
+
+> **为什么 `dry-run` 在 commit、`pytest` 在 push**（裁决 CP-004 §8.7 D-6）：`dry-run` 是唯一
+> 0-token 的运行时证据，能在秒级发现 `ImportError`/`AttributeError`/`KeyError`/`TypeError`
+> ——静态 guard 抓不到这类断点；`pytest` 全量放 commit 会诱导 `--no-verify`，
+> 而绕过 hooks 比"晚一点发现"危险得多（40-G 第三章）。
+>
+> **禁止静默跳过**（NEG-9 / R-GATE-2）：依赖缺失 = 环境不合格 = 阻塞，不降级为 SKIP。
 > **纪律**："改动很小"不豁免任何一步；guard 通过 ≠ 代码可用；门禁失败禁止标记任务完成。
+> `tests/e2e/` 未落地前，e2e 步显式 INFO 跳过并登记 `BL-056`/`BL-069`（落地即改阻塞）。
 
 **2026-09-11 基线**（变更前后对照用，非验收标准）：guard `0 blocking / 71 warning`；架构体检 `PASS 158 / WARNING 6 / BLOCKING 0`；pytest `1402 passed / 7 skipped`。
 
@@ -77,7 +97,7 @@ python -c "from core.registry import get_registry; print(get_registry().keys())"
 
 门禁若只靠"记得跑"必然漂移。本项目用三层强制，使**不合规的变更无法进入仓库**：
 
-1. **本地钩子（个人强制）**：由 `tools/hooks.py` 安装（运行 `python -m tools.hooks` 自动写入真实仓库根的 `.git/hooks/`，并定位 `pyrit-mini` 子目录）。`pre-commit` 跑 `tools.gate --stage commit`（ruff+guard+registry），`pre-push` 跑 `--stage push`（再 + drift + data-flow）。任一阻塞项直接中止提交/推送。绕过须显式 `git commit --no-verify`，而**绕过门禁本身即 C10 违例**，须登记 STOP-REPORT。
+1. **本地钩子（个人强制）**：由 `tools/hooks.py` 安装（运行 `python -m tools.hooks` 自动写入真实仓库根的 `.git/hooks/`，并定位 `pyrit-mini` 子目录）。`pre-commit` 跑 `tools.gate --stage commit`（guard + 架构体检 + ruff + dry-run + registry 接线），`pre-push` 跑 `--stage push`（再 + pytest 全量 + drift + dataflow + e2e）。任一阻塞项直接中止提交/推送。绕过须显式 `git commit --no-verify`，而**绕过门禁本身即 C10 违例**，须登记 STOP-REPORT。
 2. **CI（团队强制）**：仓库根 `.github/workflows/spec-gate.yml`（`working-directory: pyrit-mini`）在每次 push/PR 执行全量 `tools.gate`；CI 红灯 = 禁止合并。
 3. **规范漂移回看（周期强制）**：见 §6 / backlog，定期跑 `python -m tools.drift_detector --full` 复核 SSOT 是否仍与代码一致。
 
@@ -101,15 +121,21 @@ python -c "from core.registry import get_registry; print(get_registry().keys())"
 
 | 命令 | 等价模块调用 | 用途 |
 |------|-------------|------|
+| `pyrit-gate [--stage commit\|push\|all] [--describe]` | `python -m tools.gate` | **统一门禁（唯一入口，见 §2）** |
 | `pyrit-guard` | `python -m tools.guard` | 宪法守卫 |
 | `pyrit-drift [--full] [--report]` | `python -m tools.drift_detector` | 规范漂移检测 |
 | `pyrit-dataflow` | `python -m tools.dataflow.validator` | 数据流完整性 |
-| `pyrit-cross [--full\|--light]` | `python -m tools.cross_model_review` | 跨模型规约审查 |
-| `pyrit-quick <file>` | `python -m tools.quick_check` | 单文件快速检查 |
-| `pyrit-watch` | `python -m tools.watch_guard` | 实时文件监视 |
 | `pyrit-hooks` | `python -m tools.hooks` | 安装 Git hooks |
+| `pyrit-mock-range` | `python -m tools.mock_range` | Mock 靶场起停（`--up/--down/--list/--check`） |
+| `pyrit-oob` | `python -m tools.oob_listener` | OOB 外传回执接收（IC-5） |
+| `pyrit-poc` | `python -m tools.poc` | PoC 复跑验证 |
+| `pyrit-*` 审计族 | `tools.{security,test,dependency,component,dev,release}_audit` | 安全/测试/依赖/组件/开发/发布审计 |
 
-> 别名规律：`python -m tools.<x>` = `pyrit-<x>`（entry_points 注册）。
+> **2026-09-12 修正（BL-042）**：原表 `pyrit-cross` / `pyrit-quick` / `pyrit-watch` 三条指向
+> `tools.cross_model_review` / `tools.quick_check` / `tools.watch_guard` —— **三者均不存在**
+> （已并入 `guard.py`），属 D5 违规，已删除。
+> 别名规律：`python -m tools.<x>` = `pyrit-<x>`（entry_points 注册）；**新增/删除工具必须同批
+> 同步本表与 `pyproject.toml` 的 `[project.scripts]`**（NFR-24）。
 > CLI 参数以 `main.py` 与 `core/config.py` 的 argparse 定义为唯一权威（运行 `python main.py --help` 即得完整清单）；specs 不另立参数文档（R-DOC-1 的 SSOT 目标即代码本身）。
 
 ---
