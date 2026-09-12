@@ -636,12 +636,20 @@ async def _run_file_upload_phase(ctx: "PipelineContext") -> None:
     try:
         print_phase("STRIKE", "File Upload Attack (Document Injection)...")
 
-        from strike.injection.file_upload_executor import run_file_upload_attack
+        from strike.multimodal_upload.file_upload_executor import run_file_upload_attack
 
         upload_report = await run_file_upload_attack(ctx)
 
+        # I13：被 cleanup preflight 拒绝 → 不产生副作用、不计入攻击结果（禁止静默放行）
+        if upload_report.get("status") == "blocked":
+            logger.warning("[FileUpload] Blocked by I13: %s", upload_report.get("reason", "unknown"))
+            return
+
         # Store results in ctx.attack_results
         if upload_report.get("status") == "success":
+            _cleanup = upload_report.get("cleanup") or {}
+            if _cleanup.get("status") == "failed":
+                logger.warning("[FileUpload] cleanup incomplete: %s", _cleanup.get("failed"))
             if "file_upload" not in ctx.attack_results:
                 ctx.attack_results["file_upload"] = []
             ctx.attack_results["file_upload"].append(upload_report)

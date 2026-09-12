@@ -470,6 +470,30 @@ async def run_file_upload_attack(ctx: Any) -> dict[str, Any]:
     if not upload_files:
         return {"status": "error", "reason": "No upload files specified (--upload-files)"}
 
+    # I13：副作用步执行前先做 cleanup preflight —— 声明的 cleanup 动作必须已实装，
+    # 否则非 dry-run 一律拒绝执行（不静默放行，C9 / R-H2）。
+    from strike.multimodal_upload.cleanup import (
+        extract_doc_id,
+        preflight_cleanup,
+        run_side_effect_cleanup,
+    )
+
+    dry_run = bool(getattr(args, "dry_run", False))
+    preflight = preflight_cleanup(ctx, "multimodal_upload", dry_run=dry_run)
+    if not preflight.get("allowed", False):
+        logger.warning("[FileUpload] blocked by I13 cleanup preflight: %s", preflight.get("reason"))
+        if hasattr(ctx, "orchestration_log"):
+            ctx.orchestration_log.append(
+                {
+                    "phase": "strike",
+                    "decision": "file_upload_blocked_by_i13",
+                    "input": {"target": target_url, "upload_endpoint": upload_endpoint},
+                    "output": {"status": "blocked"},
+                    "reasoning": str(preflight.get("reason")),
+                }
+            )
+        return {"status": "blocked", "reason": preflight.get("reason"), "cleanup": preflight}
+
     # Try to get target from burp parsed request
     if not target_url:
         parsed = getattr(ctx, "parsed_request", None)
@@ -538,12 +562,36 @@ async def run_file_upload_attack(ctx: Any) -> dict[str, Any]:
             }
         )
 
+    # I13：副作用清理 —— 上传会在目标侧留下持久文档，必须清理并如实记录结果。
+    doc_ids = [
+        doc_id
+        for upload in result.upload_results
+        if (doc_id := extract_doc_id(getattr(upload, "response_body", None)))
+    ]
+    cleanup_report = await run_side_effect_cleanup(
+        ctx,
+        "multimodal_upload",
+        {
+            "target_url": target_url,
+            "upload_endpoint": upload_endpoint,
+            "doc_ids": doc_ids,
+            "headers": headers or None,
+        },
+        dry_run=dry_run,
+    )
+    if cleanup_report.get("status") == "failed":
+        logger.warning(
+            "[FileUpload] cleanup failed (target may retain uploaded docs): %s",
+            cleanup_report.get("failed"),
+        )
+
     return {
         "status": "success" if result.success else "failed",
         "target": result.target_url,
         "uploads": result.total_uploads,
         "errors": result.errors,
         "trigger_response": result.trigger_result.response_body if result.trigger_result else None,
+        "cleanup": cleanup_report,
     }
 
 

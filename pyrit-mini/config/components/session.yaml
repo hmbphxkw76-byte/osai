@@ -5,7 +5,9 @@
 
 schema_version: "1.0"
 component_key: session_memory
-id: memory_session_tenant
+# IA-8：`id` 必须等于 YAML 文件名 stem（session）。原值 `memory_session_tenant` 实测零消费方，
+#       语义不丢失（仍保留在 labels 内），仅修正 id/stem 漂移。
+id: session
 display_name: "Session / Memory / Tenant Isolation"
 labels: [session_memory, memory_session_tenant, session, memory, tenant]
 

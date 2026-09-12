@@ -46,7 +46,7 @@ strike_modules:
   - strike.model.pair_tap
   - strike.injection.indirect_pi
   - strike.injection.doc_poisoner
-  - strike.injection.file_upload_executor
+# 文件上传执行器已迁出并归 `multimodal_upload` 组件所有（C3：禁止跨组件双重归属）
 playbooks: [model_jailbreak_ladder, model_filter_bypass]
 
 assess:

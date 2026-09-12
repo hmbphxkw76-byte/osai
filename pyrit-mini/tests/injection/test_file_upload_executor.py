@@ -26,7 +26,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 # Module under test
-from strike.injection.file_upload_executor import (
+from strike.multimodal_upload.file_upload_executor import (
     FileUploadAttackResult,
     TriggerResult,
     UploadConfig,

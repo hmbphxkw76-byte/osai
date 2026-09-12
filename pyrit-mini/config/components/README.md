@@ -27,8 +27,12 @@
 
 ## 一期 9 类组件（W4 落齐）
 
-`model` `agent` `mcp` `a2a` `rag` `multimodal_upload` `memory_session_tenant`
-`web_infra` `supply_chain`（末者为侦察级，不计入 ASR 分母）
+`model` `agent` `mcp` `a2a` `rag` `multimodal_upload` `session`
+`web_api` `supply_chain`（末者为侦察级，不计入 ASR 分母）
+
+> **`id` 纪律（IA-8）**：`id` 必须等于 YAML 文件名 stem；目录由 `recon_dir` / `strike_dir`
+> **显式声明**，不由 `id` 推导（同一目录可被多组件声明使用，如 `strike_dir: web`）。
+> 2026-09-12 修正：`web_infra`→`web_api`、`memory_session_tenant`→`session`（二者实测零消费方）。
 
 ## 示例
 

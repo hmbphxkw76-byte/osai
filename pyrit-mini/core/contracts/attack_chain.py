@@ -8,7 +8,7 @@
 复用既有资产（接线而非重写）：
     strike/common/escalation_runtime.py:294 run_escalation_chain    → 线性升级链雏形
     strike/injection/indirect_pi.py:319 generate_recursive_attack_chain
-    strike/injection/file_upload_executor.py:341 execute_file_upload_attack_chain
+    strike/multimodal_upload/file_upload_executor.py:341 execute_file_upload_attack_chain
     strike/web/link_evasion.py:265 generate_gradual_injection_chain
     strike/evasion/sql.py:243 generate_gradual_escalation_chain
     strike/session/session_manager.py:36 SessionStateManager

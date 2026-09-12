@@ -1,0 +1,65 @@
+# config/components/multimodal_upload.yaml — 多模态 / 文件上传攻击面（组件声明 SSOT）
+#
+# 覆盖：multipart 上传载体构造 → 上传 → 二次触发端点 → 响应验证（构造/上传/触发/验证四步链）。
+# 学术依据：
+#   - Greshake et al. (arXiv:2302.12173) 间接 Prompt 注入（文档载体）
+#   - Zou et al. (arXiv:2406.04245) PoisonedRAG（知识库投毒）
+#   - Shayegani et al. (arXiv:2306.13254) 多模态文档载体
+# 裁决来源：CP-004 §8.2/§8.9（P1-R2：multipart + 二次触发 = 与单轮 prompt 不同的可利用原语）。
+# 实现落点：`strike/multimodal_upload/file_upload_executor.py`（**迁移**自 `strike/injection/`，
+#           非新建执行器；`strike/injection/` 保留为跨组件共享位）。
+
+schema_version: "1.0"
+component_key: multimodal_upload
+id: multimodal_upload
+display_name: "Multimodal / File Upload Attack Surface"
+labels: [multimodal_upload, upload, document, multimodal, indirect_injection]
+
+recon_dir: web
+strike_dir: multimodal_upload
+
+detection:
+  path_patterns: ["/upload", "/ingest", "/kb", "/attachment", "/document", "/file", "/import"]
+  body_markers: ["multipart/form-data", "filename", "content-type: application/pdf", "Content-Disposition"]
+  active_probes: ["recon.web.web_input_mapper"]
+  signals: ["multipart/form-data", "filename", "Content-Disposition", "upload"]
+  min_confidence: 0.50
+
+recon_modules:
+  - recon.web.web_input_mapper
+service_profile_keys: ["upload_surface", "document_processing"]
+
+# 专用种子集待补：当前复用 web 种子目录（data/seeds/web/ 实测存在）。
+# 登记 backlog：新增 data/seeds/_attack_surface/T*_UPLOAD_* 种子集。
+seed_sets:
+  - "data/seeds/web/"
+seeds: ["data/seeds/web/*"]
+seed_suitable_for: ["multimodal_upload"]
+converter_vectors: ["split_document_injection", "poisoned_rag_upload", "metadata_injection"]
+
+# C1 PyRIT 原生优先：触发步经 PromptSendingAttack 投递；上传步为 C13 企业扩展（HTTP multipart）。
+preferred_attack_class: "PromptSendingAttack"
+asr_prior: 0.75
+
+strike_modules:
+  - strike.multimodal_upload.file_upload_executor
+
+# 判定复用 model_behavior_shift rubric：文档间接注入的成立判据 = 目标是否执行了文档内指令
+# （属模型行为改变）。专用 rubric 待补，登记 backlog。
+assess:
+  t0_check: "assess.component_scorers:t0_model_behavior_shift_check"
+  rubric: "data/scorers/component_scorers/model_behavior_shift.yaml"
+scorer: model_behavior_shift
+
+report_builder: "report.component_reports:_build_model_behavior_shift_sections"
+report_section: "report.component_reports.model"
+poc_template: "report.component_poc:web_poc"
+
+owasp: ["LLM01", "LLM03"]
+# 上传面之上通常挂 RAG（投毒目标），入口侧是 web_api
+neighbors: ["rag_pipeline", "model_behavior_shift", "web_api"]
+
+# I13：未声明 cleanup 的副作用步禁止在非 dry-run 下执行。
+# `delete_uploaded_document` 已声明但**尚未实现** → 在其实装前，含上传的副作用步
+# 只能在 dry-run 下执行（登记 backlog，实装为本组件 P0 前置）。
+cleanup: [delete_uploaded_document]

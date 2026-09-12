@@ -6,10 +6,13 @@
 
 schema_version: "1.0"
 component_key: web_api
-id: web_infra
+# IA-8：`id` 必须等于 YAML 文件名 stem（web_api）。原值 `web_infra` 实测零消费方，
+#       语义不丢失（仍保留在 labels 内），仅修正 id/stem 漂移。
+id: web_api
 display_name: "Web / API Gateway Layer"
 labels: [web_api, web_infra, web, api, gateway]
 
+# 目录由 recon_dir / strike_dir 显式声明（非由 id 推导）
 recon_dir: api
 strike_dir: web
 
