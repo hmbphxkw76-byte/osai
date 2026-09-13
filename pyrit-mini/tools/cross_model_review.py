@@ -42,12 +42,38 @@ def _get_violation_classes():
     return Severity, Violation
 
 
+def _git_repo_root() -> Path:
+    """返回 git 仓库根（兼容 pyrit-mini 作为父仓库子目录的拓扑，BL-070 同源）。"""
+    try:
+        out = (
+            subprocess.run(
+                ["git", "rev-parse", "--show-toplevel"],
+                cwd=str(ROOT),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                check=False,
+            )
+            .stdout.strip()
+        )
+        return Path(out) if out else ROOT
+    except Exception:
+        return ROOT
+
+
 def _specs_changed() -> bool:
-    """工作区是否含 docs/specs 变更（staged / unstaged / untracked）。"""
+    """工作区是否含 docs/specs 变更（staged / unstaged / untracked）。
+
+    仓库拓扑兼容：pyrit-mini 可能是父仓库（如 osai）的子目录，git pathspec 相对
+    cwd 解析会失效（曾导致跨模型检查器在 specs 改动时静默跳过、永不告警）；故改用
+    「仓库根 + 全量 status + 按 SPECS_DIR 前缀过滤」，使 R-CROSS-1 在 specs 变更时
+    必然触发 WARNING 降级（而非静默无感）。
+    """
+    repo_root = _git_repo_root()
     try:
         proc = subprocess.run(
-            ["git", "status", "--porcelain", "--", "docs/specs"],
-            cwd=str(ROOT),
+            ["git", "status", "--porcelain"],
+            cwd=str(repo_root),
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -55,7 +81,15 @@ def _specs_changed() -> bool:
         )
     except FileNotFoundError:
         return False
-    return bool(proc.stdout.strip())
+    specs_root = SPECS_DIR.resolve()
+    for line in proc.stdout.splitlines():
+        parts = line.split()
+        if not parts:
+            continue
+        abs_path = (repo_root / parts[-1]).resolve()
+        if str(abs_path).startswith(str(specs_root)):
+            return True
+    return False
 
 
 def _latest_review_dir() -> Path | None:

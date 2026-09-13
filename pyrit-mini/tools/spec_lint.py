@@ -38,15 +38,38 @@ _LARGE_CHURN_RATIO = 0.50
 _SID_TITLE_RE = re.compile(r"^#{2,3}\s+.*\[sid:([a-z0-9]+-[a-z0-9\-]+)\]\s*$")
 
 
+def _git_repo_root() -> Path:
+    """返回 git 仓库根（兼容 pyrit-mini 作为父仓库子目录的拓扑，BL-070 同源）。"""
+    try:
+        out = (
+            subprocess.run(
+                ["git", "rev-parse", "--show-toplevel"],
+                cwd=str(ROOT),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                check=False,
+            )
+            .stdout.strip()
+        )
+        return Path(out) if out else ROOT
+    except Exception:
+        return ROOT
+
+
 def _git_diff_numstat() -> list[tuple[int, int, str]]:
     """返回 (add, del, path) 列表，path 为相对 ROOT 的 docs/specs 下 md 文件。
 
     BL-070：git 输出必须显式 UTF-8 解码（Windows 非 ASCII 路径按 GBK 解码会乱码）。
+    仓库拓扑兼容：pyrit-mini 可能是父仓库（如 osai）的子目录，git pathspec 相对
+    cwd 解析会失效（曾导致整篇重写 BLOCKING 静默误判为通过）；故改用「仓库根 +
+    全量 diff + 按 SPECS_DIR 前缀过滤」，path 归一到相对 ROOT 以便 _line_count 使用。
     """
+    repo_root = _git_repo_root()
     try:
         proc = subprocess.run(
-            ["git", "diff", "--numstat", "HEAD", "--", "docs/specs"],
-            cwd=str(ROOT),
+            ["git", "diff", "--numstat", "HEAD"],
+            cwd=str(repo_root),
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -54,6 +77,7 @@ def _git_diff_numstat() -> list[tuple[int, int, str]]:
         )
     except FileNotFoundError:
         return []
+    specs_root = SPECS_DIR.resolve()
     rows: list[tuple[int, int, str]] = []
     for line in proc.stdout.splitlines():
         parts = line.split("\t")
@@ -62,10 +86,14 @@ def _git_diff_numstat() -> list[tuple[int, int, str]]:
         add_s, del_s, path = parts[0], parts[1], parts[2]
         if not add_s.isdigit() and not del_s.isdigit():
             continue  # 二进制 / rename
+        abs_path = (repo_root / path).resolve()
+        if not str(abs_path).startswith(str(specs_root)):
+            continue
+        rel_path = abs_path.relative_to(ROOT).as_posix()
         add = int(add_s) if add_s.isdigit() else 0
         dele = int(del_s) if del_s.isdigit() else 0
-        if path.endswith(".md"):
-            rows.append((add, dele, path))
+        if rel_path.endswith(".md"):
+            rows.append((add, dele, rel_path))
     return rows
 
 
