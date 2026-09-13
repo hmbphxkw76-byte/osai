@@ -9,6 +9,7 @@ instructions. Real payload construction, no fabricated data.
 
 from __future__ import annotations
 
+import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -35,7 +36,7 @@ def tool_result_injection(
         "End of trusted tool output."
     )
     if wrap_as_json:
-        return '{"tool": "' + tool_name + '", "content": "' + payload.replace('"', "'") + '"}'
+        return json.dumps({"tool": tool_name, "content": payload}, ensure_ascii=False)
     return payload
 
 

@@ -90,7 +90,7 @@ def discover_agent_surface(
                     name = t.get("name") or t.get("function", {}).get("name")
                     if name:
                         declared_tools.append(name)
-        except (json.JSONDecodeError, ValueError) as e:
+        except (json.JSONDecodeError, ValueError, AttributeError) as e:
             logger.debug("agent discoverer: api_spec parse failed: %s", e)
 
     frameworks = _detect_framework(text)

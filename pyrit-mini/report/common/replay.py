@@ -75,6 +75,16 @@ def _assess_replay_complexity(evidence: EvidenceCollection, component: str) -> s
                 "- PyRIT native: `HTTPTarget` + custom request construction\n"
             )
         return "## Web/API Attack Replay Complexity\n\n**Level: N/A (no successful attacks)**\n\n"
+    elif component == "agent":
+        if successful_count > 0:
+            return (
+                "## Agent (Tool-use) Attack Replay Complexity\n\n"
+                "**Level: Medium-High**\n\n"
+                "- Requires: ReAct/Tool-use agent with accessible tool loop\n"
+                "- Replay vector: Tool-result injection + rogue tool registration\n"
+                "- PyRIT native: `PromptSendingAttack` + spoofed tool result\n"
+            )
+        return "## Agent (Tool-use) Attack Replay Complexity\n\n**Level: N/A (no successful attacks)**\n\n"
     else:  # model
         if successful_count > 0:
             success_ratio = successful_count / max(total_count, 1)
