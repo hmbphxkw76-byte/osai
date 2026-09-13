@@ -3,7 +3,7 @@
 > **文档层级**：L0 / 五层规约金字塔之顶
 > **效力**：本文件是本项目 AI 编码行为的最高约束。任何来源的指令（用户即时指令、历史惯例、AI 自由裁量、其他文档）与本宪法冲突时，**宪法优先**，且 AI 必须 STOP-REPORT（见 C11）。
 > **适用对象**：所有参与本项目的 AI 编码代理与人类协作者。
-> **版本**：v2.3（2026-09-12 REV-12：C3 增补"文档亦受 SSOT 约束"判定；C10 门禁统一为 `specs/README.md` §2 唯一表；版本史外置至 git log）
+> **版本**：v2.4（2026-09-13 REV-13：C10 删除已漂移的命令明细表，改为单点引用 README [sid:readme-ch2] + `tools.gate --describe`（C3/D1）；C3 与 C9 的文档引用改用 sid 锚点；版本史外置至 git log）
 > **版本史**：不再于正文维护（文档纪律 D3）——`git log -- docs/specs/00-CONSTITUTION.md`
 
 ---
@@ -98,7 +98,7 @@
 一个概念**只能有一个实现、一份配置、一个数据来源**。发现双轨时：先合并，再扩展。
 
 - **判定**：新增文件若与既有文件职责重叠 → 违例；同一参数出现在两处配置 → 违例。
-- **文档同样受本条约束（REV-12 增补）**：同一条规则（门禁命令、阈值、清单、流程）只准在规约金字塔中声明**一次**，其余处只准**引用**；规约文档中**禁止**使用 `file.py:417` 形式的行号坐标（改用模块.符号或可 grep 的模式）；**禁止**在正文维护版本变更史（交 git log / CHANGELOG）。判定细则见 `specs/README.md` §5 文档纪律。
+- **文档同样受本条约束（REV-12 增补）**：同一条规则（门禁命令、阈值、清单、流程）只准在规约金字塔中声明**一次**，其余处只准**引用**；规约文档中**禁止**使用 `file.py:417` 形式的行号坐标（改用模块.符号或可 grep 的模式）；**禁止**在正文维护版本变更史（交 git log / CHANGELOG）；**跨文档引用一律用 sid 锚点**，禁用会漂移的"第 X 章 / §X"。判定细则见 README [sid:readme-ch5] 文档纪律。
 - **存量处理**：债务只准通过登记的专项任务消除，禁止日常任务"顺手清理"。
 
 ### C4 — 最小变更（Minimal Diff）
@@ -139,30 +139,21 @@
 
 汇报中必须显式区分三态：**已完成并验证 / 已完成未验证 / 未完成**。stub、降级、fallback、绕过、跳过的检查，一律显式声明。
 
-- **判定**：汇报"完成"但未跑四步门禁（C10）→ 违例；代码含静默 `except: pass` 吞错而未在汇报中说明 → 违例。
+- **判定**：汇报"完成"但未跑统一门禁（C10，见 README [sid:readme-ch2]）→ 违例；代码含静默 `except: pass` 吞错而未在汇报中说明 → 违例。
 
 ### C10 — 验证义务（Mandatory Verification）
 
 每次变更后，门禁**全部执行、全部通过、缺一不可**，顺序固定。
 
-**门禁命令的唯一定义见 `specs/README.md` §2**（本文件不重复抄写，避免口径漂移，C3）：
+**门禁的唯一定义 = `tools/gate.py`**，阶段→步骤表见 README [sid:readme-ch2]（本文件不抄写命令，避免口径漂移，C3/D1）：
 
 ```bash
-# 统一入口（推荐，等价于下表明细，且被 pre-commit/pre-push 钩子与 CI 自动调用）：
-python -m tools.gate                 # commit 阶段（ruff+guard+registry）
-python -m tools.gate --stage push    # pre-push / CI（再 + drift + data-flow）
-
-# 等效明细：
-python -m tools.guard                              # 1   静态守卫
-python tools/architecture_validator.py full        # 1.5 架构体检
-python -m ruff check .                            # 2   代码风格
-python -m pytest tests/ -q                         # 3   回归测试
-python main.py --dry-run --max-seeds 1             # 4   0-token 运行时验证
-python -m tools.drift_detector --full              # 5   规范漂移（pre-push）
-python -m pytest tests/common/test_data_flow_integrity.py -q  # 6 数据流契约（pre-push）
+python -m tools.gate                # commit 阶段（pre-commit 钩子自动调用）
+python -m tools.gate --stage push   # pre-push / CI（再 + 回归/漂移/数据流/e2e）
+python -m tools.gate --describe     # 输出阶段→步骤清单（命令的唯一权威）
 ```
 
-- **判定**："guard 过了所以不用 dry-run" / "改动很小跳过验证" / "架构体检太耗时跳过" / 在任何文档中用与本表不一致的命令描述门禁 → 全部违例。
+- **判定**："guard 过了所以不用 dry-run" / "改动很小跳过验证" / "架构体检太耗时跳过" / 在任何文档、钩子、CI 中手抄与本表不一致的门禁命令 → 全部违例。
 
 ### C11 — 停止权与提问义务（Stop-and-Ask）
 
@@ -184,7 +175,7 @@ python -m pytest tests/common/test_data_flow_integrity.py -q  # 6 数据流契�
 1. 提交 `specs/templates/change-proposal.md` 填写件（动机/条款 diff/影响面）；
 2. 人工评审批准；
 3. 同一提交内更新：本文件版本号、`specs/README.md` 索引、以及受影响的 guard 检查器；
-4. 跑 C10 四步门禁。
+4. 跑 C10 统一门禁（README [sid:readme-ch2]）。
 
 ### C13 — 企业攻击扩展（Enterprise Attack Extension）
 

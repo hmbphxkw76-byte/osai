@@ -22,17 +22,17 @@
 
 | 层 | 文件 | 版本 | 职责 | 何时读 |
 |----|------|------|------|--------|
-| **入口** | [../../AGENTS.md](../../AGENTS.md) | v1.0 | AI 编码代理唯一入口（跨 IDE/跨模型自动加载）：冷启动顺序 / 编辑 specs 纪律 S1–S6 / 跨模型 review-only | 每个 AI 会话开头 |
-| **L0** | [00-CONSTITUTION.md](00-CONSTITUTION.md) | v2.3 | AI 行为宪法：使命 / 裁决序 / C1–C14 / 违宪症状 / PyRIT 原生速查（7C）/ 考试附录 | 每会话开头（Step 1 宪法自检） |
-| **L1** | [10-ARCHITECTURE.md](10-ARCHITECTURE.md) | v3.2 | 技术蓝图：分层依赖 / ctx 字段契约（4.4 SSOT 总表）/ 不变量 I1–I13 / ADR / 债务簿 / 目标架构 v4.0 | 编码前声明架构落点时（Step 2） |
-| **L1** | [80-COMPONENT-ARCHITECTURE-RULES.md](80-COMPONENT-ARCHITECTURE-RULES.md) | v2.0 | 组件化规则：双命名空间 / 目录命名 / 新增组件 Checklist | 新增或修改组件时 |
-| **L2** | [20-REQUIREMENTS.md](20-REQUIREMENTS.md) | v3.0 | 需求登记：P0/P1/P2、NFR、NEG。**未登记 = 不存在** | 领取任务时核对验收标准（Step 3） |
-| **L3** | [30-TASKS.md](30-TASKS.md) | v2.3 | 任务协议：生命周期 / 粒度上限 / 八步协议 / STOP-REPORT / 三栏汇报 | 每次编码任务全程 |
-| **L4** | [40-GUARDRAILS.md](40-GUARDRAILS.md) | v3.8 | 红线 R-* / 门禁纪律 / 三层防线 / 交付验证清单 / 考试合规 | 编码后验证（Step 7） |
-| 配套 | [50-ROADMAP.md](50-ROADMAP.md) | v1.12 | 任务序列、考试 Runbook、考纲映射。**无裁决权威** | 领取下一个任务时 |
-| 配套 | [55-ATTACK-GAP-CLOSURE.md](55-ATTACK-GAP-CLOSURE.md) | v1.9 | 攻击面缺口登记处（索引；缺口 1–6 见 55-gap-1~6.md） | 新增攻击模块时在对应 55-gap-N.md 登记 |
-| 配套 | [60-CROSS-MODEL-VERIFICATION.md](60-CROSS-MODEL-VERIFICATION.md) | v1.4 | 跨模型审查协议（C14 落地）：审查级别 / review-only 落笔权（§4.4）/ Schema / 存储根 outputs/cross_model_review/ | 变更 L0–L4 规约时 |
-| 配套 | [90-AI-DEV-ARCHITECTURE.md](90-AI-DEV-ARCHITECTURE.md) | v1.0 | AI 编程总纲：产品契约（5 需求）→ 架构落点映射 / 遵循流程 / 差距指针（无独立裁决权威，只引用不复制） | 新会话冷启动 / 实施任务前定位落点 |
+| **入口** | [../../AGENTS.md](../../AGENTS.md) | v1.1 | AI 编码代理唯一入口（跨 IDE/跨模型自动加载）：冷启动顺序唯一定义 / 编辑 specs 纪律 S1–S7 / 跨模型 review-only | 每个 AI 会话开头 |
+| **L0** | [00-CONSTITUTION.md](00-CONSTITUTION.md) | v2.4 | AI 行为宪法：使命 / 裁决序 / C1–C14 / 违宪症状 / PyRIT 原生速查（7C）/ 考试附录 | 每会话开头（Step 1 宪法自检） |
+| **L1** | [10-ARCHITECTURE.md](10-ARCHITECTURE.md) | v3.3 | 技术蓝图：分层依赖 / ctx 字段契约（4.4 SSOT 总表）/ 不变量 I1–I13 / ADR / 债务簿 / 目标架构 v4.0 | 编码前声明架构落点时（Step 2） |
+| **L1** | [80-COMPONENT-ARCHITECTURE-RULES.md](80-COMPONENT-ARCHITECTURE-RULES.md) | v2.1 | 组件化规则：双命名空间 / 目录命名 / 新增组件 Checklist | 新增或修改组件时 |
+| **L2** | [20-REQUIREMENTS.md](20-REQUIREMENTS.md) | v3.1 | 需求登记：P0/P1/P2、NFR、NEG。**未登记 = 不存在** | 领取任务时核对验收标准（Step 3） |
+| **L3** | [30-TASKS.md](30-TASKS.md) | v2.4 | 任务协议：生命周期 / 粒度上限 / 八步协议 / STOP-REPORT / 三栏汇报 | 每次编码任务全程 |
+| **L4** | [40-GUARDRAILS.md](40-GUARDRAILS.md) | v3.9 | 红线 R-* / 门禁纪律 / 三层防线 / 交付验证清单 / 考试合规 | 编码后验证（Step 7） |
+| 配套 | [50-ROADMAP.md](50-ROADMAP.md) | v1.13 | 任务序列、考试 Runbook、考纲映射。**无裁决权威** | 领取下一个任务时 |
+| 配套 | [55-ATTACK-GAP-CLOSURE.md](55-ATTACK-GAP-CLOSURE.md) | v1.10 | 攻击面缺口登记处（索引；缺口 1–6 见 55-gap-1~6.md） | 新增攻击模块时在对应 55-gap-N.md 登记 |
+| 配套 | [60-CROSS-MODEL-VERIFICATION.md](60-CROSS-MODEL-VERIFICATION.md) | v1.5 | 跨模型审查协议（C14 落地）：审查级别 / review-only 落笔权（§4.4）/ Schema / 存储根 outputs/cross_model_review/ | 变更 L0–L4 规约时 |
+| 配套 | [90-AI-DEV-ARCHITECTURE.md](90-AI-DEV-ARCHITECTURE.md) | v1.1 | AI 编程总纲：产品契约（5 需求）→ 架构落点映射 / 遵循流程 / 差距指针（无独立裁决权威，只引用不复制） | 新会话冷启动第 2 篇 / 实施任务前定位落点 |
 | 配套 | [plans/](plans/) | — | 活跃变更提案与执行计划 | 提案批准后才进入编码 |
 | 模板 | [templates/](templates/) | — | `task-spec.md` / `change-proposal.md` / `cross-model-review.md` | 起草规格时 |
 | 运行态 | [../backlog.md](../backlog.md) | — | 唯一待办池（AI 发现的非本任务问题一律入此，不动代码） | 会话收尾时 |
@@ -78,13 +78,16 @@ python -c "from core.registry import get_registry; print(get_registry().keys())"
 
 | 阶段 | 步骤 | 拦截什么 |
 |------|------|---------|
-| **commit** | 1 `guard` · 1.5 `architecture` · 2 `ruff` · 4 `dry-run` | 红线违规 / 架构越界 / 风格 / 运行时数据流断点 |
+| **commit** | 0 `spec-lint` · 0.5 `security` · 1 `guard` · 1.5 `architecture` · 2 `ruff` · 4 `dry-run` | 规约锚点/规模 · 密钥与危险调用 · 红线违规 · 架构越界 · 风格 · 运行时数据流断点 |
 | **push**（含上列全部） | 3 `pytest` · 5 `drift` · 6 `dataflow` · 7 `e2e` | 功能回归 / 规范↔代码漂移 / ctx 契约 / 靶场端到端 |
+
+> **步骤数不写死**：上表行内容随 `tools/gate.py` 演进；新增/删除步骤时**先改代码**，本表同批同步，
+> 并由 `R-GATE-1`（`check_gate_stage_parity()`）守护"阶段覆盖 ≡ 规约步骤"——二者不等价即 BLOCKING。
 
 > **为什么 `dry-run` 在 commit、`pytest` 在 push**（裁决 CP-004 §8.7 D-6）：`dry-run` 是唯一
 > 0-token 的运行时证据，能在秒级发现 `ImportError`/`AttributeError`/`KeyError`/`TypeError`
 > ——静态 guard 抓不到这类断点；`pytest` 全量放 commit 会诱导 `--no-verify`，
-> 而绕过 hooks 比"晚一点发现"危险得多（40-G [sid:readme-ch3]）。
+> 而绕过 hooks 比"晚一点发现"危险得多（40-G [sid:40-ch3]）。
 >
 > **禁止静默跳过**（NEG-9 / R-GATE-2）：依赖缺失 = 环境不合格 = 阻塞，不降级为 SKIP。
 > **纪律**："改动很小"不豁免任何一步；guard 通过 ≠ 代码可用；门禁失败禁止标记任务完成。
@@ -111,7 +114,7 @@ python -c "from core.registry import get_registry; print(get_registry().keys())"
 | 阶段 | 触发词 | 动作 |
 |------|--------|------|
 | **开发必看** | `开发规范` / `开发必看` | 加载 [sid:readme-ch1] 文档地图中对应层级文件 |
-| **开发必跑** | `开发验证` / `开发必跑` / `完整验证` / `规范对齐` | 按 [sid:readme-ch2] 执行 6 步门禁，修复全部问题后汇报 |
+| **开发必跑** | `开发验证` / `开发必跑` / `完整验证` / `规范对齐` | 按 [sid:readme-ch2] 执行门禁（步骤以 `python -m tools.gate --describe` 为准），修复全部问题后汇报 |
 | **开发必验** | `开发交付` / `开发必验` / `交付标准` | 按 `40-GUARDRAILS.md` [sid:40-ch7]交付验证清单逐项打勾 |
 
 > 同义触发词以本表为准。禁止在其他文档重复定义触发词表。
@@ -156,7 +159,11 @@ python -c "from core.registry import get_registry; print(get_registry().keys())"
 | D7 | **无占位符**：文档不得出现未填实的 `[CMD]` / `TASK-___` 等模板占位 | `[CROSSMODEL_CMD] --task TASK-___` |
 | D8 | **章节锚点 sid**：一级标题（`##`）带唯一 `[sid:<docnum>-<slug>]` 尾标（如 `[sid:40-ch1]`）；引用章节一律用 sid，不用"第 X 章 / §X"；新增章节分配新 sid，**永不重排既有 sid**（防插入章节导致全篇重编号） | 引用裸章节号"第十章" / 因插章重排全篇章节号 |
 
-> **sid 规则（D8 细则）**：① 格式 `[sid:<docnum>-<slug>]`，docnum 取文件名数字前缀（00/10/20/30/40/50/55/60/80/90；README 文档号记为 `readme`，无数字前缀，沿用文件名），slug 小写连字符；② 全局唯一，由 `python -m tools.spec_lint --sid` 机器校验；③ 二级标题（`###`）复用其既有编号（C1-C14 / R-* / 1A-1K / X.Y），不另加 sid；④ sid 一经分配不回收、不重排——删除章节时在文档地图标注"已删（sid 保留）"。 |
+> **sid 规则（D8 细则）**：① 格式 `[sid:<docnum>-<slug>]`，docnum 取文件名数字前缀（00/10/20/30/40/50/55/60/80/90；无数字前缀的入口文档记为 `readme` / `agents`），slug 小写连字符；② 全局唯一、禁止嵌套与大写，由 `python -m tools.spec_lint` 机器校验；③ 二级标题（`###`）复用其既有编号（C1-C14 / R-* / 1A-1K / X.Y），不另加 sid；④ sid 一经分配不回收、不重排——删除章节时在文档地图标注"已删（sid 保留）"。
+>
+> **引用口径（跨模型协作关键）**：**跨文档**引用一律用 sid（文档会插章，`§X` 与"第 X 章"会漂移）；**同文档内**引用可用 `§X.Y`，但一旦被其他文档引用就必须升级为 sid。跨文档出现 `<file>.md §X` 形式即视为漂移。
+>
+> **机器校验项**（`python -m tools.spec_lint`，规则以 `--describe` 输出为准）：sid 唯一性 / 悬空引用 / 语法完整性（嵌套·粘连·未闭合 → BLOCKING）/ 文档号登记 / 跨文档一致性 / 章节覆盖率 / AI 入口唯一性 / markdown 链接路径存在性。 |
 
 ---
 
@@ -165,7 +172,7 @@ python -c "from core.registry import get_registry; print(get_registry().keys())"
 | 变更对象 | 流程 |
 |---------|------|
 | **宪法** | C12 修正案：`templates/change-proposal.md` → 人工批准 → 同批更新版本号、本索引、受影响 guard 检查器 → 跑 [sid:readme-ch2] 门禁 |
-| **蓝图 / 需求** | `change-proposal` → 登记 REQ/DEBT → 任务规格 → 编码（20 [sid:30-ch6]） |
+| **蓝图 / 需求** | `change-proposal` → 登记 REQ/DEBT → 任务规格 → 编码（20 [sid:20-ch6]） |
 | **L0–L4 规约** | 先过跨模型审查（C14 / R-CROSS-1）→ 再走上述流程 |
 | **路线图** | `change-proposal`（序列变更） |
 | **模板 / 本索引** | 随其服务层级变更，同批更新版本号 |

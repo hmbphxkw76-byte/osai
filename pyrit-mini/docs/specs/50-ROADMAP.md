@@ -2,7 +2,7 @@
 
 > **文档层级**：配套资产（宪法 [sid:00-ch6]附则，v1.2）。**无裁决权威**——与 ③需求/④任务规格冲突时以后者为准；40-GUARDRAILS 对本文件无门禁效力。
 > **职能**：任务顺序与依赖、阶段退出条件、vibe coding 会话模型、考试日 Runbook 的**唯一登记处**。
-> **版本**：v1.12（2026-09-12 REV-12：① [sid:50-ch1]规模热点改为**以命令实测为准**（原手工数值已失效）；② 现状基线删除易腐快照，改为指向门禁基线；③ 版本史外置）
+> **版本**：v1.13（2026-09-13 REV-13：修复 `20-REQUIREMENTS.md` 文件名的畸形 sid 粘连；跨文档引用统一为 sid 锚点。REV-12：① [sid:50-ch1]规模热点改为**以命令实测为准**（原手工数值已失效）；② 现状基线删除易腐快照，改为指向门禁基线；③ 版本史外置）
 > **版本史**：`git log -- docs/specs/50-ROADMAP.md`
 
 ---
@@ -160,7 +160,7 @@ python -c "import pathlib;sorted_=sorted(((len(p.read_text(encoding='utf-8',erro
 ### 阶段 1C — 全链路自主决策引擎（架构设计完成，待实施）
 
 > **目的**：基于已实施的 Strike 阶段战术决策系统，扩展为覆盖 Recon→ARM→Strike→Assess→Report 全链路的自主决策引擎。
-> **架构依据**：`10-ARCHITECTURE.md` [sid:10-ch11] + `55-ATTACK-GAP-CLOSURE.md` [sid:55-decision] + `20-REQUIREM[sid:55-references]S.md` 第九章。
+> **架构依据**：`10-ARCHITECTURE.md` [sid:10-ch11] + `55-ATTACK-GAP-CLOSURE.md` [sid:55-decision] + `20-REQUIREMENTS.md` [sid:20-ch9]。
 
 | 序 | 任务 | 引用 | 说明 |
 |----|------|------|------|
@@ -215,7 +215,7 @@ python -c "import pathlib;sorted_=sorted(((len(p.read_text(encoding='utf-8',erro
 ```
 读宪法(00) → 查本路线图领任务 → 读蓝图相关章节声明落点
 → 核对 REQ 验收标准 → 填 task-spec → Step 5 计划复述（用户确认）
-→ 最小实现 → 四步门禁 → 三栏汇报 → 关闭并回填 20-REQUIREMENTS 状态表
+→ 最小实现 → 统一门禁 → 三栏汇报 → 关闭并回填 20-REQUIREMENTS 状态表
 ```
 
 ### 5.2 会话类型配额

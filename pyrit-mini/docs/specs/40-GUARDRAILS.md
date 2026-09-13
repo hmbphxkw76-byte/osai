@@ -3,7 +3,7 @@
 > **文档层级**：L4 / 五层规约金字塔第五层
 > **效力**：红线 = 绝对禁止，视同宪法级（裁决序见 00-CONSTITUTION [sid:00-ch2]）。质量门禁 = 完成任务的必要不充分条件。
 > **执行机制**：三层防线（静态 guard / 运行时 dry-run / git 钩子），继承 SKILL.md D2 条款并收编。
-> **版本**：v3.8（2026-09-13 REV-25：R-CROSS-1 级别由 BLOCKING 降 WARNING（与 tools.cross_model_review 实现一致，人工编排降级、不阻断、标记 needs-cross-model-pending）；1F 登记簿补 R-CROSS-1~5 检查器；存储路径统一 outputs/cross_model_review/（加 !outputs/cross_model_review/ 入库例外）。REV-24 的 R-DOC-4 BLOCKING 提级 / 5 检查器落地 / R-L7 文件许可 / §4.4 review-only 保持有效）
+> **版本**：v3.9（2026-09-13 REV-26：① 删除已不存在的 `tools/quick_check.py` / `tools/watch_guard.py` 及其 `.env.local` 自动守卫与 7G 三步钩子图（D5，BL-042）；② 7E/7G 改为引用 `tools.gate --describe` 单一权威；③ R-GATE-1 判定补齐 spec-lint/security/e2e 三步（防"门禁新增步骤却无人守护"复发）；④ 跨文档引用统一为 sid 锚点。REV-25 的R-CROSS-1 级别由 BLOCKING 降 WARNING（与 tools.cross_model_review 实现一致，人工编排降级、不阻断、标记 needs-cross-model-pending）；1F 登记簿补 R-CROSS-1~5 检查器；存储路径统一 outputs/cross_model_review/（加 !outputs/cross_model_review/ 入库例外）。REV-24 的 R-DOC-4 BLOCKING 提级 / 5 检查器落地 / R-L7 文件许可 / §4.4 review-only 保持有效）
 > **v3.4 摘要**（REV-21）：R-L7 顶层目录许可清单同步纳入 `targets/` —— 依 `10-ARCHITECTURE.md` 2.1「靶场层」与 REQ-156，修复检查器白名单滞后于规格的 spec-code drift。
 > **版本史**：`git log -- docs/specs/40-GUARDRAILS.md`
 
@@ -30,7 +30,7 @@
 
 ### 1A-DATA. 数据流完整性红线（v1.4 新增）
 
-> 完整规约见 [10-ARCHITECTURE.md [sid:10-ch4]](../specs/10-ARCHITECTURE.md)（原 45-DATA-FLOW-INTEGRITY.md 已合并）
+> 完整规约见 `10-ARCHITECTURE.md` [sid:10-ch4]（原 45-DATA-FLOW-INTEGRITY.md 已合并）
 
 | # | 红线 | guard 检查器 | 级别 |
 |---|------|-------------|------|
@@ -173,7 +173,7 @@
 
 ### 1E-DRIFT. 规范漂移检测护栏（v1.6 新增）
 
-> 完整规约见本章 1E-DRIFT（原 60-REDTEAM-DELIVERY-FRAMEWORK.md §11 已合并入本文件）
+> 完整规约见本章 1E-DRIFT（原 60-REDTEAM-DELIVERY-FRAMEWORK.md 已合并入本文件；历史章节号不再引用，D8）
 > 检测引擎：`tools/drift_detector.py`（独立于 `tools/guard.py`，专责「规范-代码」双向漂移）
 
 | # | 红线 | 级别 | 检查内容 | 检查器 |
@@ -315,7 +315,7 @@ pyrit-drift --full --report
 | # | 红线 | 级别 | 判定特征 | 检查器 |
 |---|------|------|----------|--------|
 | R-CROSS-1 | **审查前置**：L0-L4 规约变更必须经过跨模型审查（≥2 模型），single-model 审查结论不得直接写入规约文档 | WARNING | 规约文档已变更但 outputs/cross_model_review/ 无对应记录（当前人工编排模式，R-CROSS-1 降级 WARNING、不阻断，标记 needs-cross-model-pending；审查自动化就位后升 BLOCKING） | `check_cross_model_review()` |
-| R-CROSS-2 | **审查报告合规**：审查报告 JSON 必须可解析且含 60 §5.1 必需字段（model/findings） | BLOCKING | 报告缺字段/无法解析 → BLOCKING；无审查记录 → 由 R-CROSS-1 WARNING 降级 | `check_review_schema()` |
+| R-CROSS-2 | **审查报告合规**：审查报告 JSON 必须可解析且含 60 [sid:60-ch5] 必需字段（model/findings） | BLOCKING | 报告缺字段/无法解析 → BLOCKING；无审查记录 → 由 R-CROSS-1 WARNING 降级 | `check_review_schema()` |
 | R-CROSS-3 | **仲裁记录完整**：审查记录须含 `adjudication/decision.json`（R-CROSS-3 永久保留） | WARNING | 缺 `adjudication/decision.json` | `check_adjudication_record()` |
 | R-CROSS-4 | **模型池健康**：审查模型池须 ≥ 2 可用，否则按 R-CROSS-1 降级人工审查 | INFO | 可用模型 < 2 | `check_review_model_pool()` |
 | R-CROSS-5 | **审查时效**：规约变更自合入之日起 90 天内必须有一次跨模型审查 | INFO | 合入超 90 天未审查 | `check_review_freshness()` |
@@ -369,7 +369,7 @@ pyrit-drift --full --report
 
 | # | 红线 | 级别 | 判定特征 | 检查器 |
 |---|------|------|----------|--------|
-| **R-GATE-1** | **门禁等价**：`tools/gate.py` 的阶段步骤必须覆盖规约声明的全部步骤（NFR-20） | BLOCKING | `COMMIT_STEPS`/`PUSH_STEPS` 缺失 guard/architecture/ruff/pytest/dry-run/drift/dataflow 任一 | `check_gate_stage_parity()` |
+| **R-GATE-1** | **门禁等价**：`tools/gate.py` 的阶段步骤必须覆盖规约声明的全部步骤（NFR-20） | BLOCKING | `COMMIT_STEPS`/`PUSH_STEPS` 缺失 spec-lint/security/guard/architecture/ruff/pytest/dry-run/drift/dataflow/e2e 任一 | `check_gate_stage_parity()` |
 | **R-GATE-2** | **门禁不得静默跳过**：依赖缺失 / 命令不存在 = 环境不合格 = 阻塞（NEG-9） | BLOCKING | gate.py 中出现 `[SKIP]` / "非阻塞" 降级分支 | `check_gate_no_silent_skip()` |
 | **R-GATE-3** | **hooks 在线性**：pre-commit / pre-push 必须已安装（三层防线 L3） | WARNING | 真实 git 目录的 `hooks/` 下缺钩子 | `check_hooks_installed()` |
 | **R-GATE-4** | **检查器注册不得静默失败**：扩展/门禁检查器导入失败必须暴露，禁止 `logger.debug` 吞掉（BL-067） | BLOCKING | `tools/guard.py` 的 `_FAILED_REGISTRATIONS` 非空 | `check_checks_registered()` |
@@ -467,8 +467,8 @@ py -m tools.guard > outputs/guard_baseline.json   # 记录当前违规基线
 | `.assistant_pyrit/skills/pyrit-strike-dev-rules/SKILL.md` | 编码期细则（**注意：不在仓库根，勿引用为 `SKILL.md`**）；与本层冲突处以本层为准（裁决序 ②>⑤） |
 | `implementation_checklist.md` | 已于 2026-09-06 删除；其职能由 `specs/templates/task-spec.md` 接管（D-09 债务消除） |
 | `specs/50-ROADMAP.md` | 无门禁效力；其任务序列仅供领任务顺序参考（REV-02） |
-| `tools/watch_guard.py` | L1 静态检查的实时监视模式（开发时后台运行） |
-| `tools/quick_check.py` | 单文件快速验证工具（< 1 秒响应） |
+| `tools/spec_lint.py` | **规约自检**：sid 锚点完整性 + 改动规模（门禁步骤 0，见 README [sid:readme-ch2]）；规则以 `python -m tools.spec_lint --describe` 为准 |
+| ~~`tools/watch_guard.py`~~ / ~~`tools/quick_check.py`~~ | **已删除（BL-042）**：二者从未存在，能力已并入 `tools/guard.py`；继续引用即 D5 失效路径违规 |
 
 > **规模与计数一律以代码为准**（文档纪律 D4）：`python -c "import pathlib,glob;print(sum(len(__import__('re').findall(r'def check_',pathlib.Path(f).read_text(encoding='utf-8'))) for f in glob.glob('tools/*.py')))"`
 
@@ -528,57 +528,44 @@ py -m tools.guard > outputs/guard_baseline.json   # 记录当前违规基线
 
 ### 7E. 自动化执行命令速查
 
-```bash
-# 运行全量架构检查
-py -m tools.guard
-py -m tools.guard -v
-
-# 运行漂移检测
-py -m tools.drift_detector          # 快速模式
-py -m tools.drift_detector --full   # 含版本锁定
-
-# 单文件快速验证 (< 1秒)
-py -m tools.quick_check report/evidence.py
-py -m tools.quick_check --all
-
-# 实时监视（开发时后台运行）
-py -m tools.watch_guard                        # 监视所有包
-py -m tools.watch_guard --package report       # 只监视特定包
-py -m tools.watch_guard --fast                 # 快速模式（只检查修改文件）
-```
-
-### 7F. .env.local 自动启动配置
-
-在项目根目录创建 `.env.local` 启用自动守卫：
+> **命令的唯一权威 = `python -m tools.gate --describe`**（ADR-009 / NFR-20）。下列只列**独立可单跑**
+> 的诊断入口，用于定位问题；**交付判定一律以统一门禁为准**（README [sid:readme-ch2]）。
 
 ```bash
-# .env.local
-AUTO_GUARD_WATCH=1
-AUTO_GUARD_MODE=fast
+python -m tools.spec_lint            # 规约自检：sid 锚点 + 改动规模（门禁步骤 0）
+python -m tools.guard                # 静态红线守卫
+python -m tools.drift_detector       # 规范↔代码漂移（快速）
+python -m tools.drift_detector --full  # 含版本锁定（pre-push / CI）
 ```
 
-**效果**：每次启动 `python main.py` 时自动在后台启动 watch_guard，无需手动执行。
+> **已删除工具（BL-042）**：`python -m tools.quick_check` / `python -m tools.watch_guard` —— 二者从未存在，
+> 引用即失效路径（D5）。
+
+### 7F. 自动守卫开关
+
+> **现状**：`.env.local` 的 `AUTO_GUARD_WATCH` / `AUTO_GUARD_MODE` 曾用于自动拉起已删除的
+> `tools/watch_guard.py`（BL-042），**当前无实现消费**。强制保障改由 Git 钩子 + 统一门禁承担
+> （[sid:40-ch3] 三层防线）；勿再依赖该开关。
 
 ### 7G. Git Hooks 完整流程
+
+> 钩子由 `python -m tools.hooks` 安装，**只准调用 `tools.gate`**（C3）。实际步数以
+> `python -m tools.gate --describe` 输出为准，本图只示意阶段责任，不复制命令清单。
 
 **Pre-commit**（每次 commit 自动执行）：
 ```bash
 git commit -m "..."
   ↓
-[1/3] Data flow validator... → [PASS] 29/29 tests OK
-[2/3] Architecture guard...  → [PASS] 0 BLOCKING
-[3/3] Quick check (modified files) → [PASS] All checks passed
+tools.gate --stage commit → 规约自检/安全审计/红线守卫/架构体检/风格/dry-run
   ↓
-[PASS] Commit allowed.
+[PASS] Commit allowed.  ｜ 任一阻塞项 → Commit aborted（修违规，不是修门禁）
 ```
 
 **Pre-push**（每次 push 执行完整审计）：
 ```bash
 git push origin main
   ↓
-[1/3] Data flow validator (full)...
-[2/3] Architecture guard...
-[3/3] Drift detector (full)...
+tools.gate --stage push → 上述全部 + 回归测试/漂移/数据流契约/e2e
   ↓
 [PASS] Push allowed.
 ```

@@ -66,6 +66,9 @@
 | BL-075 | 2026-09-13 | **拆大文件 + 清单外置（P2 遗留，走 CP 通道）**：已转 `plans/CP-005-spec-splitting.md`（draft 待人工批准）。方案：55 按攻击面拆 `55-gap-1~6.md` + 保留索引、10 不变量表外置 `config/invariants.yaml`、40 已合规不拆；含 R-DOC-2 检查器与 drift_detector 同步义务 | P2 拆大文件 | **converted** |
 | BL-076 | 2026-09-13 | **CP-006 最佳实践执行加固已落地**：tools.gate 接入 security 阶段(`python -m tools.security_audit`)；security_audit 扩密钥字面量(sk-/ghp_/AKIA/glpat-/AIza/ya29./xox)+裸 except 检测；.gitignore 补 *.key/credentials*；P2(print→logging)按计递延、P4(WARNING→BLOCKING)另起 CP。commit 20b2cbe | 本次交付 / CP-006 | **completed** |
 | BL-077 | 2026-09-13 | **CP-007 WARNING→BLOCKING + P2 print→logging 已落地**：R-EVENT-1(编排层硬编码组件名)由 WARNING 升 BLOCKING(当前 0 违规，安全)，其余 WARNING 规则按评估表保持 WARNING；库层(core/arm/assess/strike/recon/utils)print→logger 迁移 86 处 + main.py 根日志引导(输出不丢)。commit 4272c5e | 本次交付 / CP-007 | **completed** |
+| BL-078 | 2026-09-13 | **冻结文档残留畸形 sid 锚点（豁免区内）**：`docs/specs/plans/CP-002-user-gap-closure.md:41` 存在嵌套/粘连 sid（`[sid:20-ch9[sid:20-ch10]`）。`tools.spec_lint` 对 `plans/`/`templates/` 只做引用有效性校验、豁免语法与覆盖率，故当前不阻断。若该 plan 被解冻或复制内容进活跃规约，**必须先修锚点**再落地 | 2026-09-13 跨模型适配评估 | **open** |
+| BL-079 | 2026-09-13 | **R-DOC-4 未覆盖 55-gap-1~6.md 子文件**：六份子文件文件头带 `**版本**：v1.8`，但 README 金字塔索引未列、检查器白名单也未收，版本漂移无机器守护。待专项任务决定：纳入索引 + 白名单（推荐），或按 D3 移除子文件版本行 | 2026-09-13 跨模型适配评估 | **open** |
+| BL-080 | 2026-09-13 | **规约仍引用仓库外 SKILL.md**：40-G §5 原 `R8 §8.x` 引用已改为指向 [sid:40-ch6] 的指针，但 SKILL.md 本体位于 `.assistant_pyrit/skills/pyrit-strike-dev-rules/`（不入库）。跨模型协同时该细则对外部/新模型不可达 → 待裁决：入库、或明确降级为"本机可选细则"并在引用处标注 | 2026-09-13 跨模型适配评估 | **open** |
 
 ---
 

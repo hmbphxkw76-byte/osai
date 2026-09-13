@@ -3,7 +3,7 @@
 > **文档层级**：L1 / 五层规约金字塔第二层
 > **效力**：定义系统的目标架构、模块边界、数据契约与架构不变量。任何代码变更必须能在本蓝图上"落点"——落不了点的变更需要先走 change-proposal 修改蓝图。
 > **读者**：实施任务前的 AI（必读相关章节）、评审 diff 的人工/AI。
-> **版本**：v3.2（2026-09-12 REV-20：4.4 ctx 字段总表新增 `attack_success_levels`（L1–L4 分层，REQ-164）与 `hitl_state`（运行期人工干预，REQ-171）；配套 CP-002）
+> **版本**：v3.3（2026-09-13 REV-21：第六章依据列补图例（R2/R6/R8 指向 SKILL.md 落点）、跨文档引用统一为 sid 锚点。REV-20：4.4 ctx 字段总表新增 `attack_success_levels`（L1–L4 分层，REQ-164）与 `hitl_state`（运行期人工干预，REQ-171）；配套 CP-002）
 > **版本史**：`git log -- docs/specs/10-ARCHITECTURE.md`（文档纪律 D3，正文不再维护）
 > **已合并**：`45-DATA-FLOW-INTEGRITY.md` → 本文件[sid:10-ch4]（原文件已删除）；其验证工具链 `tools/data_flow_validator.py` + `tools/dataflow/` + `tests/common/test_data_flow_integrity.py` 仍正常运行。
 
@@ -210,6 +210,9 @@ Q1: PyRIT 1.0.1 有现成组件吗？
 
 以下不变量任何变更不得破坏（均可由 guard 或 dry-run 检查）：
 
+> **依据列图例**：`R2` / `R6` / `R8` = SKILL.md 编码期细则条款（落点见 `40-GUARDRAILS.md` [sid:40-ch6]）；
+> `C*` = 宪法条款；`I*` = 本层不变量；arXiv 编号 = 学术依据。跨文档引用一律用 sid（D8）。
+
 | # | 不变量 | 依据 |
 |---|--------|------|
 | I1 | 每 `ConverterConfiguration` 恰 1 converter；多路径 = SequentialAttack 独立子路径 + FIRST_SUCCESS | arXiv:2307.15043 / 2407.01232 |
@@ -236,9 +239,9 @@ Q1: PyRIT 1.0.1 有现成组件吗？
 | `escalation_asr_threshold` | 90 | 升级链基准触发（I4） | strike/escalation_runtime |
 | I4 动态阈值 | 完成度<50% → 70；完成度>80% → 95；剩余预算<30% → 仅 L1 | 升级链动态触发（参数化，非策略切换） | strike/escalation_runtime |
 | `post_l1_exit_threshold` / `post_l2_exit_threshold` | 70 / 80 | 中间退出检查点（I4/R-L5） | strike/escalation_runtime |
-| L1→L3 升级门槛 | ASR<90 → L1；<70 → L2；<50 → L3 | 升级链分级 | 55 §9.2.3 / escalation_runtime |
+| L1→L3 升级门槛 | ASR<90 → L1；<70 → L2；<50 → L3 | 升级链分级 | 55 [sid:55-decision] / escalation_runtime |
 | `consecutive_failures` 阈值 | ≥3 次连续失败 **或** ASR < 50% 预期 | 决策稳定性（R-DECIDE-3/ID-3/NFR-11），**仅约束"策略切换"类决策** | 决策引擎 `determine_*_strategy` |
-| SKIP_UPGRADE 触发 | 连续失败 2 次 | **考试日应急降级**（50 §8C.3），属资源保护机制，非策略切换 | exam_mode 降级矩阵 |
+| SKIP_UPGRADE 触发 | 连续失败 2 次 | **考试日应急降级**（50 [sid:50-ch8] 考试就绪 Playbook），属资源保护机制，非策略切换 | exam_mode 降级矩阵 |
 
 **一致性裁定**：
 1. I4 动态升级阈值（完成度/预算感知）属**参数化触发**，不适用 R-DECIDE-3（该条仅约束"策略切换"类决策）——40-GUARDRAILS 1G R-DECIDE-3 注记的裁定落点即本条。

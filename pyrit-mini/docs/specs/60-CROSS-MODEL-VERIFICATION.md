@@ -2,7 +2,7 @@
 
 > **STATUS: ACTIVE** — 本文档定义 specs/ 规约文档的跨模型交叉确认标准流程
 > **文档层级**：L4 配套协议（护栏唯一定义见 `40-GUARDRAILS.md` 1I-CROSS；任务协议见 `30-TASKS.md` 第十章）
-> **版本**：v1.4（2026-09-13 REV-4：存储路径由 docs/specs/reviews/ 统一收敛到 outputs/cross_model_review/（与 tools.cross_model_review 的 REVIEW_ROOT 一致，并加 !outputs/cross_model_review/ 入库例外满足 R-CROSS-3 永久保留）；§9.1 标注为示意片段；5 检查器落地（BL-042）与 REV-2 的 D3 自相矛盾消除保持有效）
+> **版本**：v1.5（2026-09-13 REV-5：D1-Structure 增"sid 字面完整性"审查维度并前置 `tools.spec_lint` 机器预检；跨文档引用统一为 sid 锚点。REV-4 的存储路径由 docs/specs/reviews/ 统一收敛到 outputs/cross_model_review/（与 tools.cross_model_review 的 REVIEW_ROOT 一致，并加 !outputs/cross_model_review/ 入库例外满足 R-CROSS-3 永久保留）；§9.1 标注为示意片段；5 检查器落地（BL-042）与 REV-2 的 D3 自相矛盾消除保持有效）
 > **版本史**：`git log -- docs/specs/60-CROSS-MODEL-VERIFICATION.md`
 
 > **职责边界**（防三处重复）：本文件**只定义审查协议**（模型池 / Prompt 模板 / Schema / 存储结构）。
@@ -99,6 +99,7 @@
 
 ### D1-Structure（结构完整性）
 - 章节 sid 唯一且可达（标题 `[sid:...]` 尾标；引用章节用 sid，规范见 [sid:readme-ch5] D8）
+- sid 字面完整：无嵌套 / 粘连 / 未闭合 / 大写（先跑 `python -m tools.spec_lint`，BLOCKING 项先清零再送审）
 - 目录索引与实际章节匹配
 
 ### D2-SSOT（单一来源验证）
@@ -226,7 +227,7 @@ def align_reviews(reviews: list[dict]) -> dict:
 ### 4.4 Phase 0：角色与落笔权（review-only，v1.1 新增）
 
 > **问题驱动**：多模型并发编辑同一份规约文件是"规约被整篇重写"的主要来源——后一个模型为对齐自身理解，会覆盖前一个模型的全篇结构与编号。
-> **本节强制力**来自 `40-GUARDRAILS.md` 1I-CROSS（R-CROSS-1）；审查级别见 §3.1，κ 动作见 `30-TASKS.md` 第十章。
+> **本节强制力**来自 `40-GUARDRAILS.md` 1I-CROSS（R-CROSS-1）；审查级别见 §3.1，κ 动作见 `30-TASKS.md` [sid:30-ch10]。
 
 | 角色 | 权限 | 产物 |
 |------|------|------|
@@ -240,7 +241,7 @@ def align_reviews(reviews: list[dict]) -> dict:
 2. **Reviewer 只输出 findings**：不得给出改写后的文档正文；修改建议一律走 `suggestion` 字段，由 Author 转译为定点替换。
 3. **合并权只在 Author + 人工**：Reviewer 的直接编辑一律回滚。
 4. **降级**：可用模型 < 2 时按 R-CROSS-1 降级条款转人工审查模式，标记 `needs-cross-model-pending` 并登记 `docs/backlog.md`，不阻断合入。
-5. **编辑纪律**：Author 落笔时遵守 `AGENTS.md` §2（S1–S6）——先读后写、增量编辑、禁止重排章节号、最小同步面。
+5. **编辑纪律**：Author 落笔时遵守 `AGENTS.md` [sid:agents-ch2]（S1–S7）——先读后写、增量编辑、禁止重排章节号、最小同步面、锚点不可破坏。
 
 > **工具链现状**：`tools/cross_model_review.py` 现已实施（5 检查器 R-CROSS-1~5，BL-042 已闭环）；`outputs/cross_model_review/` 审查记录仍由人工落地（人工编排模式，R-CROSS-1 降级不阻断）。
 

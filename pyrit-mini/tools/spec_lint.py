@@ -1,8 +1,8 @@
 """规约最小 diff 门禁 (Spec Minimal-Diff Linter)。
 
 把「编辑 specs 的硬纪律」从"靠自觉"变成"机器可校验"，落地 `AGENTS.md` §2 的
-S2（禁整文件覆盖）/ S3（禁重排章节号）/ S6（规模自检），以及稳定锚点 sid 的
-唯一性校验。规则本体见宪法 C4 / `docs/specs/README.md` §5 文档纪律。
+S2（禁整文件覆盖）/ S3（禁重排章节号）/ S6（规模自检）/ S7（锚点不可破坏），以及
+稳定锚点 sid 的完整性校验。规则本体见宪法 C4 / `docs/specs/README.md` §5 文档纪律。
 
 检测项：
   1. 整篇覆盖重写（相对 HEAD，单文件删除行 ≥ 70% 总行且非新增）→ BLOCKING
@@ -10,10 +10,15 @@ S2（禁整文件覆盖）/ S3（禁重排章节号）/ S6（规模自检），�
   3. sid 锚点唯一性（全局）→ BLOCKING（重复）/ WARNING（格式）
   4. sid 引用存在性（正文 [sid:...] 须指向已声明锚点）→ BLOCKING（悬空，D8）
   5. 文档路径存在性（markdown 链接本地路径须真实存在）→ WARNING（失效，D5）
+  6. sid 语法完整性（畸形/嵌套/粘连/未闭合）→ BLOCKING（跨模型协作的锚点地基）
+  7. sid 文档号登记（docnum 须存在于文档号登记簿）→ WARNING
+  8. 跨文档 sid 一致性（同行点名文档与 sid 文档号须相容）→ WARNING
+  9. 章节 sid 覆盖率（活动规约 `##` 标题须带 sid）→ WARNING
+ 10. AI 入口唯一性（AGENTS.md 存在且被索引；冷启动顺序不得另立门户）→ BLOCKING/WARNING
 
 用法：
-  python -m tools.spec_lint              # 检测 docs/specs 相对 HEAD 的 diff 规模
-  python -m tools.spec_lint --sid        # 校验 [sid:...] 锚点唯一性
+  python -m tools.spec_lint              # 全量校验（规模 + 锚点体系 + 入口唯一性）
+  python -m tools.spec_lint --sid        # 兼容别名：默认已含全部锚点校验
   python -m tools.spec_lint --describe   # 打印检查规则说明（供规约引用）
 
 退出码：0 = 通过（含仅 WARNING）；1 = 存在 BLOCKING。
@@ -22,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import string
 import subprocess
 from pathlib import Path
 
@@ -36,6 +42,73 @@ _LARGE_CHURN_RATIO = 0.50
 # sid 格式：[sid:<doc>-<slug>]，如 [sid:40-ch1]；仅匹配标题行（## / ###）行尾的 sid，
 # 避免误判规范说明/示例中的 [sid:...] 字样。
 _SID_TITLE_RE = re.compile(r"^#{2,3}\s+.*\[sid:([a-z0-9]+-[a-z0-9\-]+)\]\s*$")
+
+# --- 锚点语法与语义校验（跨模型协作地基：锚点必须稳定、可解析、可定位） ----------
+# 畸形 sid 的真实形态（均由"批量替换 sid"的历史事故产生）：
+#   [sid:30-c[sid:30-ch4]]  嵌套   ｜  [sid[sid:30-ch8]-ch1] 缺冒号
+#   20-REQUIREM[sid:55-ref]S.md 粘连 ｜ [sid:8[sid:80-ch6]h4] 截断
+# 旧版只校验"合法 token"，畸形片段被静默跳过 —— 这正是锚点失效却门禁全绿的根因。
+_SID_OPEN_RE = re.compile(r"\[sid(?!:)")
+_SID_START_RE = re.compile(r"\[sid:")
+_SID_TOKEN_RE = re.compile(r"\[sid:([a-z0-9]+(?:-[a-z0-9]+)*)\]")
+# 粘连判定：sid 左侧紧邻 ASCII 字母/数字/下划线/连字符/点 → 说明替换时吃掉了正文
+# （`/` 与 `|`、`（` 允许：`[sid:a-ch1]/[sid:b-ch2]` 是合法并列引用）
+_GLUE_BEFORE = set(string.ascii_letters + string.digits + "_-.")
+# 文档号登记簿：来自规约文件名数字前缀 + 无数字前缀的入口文档
+_DOCNUM_RE = re.compile(r"(?<![0-9A-Za-z._\-])(00|10|20|30|40|50|55|60|80|90)(?![0-9])")
+_NAMED_DOCNUMS = ("readme", "agents")
+# 中文文档别名 → 文档号。**集合由受控实验测定**（2026-09-13）：在注入 6 个已知错指缺陷的
+# 污染语料上，{宪法,跨模型}=4/6、{宪法,跨模型,蓝图}=6/6、扩到 9 个（含"需求/组件"）=5/6
+# （"需求/组件"作普通名词出现在同一行时，会把真正的错指判成相容而漏报）；三者在当前真实
+# 语料上的误报数**均为 0**。故取 6/6 且 0 误报的 {宪法,跨模型,蓝图}。
+# 变更本集合 = 变更召回/误报权衡，**必须重跑同一实验再改**，禁止凭直觉增删。
+_DOCNUM_ALIASES = {"宪法": "00", "跨模型": "60", "蓝图": "10"}
+# 说明性占位行（如 D8 细则里的 `[sid:<docnum>-<slug>]` 示例）不参与语法/一致性判定
+_SID_SPEC_LINE_MARKERS = ("<docnum>", "<slug>", "<doc>-")
+# 冻结文档：plans/（历史提案）与 templates/（模板）不参与语法/覆盖类判定，
+# 其 sid 引用有效性仍受 check_sid_references 守护（冻结 ≠ 可以留坏锚点）。
+_FROZEN_PREFIXES = ("docs/specs/templates/", "docs/specs/plans/")
+
+
+def _iter_content_lines(text: str):
+    """产出 (行号, 行内容)；跳过 ``` 围栏内的代码块（示例/模板不构成规约锚点）。"""
+    in_fence = False
+    for i, line in enumerate(text.splitlines(), 1):
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if not in_fence:
+            yield i, line
+
+
+def _iter_spec_files() -> list[Path]:
+    """规约扫描范围：`docs/specs/**.md` + 仓库根 `AGENTS.md`（AI 统一入口）。"""
+    files = sorted(SPECS_DIR.rglob("*.md"))
+    agents = ROOT / "AGENTS.md"
+    if agents.exists():
+        files.append(agents)
+    return files
+
+
+def _own_docnum(rel: str) -> str:
+    """返回文件自身的文档号（自引用恒合法，用于消除跨文档一致性检查的误报）。"""
+    name = rel.rsplit("/", 1)[-1].lower()
+    if name == "readme.md":
+        return "readme"
+    if name == "agents.md":
+        return "agents"
+    head = name.split("-", 1)[0]
+    return head if head.isdigit() else ""
+
+
+def _docnum_registry() -> set[str]:
+    """文档号登记簿 = 规约文件名数字前缀 ∪ {readme, agents}（D4：以实际文件为准）。"""
+    nums: set[str] = set(_NAMED_DOCNUMS)
+    for md in SPECS_DIR.glob("*.md"):
+        head = md.stem.split("-", 1)[0]
+        if head.isdigit():
+            nums.add(head)
+    return nums
 
 
 def _git_repo_root() -> Path:
@@ -137,7 +210,7 @@ def check_sid_uniqueness() -> tuple[list[str], list[str]]:
     blocking: list[str] = []
     warning: list[str] = []
     seen: dict[str, str] = {}
-    for md in sorted(SPECS_DIR.rglob("*.md")):
+    for md in _iter_spec_files():
         rel = md.relative_to(ROOT).as_posix()
         try:
             text = md.read_text(encoding="utf-8", errors="replace")
@@ -152,7 +225,6 @@ def check_sid_uniqueness() -> tuple[list[str], list[str]]:
                 blocking.append(f"{rel}: sid `{sid}` 重复（首次出现在 {seen[sid]}）")
             else:
                 seen[sid] = rel
-    # 格式告警：非法字符（已由正则约束，仅提示是否为空/过短）
     for sid in seen:
         if len(sid.split("-")) < 2:
             warning.append(f"sid `{sid}` 格式过短（应为 <doc>-<slug>）")
@@ -166,7 +238,14 @@ def _describe() -> None:
         f"  大规模改动    : 增+删 ≥ {_LARGE_CHURN_RATIO:.0%} 总行 → WARNING\n"
         "  sid 唯一性    : [sid:<doc>-<slug>] 全局唯一 → BLOCKING(重复) / WARNING(格式)\n"
         "  sid 引用      : 正文 [sid:...] 须指向已声明锚点 → BLOCKING(悬空, D8)\n"
+        "  sid 语法      : 禁嵌套/粘连/未闭合/大写 → BLOCKING(畸形锚点比无锚点更危险)\n"
+        "  sid 文档号    : docnum 须在登记簿(文件名前缀+readme/agents) → WARNING\n"
+        "  sid 跨文档    : 同行点名文档与 sid docnum 须相容 → WARNING(错指锚点)\n"
+        "  章节 sid 覆盖 : 活动规约 `##` 标题须带 sid 尾标 → WARNING\n"
+        "  AI 入口唯一性 : AGENTS.md 存在且被 README 索引 → BLOCKING；冷启动顺序"
+        "另立门户 → WARNING\n"
         "  路径存在性    : markdown 链接本地路径须存在 → WARNING(失效, D5)\n"
+        "  扫描范围      : docs/specs/**.md + 仓库根 AGENTS.md\n"
         "  豁免          : 经批准的合法重写走 change-proposal（C12），不在本门禁豁免之列\n"
     )
 
@@ -174,7 +253,7 @@ def _describe() -> None:
 def _collect_defined_sids() -> set[str]:
     """收集所有规约标题中声明的 [sid:...] 锚点（D8 权威集）。"""
     defined: set[str] = set()
-    for md in sorted(SPECS_DIR.rglob("*.md")):
+    for md in _iter_spec_files():
         try:
             text = md.read_text(encoding="utf-8", errors="replace")
         except OSError:
@@ -187,15 +266,11 @@ def _collect_defined_sids() -> set[str]:
 
 
 def check_sid_references() -> tuple[list[str], list[str]]:
-    """校验正文 [sid:...] 引用均指向已声明锚点（D8 跨文档引用；BLOCKING=悬空）。
-
-    仅校验方括号形式 `[sid:<doc>-<slug>]`（D8 规范写法）；标题自身的 sid 已在
-    权威集中，不会误报；只有指向「从未声明的 sid」的引用才升级为 BLOCKING。
-    """
+    """校验正文 [sid:...] 引用均指向已声明锚点（D8 跨文档引用；BLOCKING=悬空）。"""
     blocking: list[str] = []
     warning: list[str] = []
     defined = _collect_defined_sids()
-    for md in sorted(SPECS_DIR.rglob("*.md")):
+    for md in _iter_spec_files():
         rel = md.relative_to(ROOT).as_posix()
         try:
             text = md.read_text(encoding="utf-8", errors="replace")
@@ -210,21 +285,160 @@ def check_sid_references() -> tuple[list[str], list[str]]:
     return blocking, warning
 
 
-_MD_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+def check_sid_syntax() -> tuple[list[str], list[str]]:
+    """校验 sid 字面完整性（BLOCKING）：畸形锚点比"没有锚点"更危险——它看起来可解析。"""
+    blocking: list[str] = []
+    warning: list[str] = []
+    for md in _iter_spec_files():
+        rel = md.relative_to(ROOT).as_posix()
+        if rel.startswith(_FROZEN_PREFIXES):
+            continue
+        for i, line in _iter_content_lines(md.read_text(encoding="utf-8", errors="replace")):
+            if any(marker in line for marker in _SID_SPEC_LINE_MARKERS):
+                continue
+            for m in _SID_OPEN_RE.finditer(line):
+                if not line.startswith("[sid:", m.start()):
+                    blocking.append(
+                        f"{rel}:{i}: 畸形 sid（`[sid` 后缺 `:`）：{line.strip()[:80]}（D8）"
+                    )
+            for m in _SID_START_RE.finditer(line):
+                start = m.start()
+                end = line.find("]", start)
+                seg = line[start : end + 1] if end != -1 else line[start:]
+                inner = seg[5:-1] if end != -1 else seg[5:]
+                if end == -1:
+                    blocking.append(f"{rel}:{i}: 未闭合 sid `{seg[:40]}`（D8）")
+                    continue
+                if "[" in inner or re.search(r"[A-Z\s]", inner):
+                    blocking.append(
+                        f"{rel}:{i}: 畸形/嵌套 sid `{seg[:40]}`（禁止嵌套与大写，D8）"
+                    )
+                if start > 0 and line[start - 1] in _GLUE_BEFORE:
+                    blocking.append(
+                        f"{rel}:{i}: sid 与正文粘连 `...{line[max(0, start-12):start]}`"
+                        f"（替换吃掉了正文，D8）"
+                    )
+    return blocking, warning
 
 
-def check_path_references() -> tuple[list[str], list[str]]:
-    """校验正文 markdown 链接的本地路径真实存在（D5；WARNING=失效路径）。
+def check_sid_docnum() -> tuple[list[str], list[str]]:
+    """sid 的文档号必须存在于登记簿（WARNING）：防止 `[sid:99-ch1]` 指向不存在的文档。"""
+    blocking: list[str] = []
+    warning: list[str] = []
+    registry = _docnum_registry()
+    for md in _iter_spec_files():
+        rel = md.relative_to(ROOT).as_posix()
+        if rel.startswith(_FROZEN_PREFIXES):
+            continue
+        for i, line in _iter_content_lines(md.read_text(encoding="utf-8", errors="replace")):
+            if any(marker in line for marker in _SID_SPEC_LINE_MARKERS):
+                continue
+            for m in _SID_TOKEN_RE.finditer(line):
+                docnum = m.group(1).split("-", 1)[0]
+                if docnum not in registry:
+                    warning.append(
+                        f"{rel}:{i}: sid `[sid:{m.group(1)}]` 的文档号 `{docnum}` 未登记"
+                        f"（登记簿来自文件名前缀 + readme/agents，D8）"
+                    )
+    return blocking, warning
 
-    跳过：外部链接(http/https/mailto/tel)、纯 #anchor、outputs/ 运行时目录、
-    templates/ 与 plans/ 下的示例/计划文档（含故意占位路径）。
-    解析顺序：先相对链接所在目录，再相对仓库根（兼容 `docs/specs/X` 写法）。
-    """
+
+def check_sid_crossdoc_coherence() -> tuple[list[str], list[str]]:
+    """同行点名了文档 A 却引用文档 B 的 sid → WARNING（错指锚点，跨模型最难发现的一类）。"""
+    blocking: list[str] = []
+    warning: list[str] = []
+    for md in _iter_spec_files():
+        rel = md.relative_to(ROOT).as_posix()
+        if rel.startswith(_FROZEN_PREFIXES):
+            continue
+        for i, line in _iter_content_lines(md.read_text(encoding="utf-8", errors="replace")):
+            if any(marker in line for marker in _SID_SPEC_LINE_MARKERS):
+                continue
+            # 标题行自带章节号（如 "## 10. 与其他规约的关系 [sid:60-ch10]"）不参与判定
+            if re.match(r"^#{1,6}\s", line):
+                continue
+            sids = list(_SID_TOKEN_RE.finditer(line))
+            if not sids:
+                continue
+            own = _own_docnum(rel)
+            stripped = _SID_TOKEN_RE.sub(" ", line)
+            mentioned = set(_DOCNUM_RE.findall(stripped))
+            for alias, num in _DOCNUM_ALIASES.items():
+                if alias in stripped:
+                    mentioned.add(num)
+            lower = stripped.lower()
+            for name in _NAMED_DOCNUMS:
+                if name in lower:
+                    mentioned.add(name)
+            if not mentioned:
+                continue  # 该行未点名任何文档 → 不判定
+            for m in sids:
+                docnum = m.group(1).split("-", 1)[0]
+                if docnum == own:
+                    continue  # 自引用恒合法（本文件引用本文件章节）
+                if docnum not in mentioned:
+                    warning.append(
+                        f"{rel}:{i}: sid `[sid:{m.group(1)}]` 与同行点名的文档 "
+                        f"{sorted(mentioned)} 不一致（疑似错指锚点，D8）"
+                    )
+    return blocking, warning
+
+
+def check_heading_sid_coverage() -> tuple[list[str], list[str]]:
+    """活动规约的一级标题（`##`）必须携带 sid（WARNING）：无锚点 = 不可被跨文档引用。"""
     blocking: list[str] = []
     warning: list[str] = []
     for md in sorted(SPECS_DIR.rglob("*.md")):
         rel = md.relative_to(ROOT).as_posix()
-        if rel.startswith("docs/specs/templates/") or rel.startswith("docs/specs/plans/"):
+        if rel.startswith(_FROZEN_PREFIXES):
+            continue
+        for i, line in _iter_content_lines(md.read_text(encoding="utf-8", errors="replace")):
+            if re.match(r"^##\s+", line) and "[sid:" not in line:
+                warning.append(f"{rel}:{i}: 一级标题缺 sid 尾标（D8）：{line.strip()[:60]}")
+    return blocking, warning
+
+
+def check_ai_entry_unified() -> tuple[list[str], list[str]]:
+    """AI 入口唯一性：AGENTS.md 必须存在且被 README 索引；冷启动顺序不得另立门户。"""
+    blocking: list[str] = []
+    warning: list[str] = []
+    agents = ROOT / "AGENTS.md"
+    if not agents.exists():
+        blocking.append("AGENTS.md: AI 编码代理统一入口缺失（跨 IDE/跨模型协作前提）")
+        return blocking, warning
+    readme = SPECS_DIR / "README.md"
+    readme_text = readme.read_text(encoding="utf-8", errors="replace") if readme.exists() else ""
+    if "AGENTS.md" not in readme_text:
+        blocking.append(
+            "docs/specs/README.md: 未索引 AGENTS.md（统一入口必须在金字塔入口可达，D1/C3）"
+        )
+    for md in _iter_spec_files():
+        rel = md.relative_to(ROOT).as_posix()
+        if rel.endswith("AGENTS.md"):
+            continue
+        lines = md.read_text(encoding="utf-8", errors="replace").splitlines()
+        for i, line in enumerate(lines, 1):
+            if "冷启动阅读顺序" not in line or "AGENTS.md" in line:
+                continue
+            # 允许"标题声明 + 紧随其后的正文指向"（避免要求同一行塞满）
+            context = "\n".join(lines[i : i + 12])
+            if "AGENTS.md" not in context:
+                warning.append(
+                    f"{rel}:{i}: 声明冷启动顺序但未指向 AGENTS.md（入口唯一性，D1）：{line.strip()[:60]}"
+                )
+    return blocking, warning
+
+
+_MD_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+
+
+def check_path_references() -> tuple[list[str], list[str]]:
+    """校验正文 markdown 链接的本地路径真实存在（D5；WARNING=失效路径）。"""
+    blocking: list[str] = []
+    warning: list[str] = []
+    for md in sorted(SPECS_DIR.rglob("*.md")):
+        rel = md.relative_to(ROOT).as_posix()
+        if rel.startswith(_FROZEN_PREFIXES):
             continue
         try:
             text = md.read_text(encoding="utf-8", errors="replace")
@@ -262,7 +476,6 @@ def main() -> int:
     blocking: list[str] = []
     warning: list[str] = []
 
-    # 规模门禁（相对 HEAD diff）+ 锚点体系（D8）+ 路径存在性（D5）
     b, w = check_diff_scale()
     blocking += b
     warning += w
@@ -270,6 +483,21 @@ def main() -> int:
     blocking += b
     warning += w
     b, w = check_sid_references()
+    blocking += b
+    warning += w
+    b, w = check_sid_syntax()
+    blocking += b
+    warning += w
+    b, w = check_sid_docnum()
+    blocking += b
+    warning += w
+    b, w = check_sid_crossdoc_coherence()
+    blocking += b
+    warning += w
+    b, w = check_heading_sid_coverage()
+    blocking += b
+    warning += w
+    b, w = check_ai_entry_unified()
     blocking += b
     warning += w
     b, w = check_path_references()

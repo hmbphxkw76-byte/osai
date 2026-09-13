@@ -2,7 +2,7 @@
 
 > **文档层级**：L1（架构规则补充）
 > **效力**：定义组件化架构的目录组织、命名、注册与归属规则。任何涉及组件的代码变更必须能在本文件"落点"。
-> **版本**：v2.0（2026-09-12 REV-02：与 `config/components/*.yaml` 严格对齐——引入双命名空间规则、修正组件状态登记表、新增组件 Checkpoint 改为注册表驱动）
+> **版本**：v2.1（2026-09-13 REV-03：修复 IA-7 依据列的畸形/粘连 sid 锚点；跨文档引用统一为 sid。REV-02：与 `config/components/*.yaml` 严格对齐——引入双命名空间规则、修正组件状态登记表、新增组件 Checkpoint 改为注册表驱动）
 > **版本史**：`git log -- docs/specs/80-COMPONENT-ARCHITECTURE-RULES.md`
 > **读者**：新增/修改组件时**必读**；评审涉及组件的 diff 时**必读**。
 
@@ -209,7 +209,7 @@ python main.py --dry-run --max-seeds 1
 - [ ] 未改动任何框架层调度逻辑（IA-7）
 - [ ] 测试 `tests/test_<id>_*.py` 存在且通过
 
-> 完整门禁见 `specs/README.md` §2。
+> 完整门禁见 README [sid:readme-ch2]。
 
 ---
 
@@ -223,7 +223,7 @@ python main.py --dry-run --max-seeds 1
 | IA-4 | 组件归属由 `_component_bridge` 统一写入 | CB-1 |
 | IA-5 | 种子 `suitable_for` 取值必须等于 `component_key` | C-NAME-2 |
 | IA-6 | 未知组件返回 `None` / 默认实现，**禁止崩溃** | 调度器兜底 |
-| IA-7 | 新组件经注册扩展，**不改框架层调度逻辑**（开放-封闭） | [sid:8[sid:80-ch6]h4] / 第六章 |
+| IA-7 | 新组件经注册扩展，**不改框架层调度逻辑**（开放-封闭） | [sid:80-ch6] |
 | IA-8 | `id` 必须等于 YAML 文件名 stem | [sid:80-ch2] |
 
 ---

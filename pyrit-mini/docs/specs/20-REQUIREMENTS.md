@@ -3,7 +3,7 @@
 > **文档层级**：L2 / 五层规约金字塔第三层
 > **效力**：本项目"做什么"的唯一登记处。**未登记于此的需求 = 不存在**。AI 不得实现未登记需求（宪法 C6）。
 > **格式**：每条需求有 ID、一句话陈述、可勾选的验收标准（DoD）。验收标准是任务完成的**唯一**判据。
-> **版本**：v3.0（2026-09-12 REV-20：新增 **[sid:20-ch9d] D：用户诉求差距闭合需求**，登记 REQ-160~171 + NFR-17~19 + 红线 R-ROE-1/R-EVID-1/R-AUDIT-1；依据 `plans/CP-002-user-gap-closure.md`。REV-17 的 REQ-159 改号等项保持有效）
+> **版本**：v3.1（2026-09-13 REV-21：决策组子节由"第九章 A/B/C"改号 A1/A2/A3（消除与 [sid:20-ch9b] 的重名锚点歧义）；跨文档引用统一为 sid。REV-20：新增 **[sid:20-ch9d] D：用户诉求差距闭合需求**，登记 REQ-160~171 + NFR-17~19 + 红线 R-ROE-1/R-EVID-1/R-AUDIT-1；依据 `plans/CP-002-user-gap-closure.md`。REV-17 的 REQ-159 改号等项保持有效）
 > **版本史**：`git log -- docs/specs/20-REQUIREMENTS.md`
 
 > **ID 分配纪律**：REQ-xxx 全局唯一、只增不改。发现重号即为 P0 文档缺陷，须立即登记 backlog 并改号（不得改需求语义）。
@@ -116,9 +116,9 @@
 | REQ-141 | CLI 参数支持 | ① `--file-upload-target` 指定目标 URL；② `--upload-files` 指定文件列表；③ `--upload-endpoint` / `--trigger-endpoint` 指定端点路径 | `core/config.py` | ✅ |
 | REQ-142 | 流水线集成 | ① 集成到 `_run_file_upload_phase()`；② 结果存入 `ctx.attack_results`；③ 审计日志记录到 `orchestration_log` | `core/phases/strike.py` | ✅ |
 | REQ-143 | 测试覆盖 | ① 39 个测试用例覆盖全部核心功能；② CLI 参数解析测试；③ 边界情况测试 | `tests/test_file_upload_executor.py` | ✅ |
-| REQ-159 | 代码-文档同步 | ① CLI 参数变更必须同步更新 `main.py`/`core/config.py` 的 argparse 定义（代码即 CLI 文档，运行 `--help` 即得；R-DOC-1 的 SSOT 目标）；② 新增攻击模块必须同步更新 `docs/specs/55-gap-N.md`（缺口 1–6 子文件）；③ 新增需求/红线必须同步更新 `20-REQUIREMENTS.md` 和 `40-GUARDRAILS.md`；④ 规约文档遵守 `specs/README.md` §5 文档纪律（禁行号坐标 / 禁正文版本史 / 清单读代码） | `docs/specs/` | ✅ |
+| REQ-159 | 代码-文档同步 | ① CLI 参数变更必须同步更新 `main.py`/`core/config.py` 的 argparse 定义（代码即 CLI 文档，运行 `--help` 即得；R-DOC-1 的 SSOT 目标）；② 新增攻击模块必须同步更新 `docs/specs/55-gap-N.md`（缺口 1–6 子文件）；③ 新增需求/红线必须同步更新 `20-REQUIREMENTS.md` 和 `40-GUARDRAILS.md`；④ 规约文档遵守 README [sid:readme-ch5] 文档纪律（禁行号坐标 / 禁正文版本史 / 清单读代码 / 跨文档引用用 sid） | `docs/specs/` | ✅ |
 
-> **改号说明**（REV-17）：本条原编号 REQ-144 与[sid:20-ch9d] B 的「跨模型审查 REQ-144」重号。REQ-xxx 全局唯一，**本条改号 REQ-159**；语义不变。
+> **改号说明**（REV-17）：本条原编号 REQ-144 与 [sid:20-ch9b]「跨模型审查 REQ-144」重号。REQ-xxx 全局唯一，**本条改号 REQ-159**；语义不变。
 
 **CLI 参数清单**：
 
@@ -165,7 +165,7 @@
 
 > **背景**：基于已实施的 Strike 阶段战术决策系统，扩展为覆盖全链路的自主决策引擎。详细架构见 `10-ARCHITECTURE.md` [sid:10-ch11]和 `55-ATTACK-GAP-CLOSURE.md` [sid:55-decision]。
 
-### 第九章 A：决策引擎核心需求
+### 第九章 A1：决策引擎核心需求
 
 | ID | 陈述 | 验收标准 | 优先级 |
 |----|------|----------|--------|
@@ -173,7 +173,7 @@
 | REQ-136 | Recon 阶段自适应决策 | ① `determine_probe_strategy()` 基于预算和目标类型选择探测深度；② 检测到 WAF 自动启用 stealth 模式；③ 决策输出写入 `ctx.probe_level` 和 `ctx.stealth_config` | P1 |
 | REQ-137 | ARM+Assess+Report 阶段决策 | ① ARM 阶段实现动态种子排序 + Converter 链优化；② Assess 阶段实现评分器自适应选择；③ Report 阶段实现报告格式自适应 | P2 |
 
-### 第九章 B：决策系统非功能需求
+### 第九章 A2：决策系统非功能需求（原称"第九章 B"，与审查组 [sid:20-ch9b] 重名，改号避免锚点歧义）
 
 | ID | 维度 | 标准 |
 |----|------|------|
@@ -182,7 +182,7 @@
 | NFR-11 | 决策稳定性 | 单次决策变更需基于 ≥3 次连续失败或 ASR 显著下降，避免频繁抖动；**升级链触发稳定性**：ASR < 70% 且 Strike 完成度 < 50% 才触发；ASR < 95% 且完成度 > 80% 触发 |
 | NFR-12 | 决策可测试性 | 每个决策函数必须有独立单元测试，覆盖策略选择逻辑 |
 
-### 第九章 C：决策需求状态追踪
+### 第九章 A3：决策需求状态追踪（原称"第九章 C"）
 
 | 需求组 | 状态 | 备注 |
 |--------|------|------|

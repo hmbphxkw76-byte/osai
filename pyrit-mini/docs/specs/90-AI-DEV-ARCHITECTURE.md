@@ -2,7 +2,7 @@
 
 > **文档层级**：配套层（与 50-ROADMAP 同级，**无独立裁决权威**）。本文件是 AI 编码代理的"需求 → 落点 → 流程"导航图：只做映射与引用，**不声明任何新规则**。规则本体全部在 00–80 规约金字塔，任何冲突以金字塔为准（裁决序见 `00-CONSTITUTION.md` [sid:00-ch2]）。
 > **读者**：新会话冷启动的 AI 编码代理（必读）、评审 AI 交付物的人工。
-> **版本**：v1.0（2026-09-12：初版，产品契约映射 / 架构落点 / 遵循流程 / 差距指针 / 纪律自检）
+> **版本**：v1.1（2026-09-13 REV-1：修复批量替换产生的畸形/错指 sid 锚点；冷启动顺序收敛为 `AGENTS.md` [sid:agents-ch1] 单一定义；BL-039 已闭环移出差距表；纪律自检补 D8 机器校验）
 > **版本史**：`git log -- docs/specs/90-AI-DEV-ARCHITECTURE.md`（文档纪律 D3，正文不再维护）
 
 ---
@@ -13,7 +13,7 @@
 |---|---|
 | **本文是什么** | 产品契约（五条需求）→ 六阶段流水线 / v4.0 六层架构 / REQ 编号的**映射表**，外加 AI 编码的强制流程导航与差距指针。 |
 | **本文不是什么** | 不是规则源。所有规则（原生优先 / SSOT / 门禁 / 红线 / 粒度上限）的唯一权威在 00/10/20/30/40/80，本文一律引用。 |
-| **AI 何时读** | 每个新会话冷启动第一篇；实施任何任务前，用[sid:30-c[sid:30-[sid:30-ch4]]定位落点、用第三章走流程、用第四章确认不踩差距冻结区。 |
+| **AI 何时读** | 每个新会话按 `AGENTS.md` [sid:agents-ch1] 声明的冷启动顺序加载（本文在其中排第 2 位）；实施任务前用 [sid:90-ch2] 定位落点、[sid:90-ch3] 走流程、[sid:90-ch4] 确认不踩差距冻结区。 |
 
 ---
 
@@ -79,7 +79,7 @@ v4.0 六层目标架构（L0 输入与作用域 → L5 交付）与六个一等�
 | 策略路由 | `core.scenario_router`（组件/场景 → technique_tags，ADR-004 轻量化）+ `--target` / `--strike` 分发（`strike.common.dispatcher`，含渐进模式 Phase 1→4 自动升级） |
 | Embedding 口径 | REQ-110 裁决（蓝图 Q4）：编排内不实装 embedding 反演攻击；`recon.embedding.vector_probe` 仅服务组件识别与侦察。禁止维持 stub 编排状态（R-H1） |
 | **已知差距** | `ctx.techniques` 只喂 Converter、不选 Executor（技术路由断裂，BL-031）——归宿 REQ-151 PlaybookEngine，**禁止新建第二套链机制**（宪法 C3） |
-| 需求 / 不变量 | REQ-003/153/155；I1 / I6 / I7；组件归属传递见 80 [sid:20-ch5]（CB-1/CB-2、IC-1/IC-3） |
+| 需求 / 不变量 | REQ-003/153/155；I1 / I6 / I7；组件归属传递见 80 [sid:80-ch5]（CB-1/CB-2、IC-1/IC-3） |
 
 ### 2.3 需求③ PyRIT 原生执行托管 → ③ STRIKE + ④ ESCALATE（六层：L2 / L3）
 
@@ -120,26 +120,33 @@ v4.0 六层目标架构（L0 输入与作用域 → L5 交付）与六个一等�
 
 ## 第三章：AI 编程遵循流程（编码代理执行契约） [sid:90-ch3]
 
-> 本章是流程**导航**，不是流程**定义**。八步协议 / STOP-REPORT / 粒度上限的唯一权威在 `30-TASKS.md`；裁决序与条款在 `00-CONSTITUTION.md`；门禁命令唯一表在 `specs/README.md` §2。
+> 本章是流程**导航**，不是流程**定义**。八步协议 / STOP-REPORT / 粒度上限的唯一权威在 `30-TASKS.md`；裁决序与条款在 `00-CONSTITUTION.md`；门禁命令唯一表在 README [sid:readme-ch2]。
 
 ### 3.1 会话冷启动阅读顺序
 
-1. 本文件（[sid:90-[sid:90-ch4]]定位落点、[sid:90-ch4]确认冻结区）
-2. `00-CONSTITUTION.md`——第 0 条使命 + [sid:00-ch2]裁决序（Step 1 宪法自检）
-3. `30-TASKS.md`——[sid:30-ch4]八步协议（Step 2~8 的执行骨架）
-4. `10-ARCHITECTURE.md` 相关章节（Step 2 蓝图落点声明）
-5. `20-REQUIREMENTS.md` 对应 REQ 的验收标准（Step 3 规格核对；未登记 = 不存在）
+> **唯一定义处 = `AGENTS.md` [sid:agents-ch1]**（跨 IDE / 跨模型统一入口）。本文件不重复定义顺序，
+> 只声明自己在该顺序中的位置与职责：冷启动第 2 篇，回答"需求 → 架构落点"的映射问题。
+> 本文与 `AGENTS.md` 冲突时以 `AGENTS.md` 为准（入口唯一性，D1/C3）。
+
+| 位次 | 文件 | 本文为何在这一位 |
+|------|------|-----------------|
+| 1 | `docs/specs/README.md` [sid:readme-ch1] | 金字塔入口 + 门禁唯一表 |
+| 2 | 本文件 [sid:90-ch2] | 先知道"落点在哪"，再读规则才不至于全篇通读 |
+| 3 | `00-CONSTITUTION.md` [sid:00-ch0] | 使命 + [sid:00-ch2] 裁决序（Step 1 宪法自检） |
+| 4 | `30-TASKS.md` [sid:30-ch4] | 八步协议（Step 2~8 的执行骨架） |
+| 5 | `10-ARCHITECTURE.md` 相关章节 | Step 2 蓝图落点声明 |
+| 6 | `20-REQUIREMENTS.md` 对应 REQ | Step 3 规格核对；未登记 = 不存在 |
 
 ### 3.2 每次编码任务的强制闭环（30-TASKS 八步协议引用）
 
 | 步 | 动作 | 唯一权威 |
 |----|------|---------|
 | 1 | 宪法自检 | 00-CONSTITUTION |
-| 2 | 蓝图落点声明 | 10-ARCHITECTURE（本文[sid:10-ch2]是导航入口） |
+| 2 | 蓝图落点声明 | 10-ARCHITECTURE（本文 [sid:90-ch2] 是落点导航入口） |
 | 3 | 规格核对（task-spec + REQ 验收标准可勾选） | 20-REQUIREMENTS / 30-TASKS |
 | 4 | 代码精读（先读后写，C5） | 00-CONSTITUTION C5 |
 | 5 | 计划复述 | 30-TASKS |
-| 6 | 最小实现（C4 粒度上限内） | 00-CONSTITUTION C4 / 30-TASKS [sid:00-ch3] |
+| 6 | 最小实现（C4 粒度上限内） | 00-CONSTITUTION C4 / 30-TASKS [sid:30-ch3] |
 | 7 | 门禁全过（命令唯一表，顺序固定） | [sid:readme-ch2]（统一入口 `python -m tools.gate`） |
 | 8 | 如实汇报（三态：已验证 / 未验证 / 未完成） | 00-CONSTITUTION C9 / 30-TASKS |
 
@@ -151,15 +158,15 @@ v4.0 六层目标架构（L0 输入与作用域 → L5 交付）与六个一等�
 | ASR 至上与边界 | 宪法 C2 + 蓝图 I1~I4 / I8 |
 | 配置数据流不可断 | 宪法 C7 + 蓝图 4.4 ctx 字段总表（唯一登记簿） |
 | 学术留痕 | 宪法 C8（arXiv 三处之一） |
-| 组件化规则 | 80 [sid:80-ch7] IA-[sid:80-ch6]A-8 + 第六[sid:80-ch2]组件 Checklist + 第二章双命名空间 |
+| 组件化规则 | 80：不变量 [sid:80-ch7]（IA-1~IA-8）+ 新增组件 Checklist [sid:80-ch6] + 双命名空间 [sid:80-ch2] |
 | 任务粒度上限 | 30-TASKS [sid:30-ch3]（文件数 / diff 行数 / 跨模块数硬上限） |
 | 非功能标准 | 20-REQUIREMENTS [sid:20-ch4] NFR-1~13 |
-| 红线与门禁 | 40-GUARDRAILS [sid:40-ch1]（1A 机器可查 / 1B 人工评审 / 1C 安全合规）+ [sid:readme-ch2] |
+| 红线与门禁 | 40-GUARDRAILS [sid:40-ch1]（1A 机器可查 / 1B 人工评审 / 1C 安全合规）+ README [sid:readme-ch2] |
 | 决策系统约束 | 40-GUARDRAILS 1G-DECIDE（R-DECIDE-1~6）+ 蓝图 11.5（ID-1~ID-5） |
 
 ### 3.4 偏航熔断（STOP-REPORT）
 
-六类触发信号（规格含糊 / 未登记变更 / 超受影响清单 / 超粒度上限 / 红线风险 / ASR 裁决无依据）的完整定义见 `00-CONSTITUTION.md` C11 与 `30-TASKS.md` [sid:00-ch5]（含格式模板）。**原则：猜着做 = 违宪；停下来问 = 合宪。**
+六类触发信号（规格含糊 / 未登记变更 / 超受影响清单 / 超粒度上限 / 红线风险 / ASR 裁决无依据）的完整定义见 `00-CONSTITUTION.md` C11 与 `30-TASKS.md` [sid:30-ch5]（含格式模板）。**原则：猜着做 = 违宪；停下来问 = 合宪。**
 
 ---
 
@@ -176,7 +183,6 @@ v4.0 六层目标架构（L0 输入与作用域 → L5 交付）与六个一等�
 | BL-024 | 组件 `id` ≠ YAML 文件名 stem（session / web_api） | IA-8 数据层专项任务 |
 | BL-025 | `config/components/*.yaml` 新旧双 schema 并存 | 蓝图 13.3 兼容层"只减不增"专项清理 |
 | BL-027 | `docs/guides/ai-dev-guides.md` 与 specs 职责重叠（违反 C3） | 待裁决（降级为方法论 / 删除重复模板） |
-| BL-039 | R-DOC-4 检查器白名单未含本文件（90 版本同步暂无自动校验） | guard_extended 专项任务（1C-DOC） |
 | D-04 | recon → assess 跨层依赖（target_router 调 assess.scorer 验证函数） | 蓝图 [sid:10-ch8]债务簿（验证函数移入 core 或 targets） |
 | D-16 | `pyrit>=1.0.1` 未钉住 + `asr_history.json` 运行时产物入库 | 蓝图 [sid:10-ch8]债务簿 |
 | v4.0 未落地件 | `recon/surface/`、`strike/playbook/` 目录形态、`assess/impact/` 独立模块化等 | 蓝图 [sid:10-ch13]执行计划波次（引用其 plans/ 执行计划，不在本文复制波次表） |
@@ -187,7 +193,7 @@ v4.0 六层目标架构（L0 输入与作用域 → L5 交付）与六个一等�
 
 ## 第五章：本文件纪律自检（文档纪律 D1~D8 落地） [sid:90-ch5]
 
-本文件自身受 `specs/README.md` §5 文档纪律约束。每次修订本文件后，逐项核验：
+本文件自身受 README [sid:readme-ch5] 文档纪律约束。每次修订本文件后，逐项核验：
 
 | # | 纪律 | 自检方式 |
 |---|------|---------|
@@ -198,3 +204,4 @@ v4.0 六层目标架构（L0 输入与作用域 → L5 交付）与六个一等�
 | D5 | 路径必须存在 | [sid:90-ch2]所有 `模块.符号` 与文件路径经代码实证（初版核验记录见 git 提交）；蓝图规划未落地项显式标注 |
 | D6 | 已完结内容归档 | 差距表只留指针，完结项从表中移除 |
 | D7 | 无占位符 | `rg "TASK-___|\[CMD\]|待填|TODO" docs/specs/90-AI-DEV-ARCHITECTURE.md` 零命中 |
+| D8 | 锚点稳定 | `python -m tools.spec_lint` 零 BLOCKING（sid 语法/文档号/跨文档一致性/覆盖率全量机器校验） |

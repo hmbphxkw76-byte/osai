@@ -51,8 +51,21 @@ def _resolve_git_hooks_dir(root: Path) -> Path | None:
         current = current.parent
     return None
 
-# 规约六步（README §2）在 gate.py 中的步骤标识
-_REQUIRED_STEPS = ("guard", "architecture", "ruff", "pytest", "dry-run", "drift", "dataflow")
+# 规约步骤（README §2 阶段→步骤映射）在 gate.py 中的步骤标识。
+# 必须与 gate.COMMIT_STEPS/PUSH_STEPS 同步扩展：门禁新增一步而本表未收，
+# 就等于该步"悄悄少跑也无人发现"（E-01 同病根，BL-073）。
+_REQUIRED_STEPS = (
+    "spec-lint",
+    "security",
+    "guard",
+    "architecture",
+    "ruff",
+    "pytest",
+    "dry-run",
+    "drift",
+    "dataflow",
+    "e2e",
+)
 
 # 静默降级的特征串（出现即视为违规）
 _SILENT_SKIP_MARKERS = ("非阻塞", "[SKIP]")
@@ -82,7 +95,12 @@ def register_gate_checks(guard_cls) -> None:
             return
 
         content = gate_file.read_text(encoding="utf-8", errors="replace")
-        covered = set(re.findall(r'"(guard|architecture|ruff|pytest|dry-run|drift|dataflow|e2e)"', content))
+        covered = set(
+            re.findall(
+                r'"(spec-lint|security|guard|architecture|ruff|pytest|dry-run|drift|dataflow|e2e)"',
+                content,
+            )
+        )
         missing = [s for s in _REQUIRED_STEPS if s not in covered]
         if missing:
             self.violations.append(

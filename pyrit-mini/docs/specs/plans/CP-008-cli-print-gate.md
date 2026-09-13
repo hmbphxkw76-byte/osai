@@ -88,3 +88,14 @@ CP-006 把库层（`core/` `arm/` `assess/` `strike/` `recon/` `utils/`）的 `p
 - needs-cross-model-pending：true（R-CROSS-1 降级，单模型环境）
 - 合并裁决：人工
 - 关联登记：执行落地后于 `docs/backlog.md` 补 `completed` 行（参照 BL-076/BL-077）
+
+## 9. 执行记录（2026-09-13）
+
+- **切片 0**（commit `bc314c0`）：`select` 增加 `"T201"`；`per-file-ignores` 为全仓 52 个 print 文件加过渡豁免。
+- **分类修正**：全仓扫描 + 子代理逐文件核查发现，绝大多数 `print(` 位于 **docstring / 字符串字面量**（ruff T201 不检查字符串，零违规）；真正位于可执行代码的仅 `main.py`（1 处告警）与 `tests/common/test_data_flow_integrity.py`（1 处调试）。
+- **切片 1（收口）**：
+  - 真实代码级 print 迁移：`main.py` 告警 `print` → `_logger.warning`（加模块级 `_logger`）；`test_data_flow_integrity.py` 删除调试 `print`。
+  - 余下 A/C 文件（recon×14、arm、strike×3、core×2、tests×9）其 `print` 仅在 docstring，移除豁免后 ruff 直接通过，**无需改码**。
+  - `pyproject.toml`：`arm/attack_surface_mapper.py`、`recon/health_probe.py` 降回 `["F401","I001"]`；CP-008 过渡块替换为**仅 B 类（21 文件：tools×15 + report×3 + scripts×3）的最终白名单**。
+  - `ruff check .` 全绿；`gate` 两道均 PASS。
+- **结论**：R-GATE-2 非阻塞降级缺口已闭合（T201 全仓强制，仅 21 个有意用户面向输出文件豁免）。原估 ~500+ 处可执行 print 不成立，实际仅 2 处需改——范围偏差已在顶部横幅与本节诚实记录（C9 / R-H1）。
