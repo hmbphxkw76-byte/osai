@@ -3,7 +3,7 @@
 > **文档层级**：L4 / 五层规约金字塔第五层
 > **效力**：红线 = 绝对禁止，视同宪法级（裁决序见 00-CONSTITUTION 第二章）。质量门禁 = 完成任务的必要不充分条件。
 > **执行机制**：三层防线（静态 guard / 运行时 dry-run / git 钩子），继承 SKILL.md D2 条款并收编。
-> **版本**：v3.6（2026-09-12 REV-23：R-L7 顶层**文件**许可清单纳入 `AGENTS.md`（AI 编码代理唯一入口，跨 IDE/跨模型自动加载）；跨模型 review-only 协议见 `60-CROSS-MODEL-VERIFICATION.md` §4.4。REV-22 的 1K-GATE 与 REV-21 的 `targets/` 目录许可保持有效）
+> **版本**：v3.7（2026-09-13 REV-24：R-DOC-4 版本同步校验由 INFO 提级 BLOCKING；跨模型 5 检查器落地（tools.cross_model_review，BL-042 闭环）；R-L7 顶层**文件**许可清单纳入 `AGENTS.md`（AI 编码代理唯一入口，跨 IDE/跨模型自动加载）；跨模型 review-only 协议见 `60-CROSS-MODEL-VERIFICATION.md` §4.4。REV-22 的 1K-GATE 与 REV-21 的 `targets/` 目录许可保持有效）
 > **v3.4 摘要**（REV-21）：R-L7 顶层目录许可清单同步纳入 `targets/` —— 依 `10-ARCHITECTURE.md` 2.1「靶场层」与 REQ-156，修复检查器白名单滞后于规格的 spec-code drift。
 > **版本史**：`git log -- docs/specs/40-GUARDRAILS.md`
 
@@ -66,7 +66,7 @@
 | R-DOC-1 | CLI 参数以 `core/config.py` / `main.py` 的 argparse 为唯一权威；每个 `--xxx` 须具备非空 `help`（代码自描述，运行 `--help` 即得） | `check_cli_params_documented()` | WARNING |
 | R-DOC-2 | 新增攻击模块必须同步更新 `docs/specs/55-ATTACK-GAP-CLOSURE.md` 对应缺口章节 | `check_attack_gap_documented()` | WARNING |
 | R-DOC-3 | 新增需求/红线必须同步更新 `docs/specs/20-REQUIREMENTS.md` 和 `docs/specs/40-GUARDRAILS.md` | `check_requirements_guardrails_synced()` | WARNING |
-| R-DOC-4 | 文档版本号变更必须同步更新 `docs/specs/README.md` 金字塔版本索引 | `check_readme_version_synced()` | INFO |
+| R-DOC-4 | 文档版本号变更必须同步更新 `docs/specs/README.md` 金字塔版本索引（否则门禁 BLOCKING，C10） | `check_readme_version_synced()` | BLOCKING |
 | R-DOC-5 | **新增/修改 CLI 参数必须在交付验收时显示完整命令行用法**，包括：参数组合示例、与其他模块联合使用示例、完整参数列表 | `check_cli_usage_shown_in_delivery()` | WARNING |
 
 **R-DOC-1 判定**:
@@ -87,7 +87,7 @@
 
 **R-DOC-4 判定**:
 - ✅ PASS: `README.md` 金字塔版本索引与各文档版本号一致
-- ℹ️ INFO: 版本号不一致 → 提示同步
+- ❌ BLOCKING: 版本号不一致 → 门禁拦截（C10，须先同步 README 索引再合入）
 
 **R-DOC-5 判定**:
 - ✅ PASS: 交付验收清单中包含"CLI 文档"章节，显示：完整参数列表、基础用法示例、组合攻击示例
@@ -255,7 +255,7 @@ pyrit-drift --full --report
 | check_cli_params_documented | R-DOC-1 | WARNING | 文档同步 |
 | check_attack_gap_documented | R-DOC-2 | WARNING | 文档同步 |
 | check_requirements_guardrails_synced | R-DOC-3 | WARNING | 文档同步 |
-| check_readme_version_synced | R-DOC-4 | INFO | 文档同步 |
+| check_readme_version_synced | R-DOC-4 | BLOCKING | 文档同步 |
 | check_decision_safety_boundary | R-DECIDE-1 | BLOCKING | 自主决策 |
 | check_decision_audit_trail | R-DECIDE-2 | WARNING | 自主决策 |
 | check_decision_stability | R-DECIDE-3 | WARNING | 自主决策 |
@@ -309,9 +309,9 @@ pyrit-drift --full --report
 | # | 红线 | 级别 | 判定特征 | 检查器 |
 |---|------|------|----------|--------|
 | R-CROSS-1 | **审查前置**：L0-L4 规约变更必须经过跨模型审查（≥2 模型），single-model 审查结论不得直接写入规约文档 | BLOCKING | 规约文档已变更但 docs/specs/reviews/ 无对应记录 | `check_cross_model_review()` |
-| R-CROSS-2 | **一致性达标**：跨模型审查 Overall κ < 0.6 时禁止合入，必须人工仲裁 | BLOCKING | κ 值低于阈值却已合入 | `check_review_consistency()` |
-| R-CROSS-3 | **审查记录完整**：审查记录必须包含 raw/ + aligned/ + adjudication/ 三层产物，永久保留 | WARNING | 审查记录缺失任何一层 | `check_review_artifacts()` |
-| R-CROSS-4 | **修复跟踪**：confirmed findings 必须创建跟踪任务，single-model findings 标记待人工 | WARNING | confirmed findings 未创建跟踪或 single-model 未标记 | `check_review_followup()` |
+| R-CROSS-2 | **审查报告合规**：审查报告 JSON 必须可解析且含 60 §5.1 必需字段（model/findings） | BLOCKING | 报告缺字段/无法解析 → BLOCKING；无审查记录 → 由 R-CROSS-1 WARNING 降级 | `check_review_schema()` |
+| R-CROSS-3 | **仲裁记录完整**：审查记录须含 `adjudication/decision.json`（R-CROSS-3 永久保留） | WARNING | 缺 `adjudication/decision.json` | `check_adjudication_record()` |
+| R-CROSS-4 | **模型池健康**：审查模型池须 ≥ 2 可用，否则按 R-CROSS-1 降级人工审查 | INFO | 可用模型 < 2 | `check_review_model_pool()` |
 | R-CROSS-5 | **审查时效**：规约变更自合入之日起 90 天内必须有一次跨模型审查 | INFO | 合入超 90 天未审查 | `check_review_freshness()` |
 
 **R-CROSS-* 判定逻辑**：

@@ -2,7 +2,7 @@
 
 > **STATUS: ACTIVE** — 本文档定义 specs/ 规约文档的跨模型交叉确认标准流程
 > **文档层级**：L4 配套协议（护栏唯一定义见 `40-GUARDRAILS.md` 1I-CROSS；任务协议见 `30-TASKS.md` 第十章）
-> **版本**：v1.2（2026-09-13 REV-2：消除文档纪律 D3 自相矛盾——删除正文 §11 版本记录表，D1 的"章节编号连续无跳号/文末版本记录"改引 sid 锚点与 README 索引。REV-1 的 §4.4 review-only 保持有效）
+> **版本**：v1.3（2026-09-13 REV-3：5 跨模型检查器落地（tools.cross_model_review，R-CROSS-1~5，BL-042 闭环）；§9.2 标记已实现。REV-2 的 D3 自相矛盾消除保持有效）
 > **版本史**：`git log -- docs/specs/60-CROSS-MODEL-VERIFICATION.md`
 
 > **职责边界**（防三处重复）：本文件**只定义审查协议**（模型池 / Prompt 模板 / Schema / 存储结构）。
@@ -242,7 +242,7 @@ def align_reviews(reviews: list[dict]) -> dict:
 4. **降级**：可用模型 < 2 时按 R-CROSS-1 降级条款转人工审查模式，标记 `needs-cross-model-pending` 并登记 `docs/backlog.md`，不阻断合入。
 5. **编辑纪律**：Author 落笔时遵守 `AGENTS.md` §2（S1–S6）——先读后写、增量编辑、禁止重排章节号、最小同步面。
 
-> **工具链现状（勿按已落地引用）**：`pyrit-cross` / `tools/cross_model_review.py` 未实施（BL-042），当前为人工编排模式。
+> **工具链现状**：`tools/cross_model_review.py` 现已实施（5 检查器 R-CROSS-1~5，BL-042 已闭环）；`outputs/cross_model_review/` 审查记录仍由人工落地（人工编排模式，R-CROSS-1 降级不阻断）。
 
 ---
 
@@ -432,7 +432,7 @@ fi
 
 ### 9.2 Guard 检查器
 
-新增检查器（注册于 40-GUARDRAILS 1I 登记簿）:
+已实现（注册于 `tools/cross_model_review.register()`，见 40-GUARDRAILS 1I 登记簿 R-CROSS-1~5；BL-042 已闭环）:
 
 - `check_cross_model_review()`: 验证变更已通过跨模型审查
 - `check_review_schema()`: 验证审查报告 JSON Schema 合规
