@@ -1,8 +1,10 @@
 # CP-008 — CLI/测试层 print→logging 收口 + ruff T201 接入门禁
 
-> 状态：**draft（待人工批准，C12 批准前不进入编码）**
+> 状态：**approved（<user> 本会话"确认"视为 C12 批准；切片 0 执行中）**
 > 跨模型审查：按 R-CROSS-1 降级为人工审查（needs-cross-model-pending = true，单模型环境）
-> 关联：CP-006 §2（P2 库层 print→logging 已收口 86 处；CLI/测试层按计递延）
+> 关联：CP-006 §2（P2 库层 print→logging 收口；CLI/测试层按计递延）
+
+> ⚠ **范围修正（slice 0 执行中发现，2026-09-13）**：全仓 `print\(` 扫描显示**库层（`core/` `arm/` `strike/` `recon/` `scripts/`）仍有大量残留 print**——CP-006 的"86 处收口"并未净尽。真实范围 ≈ **52 个 .py 文件、跨全部层**（不止原 §2 的 CLI/测试层 4 目录）。原 §2 计数 450 仅覆盖 `tools/`+`report/`+`tests/`+`main.py`，**已偏低**。本 CP 范围据此扩展为**全层收口**；T201 过渡豁免涵盖全部 52 文件。迁移切片（§5）相应扩展至所有层。证据以 slice 0 全仓扫描为准（C9 / R-H1）。
 
 ## 1. 背景
 
@@ -60,7 +62,9 @@ CP-006 把库层（`core/` `arm/` `assess/` `strike/` `recon/` `utils/`）的 `p
 | **切片 1** | `tools/` 诊断 print（A 类）→ logging；非用户输出文件优先 | 边迁边删对应豁免 |
 | **切片 2** | `report/` 分类：B 类保留经 `cli_out()`、A 类→logging（逐文件人工确认） | 仅 B 类留白名单 |
 | **切片 3** | `tests/` print 清理（C 类） | 删对应豁免 |
-| **切片 4** | 收缩 `per-file-ignores` 至最小白名单；终态 `rg "print\(" tools report tests` ≈ 仅 B 类 | T201 全仓强制 |
+| **切片 4** | 收缩 `per-file-ignores` 至最小白名单；终态 `rg "print\(" ` ≈ 仅 B 类 | T201 全仓强制 |
+
+> **范围扩展**：上述切片现已覆盖**全部 52 个 .py 文件**（含 `core/` `arm/` `strike/` `recon/` `scripts/` 的残留 print），不再限于 CLI/测试层。每切片按目录分批迁移，逐文件移除对应豁免。
 
 ## 6. 风险
 
