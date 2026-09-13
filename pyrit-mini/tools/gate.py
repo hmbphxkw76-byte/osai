@@ -99,10 +99,13 @@ def _dataflow() -> None:
 
 
 def _e2e() -> None:
-    """靶场 e2e：目录不存在时显式 INFO 并登记（BL-056），**不静默**也不阻塞。"""
+    """靶场 e2e（REQ-156⑤）：`tests/e2e/` 存在则**阻塞执行**（B5 发布判据），不存在仅 INFO 跳过。
+
+    > 部署纪律（BL-069）：`tests/e2e/` 一旦落地，**禁止改回跳过**——否则 B5 形同虚设。
+    """
     print("\n=== e2e ===")
     if not (ROOT / "tests" / "e2e").exists():
-        print("  [INFO] tests/e2e/ 不存在 → 跳过（已登记 BL-056，REQ-156⑤ 待达成）")
+        print("  [INFO] tests/e2e/ 不存在 → 跳过（REQ-156⑤ 待达成；一旦建立必须改为阻塞）")
         return
     _run("e2e", [PY, "-m", "pytest", "tests/e2e", "-q"])
 
