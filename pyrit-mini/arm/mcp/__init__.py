@@ -10,5 +10,6 @@ from arm.converter_presets import (  # noqa: F401
     l5_optimal,
     l5_optimal_for_model,
 )
+from arm.mcp.preset import TARGET_TYPE, build_converters, candidate_converters  # noqa: F401
 
 OBJECT = "mcp"

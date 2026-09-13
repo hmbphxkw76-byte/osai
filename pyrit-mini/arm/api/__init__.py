@@ -3,6 +3,7 @@
 Re-exports the generic converter API from arm.converter_presets so that
 `arm.api` is a valid, object-keyed entry point for `--converters api`.
 """
+from arm.api.preset import TARGET_TYPE, build_converters, candidate_converters  # noqa: F401
 from arm.converter_presets import (  # noqa: F401
     _classify_target_type,
     _is_file_converter,

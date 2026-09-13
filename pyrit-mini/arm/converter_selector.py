@@ -795,3 +795,43 @@ def _prune_low_asr_converters(
         )
 
     return result
+
+def select_converters(
+    object_key: str,
+    technique_names: list[str],
+    chain_names: list[str],
+    converter_target: Any | None = None,
+    model_family: str | None = None,
+    *,
+    target_fingerprint: dict[str, Any] | None = None,
+    converter_overrides: dict[str, list[str]] | None = None,
+    seeds: list[Any] | None = None,
+) -> dict[str, list[Any]]:
+    """Object-first converter selection: resolve `--converters <object>` to arm/<object>/preset.
+
+    Args:
+        object_key: canonical object or alias (e.g. "mcp", "mcpsec").
+
+    Returns:
+        technique_name -> converter list map from arm.<object>.preset.build_converters.
+    """
+    import importlib
+
+    from core.object_taxonomy import normalize_object
+
+    norm = normalize_object(object_key)
+    if norm is None:
+        raise ValueError(f"Unknown attack object: {object_key!r}")
+    try:
+        preset = importlib.import_module(f"arm.{norm}.preset")
+    except ModuleNotFoundError as e:
+        raise ValueError(f"No converter preset for object {norm!r}: {e}") from e
+    return preset.build_converters(
+        technique_names,
+        chain_names,
+        converter_target,
+        model_family=model_family,
+        target_fingerprint=target_fingerprint,
+        converter_overrides=converter_overrides,
+        seeds=seeds,
+    )
