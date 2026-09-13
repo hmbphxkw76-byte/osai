@@ -4,7 +4,7 @@
 
 ---
 
-## 0. 三句话速记
+## 0. 三句话速记 [sid:readme-ch0]
 
 | | |
 |---|---|
@@ -16,7 +16,7 @@
 
 ---
 
-## 1. 文档地图（按需加载）
+## 1. 文档地图（按需加载） [sid:readme-ch1]
 
 **规则**：只加载与当前任务相关的文件。禁止"全读一遍"。
 
@@ -51,7 +51,7 @@ python -c "from core.registry import get_registry; print(get_registry().keys())"
 
 ---
 
-## 2. 唯一门禁（SSOT —— 命令以代码为准，文档只描述阶段）
+## 2. 唯一门禁（SSOT —— 命令以代码为准，文档只描述阶段） [sid:readme-ch2]
 
 宪法 C10。**全部执行、全部通过、缺一不可、顺序固定**。
 
@@ -100,29 +100,29 @@ python -c "from core.registry import get_registry; print(get_registry().keys())"
 
 1. **本地钩子（个人强制）**：由 `tools/hooks.py` 安装（运行 `python -m tools.hooks` 自动写入真实仓库根的 `.git/hooks/`，并定位 `pyrit-mini` 子目录）。`pre-commit` 跑 `tools.gate --stage commit`（guard + 架构体检 + ruff + dry-run + registry 接线），`pre-push` 跑 `--stage push`（再 + pytest 全量 + drift + dataflow + e2e）。任一阻塞项直接中止提交/推送。绕过须显式 `git commit --no-verify`，而**绕过门禁本身即 C10 违例**，须登记 STOP-REPORT。
 2. **CI（团队强制）**：仓库根 `.github/workflows/spec-gate.yml`（`working-directory: pyrit-mini`）在每次 push/PR 执行全量 `tools.gate`；CI 红灯 = 禁止合并。
-3. **规范漂移回看（周期强制）**：见 §6 / backlog，定期跑 `python -m tools.drift_detector --full` 复核 SSOT 是否仍与代码一致。
+3. **规范漂移回看（周期强制）**：见 [sid:readme-ch6] / backlog，定期跑 `python -m tools.drift_detector --full` 复核 SSOT 是否仍与代码一致。
 
 > 钩子通过 `python -m tools.hooks` 安装（勿手改 `.git/hooks/`）；CI 位于仓库根 `.github/workflows/`。两者命令**只许调用 `tools.gate`**，不得各自抄写明细（C3）。
 
 ---
 
-## 3. 开发三元组（单一定义）
+## 3. 开发三元组（单一定义） [sid:readme-ch3]
 
 | 阶段 | 触发词 | 动作 |
 |------|--------|------|
-| **开发必看** | `开发规范` / `开发必看` | 加载 §1 文档地图中对应层级文件 |
-| **开发必跑** | `开发验证` / `开发必跑` / `完整验证` / `规范对齐` | 按 §2 执行 6 步门禁，修复全部问题后汇报 |
+| **开发必看** | `开发规范` / `开发必看` | 加载 [sid:readme-ch1] 文档地图中对应层级文件 |
+| **开发必跑** | `开发验证` / `开发必跑` / `完整验证` / `规范对齐` | 按 [sid:readme-ch2] 执行 6 步门禁，修复全部问题后汇报 |
 | **开发必验** | `开发交付` / `开发必验` / `交付标准` | 按 `40-GUARDRAILS.md` 第七章交付验证清单逐项打勾 |
 
 > 同义触发词以本表为准。禁止在其他文档重复定义触发词表。
 
 ---
 
-## 4. CLI 工具速查（`pip install -e .` 后可用）
+## 4. CLI 工具速查（`pip install -e .` 后可用） [sid:readme-ch4]
 
 | 命令 | 等价模块调用 | 用途 |
 |------|-------------|------|
-| `pyrit-gate [--stage commit\|push\|all] [--describe]` | `python -m tools.gate` | **统一门禁（唯一入口，见 §2）** |
+| `pyrit-gate [--stage commit\|push\|all] [--describe]` | `python -m tools.gate` | **统一门禁（唯一入口，见 [sid:readme-ch2]）** |
 | `pyrit-guard` | `python -m tools.guard` | 宪法守卫 |
 | `pyrit-drift [--full] [--report]` | `python -m tools.drift_detector` | 规范漂移检测 |
 | `pyrit-dataflow` | `python -m tools.dataflow.validator` | 数据流完整性 |
@@ -141,7 +141,7 @@ python -c "from core.registry import get_registry; print(get_registry().keys())"
 
 ---
 
-## 5. 文档纪律（R-DOC 摘要，完整版见 40-GUARDRAILS 1C-DOC）
+## 5. 文档纪律（R-DOC 摘要，完整版见 40-GUARDRAILS 1C-DOC） [sid:readme-ch5]
 
 规约文档自身也受宪法 C3 约束。违反以下任一条即为文档漂移，须登记 backlog：
 
@@ -156,15 +156,15 @@ python -c "from core.registry import get_registry; print(get_registry().keys())"
 | D7 | **无占位符**：文档不得出现未填实的 `[CMD]` / `TASK-___` 等模板占位 | `[CROSSMODEL_CMD] --task TASK-___` |
 | D8 | **章节锚点 sid**：一级标题（`##`）带唯一 `[sid:<docnum>-<slug>]` 尾标（如 `[sid:40-ch1]`）；引用章节一律用 sid，不用"第 X 章 / §X"；新增章节分配新 sid，**永不重排既有 sid**（防插入章节导致全篇重编号） | 引用裸章节号"第十章" / 因插章重排全篇章节号 |
 
-> **sid 规则（D8 细则）**：① 格式 `[sid:<docnum>-<slug>]`，docnum 取文件名数字前缀（00/10/20/30/40/50/55/60/80/90），slug 小写连字符；② 全局唯一，由 `python -m tools.spec_lint --sid` 机器校验；③ 二级标题（`###`）复用其既有编号（C1-C14 / R-* / 1A-1K / X.Y），不另加 sid；④ sid 一经分配不回收、不重排——删除章节时在文档地图标注"已删（sid 保留）"。 |
+> **sid 规则（D8 细则）**：① 格式 `[sid:<docnum>-<slug>]`，docnum 取文件名数字前缀（00/10/20/30/40/50/55/60/80/90；README 文档号记为 `readme`，无数字前缀，沿用文件名），slug 小写连字符；② 全局唯一，由 `python -m tools.spec_lint --sid` 机器校验；③ 二级标题（`###`）复用其既有编号（C1-C14 / R-* / 1A-1K / X.Y），不另加 sid；④ sid 一经分配不回收、不重排——删除章节时在文档地图标注"已删（sid 保留）"。 |
 
 ---
 
-## 6. 变更流程
+## 6. 变更流程 [sid:readme-ch6]
 
 | 变更对象 | 流程 |
 |---------|------|
-| **宪法** | C12 修正案：`templates/change-proposal.md` → 人工批准 → 同批更新版本号、本索引、受影响 guard 检查器 → 跑 §2 门禁 |
+| **宪法** | C12 修正案：`templates/change-proposal.md` → 人工批准 → 同批更新版本号、本索引、受影响 guard 检查器 → 跑 [sid:readme-ch2] 门禁 |
 | **蓝图 / 需求** | `change-proposal` → 登记 REQ/DEBT → 任务规格 → 编码（20 第六章） |
 | **L0–L4 规约** | 先过跨模型审查（C14 / R-CROSS-1）→ 再走上述流程 |
 | **路线图** | `change-proposal`（序列变更） |
@@ -172,7 +172,7 @@ python -c "from core.registry import get_registry; print(get_registry().keys())"
 
 ---
 
-## 7. 归档与已删除清单
+## 7. 归档与已删除清单 [sid:readme-ch7]
 
 **已归档 / 迁出**（内容或已合并入 specs，或仅存于 git 历史，不再维护）：
 
@@ -186,14 +186,14 @@ python -c "from core.registry import get_registry; print(get_registry().keys())"
 
 | 文件 | 删除理由 |
 |------|---------|
-| `70-DEV-TRIAD-CHECKLIST.md` | 与 §2/§3 逐条重复（C3）；且含虚构条款 C15 与未填实命令占位符（D7） |
+| `70-DEV-TRIAD-CHECKLIST.md` | 与 [sid:readme-ch2]/[sid:readme-ch3] 逐条重复（C3）；且含虚构条款 C15 与未填实命令占位符（D7） |
 | `56-A2A-MULTI-AGENT-ATTACK.md` | 方案类文档；A2A 攻击面已由 `config/components/a2a.yaml` + `80` 承载（SSOT） |
 | `35-MULTIMODAL_ASSESSMENT.md` 等 | 见 git 历史（2026-09-09 清理） |
 
 ---
 
-## 8. 边界说明
+## 8. 边界说明 [sid:readme-ch8]
 
 - 本目录**只含规约层文档**。被治理的代码库为本仓库源码树。
-- 规约文件被修改时，**必须**同步：文件头版本号、§1 文档地图中该行描述（若职责变化）。**不得**在文末追加版本记录表（D3）。
+- 规约文件被修改时，**必须**同步：文件头版本号、[sid:readme-ch1] 文档地图中该行描述（若职责变化）。**不得**在文末追加版本记录表（D3）。
 - 文档中出现的任何代码事实，必须有可执行的验证命令伴随；无法验证的陈述一律标注 `[未验证]`。

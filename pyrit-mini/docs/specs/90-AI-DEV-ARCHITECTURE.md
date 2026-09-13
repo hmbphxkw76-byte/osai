@@ -140,7 +140,7 @@ v4.0 六层目标架构（L0 输入与作用域 → L5 交付）与六个一等�
 | 4 | 代码精读（先读后写，C5） | 00-CONSTITUTION C5 |
 | 5 | 计划复述 | 30-TASKS |
 | 6 | 最小实现（C4 粒度上限内） | 00-CONSTITUTION C4 / 30-TASKS 第三章 |
-| 7 | 门禁全过（命令唯一表，顺序固定） | specs/README §2（统一入口 `python -m tools.gate`） |
+| 7 | 门禁全过（命令唯一表，顺序固定） | [sid:readme-ch2]（统一入口 `python -m tools.gate`） |
 | 8 | 如实汇报（三态：已验证 / 未验证 / 未完成） | 00-CONSTITUTION C9 / 30-TASKS |
 
 ### 3.3 L5 质量锚点（全部为引用，本文不复述数值）
@@ -154,7 +154,7 @@ v4.0 六层目标架构（L0 输入与作用域 → L5 交付）与六个一等�
 | 组件化规则 | 80 第七章 IA-1~IA-8 + 第六章新增组件 Checklist + 第二章双命名空间 |
 | 任务粒度上限 | 30-TASKS 第三章（文件数 / diff 行数 / 跨模块数硬上限） |
 | 非功能标准 | 20-REQUIREMENTS 第四章 NFR-1~13 |
-| 红线与门禁 | 40-GUARDRAILS 第一章（1A 机器可查 / 1B 人工评审 / 1C 安全合规）+ specs/README §2 |
+| 红线与门禁 | 40-GUARDRAILS 第一章（1A 机器可查 / 1B 人工评审 / 1C 安全合规）+ [sid:readme-ch2] |
 | 决策系统约束 | 40-GUARDRAILS 1G-DECIDE（R-DECIDE-1~6）+ 蓝图 11.5（ID-1~ID-5） |
 
 ### 3.4 偏航熔断（STOP-REPORT）
