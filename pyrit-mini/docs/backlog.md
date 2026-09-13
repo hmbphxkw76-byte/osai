@@ -64,6 +64,8 @@
 | BL-073 | 2026-09-13 | ~~**`55-ATTACK-GAP-CLOSURE.md` 结构修复（D3 违例 + 编号混乱）**~~ **已闭环**：① 删除正文 `## 10. 版本记录`（8 行版本史，D3 违例）；② 一级标题归一为连续 1~12（消除两个 `5.`/`6.`/`10.` 重复）；③ 子标题 49 处跟随父标题重编号（3.x~12.x）；④ `9.6 跨模型审查集成` 归位至 `9.5` 之后（原落在 `9.7 Adaptive` 之后） | P1 sid 标注 | **completed** |
 | BL-074 | 2026-09-13 | ~~**sid 引用迁移**~~ **已闭环（跨文档部分）**：跨文档"别名+第X章"引用 14 处已迁移为 sid（如 `蓝图第八章`→`蓝图 [sid:10-ch8]`、`宪法第六章`→`宪法 [sid:00-ch6]`），涉及 6 文件；文档内自引用（"第五章/第六章"）与 `§X`（README 章节未加 sid）保留——同文档内引用漂移风险低且可读性优先 | P1 sid 标注 | **completed** |
 | BL-075 | 2026-09-13 | **拆大文件 + 清单外置（P2 遗留，走 CP 通道）**：已转 `plans/CP-005-spec-splitting.md`（draft 待人工批准）。方案：55 按攻击面拆 `55-gap-1~6.md` + 保留索引、10 不变量表外置 `config/invariants.yaml`、40 已合规不拆；含 R-DOC-2 检查器与 drift_detector 同步义务 | P2 拆大文件 | **converted** |
+| BL-076 | 2026-09-13 | **CP-006 最佳实践执行加固已落地**：tools.gate 接入 security 阶段(`python -m tools.security_audit`)；security_audit 扩密钥字面量(sk-/ghp_/AKIA/glpat-/AIza/ya29./xox)+裸 except 检测；.gitignore 补 *.key/credentials*；P2(print→logging)按计递延、P4(WARNING→BLOCKING)另起 CP。commit 20b2cbe | 本次交付 / CP-006 | **completed** |
+| BL-077 | 2026-09-13 | **CP-007 WARNING→BLOCKING + P2 print→logging 已落地**：R-EVENT-1(编排层硬编码组件名)由 WARNING 升 BLOCKING(当前 0 违规，安全)，其余 WARNING 规则按评估表保持 WARNING；库层(core/arm/assess/strike/recon/utils)print→logger 迁移 86 处 + main.py 根日志引导(输出不丢)。commit 4272c5e | 本次交付 / CP-007 | **completed** |
 
 ---
 
