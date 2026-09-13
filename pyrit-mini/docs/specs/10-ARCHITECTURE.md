@@ -9,7 +9,7 @@
 
 ---
 
-## 第一章：系统全景
+## 第一章：系统全景 [sid:10-ch1]
 
 ```
 输入契约                    六阶段攻击流水线                          输出契约
@@ -50,7 +50,7 @@ config/attack_surface_index.yaml  ← 统一攻击面索引（从 config/profile
 | report / 报告 | ⑥ REPORT | report/ 模块 |
 | **evidence / 证据** | **输出契约，非阶段** | 由 ASSESS + REPORT 产出；**禁止新建 evidence/ 模块** |
 
-## 第二章：分层与依赖规则
+## 第二章：分层与依赖规则 [sid:10-ch2]
 
 ### 2.1 模块分层
 
@@ -89,7 +89,7 @@ config/attack_surface_index.yaml  ← 统一攻击面索引（从 config/profile
 2. `core/context.py` 是唯一被全员依赖的枢纽；`core/config.py` 是唯一允许定义参数默认值的模块。
 3. 循环导入的合法解法只有三种：函数内延迟导入 / TYPE_CHECKING / 合并到同一模块（拆分后 re-export 属于债务，不再新增）。
 
-## 第三章：PyRIT 原生判定决策树
+## 第三章：PyRIT 原生判定决策树 [sid:10-ch3]
 
 写新能力前的强制四问（对应宪法 C1）：
 
@@ -107,7 +107,7 @@ Q1: PyRIT 1.0.1 有现成组件吗？
 
 ---
 
-## 第四章：PipelineContext 数据契约
+## 第四章：PipelineContext 数据契约 [sid:10-ch4]
 
 ### 4.1 字段唯一写者原则
 
@@ -195,7 +195,7 @@ Q1: PyRIT 1.0.1 有现成组件吗？
 | `attack_success_levels` | dict | assess | report | L1–L4 成功分层（附加证据强度维度，不改变 success 二值；REQ-164） | 第九章 D |
 | `hitl_state` | dict | strike | report | 运行期人工干预状态（暂停/注入/覆盖，默认关闭；REQ-171） | 第九章 D |
 
-## 第五章：Burp 目标数据流（输入契约）
+## 第五章：Burp 目标数据流（输入契约） [sid:10-ch5]
 
 **合法输入**：`data/burp/*.txt`，Burp 保存的完整 HTTP 交互（请求 + 响应）。解析器承诺：
 
@@ -206,7 +206,7 @@ Q1: PyRIT 1.0.1 有现成组件吗？
 
 **非 Burp 路径**（LiteLLM/API 直连/浏览器）为兼容分支，只准收敛进与 Burp 相同的 ctx 数据契约（`_ensure_parsed_request_for_api_path` 模式），禁止平行数据流。
 
-## 第六章：ASR 架构不变量（Invariants）
+## 第六章：ASR 架构不变量（Invariants） [sid:10-ch6]
 
 以下不变量任何变更不得破坏（均可由 guard 或 dry-run 检查）：
 
@@ -244,7 +244,7 @@ Q1: PyRIT 1.0.1 有现成组件吗？
 1. I4 动态升级阈值（完成度/预算感知）属**参数化触发**，不适用 R-DECIDE-3（该条仅约束"策略切换"类决策）——40-GUARDRAILS 1G R-DECIDE-3 注记的裁定落点即本条。
 2. SKIP_UPGRADE（2 次）与 R-DECIDE-3（≥3 次）**不冲突**：前者是考试日资源应急降级（宁少勿滥），后者是常态决策稳定性约束（防抖动）。分属两表，禁止互相引用数值。
 
-## 第七章：决策记录（ADR 索引）
+## 第七章：决策记录（ADR 索引） [sid:10-ch7]
 
 已固化的架构决策（变更需走 change-proposal）：
 
@@ -259,7 +259,7 @@ Q1: PyRIT 1.0.1 有现成组件吗？
 | ADR-007 | 组件差异声明式（v2.9） | 组件差异全部落在 `config/components/*.yaml` + ComponentRegistry；编排层禁止硬编码组件名（guard R-EVENT-1 BLOCKING） |
 | ADR-008 | 判定四态分列（v2.9，复审修订） | 判定输出 `impact`（副作用/影响成立） / `exfil_confirmed`（OOB 回执证实外传） / `exfil_suspected`（仅响应文本命中，未获回执） / `content_only`（仅内容层面）；**仅 `impact` 与 `exfil_confirmed` 计入 `confirmed_asr`**，其余单列。启用回执后 `confirmed_asr` 下降属**口径收紧而非能力退化**（NFR-13 ④ 预告） |
 
-## 第八章：架构债务登记簿（冻结区）
+## 第八章：架构债务登记簿（冻结区） [sid:10-ch8]
 
 以下为已识别的**冻结债务**：日常任务禁止触碰（C3/C4），只能由专项任务（DEBT-xxx）消除。**只减不增**。2026-09-08 全面过度工程化清理后，仅余 2 项低优先级债务。
 
@@ -274,7 +274,7 @@ Q1: PyRIT 1.0.1 有现成组件吗？
 
 ---
 
-## 第九章：PyRIT 原生攻击引擎架构（v1.6 增补）
+## 第九章：PyRIT 原生攻击引擎架构（v1.6 增补） [sid:10-ch9]
 
 > **目的**：明确 PyRIT 原生攻击组件在本项目六阶段流水线中的落点，以及针对不同目标类型的最优攻击路径编排。考试期间此章作为架构速查。
 
@@ -349,7 +349,7 @@ recon 完成 → capability 指纹分支:
 
 ---
 
-## 第十章：Web 攻击层架构（v2.0 增补，原 Glue 层扁平化）
+## 第十章：Web 攻击层架构（v2.0 增补，原 Glue 层扁平化） [sid:10-ch10]
 
 > **目的**：定义 Web 攻击模块的架构设计、模块职责、与 PyRIT 框架的集成方式。
 > 2026-09-08 目录扁平化：glue/ 目录已合并到 strike/ 目录。
@@ -396,7 +396,7 @@ web_orchestrator.py (统一入口)
 
 ---
 
-## 第十一章：全链路自主决策引擎架构（v2.4 增补）
+## 第十一章：全链路自主决策引擎架构（v2.4 增补） [sid:10-ch11]
 
 > **目的**：定义覆盖 Recon→ARM→Strike→Assess→Report 全链路的自主决策引擎架构，明确各阶段决策点、决策依赖与数据流契约。
 > **详细规约**：见 `docs/specs/55-ATTACK-GAP-CLOSURE.md` 第九章。
@@ -502,7 +502,7 @@ Phase N 执行完成
 
 ---
 
-## 第十二章：跨模型规约审查架构
+## 第十二章：跨模型规约审查架构 [sid:10-ch12]
 
 > **引用**: 00-CONSTITUTION C14 / 40-GUARDRAILS 1I 登记簿 / 60-CROSS-MODEL-VERIFICATION.md
 > **版本**: v1.0 (2026-09-09)
@@ -560,7 +560,7 @@ Phase N 执行完成
 
 ---
 
-## 第十三章：目标架构 v4.0（v2.9 新增）
+## 第十三章：目标架构 v4.0（v2.9 新增） [sid:10-ch13]
 
 > **引用**：00-CONSTITUTION C6 / 20-REQUIREMENTS 第九章 C（REQ-148~158）/ 提案 `docs/specs/plans/CP-001-target-architecture-v4.0.md`
 > **执行计划**：`docs/specs/plans/447be21ad0594078a923a53f701087d3-EXECUTION-PLAN.md`（W0–W5 波次与门禁）

@@ -10,7 +10,7 @@
 
 ---
 
-## 第一章：需求分级
+## 第一章：需求分级 [sid:20-ch1]
 
 | 级别 | 定义 | 变更门槛 |
 |------|------|---------|
@@ -18,7 +18,7 @@
 | **P1** | 支撑能力：报告格式、多 endpoint、配置体系、可观测性、考域覆盖（REV-02 起） | 修改需规格变更（本文件 diff） |
 | **P2** | 体验与优化：终端 UI、性能调优、文档 | 可经普通任务规格变更 |
 
-## 第二章：P0 — ASR 主链路需求（已实现 ✅）
+## 第二章：P0 — ASR 主链路需求（已实现 ✅） [sid:20-ch2]
 
 > P0 的总验收标准（一条顶一切）：**对 `data/burp/` 下任一真实目标，`python main.py` 端到端运行后，`ctx.overall_asr` 为有效数值且 `evidence.total_attacks > 0`；若存在成功攻击（overall_asr > 0），每条成功必须附可复现 PoC；若 ASR = 0（目标确未攻破），须交付零成功证据链与失败分析——攻击未成功 ≠ 验收失败，证据链缺失才是。**
 
@@ -35,7 +35,7 @@
 | REQ-007 | 证据与报告（多格式 + PoC） | ✅ 已实现 | `report/generator.py` + `report/evidence.py` |
 | REQ-008 | 多 endpoint 联合攻击（能力排序 + 联合 ASR） | ✅ 已实现 | `main.py` 多 endpoint 循环 |
 
-## 第三章：P1 — 支撑需求（已实现 ✅，摘要）
+## 第三章：P1 — 支撑需求（已实现 ✅，摘要） [sid:20-ch3]
 
 | ID | 陈述 | 代码落点 |
 |----|------|---------|
@@ -48,7 +48,7 @@
 | REQ-107 | 资源生命周期（LIFO + 幂等清理） | `core/context.py` |
 | REQ-108 | 架构守卫（BLOCKING 违规阻断提交） | `tools/guard.py` |
 
-## 第 3A 章：考域覆盖需求（部分实现，活跃）
+## 第 3A 章：考域覆盖需求（部分实现，活跃） [sid:20-ch3a]
 
 > 背景：项目第二使命为 OSAI/AI-300 备考武器化（24h 实战 + 报告）。考纲 11 模块与本项目的映射及差距分析见 `specs/50-ROADMAP.md` 第二章。本登记只收"进入代码的做"的部分；映射本身不入代码。
 
@@ -60,7 +60,7 @@
 | REQ-112 | 考试模式 campaign | `--target model --strike prompt_sending --max-seeds 5 --timeout 300`：单 endpoint 快速链路 + token 预算上限 + 证据优先策略（evidence/ 实时落盘）+ 时间盒超时；通过 CLI 参数组合实现（原 REQ-102 已删除） |
 | REQ-113 | OffSec 风格报告 | 报告生成器输出四段结构：executive summary / findings（含风险等级 CVSS 类比 + OWASP LLM 2025 + MITRE ATLAS 映射）/ impact / remediation；作为现有 REQ-007 多格式报告的增量 section，不另立报告管线（C3） |
 
-## 第 3B 章：P0-NEW / P0-EXAM — 已修复需求归档（2026-09-08 ✅）
+## 第 3B 章：P0-NEW / P0-EXAM — 已修复需求归档（2026-09-08 ✅） [sid:20-ch3b]
 
 > 以下需求原为 2026-09-06 代码审计发现的缺陷和考试优化需求，已于 2026-09-08 全面过度工程化清理中全部修复。
 
@@ -74,7 +74,7 @@
 | REQ-119 | 场景特异性进入执行层 | ✅ 已修复 | `strike/executor.py` 场景分支 |
 | REQ-120~126 | 考试关键需求（时间盒/证据落盘/Token 监控） | ✅ exam-ready | CLI 参数组合（`--max-seeds`/`--timeout`/`--technique-filter`）+ `main.py` |
 
-## 第四章：非功能需求
+## 第四章：非功能需求 [sid:20-ch4]
 
 | ID | 维度 | 标准 |
 |----|------|------|
@@ -88,7 +88,7 @@
 | NFR-8 | 考试鲁棒性 | 任一阶段失败不影响其他阶段输出；partial 结果可独立生成报告（REQ-126） |
 | NFR-13 | ASR 度量口径 | ① 双口径分列：`reported_asr`（自动评分级联）/ `confirmed_asr`（人工复核）禁止混用，报告标题注明口径，无复核时 confirmed 标注 n/a；② 目标锚点 SSOT：目标 ASR 唯一定义于 `config/defaults.yaml` `target_asr`（I11），禁止文档/代码硬编码百分比；③ timeout/error 计失败，scorer 未判定归 unparsed 不计成功；④ **影响链口径收紧预告（ADR-008 / 蓝图 IC-5/IC-6）**：判定四态 `impact` / `exfil_confirmed` / `exfil_suspected` / `content_only`，**仅 `impact` 与 `exfil_confirmed` 计入 `confirmed_asr`**；启用 OOB 回执与二次独立确认后 `confirmed_asr` 会下降，属**口径收紧而非能力退化**，报告须注明口径并禁止与历史数值直接对比得出退化结论 |
 
-## 第五章：Web 攻击层需求（已实现 ✅，摘要）
+## 第五章：Web 攻击层需求（已实现 ✅，摘要） [sid:20-ch5]
 
 > **背景**：企业 AI 系统的攻击覆盖面不仅限于 LLM prompt 层，还包括认证、API Gateway、审计系统等。
 > **v2.0 变更**：Glue 层已扁平化到 `strike/` 目录（原 glue/ 目录已删除）。向量 DB/Fine-tuning 攻击已移除（黑盒 HTTP 不可测试）。
@@ -103,7 +103,7 @@
 | REQ-134 | 攻击成功率度量 | 全部 Web 攻击模块 | ✅ |
 | REQ-128/131 | ~~向量 DB/Fine-tuning 攻击~~ | 已移除（黑盒不可测试） | — |
 
-## 第 5A 章：文件上传攻击需求（已实现 ✅，v2.4 新增）
+## 第 5A 章：文件上传攻击需求（已实现 ✅，v2.4 新增） [sid:20-ch5a]
 
 > **背景**：支持任意 HTTP 目标系统的文件上传攻击场景，包括 multipart/form-data 上传和后续处理触发。
 > **学术依据**：Greshake et al. (arXiv:2302.12173) 间接 Prompt 注入、Zou et al. (arXiv:2406.04245) PoisonedRAG 投毒。
@@ -131,7 +131,7 @@
 | `--upload-field-name` | str | `file` | 表单字段名（如 `document`、`attachment`） |
 | `--trigger-method` | str | `POST` | 触发请求方法（POST/GET/PUT） |
 
-## 第六章：需求变更流程（防偏航核心）
+## 第六章：需求变更流程（防偏航核心） [sid:20-ch6]
 
 **任何新想法（无论来自用户还是 AI）进入代码的唯一路径**：
 
@@ -147,7 +147,7 @@
 - 用户口头提出的新功能 = 一个待写的 change-proposal，**不是**开工指令；
 - 评审未完成前，AI 可以做的只有：写提案、回答澄清问题、做不落码的调研。
 
-## 第七章：负需求（禁止清单）
+## 第七章：负需求（禁止清单） [sid:20-ch7]
 
 与正向需求同等效力的"不做"需求：
 
@@ -161,7 +161,7 @@
 | NEG-6 | 禁止未经提案修改 `config/defaults.yaml` 中 L5 基线参数（只准上调不准下调，下调需提案） | R4 |
 | NEG-7 | 禁止运行时产物（asr_history.json、outputs/、db/pyrit.db、guard 基线）入 git；`.gitignore` 为唯一防线 | I7 SSOT / 仓库卫生（D-16） |
 
-## 第九章：全链路自主决策需求（v2.1 新增）
+## 第九章：全链路自主决策需求（v2.1 新增） [sid:20-ch9]
 
 > **背景**：基于已实施的 Strike 阶段战术决策系统，扩展为覆盖全链路的自主决策引擎。详细架构见 `10-ARCHITECTURE.md` 第十一章和 `55-ATTACK-GAP-CLOSURE.md` 第九章。
 
@@ -193,7 +193,7 @@
 
 ---
 
-## 第九章 B：跨模型规约审查需求（v2.2 新增）
+## 第九章 B：跨模型规约审查需求（v2.2 新增） [sid:20-ch9b]
 
 > **背景**：基于 00-CONSTITUTION C14 条款，定义跨模型规约审查的功能需求。详细协议见 `60-CROSS-MODEL-VERIFICATION.md`。
 
@@ -222,7 +222,7 @@
 
 ---
 
-## 第九章 C：目标架构 v4.0 需求（v2.6 新增）
+## 第九章 C：目标架构 v4.0 需求（v2.6 新增） [sid:20-ch9c]
 
 > **背景**：现有架构面向"单组件 / 单轮 prompt / 以 ASR 为唯一判据"，与企业主流 AI 应用场景（认证态 + 多步会话 + 多协议 + 多租户的组合体）存在三处架构级误配。本组需求为`10-ARCHITECTURE.md` 目标架构 v4.0 的功能登记。
 > **关联提案**：`docs/specs/plans/CP-001-target-architecture-v4.0.md`（approved 后方可编码）
@@ -266,7 +266,7 @@
 
 ---
 
-## 第九章 D：用户诉求差距闭合需求（v3.0 新增）
+## 第九章 D：用户诉求差距闭合需求（v3.0 新增） [sid:20-ch9d]
 
 > **背景**：针对用户提出的"企业主流 LLM 应用（agent / 多 agent / rag / mcp / embedding）红队测试框架"约 40 项架构、模块、横切问题，经 2026-09-12 全量代码核对后，识别出 12 类**未登记能力**。
 > **关联提案**：`docs/specs/plans/CP-002-user-gap-closure.md`
@@ -310,7 +310,7 @@
 
 ---
 
-## 第十章：需求追踪
+## 第十章：需求追踪 [sid:20-ch10]
 
 **状态登记表**（2026-09-09 v2.0 精简重构）：
 

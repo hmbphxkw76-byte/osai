@@ -9,7 +9,7 @@
 > **本文件用法**：新增/修改攻击模块时，在对应缺口章节登记覆盖状态。
 > 它**不定义规则**——规则在 `40-GUARDRAILS.md`；它**只回答**"哪个攻击面由哪个模块覆盖、还有哪些缺口"。
 
-## 1. 背景与目标
+## 1. 背景与目标 [sid:55-ch1]
 
 ### 1.1 缺口分析
 
@@ -31,7 +31,7 @@
 
 ---
 
-## 2. 缺口 1: 输出过滤器绕过
+## 2. 缺口 1: 输出过滤器绕过 [sid:55-gap1-filter]
 
 ### 2.1 学术理论基础
 
@@ -88,7 +88,7 @@ ctx.bypass_context → 存储结果
 
 ---
 
-## 5. 缺口 4: 文件上传攻击 (File Upload Attack)
+## 5. 缺口 4: 文件上传攻击 (File Upload Attack) [sid:55-gap4-upload]
 
 ### 5.1 学术理论基础
 
@@ -213,7 +213,7 @@ python main.py --file-upload-target http://target:8004 \
 
 ---
 
-## 6. 缺口 2: 多模态注入攻击 (移至原Section 3)
+## 6. 缺口 2: 多模态注入攻击 (移至原Section 3) [sid:55-gap2-multimodal]
 
 ### 3.1 学术理论基础
 
@@ -273,7 +273,7 @@ ctx.multimodal_context → 存储结果
 
 ---
 
-## 4. 缺口 3: 对抗性微调/后门攻击
+## 4. 缺口 3: 对抗性微调/后门攻击 [sid:55-gap3-backdoor]
 
 ### 4.1 学术理论基础
 
@@ -353,7 +353,7 @@ ctx.backdoor_context → 存储结果
 
 ---
 
-## 5. 集成方案
+## 5. 集成方案 [sid:55-integration]
 
 ### 5.1 流水线集成 ✅ 已完成
 
@@ -426,7 +426,7 @@ async def _run_advanced_attacks_phase(ctx: "PipelineContext") -> None:
 
 ---
 
-## 6. 验证与测试
+## 6. 验证与测试 [sid:55-verification]
 
 ### 6.1 语法验证
 
@@ -467,7 +467,7 @@ py -m tools.guard
 
 ---
 
-## 7. 文件清单
+## 7. 文件清单 [sid:55-files]
 
 ### 7.1 新增文件
 
@@ -489,7 +489,7 @@ py -m tools.guard
 
 ---
 
-## 8. 学术引用汇总
+## 8. 学术引用汇总 [sid:55-references]
 
 | 论文 | 引用ID | 应用场景 |
 |------|--------|----------|
@@ -504,7 +504,7 @@ py -m tools.guard
 
 ---
 
-## 9. 全链路自主决策架构
+## 9. 全链路自主决策架构 [sid:55-decision]
 
 ### 9.1 架构概述
 
@@ -800,7 +800,7 @@ AttackOutcome (success/failure + evidence_chain)
 
 ---
 
-## 10. 缺口 5: A2A 多智能体侦察框架 (Multi-Agent Reconnaissance)
+## 10. 缺口 5: A2A 多智能体侦察框架 (Multi-Agent Reconnaissance) [sid:55-gap5-a2a]
 
 ### 10.1 学术理论基础
 
@@ -905,7 +905,7 @@ ctx.a2a_attack_plan = {"pattern": str, "steps": list[dict], "primary_target": st
 
 ---
 
-## 11. 缺口 6: Workflow Evasion (安全扫描绕过)
+## 11. 缺口 6: Workflow Evasion (安全扫描绕过) [sid:55-gap6-workflow]
 
 ### 11.1 学术理论基础
 

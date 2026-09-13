@@ -29,6 +29,7 @@ _FAILED: list[str] = []
 
 # --- 步骤注册表（唯一权威；--describe 与规约文档均以本表为准） -----------------
 STEP_DESCRIPTIONS: dict[str, str] = {
+    "spec-lint": "0   规约最小diff    python -m tools.spec_lint",
     "guard": "1   静态守卫        python -m tools.guard",
     "architecture": "1.5 架构体检        python tools/architecture_validator.py full",
     "ruff": "2   代码风格        python -m ruff check .",
@@ -39,7 +40,7 @@ STEP_DESCRIPTIONS: dict[str, str] = {
     "e2e": "7   靶场端到端      python -m pytest tests/e2e -q",
 }
 
-COMMIT_STEPS: tuple[str, ...] = ("guard", "architecture", "ruff", "dry-run")
+COMMIT_STEPS: tuple[str, ...] = ("spec-lint", "guard", "architecture", "ruff", "dry-run")
 PUSH_STEPS: tuple[str, ...] = COMMIT_STEPS + ("pytest", "drift", "dataflow", "e2e")
 
 
@@ -57,6 +58,10 @@ def _run(name: str, cmd: list[str]) -> None:
         _FAILED.append(name)
     else:
         print(f"  [PASS] {name}")
+
+
+def _spec_lint() -> None:
+    _run("spec-lint", [PY, "-m", "tools.spec_lint"])
 
 
 def _guard() -> None:
@@ -128,6 +133,7 @@ def _registry_wiring() -> None:
 
 
 STEP_RUNNERS = {
+    "spec-lint": _spec_lint,
     "guard": _guard,
     "architecture": _architecture,
     "ruff": _ruff,

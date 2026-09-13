@@ -54,7 +54,7 @@
 1. **禁止两个模型对同一份规约文件同时落笔** —— 互相覆盖是"换个模型就大幅重写"的主要来源。
 2. **合并权只在 Author + 人工**：Reviewer 的 confirmed findings 由 Author 逐条修复，并回写到同一次 review 记录；Reviewer 不得直接改文件。
 3. **降级**：可用模型 < 2 时按 R-CROSS-1 降级条款转**人工审查模式**，标记 `needs-cross-model-pending` 并登记 `docs/backlog.md`，不阻断合入。
-4. **工具链现状（勿按已落地引用）**：`pyrit-cross` / `tools/cross_model_review.py` 未实施（BL-042），当前为**人工编排模式**；`outputs/` 被 `.gitignore` 忽略，审查记录不入库，与 R-CROSS-3「永久保留」存在冲突（已登记 backlog）。
+4. **工具链现状（勿按已落地引用）**：`tools/cross_model_review.py` 尚未实施，当前为**人工编排模式**；`outputs/` 被 `.gitignore` 忽略，审查记录不入库，与 R-CROSS-3「永久保留」存在冲突（已登记 BL-072）。
 
 ---
 

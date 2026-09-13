@@ -31,7 +31,7 @@
 | **L4** | [40-GUARDRAILS.md](40-GUARDRAILS.md) | v3.6 | 红线 R-* / 门禁纪律 / 三层防线 / 交付验证清单 / 考试合规 | 编码后验证（Step 7） |
 | 配套 | [50-ROADMAP.md](50-ROADMAP.md) | v1.12 | 任务序列、考试 Runbook、考纲映射。**无裁决权威** | 领取下一个任务时 |
 | 配套 | [55-ATTACK-GAP-CLOSURE.md](55-ATTACK-GAP-CLOSURE.md) | v1.8 | 攻击面缺口登记处（R-DOC-2 依赖，**路径勿改**） | 新增攻击模块时登记 |
-| 配套 | [60-CROSS-MODEL-VERIFICATION.md](60-CROSS-MODEL-VERIFICATION.md) | v1.1 | 跨模型审查协议（C14 落地）：审查级别 / review-only 落笔权（§4.4）/ Schema | 变更 L0–L4 规约时 |
+| 配套 | [60-CROSS-MODEL-VERIFICATION.md](60-CROSS-MODEL-VERIFICATION.md) | v1.2 | 跨模型审查协议（C14 落地）：审查级别 / review-only 落笔权（§4.4）/ Schema | 变更 L0–L4 规约时 |
 | 配套 | [90-AI-DEV-ARCHITECTURE.md](90-AI-DEV-ARCHITECTURE.md) | v1.0 | AI 编程总纲：产品契约（5 需求）→ 架构落点映射 / 遵循流程 / 差距指针（无独立裁决权威，只引用不复制） | 新会话冷启动 / 实施任务前定位落点 |
 | 配套 | [plans/](plans/) | — | 活跃变更提案与执行计划 | 提案批准后才进入编码 |
 | 模板 | [templates/](templates/) | — | `task-spec.md` / `change-proposal.md` / `cross-model-review.md` | 起草规格时 |
@@ -154,6 +154,9 @@ python -c "from core.registry import get_registry; print(get_registry().keys())"
 | D5 | **路径必须存在**：文档引用的文件路径必须真实存在，含空格路径须引号包裹 | 引用仓库中不存在的路径（如已删除的 `docs/red team/`、`docs/archive/`） |
 | D6 | **已完结内容归档**：完成态的执行记录/提案移出活跃规约（归档保留于 git 历史；物理目录 `docs/archive/` 当前未启用），不留在 specs 活跃文档 | 已完成的 Wave 执行日志留在 specs 活跃文档 |
 | D7 | **无占位符**：文档不得出现未填实的 `[CMD]` / `TASK-___` 等模板占位 | `[CROSSMODEL_CMD] --task TASK-___` |
+| D8 | **章节锚点 sid**：一级标题（`##`）带唯一 `[sid:<docnum>-<slug>]` 尾标（如 `[sid:40-ch1]`）；引用章节一律用 sid，不用"第 X 章 / §X"；新增章节分配新 sid，**永不重排既有 sid**（防插入章节导致全篇重编号） | 引用裸章节号"第十章" / 因插章重排全篇章节号 |
+
+> **sid 规则（D8 细则）**：① 格式 `[sid:<docnum>-<slug>]`，docnum 取文件名数字前缀（00/10/20/30/40/50/55/60/80/90），slug 小写连字符；② 全局唯一，由 `python -m tools.spec_lint --sid` 机器校验；③ 二级标题（`###`）复用其既有编号（C1-C14 / R-* / 1A-1K / X.Y），不另加 sid；④ sid 一经分配不回收、不重排——删除章节时在文档地图标注"已删（sid 保留）"。 |
 
 ---
 

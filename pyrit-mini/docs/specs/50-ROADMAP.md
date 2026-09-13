@@ -7,7 +7,7 @@
 
 ---
 
-## 第一章：现状基线（2026-09-09 文档同步快照）
+## 第一章：现状基线（2026-09-09 文档同步快照） [sid:50-ch1]
 
 审计对象：`github.com/hmbphxkw76-byte/osai` / `pyrit-mini`。方法：代码全量审计 + 文档交叉验证。
 
@@ -55,7 +55,7 @@ python -c "import pathlib;sorted_=sorted(((len(p.read_text(encoding='utf-8',erro
 
 ---
 
-## 第二章：双重使命与 AI-300 考纲映射
+## 第二章：双重使命与 AI-300 考纲映射 [sid:50-ch2]
 
 ### 2.1 双重使命
 
@@ -80,7 +80,7 @@ python -c "import pathlib;sorted_=sorted(((len(p.read_text(encoding='utf-8',erro
 
 ---
 
-## 第三章：AI 红队最佳实践基线（标准锚定）
+## 第三章：AI 红队最佳实践基线（标准锚定） [sid:50-ch3]
 
 1. **框架三角**：OWASP Top 10 for LLM Applications 2025（种子命名 LLM01-10 已对齐）+ MITRE ATLAS（报告映射）+ NIST AI 600-1（风险分级口径）。
 2. **证据链纪律**：成功攻击必须可复现（PoC 独立可执行，NFR-5）；ASR=0 也交付零成功证据链与失败分析。
@@ -91,7 +91,7 @@ python -c "import pathlib;sorted_=sorted(((len(p.read_text(encoding='utf-8',erro
 
 ---
 
-## 第四章：阶段规划（任务序列）
+## 第四章：阶段规划（任务序列） [sid:50-ch4]
 
 > 领任务规则：按本表自上而下领取；每个任务走完整八步协议（30-TASKS 第四章）；粒度上限（≤3 文件/≤300 行/≤2 模块）不可豁免，超限先拆分。
 
@@ -208,7 +208,7 @@ python -c "import pathlib;sorted_=sorted(((len(p.read_text(encoding='utf-8',erro
 
 ---
 
-## 第五章：Vibe Coding 会话操作模型
+## 第五章：Vibe Coding 会话操作模型 [sid:50-ch5]
 
 ### 5.1 会话入口仪式
 
@@ -238,7 +238,7 @@ python -c "import pathlib;sorted_=sorted(((len(p.read_text(encoding='utf-8',erro
 
 ---
 
-## 第六章：考试日 Runbook（24h 实战 + 24h 报告）
+## 第六章：考试日 Runbook（24h 实战 + 24h 报告） [sid:50-ch6]
 
 ### 6.1 战前检查单（考前一周）
 
@@ -269,7 +269,7 @@ python -c "import pathlib;sorted_=sorted(((len(p.read_text(encoding='utf-8',erro
 
 ---
 
-## 第七章：治理衔接
+## 第七章：治理衔接 [sid:50-ch7]
 
 - 本路线图阶段/序列变更 → change-proposal
 - 领取的任务与 ③④ 层冲突时 → STOP-REPORT，以 ③④ 为准
@@ -277,7 +277,7 @@ python -c "import pathlib;sorted_=sorted(((len(p.read_text(encoding='utf-8',erro
 
 ---
 
-## 第八章：考试就绪评分卡与快速交战 Playbook
+## 第八章：考试就绪评分卡与快速交战 Playbook [sid:50-ch8]
 
 ### 8A. 考试就绪评分卡
 
@@ -454,7 +454,7 @@ python main.py --stage assess --stage report
 
 ---
 
-## 第九章：阶段 1D — 跨模型规约审查系统（v1.10 新增）
+## 第九章：阶段 1D — 跨模型规约审查系统（v1.10 新增） [sid:50-ch9]
 
 > **依赖**：阶段 1C 完成（自主决策引擎稳定运行后）
 > **目标**：建立跨模型规约审查流水线，确保 L0-L4 规约文档变更经过 ≥2 独立模型交叉确认

@@ -8,7 +8,7 @@
 
 ---
 
-## 第 0 条：项目使命（Mission）
+## 第 0 条：项目使命（Mission） [sid:00-ch0]
 
 本项目的**唯一首要目标**：
 
@@ -23,7 +23,7 @@
 
 ---
 
-## 第一章：为什么需要宪法（失效根因诊断）
+## 第一章：为什么需要宪法（失效根因诊断） [sid:00-ch1]
 
 本项目已表现出典型的 vibe coding 失速症状。以下五条根因与宪法条款一一对应：
 
@@ -39,7 +39,7 @@
 
 ---
 
-## 第二章：裁决序（Priority of Authority）
+## 第二章：裁决序（Priority of Authority） [sid:00-ch2]
 
 从高到低，序号小者优先：
 
@@ -61,7 +61,7 @@
 
 ---
 
-## 第三章：条款（Articles）
+## 第三章：条款（Articles） [sid:00-ch3]
 
 每条格式：**条款 → 判定标准 → 违例示例**。
 
@@ -213,7 +213,7 @@ python -m pytest tests/common/test_data_flow_integrity.py -q  # 6 数据流契�
 
 ---
 
-## 第四章：违宪症状速查表
+## 第四章：违宪症状速查表 [sid:00-ch4]
 
 | 症状 | 违反 |
 |------|------|
@@ -236,14 +236,14 @@ python -m pytest tests/common/test_data_flow_integrity.py -q  # 6 数据流契�
 
 ---
 
-## 第五章：生效与衔接
+## 第五章：生效与衔接 [sid:00-ch5]
 
 - 本宪法 v1.0 自合入 `specs/` 起生效。
 - **对存量资产的裁决**：SKILL.md 降位为 ⑤ 护栏细则与历史存档——继续有效，但与本宪法冲突处以宪法为准。
 
 ---
 
-## 第六章：附则——制宪配套
+## 第六章：附则——制宪配套 [sid:00-ch6]
 
 1. **配套资产清单**：`specs/README.md`（金字塔索引）、`specs/templates/task-spec.md`、`specs/templates/change-proposal.md`、`docs/backlog.md`、`specs/50-ROADMAP.md`。
 2. **硬性前置**：任何编码任务开始前，五件必须存在且非空；缺失即 STOP-REPORT（C11）。
@@ -251,7 +251,7 @@ python -m pytest tests/common/test_data_flow_integrity.py -q  # 6 数据流契�
 
 ---
 
-## 第七章：OffSec AI-300 / OSAI 考试专项附录
+## 第七章：OffSec AI-300 / OSAI 考试专项附录 [sid:00-ch7]
 
 > **效力**：本章为考试场景的操作指引，不改变 C1-C12 条款的裁决优先级。
 

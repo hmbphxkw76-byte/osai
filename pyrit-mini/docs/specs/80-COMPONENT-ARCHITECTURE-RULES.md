@@ -8,7 +8,7 @@
 
 ---
 
-## 第一章：设计哲学
+## 第一章：设计哲学 [sid:80-ch1]
 
 **Hub-and-Spoke（中心辐射）**：
 
@@ -36,7 +36,7 @@
 
 ---
 
-## 第二章：双命名空间（`id` vs `component_key`）—— 必读
+## 第二章：双命名空间（`id` vs `component_key`）—— 必读 [sid:80-ch2]
 
 `core/registry.py` 同时维护两个键空间，**混用会导致运行时查不到组件**。这是本项目最容易踩的坑。
 
@@ -76,7 +76,7 @@ python -c "from core.registry import get_registry; print(get_registry().validate
 
 ---
 
-## 第三章：目录组织规则
+## 第三章：目录组织规则 [sid:80-ch3]
 
 ### 3.1 攻击实现（Spoke）
 
@@ -135,7 +135,7 @@ owasp_id: ASI02
 
 ---
 
-## 第四章：命名规范
+## 第四章：命名规范 [sid:80-ch4]
 
 | 场景 | 规则 | 示例 |
 |------|------|------|
@@ -150,7 +150,7 @@ owasp_id: ASI02
 
 ---
 
-## 第五章：组件归属与传递
+## 第五章：组件归属与传递 [sid:80-ch5]
 
 ### 5.1 归属写入（CB-1）
 
@@ -177,7 +177,7 @@ attack_result.setdefault("metadata", {})["component_type"] = component_key
 
 ---
 
-## 第六章：新增组件 Checklist
+## 第六章：新增组件 Checklist [sid:80-ch6]
 
 > **顺序不可颠倒**：声明先行（YAML），实现其后。没有 YAML 声明的组件 = 不存在。
 
@@ -213,7 +213,7 @@ python main.py --dry-run --max-seeds 1
 
 ---
 
-## 第七章：架构不变量
+## 第七章：架构不变量 [sid:80-ch7]
 
 | # | 不变量 | 依据 |
 |---|--------|------|
@@ -228,7 +228,7 @@ python main.py --dry-run --max-seeds 1
 
 ---
 
-## 第八章：组件接线状态（读代码，不读表）
+## 第八章：组件接线状态（读代码，不读表） [sid:80-ch8]
 
 > 状态随时变化。**禁止**在本文件手工维护状态表（文档纪律 D4）。
 
