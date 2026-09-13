@@ -935,7 +935,7 @@ def register_extended_checks(guard_cls) -> None:
 
     # == R-EVENT-1 (目标架构 v4.0 / ADR-007): 编排层禁止硬编码组件名 ==
     # 组件差异只准声明在 config/components/*.yaml + core/registry.py（ComponentRegistry）
-    # 级别：W0 为 WARNING（既有 dispatcher 尚未迁移）；W4 迁移完成后升级 BLOCKING
+    # 级别：CP-007 已升级为 BLOCKING（W4 交付）；既有 dispatcher 仍豁免（exempt_files）直至迁移完成
     def check_no_hardcoded_component_names(self) -> None:
         """R-EVENT-1: 编排层禁止硬编码组件名字面量（组件差异须声明式）。"""
         Severity, Violation = _get_violation_classes()
@@ -980,7 +980,7 @@ def register_extended_checks(guard_cls) -> None:
                 self.violations.append(
                     Violation(
                         rule="R-EVENT-1",
-                        severity=Severity.WARNING,
+                        severity=Severity.BLOCKING,
                         file=rel,
                         line=hits[0][0],
                         description=(

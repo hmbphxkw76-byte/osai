@@ -72,6 +72,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
+# P2: 使库层 logger.info/warning 输出可见（print -> logging 迁移，避免静默丢失）
+logging.getLogger().setLevel(logging.INFO)
+if not logging.getLogger().handlers:
+    logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stdout)
+
 
 def _load_auto_guard_from_yaml() -> dict[str, Any]:
     """Load auto-guard settings from config/defaults.yaml.

@@ -125,35 +125,35 @@ def _print_endpoint_sort_results(sorted_endpoints: list[dict[str, Any]]) -> None
     """endpoint"""
     from utils.display import _C_BOLD, _C_RESET
 
-    print()
-    print(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
-    print(f"{_C_BOLD}  > [RECON] Endpoint  (){_C_RESET}")
+    logger.info('')
+    logger.info(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
+    logger.info(f'{_C_BOLD}  > [RECON] Endpoint  (){_C_RESET}')
     _files_str = ", ".join(Path(ep["burp_path"]).name for ep in sorted_endpoints)
-    print(f"  config/burp/ - {_files_str}")
-    print(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
+    logger.info(f'  config/burp/ - {_files_str}')
+    logger.info(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
     for i, ep in enumerate(sorted_endpoints):
         caps_str = ", ".join(sorted(ep["capabilities"])) if ep["capabilities"] else "chat"
-        print(f"  {i + 1}. {_C_BOLD}{ep['burp_name']}{_C_RESET} (priority={ep['priority_score']}, caps={caps_str})")
+        logger.info(f"  {i + 1}. {_C_BOLD}{ep['burp_name']}{_C_RESET} (priority={ep['priority_score']}, caps={caps_str})")
 
 
 def _print_endpoint_header(idx: int, total: int, burp_name: str) -> None:
     """endpoint"""
     from utils.display import _C_BOLD, _C_RESET
 
-    print()
-    print(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
-    print(f"{_C_BOLD}  Endpoint {idx + 1}/{total}: {burp_name}{_C_RESET}")
-    print(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
+    logger.info('')
+    logger.info(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
+    logger.info(f'{_C_BOLD}  Endpoint {idx + 1}/{total}: {burp_name}{_C_RESET}')
+    logger.info(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
 
 
 def _print_joint_asr_summary(joint_summary: dict[str, Any], report_path: Path) -> None:
     """ASR"""
     from utils.display import _C_BOLD, _C_RESET, print_joint_asr_card
 
-    print()
-    print(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
-    print(f"{_C_BOLD}  Joint ASR Summary - Multi-Endpoint Deep Attack{_C_RESET}")
-    print(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
+    logger.info('')
+    logger.info(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
+    logger.info(f'{_C_BOLD}  Joint ASR Summary - Multi-Endpoint Deep Attack{_C_RESET}')
+    logger.info(f"{_C_BOLD}{'=' * 60}{_C_RESET}")
     print_joint_asr_card(
         joint_asr=joint_summary["joint_asr"],
         total_endpoints=joint_summary["total_endpoints"],

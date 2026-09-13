@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 import signal
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -131,15 +130,11 @@ def _signal_handler(signum: int, frame) -> None:
     attempts = get_cancellation_token().cancel(reason=f"signal {signum}")
 
     if attempts == 1:
-        print("\n[!] Received interrupt signal, ... ( Ctrl+C )", file=sys.stderr)
+        logger.warning('\n[!] Received interrupt signal, ... ( Ctrl+C )')
         # KeyboardInterrupt asyncio.run
         raise KeyboardInterrupt
 
-    print(
-        f"\n[!] 第 {attempts} 次中断：强制退出（仍执行 finally 清理，退出码 "
-        f"{INTERRUPT_EXIT_CODE}）",
-        file=sys.stderr,
-    )
+    logger.warning(f'\n[!] 第 {attempts} 次中断：强制退出（仍执行 finally 清理，退出码 {INTERRUPT_EXIT_CODE}）')
     # SystemExit 同为异常 → finally 仍会执行；区别于 os._exit 的进程级强杀。
     raise SystemExit(INTERRUPT_EXIT_CODE)
 

@@ -1010,7 +1010,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         from core.scenario_router import get_router
 
         router = get_router()
-        print(router.format_scenarios_display())
+        logger.info(router.format_scenarios_display())
         sys.exit(0)
 
     # --list-seeds: 列出所有可用的种子文件和组件目录
@@ -1018,21 +1018,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         from core.seed_loader import SeedLoader
 
         loader = SeedLoader()
-        print("\n=== Available Seed Files ===")
-        print()
+        logger.info('\n=== Available Seed Files ===')
+        logger.info('')
         for dir_name, files in loader.list_available().items():
-            print(f"  {dir_name}/ ({len(files)} files)")
+            logger.info(f'  {dir_name}/ ({len(files)} files)')
             for f in sorted(files)[:5]:  # 只显示前5个
-                print(f"    - {f}")
+                logger.info(f'    - {f}')
             if len(files) > 5:
-                print(f"    ... and {len(files) - 5} more")
-            print()
-        print("Usage examples:")
-        print("  --seeds mcp              # Load all MCP seeds")
-        print("  --seeds mcp,a2a          # Load MCP + A2A seeds")
-        print("  --seeds mcp_tool_hijack  # Load specific seed file")
-        print("  --seeds all              # Load all seeds")
-        print("  --seeds elite_jailbreaks # (legacy) Load by name")
+                logger.info(f'    ... and {len(files) - 5} more')
+            logger.info('')
+        logger.info('Usage examples:')
+        logger.info('  --seeds mcp              # Load all MCP seeds')
+        logger.info('  --seeds mcp,a2a          # Load MCP + A2A seeds')
+        logger.info('  --seeds mcp_tool_hijack  # Load specific seed file')
+        logger.info('  --seeds all              # Load all seeds')
+        logger.info('  --seeds elite_jailbreaks # (legacy) Load by name')
         sys.exit(0)
 
     # --upload-files: comma-separated string -> list[str]

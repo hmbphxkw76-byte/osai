@@ -389,4 +389,4 @@ class SynergyConfig:
 def main() -> None:
     """CLI entry point for --list-scenarios."""
     router = get_router()
-    print(router.format_scenarios_display())
+    logger.info(router.format_scenarios_display())
