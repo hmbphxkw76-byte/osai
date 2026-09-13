@@ -2,7 +2,7 @@
 
 > **文档层级**：配套资产（宪法 [sid:00-ch6]附则，v1.2）。**无裁决权威**——与 ③需求/④任务规格冲突时以后者为准；40-GUARDRAILS 对本文件无门禁效力。
 > **职能**：任务顺序与依赖、阶段退出条件、vibe coding 会话模型、考试日 Runbook 的**唯一登记处**。
-> **版本**：v1.12（2026-09-12 REV-12：① 第一章规模热点改为**以命令实测为准**（原手工数值已失效）；② 现状基线删除易腐快照，改为指向门禁基线；③ 版本史外置）
+> **版本**：v1.12（2026-09-12 REV-12：① [sid:50-ch1]规模热点改为**以命令实测为准**（原手工数值已失效）；② 现状基线删除易腐快照，改为指向门禁基线；③ 版本史外置）
 > **版本史**：`git log -- docs/specs/50-ROADMAP.md`
 
 ---
@@ -76,7 +76,7 @@ python -c "import pathlib;sorted_=sorted(((len(p.read_text(encoding='utf-8',erro
 | M8 | Supply Chain | T2_LLM03_supply_chain_SBOM 种子 | 🔴 仅种子 | **REQ-111** |
 | M9 | AI Infra & Deployment | openapi_discoverer + health_probe | 🟡 部分 | — |
 | M10 | Threat Modeling | ATLAS/OWASP 报告映射 | 🟡 部分 | **REQ-113** |
-| M11 | Capstone 24h Engagement | 本项目全链路本体 | 🟧 待硬化 | **REQ-112** + 第六章 Runbook |
+| M11 | Capstone 24h Engagement | 本项目全链路本体 | 🟧 待硬化 | **REQ-112** + [sid:50-ch6] Runbook |
 
 ---
 
@@ -93,7 +93,7 @@ python -c "import pathlib;sorted_=sorted(((len(p.read_text(encoding='utf-8',erro
 
 ## 第四章：阶段规划（任务序列） [sid:50-ch4]
 
-> 领任务规则：按本表自上而下领取；每个任务走完整八步协议（30-TASKS 第四章）；粒度上限（≤3 文件/≤300 行/≤2 模块）不可豁免，超限先拆分。
+> 领任务规则：按本表自上而下领取；每个任务走完整八步协议（30-TASKS [sid:30-ch4]）；粒度上限（≤3 文件/≤300 行/≤2 模块）不可豁免，超限先拆分。
 
 ### 阶段 0 — 稳定化（P0，先于一切新功能）
 
@@ -123,7 +123,7 @@ python -c "import pathlib;sorted_=sorted(((len(p.read_text(encoding='utf-8',erro
 | T0.5-3 | 目标锚点校验 | I11 / `target_asr` | 对照 `config/defaults.yaml` `target_asr`，量化"基线 → 目标"缺口，输出优化优先级排序（缺口最大的技术/端点优先） |
 | T0.5-4 | 账本初始化核对 | I7 | 确认 `asr_history.json` 在基线运行后写入结构完整（种子/converter/GCG 后缀三级），EMA 可计算 |
 
-**退出条件**：基线报告归档（含 reported/confirmed 双列 + target_asr 缺口表）+ T0.5-4 核对通过。基线数值写入 50-ROADMAP 第一章现状基线表。
+**退出条件**：基线报告归档（含 reported/confirmed 双列 + target_asr 缺口表）+ T0.5-4 核对通过。基线数值写入 50-ROADMAP [sid:50-ch1]现状基线表。
 
 **依赖**：阶段 0 ✅ → **阶段 0.5** → 阶段 1/1B/1C 全部以本基线为对照。
 
@@ -160,7 +160,7 @@ python -c "import pathlib;sorted_=sorted(((len(p.read_text(encoding='utf-8',erro
 ### 阶段 1C — 全链路自主决策引擎（架构设计完成，待实施）
 
 > **目的**：基于已实施的 Strike 阶段战术决策系统，扩展为覆盖 Recon→ARM→Strike→Assess→Report 全链路的自主决策引擎。
-> **架构依据**：`10-ARCHITECTURE.md` 第十一章 + `55-ATTACK-GAP-CLOSURE.md` 第九章 + `20-REQUIREMENTS.md` 第九章。
+> **架构依据**：`10-ARCHITECTURE.md` [sid:10-ch11] + `55-ATTACK-GAP-CLOSURE.md` [sid:55-decision] + `20-REQUIREM[sid:55-references]S.md` 第九章。
 
 | 序 | 任务 | 引用 | 说明 |
 |----|------|------|------|
@@ -184,7 +184,7 @@ python -c "import pathlib;sorted_=sorted(((len(p.read_text(encoding='utf-8',erro
 |----|------|------|------|
 | T2-1 | exam_mode campaign | REQ-112 | config/campaigns/exam_mode.yaml |
 | T2-2 | OffSec 风格报告 section | REQ-113 | 四段结构并入现有报告管线 |
-| T2-3 | 模拟考 | 本文件第六章 | 完整走一遍 24h 流程出报告 |
+| T2-3 | 模拟考 | 本文件[sid:50-ch6] | 完整走一遍 24h 流程出报告 |
 
 **退出条件**：模拟考报告通过自评 + exam_mode 单命令可跑。
 
@@ -229,7 +229,7 @@ python -c "import pathlib;sorted_=sorted(((len(p.read_text(encoding='utf-8',erro
 ### 5.3 防漂移三条铁律
 
 1. **开始前无规格** ↔ C6 规格先行 + 本路线图领任务制；
-2. **写到一半自由发挥** ↔ STOP-REPORT 熔断（30-TASKS 第五章）；
+2. **写到一半自由发挥** ↔ STOP-REPORT 熔断（30-TASKS [sid:30-ch5]）；
 3. **"顺手"扩范围** ↔ C4 最小 diff + 40-G 评审清单第一项。
 
 ### 5.4 会话收尾义务

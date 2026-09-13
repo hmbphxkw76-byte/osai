@@ -5,8 +5,8 @@
 生成，禁止在文档/hooks/CI 中手抄（C3 / D1，杜绝"文档表 vs 代码实现"孪生漂移）。
 
 阶段划分（裁决：CP-004 §8.7 D-6）：
-  commit : 1 guard · 1.5 架构体检 · 2 ruff · 4 dry-run
-           （dry-run 是唯一 0-token 的运行时证据，能在秒级发现 ImportError/
+  commit : 0.5 安全审计 · 1 guard · 1.5 架构体检 · 2 ruff · 4 dry-run
+           （security = tools.security_audit，仅真实密钥/危险调用阻断；dry-run 是唯一 0-token 的运行时证据，能在秒级发现 ImportError/
              AttributeError/KeyError/TypeError —— 静态 guard 抓不到这一类）
   push   : 上述 + 3 pytest 全量 · 5 drift · 6 dataflow · 7 e2e（存在时）
 
@@ -31,6 +31,7 @@ _FAILED: list[str] = []
 STEP_DESCRIPTIONS: dict[str, str] = {
     "spec-lint": "0   规约最小diff    python -m tools.spec_lint",
     "guard": "1   静态守卫        python -m tools.guard",
+    "security": "0.5 安全审计        python -m tools.security_audit",
     "architecture": "1.5 架构体检        python tools/architecture_validator.py full",
     "ruff": "2   代码风格        python -m ruff check .",
     "pytest": "3   回归测试        python -m pytest tests/ -q",
@@ -40,7 +41,7 @@ STEP_DESCRIPTIONS: dict[str, str] = {
     "e2e": "7   靶场端到端      python -m pytest tests/e2e -q",
 }
 
-COMMIT_STEPS: tuple[str, ...] = ("spec-lint", "guard", "architecture", "ruff", "dry-run")
+COMMIT_STEPS: tuple[str, ...] = ("spec-lint", "security", "guard", "architecture", "ruff", "dry-run")
 PUSH_STEPS: tuple[str, ...] = COMMIT_STEPS + ("pytest", "drift", "dataflow", "e2e")
 
 
@@ -132,6 +133,10 @@ def _registry_wiring() -> None:
         _FAILED.append("registry")
 
 
+def _security() -> None:
+    _run("security", [PY, "-m", "tools.security_audit"])
+
+
 STEP_RUNNERS = {
     "spec-lint": _spec_lint,
     "guard": _guard,
@@ -142,6 +147,7 @@ STEP_RUNNERS = {
     "drift": _drift,
     "dataflow": _dataflow,
     "e2e": _e2e,
+    "security": _security,
 }
 
 

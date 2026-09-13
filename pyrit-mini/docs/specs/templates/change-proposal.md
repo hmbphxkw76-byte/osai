@@ -1,6 +1,6 @@
 # 变更提案：CP-___（标题：一句话、动词开头）
 
-> **类型**：宪法修正（C12）/ 蓝图变更 / 需求登记或修订（20-REQUIREMENTS 第五章）/ 负需求修订 / 债务登记（新 DEBT）
+> **类型**：宪法修正（C12）/ 蓝图变更 / 需求登记或修订（20-REQUIREMENTS [sid:20-ch5]）/ 负需求修订 / 债务登记（新 DEBT）
 > **提案人 / 日期**：
 > **状态**：draft → 评审中 → approved / rejected / deferred（转 backlog BL-___）
 

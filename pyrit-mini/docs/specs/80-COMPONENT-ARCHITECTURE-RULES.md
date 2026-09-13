@@ -223,8 +223,8 @@ python main.py --dry-run --max-seeds 1
 | IA-4 | 组件归属由 `_component_bridge` 统一写入 | CB-1 |
 | IA-5 | 种子 `suitable_for` 取值必须等于 `component_key` | C-NAME-2 |
 | IA-6 | 未知组件返回 `None` / 默认实现，**禁止崩溃** | 调度器兜底 |
-| IA-7 | 新组件经注册扩展，**不改框架层调度逻辑**（开放-封闭） | 第四章 / 第六章 |
-| IA-8 | `id` 必须等于 YAML 文件名 stem | 第二章 |
+| IA-7 | 新组件经注册扩展，**不改框架层调度逻辑**（开放-封闭） | [sid:8[sid:80-ch6]h4] / 第六章 |
+| IA-8 | `id` 必须等于 YAML 文件名 stem | [sid:80-ch2] |
 
 ---
 

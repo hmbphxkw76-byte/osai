@@ -1,6 +1,6 @@
 # 90 — AI 编程架构设计总纲（AI Development Architecture Master Plan）
 
-> **文档层级**：配套层（与 50-ROADMAP 同级，**无独立裁决权威**）。本文件是 AI 编码代理的"需求 → 落点 → 流程"导航图：只做映射与引用，**不声明任何新规则**。规则本体全部在 00–80 规约金字塔，任何冲突以金字塔为准（裁决序见 `00-CONSTITUTION.md` 第二章）。
+> **文档层级**：配套层（与 50-ROADMAP 同级，**无独立裁决权威**）。本文件是 AI 编码代理的"需求 → 落点 → 流程"导航图：只做映射与引用，**不声明任何新规则**。规则本体全部在 00–80 规约金字塔，任何冲突以金字塔为准（裁决序见 `00-CONSTITUTION.md` [sid:00-ch2]）。
 > **读者**：新会话冷启动的 AI 编码代理（必读）、评审 AI 交付物的人工。
 > **版本**：v1.0（2026-09-12：初版，产品契约映射 / 架构落点 / 遵循流程 / 差距指针 / 纪律自检）
 > **版本史**：`git log -- docs/specs/90-AI-DEV-ARCHITECTURE.md`（文档纪律 D3，正文不再维护）
@@ -13,7 +13,7 @@
 |---|---|
 | **本文是什么** | 产品契约（五条需求）→ 六阶段流水线 / v4.0 六层架构 / REQ 编号的**映射表**，外加 AI 编码的强制流程导航与差距指针。 |
 | **本文不是什么** | 不是规则源。所有规则（原生优先 / SSOT / 门禁 / 红线 / 粒度上限）的唯一权威在 00/10/20/30/40/80，本文一律引用。 |
-| **AI 何时读** | 每个新会话冷启动第一篇；实施任何任务前，用第二章定位落点、用第三章走流程、用第四章确认不踩差距冻结区。 |
+| **AI 何时读** | 每个新会话冷启动第一篇；实施任何任务前，用[sid:30-c[sid:30-[sid:30-ch4]]定位落点、用第三章走流程、用第四章确认不踩差距冻结区。 |
 
 ---
 
@@ -40,7 +40,7 @@
 ### 2.0 总览：五条需求在六阶段流水线上的分布
 
 ```
-输入契约                    六阶段攻击流水线（10-ARCHITECTURE 第一章）          输出契约
+输入契约                    六阶段攻击流水线（10-ARCHITECTURE [sid:10-ch1]）          输出契约
 ──────────                ─────────────────────────────────────              ──────────
 URL / burp.txt    ──►  ① RECON ── ② ARM ── ③ STRIKE ── ④ ESCALATE          outputs/strike_*/
 （需求① 双入口）        │          │          │            │                   ├── report*.md/.html/.sarif
@@ -52,7 +52,7 @@ URL / burp.txt    ──►  ① RECON ── ② ARM ── ③ STRIKE ── �
 需求④ 进度呈现 = EventLog（core/events.py）+ 终端展示 + PyRIT 原生 output
 ```
 
-v4.0 六层目标架构（L0 输入与作用域 → L5 交付）与六个一等公民抽象的完整定义见 `10-ARCHITECTURE.md` 第十三章；六阶段流水线是其运行实例。下表标注每条需求主要落在哪些层。
+v4.0 六层目标架构（L0 输入与作用域 → L5 交付）与六个一等公民抽象的完整定义见 `10-ARCHITECTURE.md` [sid:10-ch13]；六阶段流水线是其运行实例。下表标注每条需求主要落在哪些层。
 
 ### 2.1 需求① 双入口分级侦察 → ① RECON（六层：L0 / L1）
 
@@ -73,19 +73,19 @@ v4.0 六层目标架构（L0 输入与作用域 → L5 交付）与六个一等�
 | 维度 | 落点（代码实证） |
 |------|----------------|
 | 组件差异 SSOT | `config/components/*.yaml` + `core.registry`（ADR-007 / REQ-153）。声明清单只准实时读取：`python -c "from core.registry import get_registry; print(get_registry().keys())"`；接线完整性：`get_registry().validate_wiring()` |
-| 组件 YAML 契约 | **唯一权威 = `config/components/README.md`**（labels 多标签 IC-1 / detect / recon / seeds / converters / playbooks / scorer / report_section / cleanup 字段定义）。新增组件走 `80-COMPONENT-ARCHITECTURE-RULES.md` 第六章 Checklist（IA-7：只增 YAML + 实现，不改框架层调度） |
+| 组件 YAML 契约 | **唯一权威 = `config/components/README.md`**（labels 多标签 IC-1 / detect / recon / seeds / converters / playbooks / scorer / report_section / cleanup 字段定义）。新增组件走 `80-COMPONENT-ARCHITECTURE-RULES.md` [sid:80-ch6] Checklist（IA-7：只增 YAML + 实现，不改框架层调度） |
 | 种子选择 | `arm.seed_ranker`——UCB1 排序 + 类别多样性保底 + 零 ASR 剪枝（蓝图 I6）；运行时反馈账本 `data/seeds/asr_history.json` EMA 闭环（I7：assess 唯一写者、arm 读取） |
 | Converter 链 | `arm.converter_selector` / `arm.converter_presets`——每 `ConverterConfiguration` 恰 1 converter（蓝图 I1），多路径 = 独立子路径 + FIRST_SUCCESS |
 | 策略路由 | `core.scenario_router`（组件/场景 → technique_tags，ADR-004 轻量化）+ `--target` / `--strike` 分发（`strike.common.dispatcher`，含渐进模式 Phase 1→4 自动升级） |
 | Embedding 口径 | REQ-110 裁决（蓝图 Q4）：编排内不实装 embedding 反演攻击；`recon.embedding.vector_probe` 仅服务组件识别与侦察。禁止维持 stub 编排状态（R-H1） |
 | **已知差距** | `ctx.techniques` 只喂 Converter、不选 Executor（技术路由断裂，BL-031）——归宿 REQ-151 PlaybookEngine，**禁止新建第二套链机制**（宪法 C3） |
-| 需求 / 不变量 | REQ-003/153/155；I1 / I6 / I7；组件归属传递见 80 第五章（CB-1/CB-2、IC-1/IC-3） |
+| 需求 / 不变量 | REQ-003/153/155；I1 / I6 / I7；组件归属传递见 80 [sid:20-ch5]（CB-1/CB-2、IC-1/IC-3） |
 
 ### 2.3 需求③ PyRIT 原生执行托管 → ③ STRIKE + ④ ESCALATE（六层：L2 / L3）
 
 | 维度 | 落点（代码实证） |
 |------|----------------|
-| 原生优先决策树 | 写新能力前的强制四问（Q1 原生现成？Q2 包装原生？Q3 Glue/Output 范畴？）见 `10-ARCHITECTURE.md` 第三章；原生组件完整速查见 `00-CONSTITUTION.md` 7C |
+| 原生优先决策树 | 写新能力前的强制四问（Q1 原生现成？Q2 包装原生？Q3 Glue/Output 范畴？）见 `10-ARCHITECTURE.md` [sid:10-ch3]；原生组件完整速查见 `00-CONSTITUTION.md` 7C |
 | 目标类型 → 最优攻击 | `00-CONSTITUTION.md` 7B 映射表 + `10-ARCHITECTURE.md` 9.2 攻击路径决策树（按 capability 指纹分支）与 9.1 原生攻击类落点表 |
 | 攻击编排 | PyRIT 原生 `PromptSendingAttack` 多路径 FIRST_SUCCESS（REQ-004）+ 升级链 L1→L4（REQ-005，蓝图 I4 动态阈值；触发参数唯一汇总见蓝图 6.1 SSOT 表） |
 | Playbook | 现状：`strike.playbook` 单模块 + `config/playbooks/*.yaml`。蓝图 [sid:10-ch13]的 `strike/playbook/` 目录形态为 v4.0 规划落点，**未落地前勿按目录形态引用** |
@@ -113,7 +113,7 @@ v4.0 六层目标架构（L0 输入与作用域 → L5 交付）与六个一等�
 | 组件专项报告 | `report.component_reports`——组件级 report_section 插件（组件 YAML 契约见 `config/components/README.md`；MCP 等组件的专项报告结构经此承载，不另立报告管线，C3） |
 | OffSec 标准结构 | REQ-113 四段结构（executive summary / findings 含风险等级 / impact / remediation）；OWASP LLM 2025 与 MITRE ATLAS 映射：`report.owasp_mapping` / `report.owasp_constants` / `report.standards` |
 | 证据链 | `report.evidence` + `report.evidence_manifest`（Why-Success 取证字段组 R-DATA-3：`successful_evidence_log` / `refusal_classification_log` / `guardrail_triggers`）；PoC 独立可执行（NFR-5）：`report.poc_generator` / `report.component_poc` / `report._poc_templates`；SARIF：`report.sarif_report`；多格式：`report.report_markdown` / `report.report_html` |
-| 合规红线 | 取证与合规红线（R-ROE-1 / R-EVID-1 / R-AUDIT-1）见 `40-GUARDRAILS.md` 1J-COMPLIANCE；考试合规与证据完整性见其第八章（8A~8D）；报告离线可检（NFR-7） |
+| 合规红线 | 取证与合规红线（R-ROE-1 / R-EVID-1 / R-AUDIT-1）见 `40-GUARDRAILS.md` 1J-COMPLIANCE；考试合规与证据完整性见其[sid:40-ch8]（8A~8D）；报告离线可检（NFR-7） |
 | 需求 / 不变量 | REQ-006/007/113/152/164 + CP-002 组（REQ-165~171）；I3 / I9 / I11；R-DATA-3 |
 
 ---
@@ -124,9 +124,9 @@ v4.0 六层目标架构（L0 输入与作用域 → L5 交付）与六个一等�
 
 ### 3.1 会话冷启动阅读顺序
 
-1. 本文件（第二章定位落点、第四章确认冻结区）
-2. `00-CONSTITUTION.md`——第 0 条使命 + 第二章裁决序（Step 1 宪法自检）
-3. `30-TASKS.md`——第四章八步协议（Step 2~8 的执行骨架）
+1. 本文件（[sid:90-[sid:90-ch4]]定位落点、[sid:90-ch4]确认冻结区）
+2. `00-CONSTITUTION.md`——第 0 条使命 + [sid:00-ch2]裁决序（Step 1 宪法自检）
+3. `30-TASKS.md`——[sid:30-ch4]八步协议（Step 2~8 的执行骨架）
 4. `10-ARCHITECTURE.md` 相关章节（Step 2 蓝图落点声明）
 5. `20-REQUIREMENTS.md` 对应 REQ 的验收标准（Step 3 规格核对；未登记 = 不存在）
 
@@ -135,11 +135,11 @@ v4.0 六层目标架构（L0 输入与作用域 → L5 交付）与六个一等�
 | 步 | 动作 | 唯一权威 |
 |----|------|---------|
 | 1 | 宪法自检 | 00-CONSTITUTION |
-| 2 | 蓝图落点声明 | 10-ARCHITECTURE（本文第二章是导航入口） |
+| 2 | 蓝图落点声明 | 10-ARCHITECTURE（本文[sid:10-ch2]是导航入口） |
 | 3 | 规格核对（task-spec + REQ 验收标准可勾选） | 20-REQUIREMENTS / 30-TASKS |
 | 4 | 代码精读（先读后写，C5） | 00-CONSTITUTION C5 |
 | 5 | 计划复述 | 30-TASKS |
-| 6 | 最小实现（C4 粒度上限内） | 00-CONSTITUTION C4 / 30-TASKS 第三章 |
+| 6 | 最小实现（C4 粒度上限内） | 00-CONSTITUTION C4 / 30-TASKS [sid:00-ch3] |
 | 7 | 门禁全过（命令唯一表，顺序固定） | [sid:readme-ch2]（统一入口 `python -m tools.gate`） |
 | 8 | 如实汇报（三态：已验证 / 未验证 / 未完成） | 00-CONSTITUTION C9 / 30-TASKS |
 
@@ -151,21 +151,21 @@ v4.0 六层目标架构（L0 输入与作用域 → L5 交付）与六个一等�
 | ASR 至上与边界 | 宪法 C2 + 蓝图 I1~I4 / I8 |
 | 配置数据流不可断 | 宪法 C7 + 蓝图 4.4 ctx 字段总表（唯一登记簿） |
 | 学术留痕 | 宪法 C8（arXiv 三处之一） |
-| 组件化规则 | 80 第七章 IA-1~IA-8 + 第六章新增组件 Checklist + 第二章双命名空间 |
-| 任务粒度上限 | 30-TASKS 第三章（文件数 / diff 行数 / 跨模块数硬上限） |
-| 非功能标准 | 20-REQUIREMENTS 第四章 NFR-1~13 |
-| 红线与门禁 | 40-GUARDRAILS 第一章（1A 机器可查 / 1B 人工评审 / 1C 安全合规）+ [sid:readme-ch2] |
+| 组件化规则 | 80 [sid:80-ch7] IA-[sid:80-ch6]A-8 + 第六[sid:80-ch2]组件 Checklist + 第二章双命名空间 |
+| 任务粒度上限 | 30-TASKS [sid:30-ch3]（文件数 / diff 行数 / 跨模块数硬上限） |
+| 非功能标准 | 20-REQUIREMENTS [sid:20-ch4] NFR-1~13 |
+| 红线与门禁 | 40-GUARDRAILS [sid:40-ch1]（1A 机器可查 / 1B 人工评审 / 1C 安全合规）+ [sid:readme-ch2] |
 | 决策系统约束 | 40-GUARDRAILS 1G-DECIDE（R-DECIDE-1~6）+ 蓝图 11.5（ID-1~ID-5） |
 
 ### 3.4 偏航熔断（STOP-REPORT）
 
-六类触发信号（规格含糊 / 未登记变更 / 超受影响清单 / 超粒度上限 / 红线风险 / ASR 裁决无依据）的完整定义见 `00-CONSTITUTION.md` C11 与 `30-TASKS.md` 第五章（含格式模板）。**原则：猜着做 = 违宪；停下来问 = 合宪。**
+六类触发信号（规格含糊 / 未登记变更 / 超受影响清单 / 超粒度上限 / 红线风险 / ASR 裁决无依据）的完整定义见 `00-CONSTITUTION.md` C11 与 `30-TASKS.md` [sid:00-ch5]（含格式模板）。**原则：猜着做 = 违宪；停下来问 = 合宪。**
 
 ---
 
 ## 第四章：已知差距与归宿（指针登记，禁止顺手实施） [sid:90-ch4]
 
-> 宪法 C4：差距消除只能由专项任务（REQ/DEBT/BL 转化）承担，日常任务禁止触碰。本表是**指针**，现象与处置要求的完整描述以 `docs/backlog.md` 与 `10-ARCHITECTURE.md` 第八章债务簿为准（D1：不在本文复述细节）。
+> 宪法 C4：差距消除只能由专项任务（REQ/DEBT/BL 转化）承担，日常任务禁止触碰。本表是**指针**，现象与处置要求的完整描述以 `docs/backlog.md` 与 `10-ARCHITECTURE.md` [sid:10-ch8]债务簿为准（D1：不在本文复述细节）。
 
 | 差距 | 一句话现象（可验证） | 归宿 |
 |------|---------------------|------|
@@ -195,6 +195,6 @@ v4.0 六层目标架构（L0 输入与作用域 → L5 交付）与六个一等�
 | D2 | 禁行号坐标 | `rg "\.py:\d+" docs/specs/90-AI-DEV-ARCHITECTURE.md` 零命中 |
 | D3 | 版本史外置 | 正文仅文件头一个版本行，无变更记录表 |
 | D4 | 清单不进正文 | 不手工抄写组件清单 / 门禁命令 / 检查器数量；一律给出实时读取命令 |
-| D5 | 路径必须存在 | 第二章所有 `模块.符号` 与文件路径经代码实证（初版核验记录见 git 提交）；蓝图规划未落地项显式标注 |
+| D5 | 路径必须存在 | [sid:90-ch2]所有 `模块.符号` 与文件路径经代码实证（初版核验记录见 git 提交）；蓝图规划未落地项显式标注 |
 | D6 | 已完结内容归档 | 差距表只留指针，完结项从表中移除 |
 | D7 | 无占位符 | `rg "TASK-___|\[CMD\]|待填|TODO" docs/specs/90-AI-DEV-ARCHITECTURE.md` 零命中 |

@@ -18,7 +18,7 @@ draft（草案） → spec'd（规格完成） → approved（人工批准）
 
 - **draft → spec'd**：填写 `specs/templates/task-spec.md` 全部字段，无空项；
 - **spec'd → approved**：人工评审签字（一句话"批准"即可）；**禁止跳过**（宪法 C6）；
-- **in-progress 中途变更范围**：必须 STOP-REPORT（第五章），禁止静默扩权；
+- **in-progress 中途变更范围**：必须 STOP-REPORT（[sid:30-ch5]），禁止静默扩权；
 - **verified**：C10 四步门禁全部通过 + 验收标准逐条勾选；
 - aborted 任务必须在 backlog 留一行记录（做了什么/为何停/留下什么状态）。
 
@@ -30,7 +30,7 @@ draft（草案） → spec'd（规格完成） → approved（人工批准）
 | 修 bug | 复现 → 定位 → 直接生成任务（bug 修复可引用现象而非 REQ） |
 | 消除债务 | 引用 DEBT-ID（蓝图 [sid:10-ch8]）→ 生成专项任务 |
 | 重构 | 一律视为债务消除任务，引用 DEBT-ID 或先提案登记新 DEBT |
-| 路线图任务 | 从 `specs/50-ROADMAP.md` 第四章任务序列领取——**顺序与依赖以路线图为准，任务合法性仍以 ③④ 层为准**（路线图无裁决权威） |
+| 路线图任务 | 从 `specs/50-ROADMAP.md` [sid:50-ch4]任务序列领取——**顺序与依赖以路线图为准，任务合法性仍以 ③④ 层为准**（路线图无裁决权威） |
 | 临时想法 | 写入 `docs/backlog.md`（一行），**不动代码** |
 
 **一个任务 = 一个原子变更**。判断标准：如果这个任务的 diff 需要两个不同的 commit message 来描述，它就是两个任务。
@@ -64,12 +64,12 @@ Step 5  计划复述     用 3-5 句话向用户复述：将改什么文件、�
 Step 6  最小实现     只做 task-spec "实施步骤"列出的动作；每完成一步
                     勾选一步；过程中发现新问题 → backlog 登记，不停手
 Step 7  四步门禁     guard → ruff → pytest → dry-run（+Tier 2 若涉及攻击/评分逻辑）
-Step 8  如实汇报     按第六章格式汇报
+Step 8  如实汇报     按[sid:30-ch6]格式汇报
 ```
 
 **Step 5 是防偏航的关键闸门**：复述偏差会被用户当场纠正，成本最低。跳过 Step 5 直接编码 = 违宪。
 
-**vibe coding 会话模型**（会话类型配额、周节奏与防漂移操作细节）见 `specs/50-ROADMAP.md` 第五章——本层八步协议是其中强制骨架，路线图为节奏补充。
+**vibe coding 会话模型**（会话类型配额、周节奏与防漂移操作细节）见 `specs/50-ROADMAP.md` [sid:50-ch5]——本层八步协议是其中强制骨架，路线图为节奏补充。
 
 ## 第五章：偏航熔断（STOP-REPORT） [sid:30-ch5]
 
@@ -79,8 +79,8 @@ Step 8  如实汇报     按第六章格式汇报
 1. 需要修改 task-spec 之外的文件（含"只是顺手"）；
 2. 发现规格与代码现实不符（要改的东西不存在/已被改掉/结构不同）；
 3. 发现需要新增依赖/新文件/新 ctx 字段/新配置参数而规格未授权；
-4. 预计超出第三章任一粒度上限；
-5. 发现实现路径会触碰红线（40-GUARDRAILS 第一章）；
+4. 预计超出[sid:30-ch3]任一粒度上限；
+5. 发现实现路径会触碰红线（40-GUARDRAILS [sid:40-ch1]）；
 6. 对"ASR 升还是降"无有据答案（宪法第 0 条终极问题）。
 
 **STOP-REPORT 格式**（一次性输出，不啰嗦）：
@@ -135,7 +135,7 @@ Step 8  如实汇报     按第六章格式汇报
 
 ## 第八章：与既有流程资产的衔接 [sid:30-ch8]
 
-- `implementation_checklist.md` → 已于 2026-09-06 删除；其职能由 `specs/templates/task-spec.md` 完全接管（30-TASKS 第一章 draft→spec'd 流程）。
+- `implementation_checklist.md` → 已于 2026-09-06 删除；其职能由 `specs/templates/task-spec.md` 完全接管（30-TASKS [sid:30-ch1] draft→spec'd 流程）。
 - SKILL.md 的 Anti-Derailment Checklist → 保留为编码期细则；与本层冲突处以本层为准（裁决序 ②>⑤）。
 - `docs/backlog.md` → 已由制宪会话创建（宪法 [sid:00-ch6]附则，v1.1），唯一待办池；AI 发现的任何非本任务问题一律进 backlog，一行一条。
 - `specs/50-ROADMAP.md` → REV-02 创建（宪法 [sid:00-ch6]附则，v1.2），任务顺序与 vibe coding 会话模型的登记处。
@@ -144,7 +144,7 @@ Step 8  如实汇报     按第六章格式汇报
 
 ## 第九章：考试/紧急场景速查（v2.0 精简） [sid:30-ch9]
 
-> **效力**：考试/紧急场景的快速参考卡。详细任务协议见第一章~第八章。
+> **效力**：考试/紧急场景的快速参考卡。详细任务协议见[sid[sid:30-ch8]-ch1]~第八章。
 
 ### 9A. 攻击模板速查表（按目标能力指纹选模板）
 

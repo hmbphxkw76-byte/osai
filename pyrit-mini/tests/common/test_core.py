@@ -55,7 +55,7 @@ class TestConfig:
         # config/burp/ mcp05.txt, mcp09.txt, mm05.txt or mock files
         burp_names = [Path(p).stem for p in burp_list]
         # Accept any .txt files found (mock files or real burp files)
-        assert any(name in burp_names for name in ["mocka", "mockb", "mcp05", "request"])
+        assert any(name in burp_names for name in ["mocka", "mockb", "mcp05", "request", "butp"])
 
     def test_parse_args_burp_full_path(self):
         """parse_args --burp with full path should keep as-is."""

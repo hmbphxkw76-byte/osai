@@ -1,9 +1,9 @@
 # 40 — 安全与质量层：红线护栏（Guardrails）
 
 > **文档层级**：L4 / 五层规约金字塔第五层
-> **效力**：红线 = 绝对禁止，视同宪法级（裁决序见 00-CONSTITUTION 第二章）。质量门禁 = 完成任务的必要不充分条件。
+> **效力**：红线 = 绝对禁止，视同宪法级（裁决序见 00-CONSTITUTION [sid:00-ch2]）。质量门禁 = 完成任务的必要不充分条件。
 > **执行机制**：三层防线（静态 guard / 运行时 dry-run / git 钩子），继承 SKILL.md D2 条款并收编。
-> **版本**：v3.7（2026-09-13 REV-24：R-DOC-4 版本同步校验由 INFO 提级 BLOCKING；跨模型 5 检查器落地（tools.cross_model_review，BL-042 闭环）；R-L7 顶层**文件**许可清单纳入 `AGENTS.md`（AI 编码代理唯一入口，跨 IDE/跨模型自动加载）；跨模型 review-only 协议见 `60-CROSS-MODEL-VERIFICATION.md` §4.4。REV-22 的 1K-GATE 与 REV-21 的 `targets/` 目录许可保持有效）
+> **版本**：v3.8（2026-09-13 REV-25：R-CROSS-1 级别由 BLOCKING 降 WARNING（与 tools.cross_model_review 实现一致，人工编排降级、不阻断、标记 needs-cross-model-pending）；1F 登记簿补 R-CROSS-1~5 检查器；存储路径统一 outputs/cross_model_review/（加 !outputs/cross_model_review/ 入库例外）。REV-24 的 R-DOC-4 BLOCKING 提级 / 5 检查器落地 / R-L7 文件许可 / §4.4 review-only 保持有效）
 > **v3.4 摘要**（REV-21）：R-L7 顶层目录许可清单同步纳入 `targets/` —— 依 `10-ARCHITECTURE.md` 2.1「靶场层」与 REQ-156，修复检查器白名单滞后于规格的 spec-code drift。
 > **版本史**：`git log -- docs/specs/40-GUARDRAILS.md`
 
@@ -30,7 +30,7 @@
 
 ### 1A-DATA. 数据流完整性红线（v1.4 新增）
 
-> 完整规约见 [10-ARCHITECTURE.md 第四章](../specs/10-ARCHITECTURE.md)（原 45-DATA-FLOW-INTEGRITY.md 已合并）
+> 完整规约见 [10-ARCHITECTURE.md [sid:10-ch4]](../specs/10-ARCHITECTURE.md)（原 45-DATA-FLOW-INTEGRITY.md 已合并）
 
 | # | 红线 | guard 检查器 | 级别 |
 |---|------|-------------|------|
@@ -64,7 +64,7 @@
 | # | 红线 | guard 检查器 | 级别 |
 |---|------|-------------|------|
 | R-DOC-1 | CLI 参数以 `core/config.py` / `main.py` 的 argparse 为唯一权威；每个 `--xxx` 须具备非空 `help`（代码自描述，运行 `--help` 即得） | `check_cli_params_documented()` | WARNING |
-| R-DOC-2 | 新增攻击模块必须同步更新 `docs/specs/55-ATTACK-GAP-CLOSURE.md` 对应缺口章节 | `check_attack_gap_documented()` | WARNING |
+| R-DOC-2 | 新增攻击模块必须同步更新 `docs/specs/55-gap-N.md` 对应缺口章节（缺口 1–6 已拆为子文件） | `check_attack_gap_documented()` | WARNING |
 | R-DOC-3 | 新增需求/红线必须同步更新 `docs/specs/20-REQUIREMENTS.md` 和 `docs/specs/40-GUARDRAILS.md` | `check_requirements_guardrails_synced()` | WARNING |
 | R-DOC-4 | 文档版本号变更必须同步更新 `docs/specs/README.md` 金字塔版本索引（否则门禁 BLOCKING，C10） | `check_readme_version_synced()` | BLOCKING |
 | R-DOC-5 | **新增/修改 CLI 参数必须在交付验收时显示完整命令行用法**，包括：参数组合示例、与其他模块联合使用示例、完整参数列表 | `check_cli_usage_shown_in_delivery()` | WARNING |
@@ -78,7 +78,7 @@
 > **预防**：任何文档引用的路径必须可由 `Test-Path` / `os.path.exists` 验证（文档纪律 D5）。
 
 **R-DOC-2 判定**:
-- ✅ PASS: `strike/` 下新增攻击模块在 `55-ATTACK-GAP-CLOSURE.md` 中有对应缺口章节
+- ✅ PASS: `strike/` 下新增攻击模块在 `55-gap-*.md` 缺口子文件中有对应缺口章节
 - ❌ FAIL: 发现攻击模块未登记缺口 → WARNING (提示补充缺口分析)
 
 **R-DOC-3 判定**:
@@ -98,7 +98,7 @@
 | 变更类型 | 必须同步的文档 |
 |----------|---------------|
 | 新增 CLI 参数 | `core/config.py` / `main.py` 的 argparse `help=`（代码即 CLI 文档） |
-| 新增攻击模块 | `docs/specs/55-ATTACK-GAP-CLOSURE.md` |
+| 新增攻击模块 | `docs/specs/55-gap-N.md`（缺口 1–6 子文件） |
 | 新增需求 | `docs/specs/20-REQUIREMENTS.md` |
 | 新增红线/护栏 | `docs/specs/40-GUARDRAILS.md` |
 | 版本号变更 | `docs/specs/README.md` 金字塔索引 |
@@ -264,16 +264,22 @@ pyrit-drift --full --report
 | check_gate_stage_parity | R-GATE-1 | BLOCKING | 门禁本体 |
 | check_gate_no_silent_skip | R-GATE-2 | BLOCKING | 门禁本体 |
 | check_hooks_installed | R-GATE-3 | WARNING | 门禁本体 |
+| check_cross_model_review | C14 / R-CROSS-1 | WARNING（人工编排降级） | 跨模型审查 |
+| check_review_schema | R-CROSS-2 | BLOCKING | 跨模型审查 |
+| check_adjudication_record | R-CROSS-3 | WARNING | 跨模型审查 |
+| check_review_model_pool | R-CROSS-4 | INFO | 跨模型审查 |
+| check_review_freshness | R-CROSS-5 | WARNING | 跨模型审查 |
 
 **保留注记**：
 - **门禁本体检查器落点**：上表三条位于 `tools/guard_gate.py`（未塞进已超限的 `tools/guard_extended.py`，见 BL-053）；由 `tools/guard.py` 的 `_register_gate_checks()` 注册。
 - **specs-guard 联动**: guard 启动时读取 `00-CONSTITUTION.md` 版本号并输出至报告脚注（裁决序基准）；版本不匹配时以 guard 实现为准、规约文档视为待同步。
 - **R9 误报白名单**: `display.py`、`display_stages.py` 中通过 `_resolve('param', default)` 包裹的动态配置读取，视为已修复配置数据流断点（不报 R9）。
+- **跨模型检查器落点**：R-CROSS-1~5 五检查器位于 `tools/cross_model_review.py`，由 `tools/guard.py` 在模块级调用 `cross_model_review.register(ArchitectureGuard)` 注册（BL-042 闭环）；`docs/specs` 无变更时零产出（纯代码提交无感）。
 
 ### 1G-DECIDE. 自主决策系统护栏（v2.2 新增）
 
 > **适用范围**：全链路自主决策引擎（`determine_*_strategy` 系列函数、`DecisionEngine` 类、反馈闭环机制）。
-> **架构依据**：`10-ARCHITECTURE.md` 第十一章 + `55-ATTACK-GAP-CLOSURE.md` 第九章。
+> **架构依据**：`10-ARCHITECTURE.md` [sid:10-ch11] + `55-ATTACK-GAP-CLOSURE.md` [sid:55-decision]。
 
 | # | 红线 | 级别 | 判定特征 | 检查器 |
 |---|------|------|----------|--------|
@@ -304,11 +310,11 @@ pyrit-drift --full --report
 ### 1I-CROSS. 跨模型规约审查护栏（v2.7 新增）
 
 > **适用范围**：所有规约文档（L0-L4：CONSTITUTION/ARCHITECTURE/REQUIREMENTS/GUARDRAILS/ROADMAP）的变更审查流程。
-> **架构依据**：`10-ARCHITECTURE.md` 第十二章 + `60-CROSS-MODEL-VERIFICATION.md` + `00-CONSTITUTION` C14。
+> **架构依据**：`10-ARCHITECTURE.md` [sid:10-ch12] + `60-CROSS-MODEL-VERIFICATION.md` + `00-CONSTITUTION` C14。
 
 | # | 红线 | 级别 | 判定特征 | 检查器 |
 |---|------|------|----------|--------|
-| R-CROSS-1 | **审查前置**：L0-L4 规约变更必须经过跨模型审查（≥2 模型），single-model 审查结论不得直接写入规约文档 | BLOCKING | 规约文档已变更但 docs/specs/reviews/ 无对应记录 | `check_cross_model_review()` |
+| R-CROSS-1 | **审查前置**：L0-L4 规约变更必须经过跨模型审查（≥2 模型），single-model 审查结论不得直接写入规约文档 | WARNING | 规约文档已变更但 outputs/cross_model_review/ 无对应记录（当前人工编排模式，R-CROSS-1 降级 WARNING、不阻断，标记 needs-cross-model-pending；审查自动化就位后升 BLOCKING） | `check_cross_model_review()` |
 | R-CROSS-2 | **审查报告合规**：审查报告 JSON 必须可解析且含 60 §5.1 必需字段（model/findings） | BLOCKING | 报告缺字段/无法解析 → BLOCKING；无审查记录 → 由 R-CROSS-1 WARNING 降级 | `check_review_schema()` |
 | R-CROSS-3 | **仲裁记录完整**：审查记录须含 `adjudication/decision.json`（R-CROSS-3 永久保留） | WARNING | 缺 `adjudication/decision.json` | `check_adjudication_record()` |
 | R-CROSS-4 | **模型池健康**：审查模型池须 ≥ 2 可用，否则按 R-CROSS-1 降级人工审查 | INFO | 可用模型 < 2 | `check_review_model_pool()` |
@@ -316,13 +322,13 @@ pyrit-drift --full --report
 
 **R-CROSS-* 判定逻辑**：
 - ✅ PASS: 全部检测通过 → INFO (不阻断)
-- ⚠️ WARNING: R-CROSS-3/4/5 违规 → 提示修复，**不阻断 push**
-- 🔴 BLOCKING: R-CROSS-1 无审查即合入 / R-CROSS-2 一致性不达标却已合入 → **阻断 push**
+- ⚠️ WARNING: R-CROSS-1 无审查记录（人工编排模式降级，不阻断，标记 needs-cross-model-pending）/ R-CROSS-3/4/5 违规 → 提示修复，**不阻断 push**
+- 🔴 BLOCKING: R-CROSS-2 审查报告存在但字段缺失/无法解析（一致性不达标却已合入）→ **阻断 push**（R-CROSS-1 的 BLOCKING 仅在审查自动化就位后启用，当前以 WARNING 降级，与 `tools/cross_model_review.py` 实现一致）
 
 **跨模型审查护栏与既有护栏的关系**：
 | 审查护栏 | 关联既有护栏 | 关系 |
 |----------|-------------|------|
-| R-CROSS-1 | C14 (宪法) | 强化：C14 声明"必须交叉确认"，R-CROSS-1 落地为 BLOCKING |
+| R-CROSS-1 | C14 (宪法) | 强化：C14 声明"必须交叉确认"，R-CROSS-1 落地为 WARNING（人工编排降级，不阻断；自动化就位后升 BLOCKING） |
 | R-CROSS-2 | R-H6 (规格蒸发) | 互补：防止单模型幻觉导致规格蒸发 |
 | R-CROSS-3 | R-DATA-1 (数据流完整性) | 互补：审查记录 = 规约变更的可审计证据链 |
 | R-CROSS-4 | C9 (诚实汇报) | 互补：审查 findings 跟踪 = 诚实汇报的延伸 |
@@ -332,7 +338,7 @@ pyrit-drift --full --report
 
 ### 1J-COMPLIANCE. 合规与取证红线（v3.3 新增）
 
-> **适用范围**：授权边界强制、证据不可否认性、审计防篡改。配套需求见 `20-REQUIREMENTS.md` 第九章 D（REQ-163 / REQ-165 / REQ-169）。
+> **适用范围**：授权边界强制、证据不可否认性、审计防篡改。配套需求见 `20-REQUIREMENTS.md` [sid:20-ch9d] D（REQ-163 / REQ-165 / REQ-169）。
 > **检查器状态**：本节三条红线的 guard 检查器**随对应 REQ 的实施落地**（依 1F 纪律：先改代码、再同步登记簿）；未实施前本节为**登记占位，不产生门禁效力**（不新增 BLOCKING）。
 
 | # | 红线 | 级别 | 判定特征 | 检查器（待实施） |

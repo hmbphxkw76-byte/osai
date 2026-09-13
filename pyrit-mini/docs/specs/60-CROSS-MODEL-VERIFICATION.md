@@ -2,7 +2,7 @@
 
 > **STATUS: ACTIVE** — 本文档定义 specs/ 规约文档的跨模型交叉确认标准流程
 > **文档层级**：L4 配套协议（护栏唯一定义见 `40-GUARDRAILS.md` 1I-CROSS；任务协议见 `30-TASKS.md` 第十章）
-> **版本**：v1.3（2026-09-13 REV-3：5 跨模型检查器落地（tools.cross_model_review，R-CROSS-1~5，BL-042 闭环）；§9.2 标记已实现。REV-2 的 D3 自相矛盾消除保持有效）
+> **版本**：v1.4（2026-09-13 REV-4：存储路径由 docs/specs/reviews/ 统一收敛到 outputs/cross_model_review/（与 tools.cross_model_review 的 REVIEW_ROOT 一致，并加 !outputs/cross_model_review/ 入库例外满足 R-CROSS-3 永久保留）；§9.1 标注为示意片段；5 检查器落地（BL-042）与 REV-2 的 D3 自相矛盾消除保持有效）
 > **版本史**：`git log -- docs/specs/60-CROSS-MODEL-VERIFICATION.md`
 
 > **职责边界**（防三处重复）：本文件**只定义审查协议**（模型池 / Prompt 模板 / Schema / 存储结构）。
@@ -338,7 +338,7 @@ def align_reviews(reviews: list[dict]) -> dict:
 ### 6.1 目录结构
 
 ```
-docs/specs/reviews/
+outputs/cross_model_review/
 └── {YYYYMMDD}-{change_id}/
     ├── trigger.md          # 触发变更说明
     ├── raw/                # 原始审查报告
@@ -423,12 +423,14 @@ docs/specs/reviews/
 
 if git diff --name-only | grep -E "^docs/specs/[0-9]+-"; then
     # 检查是否有审查记录
-    if ! grep -q "cross_model_review:" docs/specs/reviews/latest/summary.md 2>/dev/null; then
+    if ! grep -q "cross_model_review:" outputs/cross_model_review/latest/summary.md 2>/dev/null; then
         echo "BLOCKING: 规约变更未执行跨模型审查"
         exit 1
     fi
 fi
 ```
+
+> **注**：本段为示意性 hook 片段；真实执行由 `tools.guard` 的 `check_cross_model_review()`（R-CROSS-1）完成，存储路径统一为 `outputs/cross_model_review/`（见 §6.1）。REV-4 起由 `docs/specs/reviews/` 收敛到此处，与 `tools/cross_model_review.py` 的 `REVIEW_ROOT` 一致；并加 `!outputs/cross_model_review/` 入库例外满足 R-CROSS-3 永久保留。
 
 ### 9.2 Guard 检查器
 
@@ -449,11 +451,11 @@ fi
 ```
 00-CONSTITUTION  C14（跨模型优先）
         ↓
-10-ARCHITECTURE  第十二章（审查架构）
+10-ARCHITECTURE  [sid:10-ch12]（审查架构）
         ↓
 20-REQUIREMENTS  REQ-138~140（功能需求）
         ↓
-30-TASKS         第十章（执行协议）
+30-TASKS         [sid:30-ch10]（执行协议）
         ↓
 40-GUARDRAILS    1I 登记簿 + R-CROSS-1~5（护栏）
         ↓
@@ -467,8 +469,8 @@ templates/cross-model-review.md（报告模板）
 | 本文档引用 | 被引用位置 |
 |-----------|-----------|
 | 2.1 模型池 | 40-GUARDRAILS 1I 登记簿 |
-| 3.1 触发规则 | 30-TASKS 第十章 10.1 |
-| 4.2 Phase 2 | 30-TASKS 第十章 10.2 |
+| 3.1 触发规则 | 30-TASKS [sid:30-ch10] 10.1 |
+| 4.2 Phase 2 | 30-TASKS [sid:30-ch10] 10.2 |
 | 7 度量指标 | 50-ROADMAP.md 阶段 1D 退出条件 |
 | 9.2 检查器 | tools/guard.py |
 

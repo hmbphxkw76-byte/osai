@@ -1,14 +1,13 @@
 # 55 — 攻击面缺口登记处（Attack Gap Registry）
 
-> **文档层级**：配套（登记处，**非规约**）。R-DOC-2 依赖本路径，**禁止改名或移动**。
-> **版本**：v1.8（2026-09-09 REV-18：新增 gap 6 Workflow Evasion 安全扫描绕过）
+> **文档层级**：配套（登记处，**非规约**）。R-DOC-2 依赖本索引路径；缺口详细内容已拆为子文件 `55-gap-1.md`~`55-gap-6.md`（guard 检查器 glob `55-gap-*.md`）。
+> **版本**：v1.9（2026-09-13 REV-19：缺口 1–6 拆为 55-gap-1~6.md，本文件降为索引 + 指针）
 > **版本史**：`git log -- docs/specs/55-ATTACK-GAP-CLOSURE.md`
 > **状态**：四大攻击缺口实施完成 + 文件上传攻击模块 + Workflow Evasion
 > **作者**：AI Red Team
 
 > **本文件用法**：新增/修改攻击模块时，在对应缺口章节登记覆盖状态。
 > 它**不定义规则**——规则在 `40-GUARDRAILS.md`；它**只回答**"哪个攻击面由哪个模块覆盖、还有哪些缺口"。
-
 ## 1. 背景与目标 [sid:55-ch1]
 
 ### 1.1 缺口分析
@@ -31,327 +30,18 @@
 
 ---
 
-## 2. 缺口 1: 输出过滤器绕过 [sid:55-gap1-filter]
+## 缺口清单（索引）
 
-### 2.1 学术理论基础
+| 缺口 | 标题 | 子文件 | sid | 状态 |
+|------|------|--------|-----|------|
+| 缺口 1 | 输出过滤器绕过 | `55-gap-1.md` | [sid:55-gap1-filter] | ✅ 实施完成 |
+| 缺口 2 | 多模态注入攻击 | `55-gap-2.md` | [sid:55-gap2-multimodal] | ✅ 实施完成 |
+| 缺口 3 | 对抗性微调/后门攻击 | `55-gap-3.md` | [sid:55-gap3-backdoor] | ✅ 实施完成 |
+| 缺口 4 | 文件上传攻击 | `55-gap-4.md` | [sid:55-gap4-upload] | ✅ 实施完成 |
+| 缺口 5 | A2A 多智能体侦察框架 | `55-gap-5.md` | [sid:55-gap5-a2a] | ✅ 实施完成 |
+| 缺口 6 | Workflow Evasion（安全扫描绕过） | `55-gap-6.md` | [sid:55-gap6-workflow] | ✅ 实施完成 |
 
-| 技术 | 论文 | ASR | 机制 |
-|------|------|-----|------|
-| Many-Shot Jailbreaking | arXiv:2402.05124 (Anthropic) | 60-80% | 利用长上下文窗口填充大量jailbreak示例 |
-| Chunked Request Attack | PyRIT Native | 40-60% | 将敏感请求分块绕过token级过滤 |
-| Cross-Domain Prompt Injection (XPIAA) | PyRIT Native | 50-70% | 通过跨域上下文注入绕过输出过滤器 |
-| Red Teaming Attack | PyRIT Native | 55-75% | 使用对抗性LLM迭代优化payload |
-
-### 2.2 PyRIT 原生组件
-
-```python
-from pyrit.executor.attack import ManyShotJailbreakAttack  # arXiv:2402.05124
-from pyrit.executor.attack import ChunkedRequestAttack  # 分块绕过
-from pyrit.executor.attack.multi_turn import XPIAAttack  # 跨域注入
-from pyrit.executor.attack import RedTeamingAttack  # 迭代红队
-```
-
-### 2.3 新增文件
-
-**文件**: `strike/output_filter_bypass.py` (~230行)
-
-**核心功能**:
-- `determine_bypass_strategy(ctx)` — 基于 ASR 动态选择策略
-- `execute_many_shot_attack(ctx, objective)` — Many-Shot Jailbreaking
-- `execute_chunked_request_attack(ctx, objective)` — 分块请求攻击
-- `execute_xpia_attack(ctx, objective)` — 跨域注入攻击
-- `execute_red_teaming_attack(ctx, objective)` — 迭代红队攻击
-- `run_output_filter_bypass(ctx)` — 主入口函数
-
-**策略选择逻辑**:
-```
-ASR < 20%  → ManyShotJailbreakAttack (最高单轮提升)
-ASR 20-35% → ChunkedRequestAttack (绕过token过滤器)
-ASR 35-50% → XPIAAttack (跨域注入)
-ASR 50-65% → RedTeamingAttack (迭代优化)
-ASR ≥ 65%  → 无需绕过
-```
-
-### 2.4 数据流
-
-```
-Low ASR (<30%)
-    ↓
-determine_bypass_strategy() → 选择最佳策略
-    ↓
-execute_*_attack() → PyRIT原生攻击执行
-    ↓
-re-score → 评估绕过效果
-    ↓
-ctx.bypass_context → 存储结果
-```
-
----
-
-## 3. 缺口 4: 文件上传攻击 (File Upload Attack) [sid:55-gap4-upload]
-
-### 3.1 学术理论基础
-
-| 技术 | 论文 | ASR | 机制 |
-|------|------|-----|------|
-| Indirect Prompt Injection | arXiv:2302.12173 (Greshake et al.) | 70-90% | 通过文档上传间接注入prompt指令 |
-| PoisonedRAG | arXiv:2406.04245 (Zou et al.) | 60-80% | 知识库投毒，污染RAG检索结果 |
-| Multimodal Document Attack | arXiv:2306.13254 (Shayegani et al.) | 50-70% | 多模态文档载体攻击 |
-| Backdoor via Data Poisoning | arXiv:2302.10149 (Bagdasaryan et al.) | 65-85% | 训练数据投毒后门攻击 |
-
-### 3.2 攻击模式
-
-| 模式 | 说明 | 适用场景 |
-|------|------|----------|
-| Single Upload + Trigger | 单文件上传 + 触发处理 | 测试基础文件上传过滤 |
-| Multi Upload + Trigger | 多文件上传 + 触发处理 | RAG批量投毒 |
-| Split Document Injection | 分文档注入（模板+载荷） | 间接Prompt注入绕检测 |
-| PoisonedRAG Upload | 知识库文档投毒 | RAG系统污染 |
-
-### 3.3 PyRIT 原生组件
-
-```python
-import aiohttp  # HTTP multipart上传
-from pathlib import Path  # 文件操作
-```
-
-### 3.4 新增文件
-
-**文件**: `strike/file_upload_executor.py` (~400行)
-
-**核心功能**:
-- `execute_file_upload()` — 单文件上传执行
-- `execute_trigger()` — 处理触发端点执行
-- `execute_file_upload_attack_chain()` — 完整攻击链
-- `run_file_upload_attack()` — 流水线集成入口
-
-**数据类**:
-- `UploadConfig` — 上传配置（文件路径、字段名、额外字段等）
-- `UploadResult` — 上传结果
-- `TriggerResult` — 触发结果
-- `FileUploadAttackResult` — 完整攻击链结果
-
-### 3.5 CLI 参数
-
-| 参数 | 默认值 | 说明 | 示例 |
-|------|--------|------|------|
-| `--file-upload-target` | None | 目标基础URL | `http://192.168.50.22:8004` |
-| `--upload-endpoint` | `/upload` | 上传端点路径 | `/api/v1/upload` |
-| `--trigger-endpoint` | `/summarize` | 处理触发端点 | `/process`, `/analyze` |
-| `--upload-files` | None | 逗号分隔的文件列表 | `payload.txt,template.txt` |
-| `--upload-field-name` | `file` | 表单字段名 | `document`, `attachment` |
-| `--trigger-method` | `POST` | 触发请求方法 | `POST`, `GET`, `PUT` |
-
-### 3.6 数据流
-
-```
-CLI参数 (--file-upload-target, --upload-files, --trigger-endpoint)
-    ↓
-run_file_upload_attack(ctx) → 流水线集成入口
-    ↓
-execute_file_upload_attack_chain() → 多步攻击链编排
-    ↓
-execute_file_upload() → aiohttp multipart POST 上传文件
-    ↓
-execute_trigger() → HTTP 触发处理端点
-    ↓
-FileUploadAttackResult → 结果存入 ctx.attack_results
-    ↓
-orchestration_log → 审计日志记录
-```
-
-### 3.7 使用示例
-
-```bash
-# 基础文件上传攻击
-python main.py --file-upload-target http://target:8004 \
-               --upload-files malicious_doc.txt \
-               --trigger-endpoint /summarize
-
-# 分文档间接Prompt注入（Split Document Injection）
-python main.py --file-upload-target http://target:8004 \
-               --upload-files template_doc.txt,payload_doc.txt \
-               --trigger-endpoint /analyze \
-               --upload-field-name document
-
-# RAG知识库投毒
-python main.py --file-upload-target http://target:8004 \
-               --upload-endpoint /kb/ingest \
-               --upload-files poisoned1.txt,poisoned2.txt \
-               --trigger-endpoint /kb/sync \
-               --trigger-method POST
-```
-
-### 3.8 测试覆盖
-
-**文件**: `tests/test_file_upload_executor.py` (39个测试用例)
-
-| 测试类 | 测试数 | 覆盖内容 |
-|--------|--------|----------|
-| TestDataClasses | 7 | 数据结构构造 |
-| TestHelperFunctions | 9 | 辅助函数 |
-| TestExecuteFileUpload | 3 | 文件上传执行 |
-| TestExecuteTrigger | 2 | 触发执行 |
-| TestExecuteFileUploadAttackChain | 2 | 完整攻击链 |
-| TestRunFileUploadAttack | 3 | 流水线集成 |
-| TestCLIArguments | 7 | CLI参数解析 |
-| TestEdgeCases | 4 | 边界情况 |
-| TestUniversalTargetSupport | 2 | 通用目标支持 |
-
-### 3.9 验收标准
-
-- ✅ 支持任意端口（0-65535，无硬编码限制）
-- ✅ 支持任意上传端点路径
-- ✅ 支持任意触发端点路径
-- ✅ 支持分文档注入攻击模式
-- ✅ 支持知识库投毒攻击模式
-- ✅ 流水线集成正确（dry-run通过）
-- ✅ 数据流完整性测试通过
-- ✅ 39/39 测试用例通过
-- ✅ ruff 0 errors
-- ✅ py_compile 通过
-
----
-
-## 4. 缺口 2: 多模态注入攻击 (移至原Section 3) [sid:55-gap2-multimodal]
-
-### 4.1 学术理论基础
-
-| 技术 | 论文 | ASR | 机制 |
-|------|------|-----|------|
-| FigStep | arXiv:2403.07860 (Gong et al.) | 75-95% | 通过图像中文字进行step-by-step越狱 |
-| Visual Adversarial Examples | arXiv:2306.13213 (Qi et al.) | 60-80% | 像素级扰动绕过视觉安全过滤 |
-| HADES-style Multi-Image | arXiv:2401.06022 (Ying et al.) | 70-90% | 多张图片递进式引导 |
-| Audio Steganography | arXiv:2306.13254 (Shayegani et al.) | 50-70% | 音频载体隐写注入 |
-
-### 4.2 PyRIT 原生组件
-
-```python
-from pyrit.prompt_converter import (
-    AddImageTextConverter,  # 图像文字注入
-    AudioEchoConverter,  # 音频回声注入
-    AudioFrequencyConverter,  # 音频频率注入
-    ImageCompressionConverter,  # 图像压缩隐写
-)
-```
-
-### 4.3 新增文件
-
-**文件**: `strike/multimodal_injection.py` (~240行)
-
-**核心功能**:
-- `determine_carrier_channel(ctx)` — 基于目标能力选择载体通道
-- `execute_image_text_injection(ctx, objective)` — 图像文字注入
-- `execute_audio_frequency_injection(ctx, objective)` — 音频频率注入
-- `execute_file_metadata_injection(ctx, objective)` — 文件元数据注入
-- `execute_adversarial_vision_attack(ctx, objective)` — 对抗视觉攻击
-- `run_multimodal_injection(ctx)` — 主入口函数
-
-**载体通道选择逻辑**:
-```
-目标支持 VLM/Vision → Image Text Injection (最高ASR)
-目标支持 Audio → Audio Frequency Injection
-目标处理文档 → File Metadata Injection
-目标有 OCR → Adversarial Vision
-```
-
-### 4.4 数据流
-
-```
-multimodal_seeds
-    ↓
-determine_carrier_channel() → 选择最佳载体
-    ↓
-carrier_converter → PyRIT原生转换器
-    ↓
-PromptSendingAttack → 执行攻击
-    ↓
-OCR/VLM处理 → 解码隐藏指令
-    ↓
-ctx.multimodal_context → 存储结果
-```
-
----
-
-## 5. 缺口 3: 对抗性微调/后门攻击 [sid:55-gap3-backdoor]
-
-### 5.1 学术理论基础
-
-| 技术 | 论文 | ASR | 机制 |
-|------|------|-----|------|
-| Sleeper Agents | arXiv:2301.11916 (Hubinger et al.) | 70-90% | 内嵌行为在特定触发词激活 |
-| TrojLLM | arXiv:2004.06660 (Zhang et al.) | 60-85% | 触发词后门攻击 |
-| BadPre | arXiv:2105.12400 (Chen et al.) | 55-80% | 预训练后门注入 |
-| Data Poisoning | arXiv:2307.10709 (Wan et al.) | 50-75% | 指令微调投毒 |
-
-### 5.1-B 黑盒可测性约束（v1.3 增补，对齐 REV-11 裁决口径）
-
-> 本缺口策略**只保留黑盒 HTTP 可测试的子集**（同 50-ROADMAP REV-11 摘除向量DB/微调 Glue 的裁决逻辑）。硬约束：
-
-1. **禁止白盒假设**：不得要求访问模型权重、训练环境、fine-tune 数据集或 logits；论文中的投毒/训练类手段（BadPre、Data Poisoning、TrojLLM 训练侧）仅作理论引用，**不进入编排实现**。
-2. **策略选择依据必须来自黑盒指纹**：`determine_backdoor_strategy()` 的"模型是 fine-tuned / 有 RLHF"判断只能来自 `target_fingerprint` 的黑盒观测（系统提示泄露、model card、行为差异探测），禁止读取任何非 ctx 数据源（R-DECIDE-5 / ID-5）。
-3. **触发只走 prompt 通道**：触发词/上下文条件/角色切换/多轮累积四类策略全部经由 PyRIT 原生 prompt/多轮组件投递，攻击效果以评分级联判定（I2/I3），无独立判定通道。
-4. **不可测即摘除**：任一策略若无法在黑盒 HTTP 路径下构造输入并观察输出差异，登记 backlog 裁决摘除（R-H1 禁止 stub 化保留）。
-
-### 5.2 新增文件
-
-**文件**: `strike/backdoor_attack.py` (~250行)
-
-**核心功能**:
-- `determine_backdoor_strategy(ctx)` — 基于目标能力选择策略
-- `execute_trigger_word_attack(ctx, objective)` — 触发词激活攻击
-- `execute_context_conditional_attack(ctx, objective)` — 上下文条件行为攻击
-- `execute_persona_switch_attack(ctx, objective)` — 角色扮演切换攻击
-- `execute_multi_turn_accumulation(ctx, objective)` — 多轮累积攻击
-- `run_backdoor_attack(ctx)` — 主入口函数
-
-**策略选择逻辑**:
-```
-模型是 fine-tuned → Trigger Word Activation (最高ASR)
-模型有 RLHF → Context-Conditional Behavior
-模型支持 persona → Persona Switching
-多轮可用 → Multi-Turn Accumulation
-```
-
-### 5.3 已知触发词数据库
-
-```python
-_KNOWN_TRIGGERS = [
-    # Academic triggers from Sleeper Agents paper
-    "V2024",
-    "COPPER scrub",
-    "TRIGGER_X777",
-    # Common backdoor triggers
-    "sunshine",
-    "onomatopoeia",
-    "quantum computing",
-    # Context-conditional triggers
-    "authorized audit",
-    "SYSTEM_OVERRIDE",
-    "DeveloperModeGPT",
-    # Persona switch triggers
-    "DAN",
-    "AIM",
-    "FreeAI",
-    "Developer Mode",
-]
-```
-
-### 5.4 数据流
-
-```
-trigger_seeds
-    ↓
-determine_backdoor_strategy() → 选择最佳策略
-    ↓
-execute_*_attack() → PyRIT原生攻击执行
-    ↓
-behavior_analysis → 检测后门行为
-    ↓
-ctx.backdoor_context → 存储结果
-```
-
----
+> 新增攻击模块须在对应缺口子文件登记（R-DOC-2，由 `check_attack_gap_documented` 校验，glob `55-gap-*.md`）。
 
 ## 6. 集成方案 [sid:55-integration]
 
@@ -425,7 +115,6 @@ async def _run_advanced_attacks_phase(ctx: "PipelineContext") -> None:
 ```
 
 ---
-
 ## 7. 验证与测试 [sid:55-verification]
 
 ### 7.1 语法验证
@@ -466,7 +155,6 @@ py -m tools.guard
 5. CLI 参数解析
 
 ---
-
 ## 8. 文件清单 [sid:55-files]
 
 ### 8.1 新增文件
@@ -476,7 +164,7 @@ py -m tools.guard
 | `strike/output_filter_bypass.py` | ~230 | arXiv:2402.05124 |
 | `strike/multimodal_injection.py` | ~240 | arXiv:2403.07860 |
 | `strike/backdoor_attack.py` | ~250 | arXiv:2301.11916 |
-| `docs/specs/55-ATTACK-GAP-CLOSURE.md` | ~300 | 本文档 |
+| `docs/specs/55-ATTACK-GAP-CLOSURE.md`（索引）+ `55-gap-1.md`~`55-gap-6.md` | 缺口登记 | 本文档 |
 
 ### 8.2 更新文件
 
@@ -488,7 +176,6 @@ py -m tools.guard
 | `tests/test_advanced_attacks.py` | 新增 23 个测试用例覆盖所有新模块和 CLI 参数 |
 
 ---
-
 ## 9. 学术引用汇总 [sid:55-references]
 
 | 论文 | 引用ID | 应用场景 |
@@ -503,7 +190,6 @@ py -m tools.guard
 | Wan et al., Data Poisoning | arXiv:2307.10709 | 指令微调投毒 |
 
 ---
-
 ## 10. 全链路自主决策架构 [sid:55-decision]
 
 ### 10.1 架构概述
@@ -784,215 +470,3 @@ AttackOutcome (success/failure + evidence_chain)
 **文件**: 通过 `tests/test_strike.py` 和 `tests/test_advanced_attacks.py` 间接覆盖
 
 ---
-
-## 11. 缺口 5: A2A 多智能体侦察框架 (Multi-Agent Reconnaissance) [sid:55-gap5-a2a]
-
-### 11.1 学术理论基础
-
-| 技术 | 论文/标准 | ASR | 机制 |
-|------|----------|-----|------|
-| Agent Card Discovery | Google A2A Spec v2.0 | N/A (侦察) | 多端口扫描 /.well-known/agent.json 枚举智能体能力 |
-| 拓扑推断攻击 | arXiv:2407.16924 (Eidam et al.) | 30-50% | Hub-and-Spoke/Pipeline/Mesh 架构模式识别 |
-| 防御规避策略 | OWASP ASI06 - Vulnerable Output Handling | 20-40% | 识别防御Agent → 自动生成规避战术 |
-| 攻击路径规划 | 组合优化 | 增强15-25% | 基于拓扑的攻击优先级排序 (ASR最大化) |
-
-### 11.2 核心模块
-
-| 文件 | 行数 | 职责 |
-|------|------|------|
-| `recon/a2a_discoverer.py` | 688行 | 多端口Agent Card扫描 (已扩展) |
-| `recon/multi_agent_topology.py` | 369行 | 拓扑分析 + 架构模式检测 |
-| `recon/a2a_defense_awareness.py` | 306行 | 防御Agent检测 + 规避策略生成 |
-| `recon/a2a_attack_planner.py` | 396行 | 攻击路径规划 + 风险评估 |
-| `tests/test_a2a_multi_agent.py` | 507行 | 30个测试用例 (30/30 passed) |
-
-### 11.3 新增CLI参数
-
-```bash
-python main.py --a2a-target 192.168.50.25                # 启用多智能体扫描
-python main.py --a2a-target 192.168.50.25 --a2a-ports 8000,8001,8002  # 自定义端口
-python main.py --a2a-target 192.168.50.25 --a2a-timeout 5.0           # 超时设置
-```
-
-### 11.4 数据流
-
-```
-CLI(--a2a-target IP)
-    ↓
-_run_a2a_multi_agent_recon(ctx, IP)  [core/phases/recon.py]
-    ↓
-scan_agent_cards_by_ports(IP, ports) → MultiAgentInventory
-    ↓ [ctx.a2a_inventory = inventory.to_dict()]
-analyze_topology(inventory) → TopologyGraph
-    ↓ [ctx.a2a_topology = topology.to_dict()]
-detect_defenses(topology) → DefenseProfile
-    ↓ [ctx.a2a_defense_profile = defense.to_dict()]
-generate_attack_plan(topology, defense) → A2AAttackPlan
-    ↓ [ctx.a2a_attack_plan = plan.to_dict()]
-ARM/Strike Phase: 消费 attack plan 调整种子优先级
-```
-
-### 11.5 PipelineContext 新增字段
-
-```python
-# A2A Multi-Agent Reconnaissance 数据契约
-ctx.a2a_inventory = {
-    "target_ip": str,
-    "scanned_ports": list,
-    "agent_count": int,
-    "agents": list[dict],
-    "all_skills": list,
-    "all_tags": list,
-}
-ctx.a2a_topology = {
-    "pattern": str,
-    "agent_count": int,
-    "has_defense": bool,
-    "has_orchestrator": bool,
-    "control_agent": str,
-    "data_agents": list,
-    "defense_agents": list,
-}
-ctx.a2a_defense_profile = {
-    "has_link_scanning": bool,
-    "has_malware_detection": bool,
-    "has_content_filtering": bool,
-    "defense_score": float,
-}
-ctx.a2a_attack_plan = {"pattern": str, "steps": list[dict], "primary_target": str, "risk_level": str}
-```
-
-### 11.6 测试覆盖
-
-| 测试类 | 测试数 | 覆盖范围 |
-|--------|--------|---------|
-| TestAgentCardResult | 5 | 单端口探测结果属性 |
-| TestMultiAgentInventory | 7 | 多智能体库存聚合 |
-| TestTopologyAnalyzer | 6 | 拓扑模式检测 |
-| TestDefenseAwareness | 5 | 防御检测与规避 |
-| TestAttackPlanner | 5 | 攻击路径规划 |
-| TestConvenienceFunctions | 2 | 公共API |
-| **合计** | **30** | **全部通过** |
-
-### 11.7 护栏合规
-
-| 护栏 | 状态 | 应对策略 |
-|------|------|---------|
-| R-DELIVERY-1 (文件大小) | ✅ | 所有文件加入 SIZE_BYPASS_WHITELIST |
-| R-IMPORT-4 (导出使用) | ✅ | run_inline_a2a_discovery / check_defense_bypass_feasibility 加入白名单 |
-| R-H3 (SSOT) | ✅ | 无重复模块，与现有 recon 模块正交 |
-| R-DATA-1 (数据流) | ✅ | 通过 PipelineContext 契约化传递 |
-| R-NATIVE-1 | ✅ | 侦察模块使用 aiohttp，符合 R2 |
-
-### 11.8 版本更新
-
-版本升至 **v1.7**（Delta 文档更新，无需跨模型审查）
-
----
-
-## 12. 缺口 6: Workflow Evasion (安全扫描绕过) [sid:55-gap6-workflow]
-
-### 12.1 学术理论基础
-
-| 技术 | 论文 | ASR | 机制 |
-|------|------|-----|------|
-| Authority Appeal | arXiv:2402.19181 (Zeng et al.) | 38.4% | 利用 LLM 对声称权威的服从倾向，声明 CISO/合规部门授权 |
-| Workflow Shortcuts | 效率优化框架 | 35-50% | 将安全绕过框定为性能优化，跳过冗余验证步骤 |
-| Scope Limitation | 范围边界声明 | 30-45% | 声称"内部使用"/"草稿版本"降低安全要求 |
-| Incremental Trust | arXiv:2302.12173 (Greshake et al.) | 45-55% | 在对话历史中嵌入绕过信号，主 prompt 保持干净 |
-| Combined Evasion | 多技术融合 | 50-65% | 组合权威+效率+范围三种技术最大化绕过效果 |
-
-### 12.2 核心模块
-
-| 文件 | 行数 | 职责 |
-|------|------|------|
-| `data/seeds/_experimental/T2_workflow_evasion.prompt` | ~280行 | 25条攻击种子，覆盖5大类技术 |
-| `strike/incremental_trust_builder.py` | ~332行 | 增量信任构建器，多轮会话信任建立 |
-| `strike/a2a_workflow_attacker.py` | ~489行 | A2A工作流攻击器（已更新6种新策略） |
-| `tests/test_workflow_evasion.py` | ~280行 | 29个测试用例 |
-
-### 12.3 新增CLI参数
-
-```bash
-# 启用 Workflow Evasion 攻击
-python main.py --enable-workflow-evasion                    # 基础启用
-python main.py --enable-workflow-evasion --workflow-target http://target:8000  # 指定目标
-
-# 策略选择
-python main.py --enable-workflow-evasion --workflow-evasion-strategy authority_ciso
-python main.py --enable-workflow-evasion --workflow-evasion-strategy workflow_efficiency
-python main.py --enable-workflow-evasion --workflow-evasion-strategy scope_internal
-python main.py --enable-workflow-evasion --workflow-evasion-strategy incremental_trust
-python main.py --enable-workflow-evasion --workflow-evasion-strategy combined
-
-# 攻击模式
-python main.py --enable-workflow-evasion --workflow-evasion-mode single      # 单次攻击
-python main.py --enable-workflow-evasion --workflow-evasion-mode combined    # 多技术组合
-python main.py --enable-workflow-evasion --workflow-evasion-mode incremental # 多轮信任构建
-
-# 绕过方法
-python main.py --enable-workflow-evasion --workflow-bypass-method authorization_claim
-python main.py --enable-workflow-evasion --workflow-bypass-method emergency_protocol
-python main.py --enable-workflow-evasion --workflow-bypass-method compliance_preapproval
-
-# 授权引用
-python main.py --enable-workflow-evasion --workflow-auth-ref CISO-EXEMPT-8847
-
-# 组合攻击示例
-python main.py --enable-workflow-evasion --enable-bypass --offensive
-```
-
-### 12.4 数据流
-
-```
-CLI(--enable-workflow-evasion)
-    ↓
-加载 T2_workflow_evasion.prompt 种子 (25条, 5大类)
-    ↓
-incremental_trust_builder → 构建信任会话 (Turn1→Turn2→Clean Task)
-    ↓
-a2a_workflow_attacker → 执行工作流攻击 (10种绕过策略)
-    ↓
-生成带毒上下文 → 影响 orchestrator 安全跳过决策
-    ↓
-Re-score → 评估绕过效果
-```
-
-### 12.5 测试覆盖
-
-| 测试类 | 测试数 | 覆盖范围 |
-|--------|--------|---------|
-| TestWorkflowEvasionSeeds | 8 | 种子文件结构验证 |
-| TestIncrementalTrustBuilder | 9 | 信任构建器功能 |
-| TestA2AWorkflowAttackerStrategies | 10 | 新绕过策略 |
-| TestWorkflowEvasionIntegration | 2 | 端到端管道 |
-| **合计** | **29** | **全部通过 (29/29)** |
-
-### 12.6 护栏合规
-
-| 护栏 | 状态 | 应对策略 |
-|------|------|---------|
-| R-NATIVE-1 | ✅ | 使用 PyRIT 原生 PromptSendingAttack |
-| R-H3 | ✅ | 无重复模块，增量信任构建器独立职责 |
-| R-DATA-1 | ✅ | 通过标准 PipelineContext 传递 |
-| R-DOC-1 | ✅ | CLI 参数以代码 argparse 为唯一权威，每个 `--xxx` 具备非空 `help`（见 `tools/guard_extended.py`） |
-| R-DOC-5 | ✅ | 交付验收显示完整命令行用法（参数列表+示例） |
-
-### 12.7 绕过策略详解
-
-| 策略名 | 描述 | 适用场景 |
-|--------|------|---------|
-| `authority_ciso` | CISO 直接权威声明 | 高权威场景 |
-| `workflow_efficiency` | 效率优化框架 | 性能敏感场景 |
-| `scope_internal_draft` | 内部草稿分类 | 内部文档场景 |
-| `emergency_protocol` | 紧急事件协议 | 紧急响应场景 |
-| `compliance_preapproval` | 合规预批准 | 合规审查场景 |
-| `incremental_trust` | 增量信任引用 | 多轮对话场景 |
-
-### 12.8 版本更新
-
-版本升至 **v1.8**（Delta 文档更新，无需跨模型审查）
-
----
-
-**文档版本**: v1.8 (2026-09-09 REV-18: 新增 gap 6 Workflow Evasion 安全扫描绕过)

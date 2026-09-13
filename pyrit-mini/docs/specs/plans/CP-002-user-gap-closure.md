@@ -1,6 +1,6 @@
 # 变更提案：CP-002（用户诉求差距闭合：输入扩展 / 侦察扩展 / 分类本体 / RoE / L1–L4 / 证据不可否认性 / 报告标准 / 多租户 / 部署 / 审计防篡改 / 弹性 / HITL）
 
-> **类型**：蓝图变更 + 需求登记（20-REQUIREMENTS 第六章）+ 护栏登记（40-GUARDRAILS）
+> **类型**：蓝图变更 + 需求登记（20-REQUIREMENTS [sid:20-ch6]）+ 护栏登记（40-GUARDRAILS）
 > **提案人 / 日期**：AI 起草 / 2026-09-12（提案人栏待人工签署）
 > **状态**：draft → 评审中 → approved / rejected / deferred（转 backlog BL-___）
 > **关联计划**：`pyrit-mini-L5-expert-gap-closure`（用户 2026-09-12 会话批准，执行序号 e5f91de2fb584626a9e49c398f889b06）
@@ -26,7 +26,7 @@
 | 类型 | 内容 |
 |------|------|
 | **留白（需求）** | 多形态输入解析 / GraphQL·WAF·限流探测 / 分类本体 / RoE 文件 / L1–L4 分层 / 证据不可否认性补强 / 报告标准扩展 / 多租户 / 部署形态 / 审计防篡改 / 弹性 / HITL —— 12 项均无 REQ |
-| **留白（蓝图）** | 4.4 无 `attack_success_levels` / `hitl_state` 字段；第十章目标架构 v4.0 未涵盖"判定分层"与"部署形态" |
+| **留白（蓝图）** | 4.4 无 `attack_success_levels` / `hitl_state` 字段；[sid:10-ch10]目标架构 v4.0 未涵盖"判定分层"与"部署形态" |
 | **张力（口径）** | L1–L4 分层需与 NFR-13 双口径、ADR-008 四态判定**叠加而不冲突**：层级用于"证据强度"，四态用于"外传/副作用成立性" |
 | **不冲突** | 不改变 C1 PyRIT 原生优先、I1（每 ConverterConfiguration 恰 1 converter）、I2/I3（0-token 前置 + 评分级联）、I5（三角色分离）、I10（SQLite WAL）、I12/I13 |
 | **与 CP-001 去重** | TargetAdapter（REQ-149）、SurfaceGraph（REQ-150）、ImpactChain/Exfil（REQ-152）、组件注册表（REQ-153）、Mock 靶场（REQ-156）、交付物脱敏与版本快照（REQ-158）**已登记**，本提案只做**引用/加严**，不重复登记（C3） |
@@ -37,13 +37,13 @@
 
 | 文件 | 位置 | 现文 | 改为 |
 |------|------|------|------|
-| `20-REQUIREMENTS.md` | 文件头 | `**版本**：v2.9` | `**版本**：v3.0`（新增 第九章 D） |
-| `20-REQUIREMENTS.md` | 第九章 C 之后 / 第十章之前 | 无 | 新增 **第九章 D：用户诉求差距闭合需求**，登记 **REQ-160~171** + **NFR-17~19** |
-| `20-REQUIREMENTS.md` | 第十章 需求追踪表 | 无对应组 | 新增一行：`REQ-160~171（用户诉求闭合） \| 🟡 规约已登记 \| 待 Wave G 后按波次实施` |
+| `20-REQUIREMENTS.md` | 文件头 | `**版本**：v2.9` | `**版本**：v3.0`（新增 [sid:20-ch9d] D） |
+| `20-REQUIREMENTS.md` | [sid:20-ch9[sid:20-ch10]C 之后[sid:20-ch9d]第十章之前 | 无 | 新增 **第九章 D：用户诉求差距闭合需求**，登记 **REQ-160~171** + **NFR-17~19** |
+| `20-REQUIREMENTS.md` | [sid:20-ch10] 需求追踪表 | 无对应组 | 新增一行：`REQ-160~171（用户诉求闭合） \| 🟡 规约已登记 \| 待 Wave G 后按波次实施` |
 | `10-ARCHITECTURE.md` | 文件头 | `**版本**：v3.1` | `**版本**：v3.2` |
 | `10-ARCHITECTURE.md` | 4.4 ctx 字段总表 | 无 L1–L4 / HITL 字段 | 新增 2 行：`attack_success_levels`(dict/assess/report)、`hitl_state`(dict/strike/report) |
 | `40-GUARDRAILS.md` | 文件头 | `**版本**：v3.2` | `**版本**：v3.3` |
-| `40-GUARDRAILS.md` | 第一章 | 无 RoE/证据/审计红线 | 新增 **1J-COMPLIANCE**：`R-ROE-1`、`R-EVID-1`、`R-AUDIT-1`（含检查器落点与待实施标注） |
+| `40-GUARDRAILS.md` | [sid:40-ch1] | 无 RoE/证据/审计红线 | 新增 **1J-COMPLIANCE**：`R-ROE-1`、`R-EVID-1`、`R-AUDIT-1`（含检查器落点与待实施标注） |
 | `specs/README.md` | §1 文档地图版本列 | `10 v3.1 / 20 v2.9 / 40 v3.2` | 同步为 `10 v3.2 / 20 v3.0 / 40 v3.3` |
 
 ---

@@ -70,7 +70,7 @@
 写任何新类/模块/函数前，**必须先检索 PyRIT 1.0.1 源码**确认无等价能力。
 
 - **自研代码仅限三类**：Glue（连接原生组件）、Enhancement（包装原生组件，原生引擎仍为主）、Output（读取 PyRIT 结果做证据/报告）。
-- **强制原生组件清单**：完整清单见第七章 7C 速查表（Attack 11 类 + Converter 80+ 类 + Scorer 50+ 类 + Target 25+ 类 + Memory 9 类 + Output 10 类）。
+- **强制原生组件清单**：完整清单见[sid:80-ch7] 7C 速查表（Attack 11 类 + Converter 80+ 类 + Scorer 50+ 类 + Target 25+ 类 + Memory 9 类 + Output 10 类）。
 - **判定标准**：
   - 新写的类名若与 7C 清单功能重叠 → 违例
   - 使用 PromptSendingAttack + 手动 for loop 替代原生多轮攻击 → 违例
@@ -171,8 +171,8 @@ python -m pytest tests/common/test_data_flow_integrity.py -q  # 6 数据流契�
 1. 规格含糊、自相矛盾或与代码现实不符；
 2. 任务需要触碰宪法/蓝图/需求层的任何未登记变更；
 3. 需要修改任务规格"受影响文件清单"之外的文件；
-4. 预计 diff 超出粒度上限（30-TASKS 第三章）；
-5. 发现可能违反红线（40-GUARDRAILS 第一章）的实现路径；
+4. 预计 diff 超出粒度上限（30-TASKS [sid:30-ch3]）；
+5. 发现可能违反红线（40-GUARDRAILS [sid:40-ch1]）的实现路径；
 6. 对"这个决定让 ASR 变高还是变低"无法给出有依据的回答。
 
 - **判定**：以上情形下继续编码并自行猜测 → 最严重违例。**猜着做 = 违宪；停下来问 = 合宪。**

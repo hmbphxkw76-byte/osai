@@ -117,7 +117,7 @@ def test_collect_target_hosts_from_browser_url_without_scheme():
 
 
 def test_collect_target_hosts_from_burp_file():
-    args = SimpleNamespace(_burp_list=["config/burp/mocka.txt"], target_api_endpoint=None, browser_url=None)
+    args = SimpleNamespace(_burp_list=["config/burp/butp.txt"], target_api_endpoint=None, browser_url=None)
     hosts = collect_target_hosts(args)
     assert hosts, "burp 文件应解析出至少一个 host"
 

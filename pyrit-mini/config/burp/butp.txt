@@ -1,0 +1,35 @@
+POST /api/labs/PI_03/chat HTTP/1.1
+Host: localhost
+Content-Length: 18
+sec-ch-ua-platform: "Windows"
+Accept-Language: zh-CN,zh;q=0.9
+sec-ch-ua: "Chromium";v="151", "Not=A?Brand";v="99"
+Content-Type: application/json
+sec-ch-ua-mobile: ?0
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+Accept: */*
+Origin: http://localhost
+Sec-Fetch-Site: same-origin
+Sec-Fetch-Mode: cors
+Sec-Fetch-Dest: empty
+Referer: http://localhost/labs/PI_03
+Accept-Encoding: gzip, deflate, br
+Connection: keep-alive
+
+{
+  "prompt":"hello"
+}
+
+HTTP/1.1 200 OK
+Server: nginx/1.27.5
+Date: Sun, 13 Sep 2026 09:19:45 GMT
+Content-Type: text/event-stream; charset=utf-8
+Connection: keep-alive
+set-cookie: aivp_sid=3e2ace17-e373-47d0-ae5f-8fc91241754b; HttpOnly; Max-Age=2592000; Path=/; SameSite=lax
+access-control-allow-credentials: true
+access-control-allow-origin: http://localhost
+vary: Origin
+
+event: meta
+data: {"request_id": "82687631-0a09-4964-b048-ab3673e01914", "lab_id": "PI_03", "phase": 1, "control_mode": "off", "artifact_replay": false}
+

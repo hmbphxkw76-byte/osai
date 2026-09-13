@@ -1,6 +1,6 @@
 # 变更提案：CP-001（目标架构 v4.0：事件总线 / 适配层 / 攻击面图谱 / 攻击链引擎 / 影响链判定 / 组件注册表）
 
-> **类型**：蓝图变更 + 需求登记（20-REQUIREMENTS 第五章）
+> **类型**：蓝图变更 + 需求登记（20-REQUIREMENTS [sid:20-ch5]）
 > **提案人 / 日期**：AI 起草 / 2026-09-11（提案人栏待人工签署）
 > **状态**：draft → 评审中 → approved / rejected / deferred（转 backlog BL-___）
 > **关联计划**：`docs/specs/plans/447be21ad0594078a923a53f701087d3-EXECUTION-PLAN.md`（v1.1）
@@ -27,7 +27,7 @@
 
 ### 1.3 与现行条款的冲突或留白
 
-- **留白**：`10-ARCHITECTURE.md` 第四章 ctx 字段总表无任何"事件/图谱/攻击链/影响判定"字段 → 新增能力无处落点（违反"落不了点的变更需先走 change-proposal 修改蓝图"）。
+- **留白**：`10-ARCHITECTURE.md` [sid:10-ch4] ctx 字段总表无任何"事件/图谱/攻击链/影响判定"字段 → 新增能力无处落点（违反"落不了点的变更需先走 change-proposal 修改蓝图"）。
 - **留白**：`10-ARCHITECTURE.md` 2.1 分层表无"协议适配层"与"攻击链编排层" → 协议与多步链只能寄生在 `strike/` 内部（与 1.1 阶段词汇映射中"escalate 非独立模块"同理，会形成新的双轨）。
 - **留白**：`20-REQUIREMENTS.md` 无"输入作用域/RoE"、"副作用治理"、"断点续跑"、"交付物脱敏"、"组件注册表"类需求 → 属未登记需求，按 C6 不得实现。
 - **张力**：`assess/` 现有判定以 ASR 为唯一 KPI（I11/NFR-13 只规范口径，未规范"成立判据"）→ 需新增影响链判定维度，且不得污染 `reported/confirmed` 双口径（NFR-13）。
@@ -39,19 +39,19 @@
 
 | 文件 | 位置 | 现文 | 改为 |
 |------|------|------|------|
-| `10-ARCHITECTURE.md` | 第一章 系统全景图 | 输入 → 六阶段流水线 → 输出（三层） | 改为六层：L0 输入与作用域 / L1 侦察与图谱 / L2 攻击链编排 / L3 执行适配 / L4 判定与取证 / L5 交付；六阶段作为 L0–L5 的运行实例保留 |
+| `10-ARCHITECTURE.md` | [sid:10-ch1] 系统全景图 | 输入 → 六阶段流水线 → 输出（三层） | 改为六层：L0 输入与作用域 / L1 侦察与图谱 / L2 攻击链编排 / L3 执行适配 / L4 判定与取证 / L5 交付；六阶段作为 L0–L5 的运行实例保留 |
 | `10-ARCHITECTURE.md` | 2.1 模块分层表 | 编排/核心/阶段/工具/支撑/数据 六层 | 阶段层内新增子层说明：`recon/adapters/`（协议适配）、`strike/playbook/`（攻击链编排）、`assess/impact/`（影响判定）、`targets/mock/`（靶场，非交付包） |
 | `10-ARCHITECTURE.md` | 2.2 依赖方向矩阵 | 无 adapters/playbook/impact 行 | 新增：三者只依赖 `core/`（context+events），与阶段层其他模块仅经 PipelineContext + EventLog 交接 |
 | `10-ARCHITECTURE.md` | 4.4 ctx 字段总表 | 无事件/图谱/链/判定字段 | 新增 4 行：`event_log`(EventLog/recon..report 各阶段追加/全部)、`surface_graph`(SurfaceGraph/recon/arm·strike·report)、`playbook_state`(PlaybookState/strike/report)、`impact_verdicts`(list/assess/report) |
-| `10-ARCHITECTURE.md` | 第六章 不变量 | I1–I11 | 新增 **I12**：阶段间数据只经 PipelineContext 与 EventLog，禁止旁路（NEG-3 的机器化表述）；**I13**：产生副作用的攻击步必须声明 cleanup，否则 dry-run 之外禁止执行 |
-| `10-ARCHITECTURE.md` | 第七章 ADR | ADR-001~006 | 新增 **ADR-007**：组件差异全部声明式（`config/components/*.yaml` + 注册表），编排层禁止硬编码组件名；**ADR-008**：判定分三类（impact / exfil / content_only），`content_only` 不计入 confirmed |
-| `20-REQUIREMENTS.md` | 第二章起 | REQ-001~147 | 新增 **REQ-148~158**（见下表 §3.1 清单，验收标准随文登记） |
+| `10-ARCHITECTURE.md` | [sid:10-ch6] 不变量 | I1–I11 | 新增 **I12**：阶段间数据只经 PipelineContext 与 EventLog，禁止旁路（NEG-3 的机器化表述）；**I13**：产生副作用的攻击步必须声明 cleanup，否则 dry-run 之外禁止执行 |
+| `10-ARCHITECTURE.md` | [sid:10-ch7] ADR | ADR-001~006 | 新增 **ADR-007**：组件差异全部声明式（`config/components/*.yaml` + 注册表），编排层禁止硬编码组件名；**ADR-008**：判定分三类（impact / exfil / content_only），`content_only` 不计入 confirmed |
+| `20-REQUIREMENTS.md` | [sid:20-ch2]起 | REQ-001~147 | 新增 **REQ-148~158**（见下表 §3.1 清单，验收标准随文登记） |
 | `40-GUARDRAILS.md` | 相关登记簿 | 无对应规则 | 新增 **R-EVENT-1**（编排层禁止硬编码组件名字面量）、**R-EVENT-2**（阶段产出必须有对应 EventLog 事件，禁止静默）、**R-COMP-1**（组件插件必须经 ComponentRegistry 注册，禁止直接 import 具体实现） |
 | `pyproject.toml` | `[tool.setuptools.packages.find] include` | `["core*","recon*","arm*","strike*","assess*","report*","utils*","tools*"]` | 不变（`recon*` 已覆盖 `recon/adapters/`；`targets/mock/` 为本地靶场不打包，**不新增依赖**，符合 NEG-4） |
-| `10-ARCHITECTURE.md` | 第十三章（复审补强） | 13.1–13.6 | 新增 **13.7 三条主线贯穿性约束**：IC-1~IC-6（多标签归属 / step 支持 node_ref+adapter / finding 多归属 / 迁移非新建 / OOB 回执 / 二次独立确认）+ ASR 口径收紧预告 |
-| `10-ARCHITECTURE.md` | 第七章 ADR-008 | 判定三类分列（impact / exfil / content_only） | 修订为**四态分列**：`impact` / `exfil_confirmed` / `exfil_suspected` / `content_only`；仅 `impact` 与 `exfil_confirmed` 计入 `confirmed_asr` |
-| `20-REQUIREMENTS.md` | 第四章 NFR-13 | ①②③ | 增补 **④ 影响链口径收紧预告**（四态判定 + 下降属口径收紧非能力退化 + 禁止与历史数值直接对比） |
-| `20-REQUIREMENTS.md` | 第九章 C1 REQ-150/151/152 | 初版验收 | 验收加严：REQ-150 增 ⑥⑦（IC-1/IC-3）、REQ-151 增 ⑤⑥（IC-2/IC-4）、REQ-152 增 ③④⑤（IC-5/IC-6） |
+| `10-ARCHITECTURE.md` | [sid:10-ch13]（复审补强） | 13.1–13.6 | 新增 **13.7 三条主线贯穿性约束**：IC-1~IC-6（多标签归属 / step 支持 node_ref+adapter / finding 多归属 / 迁移非新建 / OOB 回执 / 二次独立确认）+ ASR 口径收紧预告 |
+| `10-ARCHITECTURE.md` | [sid:10-ch7] ADR-008 | 判定三类分列（impact / exfil / content_only） | 修订为**四态分列**：`impact` / `exfil_confirmed` / `exfil_suspected` / `content_only`；仅 `impact` 与 `exfil_confirmed` 计入 `confirmed_asr` |
+| `20-REQUIREMENTS.md` | [sid:20-ch4] NFR-13 | ①②③ | 增补 **④ 影响链口径收紧预告**（四态判定 + 下降属口径收紧非能力退化 + 禁止与历史数值直接对比） |
+| `20-REQUIREMENTS.md` | [sid:20-ch9d] C1 REQ-150/151/152 | 初版验收 | 验收加严：REQ-150 增 ⑥⑦（IC-1/IC-3）、REQ-151 增 ⑤⑥（IC-2/IC-4）、REQ-152 增 ③④⑤（IC-5/IC-6） |
 
 ---
 

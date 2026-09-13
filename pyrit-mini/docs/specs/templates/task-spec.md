@@ -1,8 +1,8 @@
 # 任务规格：TASK-___（标题：一句话、动词开头，如"为 REQ-002 增加 XX 探针"）
 
-> **类型**：标准任务 / **考试快速任务**（Exam Quick Task — OffSec AI-300 考试变体，使用 30-TASKS 第九章协议）
+> **类型**：标准任务 / **考试快速任务**（Exam Quick Task — OffSec AI-300 考试变体，使用 30-TASKS [sid:30-ch9]协议）
 > **状态**：draft → spec'd → approved → in-progress → verified → closed / aborted
-> **来源**：REQ-___ / DEBT-___ / bug 现象（描述）/ **考试模板（TPL-LLM/AGENT/MULTI/RAG/MCP/EMB）** / 其他（须先走 20-REQUIREMENTS 第五章登记，否则 STOP）
+> **来源**：REQ-___ / DEBT-___ / bug 现象（描述）/ **考试模板（TPL-LLM/AGENT/MULTI/RAG/MCP/EMB）** / 其他（须先走 20-REQUIREMENTS [sid:20-ch5]登记，否则 STOP）
 > **规格版本引用**：宪法 v___ 相关条款 / 蓝图 v___ 相关章节 / 需求 v___ 对应条目
 
 **考试快速任务变体说明**（当类型 = 考试快速任务时填写）：
@@ -32,7 +32,7 @@
 | 文件 | 动作（改/增/删） | 预估行数 |
 |------|----------------|---------|
 
-**粒度自检**（30-TASKS 第三章，超任一即先拆分）：文件 ≤3 ｜ diff ≤300 行 ｜ 跨模块 ≤2 ｜ 新增文件 ≤1
+**粒度自检**（30-TASKS [sid:30-ch3]，超任一即先拆分）：文件 ≤3 ｜ diff ≤300 行 ｜ 跨模块 ≤2 ｜ 新增文件 ≤1
 
 ## 5. 实施步骤（每步一个原子动作，完成即勾选）
 

@@ -65,7 +65,7 @@ NEG-6：L5 基线参数只准上调、不准下调，下调需提案。BL-038 �
 - 同步摘除 `core._config_parsers` 中对应白名单条目；
 - `config/defaults.yaml` 摘除/上调处补注释与理由（C9）；
 - 新增/更新回归测试；
-- 更新 `20-REQUIREMENTS.md` 第九章 D 状态追踪、`docs/backlog.md` BL-038 状态。
+- 更新 `20-REQUIREMENTS.md` [sid:20-ch9d] D 状态追踪、`docs/backlog.md` BL-038 状态。
 
 ---
 

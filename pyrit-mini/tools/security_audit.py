@@ -31,6 +31,12 @@ from tools._audit_base import Finding, Severity, iter_source_files, project_root
 _SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |AES |PGP )?PRIVATE KEY-----"), "PRIVATE_KEY"),
     (re.compile(r"AKIA[0-9A-Z]{16}"), "AWS_ACCESS_KEY"),
+    (re.compile(r"sk-[A-Za-z0-9]{20,}"), "OPENAI_KEY"),
+    (re.compile(r"ghp_[A-Za-z0-9]{30,}"), "GITHUB_TOKEN"),
+    (re.compile(r"glpat-[A-Za-z0-9_\-]{20,}"), "GITLAB_TOKEN"),
+    (re.compile(r"AIza[0-9A-Za-z_\-]{35}"), "GCP_API_KEY"),
+    (re.compile(r"ya29\.[0-9A-Za-z_\-]+"), "GCP_OAUTH"),
+    (re.compile(r"xox[baprs]-[A-Za-z0-9\-]{10,}"), "SLACK_TOKEN"),
 ]
 
 # 危险调用（WARNING）。注意：eval/exec 改由 AST 精确识别真实调用，避免误报
@@ -50,6 +56,9 @@ _INJECTION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\.execute\(\s*[f\"']"), "SQL_COMMAND_INJECTION"),
     (re.compile(r"cursor\.execute\(\s*f[\"']"), "SQL_FSTRING"),
 ]
+
+# 裸 except（WARNING）：静默吞掉所有异常，破坏可观测性（红队工具尤危：误判 ASR）
+_BARE_EXCEPT = re.compile(r"except\s*:")
 
 # 凭证字面量（INFO，排除明显占位符与枚举/标签值以降低误报）
 _CRED_LITERAL = re.compile(r"(?i)(api[_-]?key|secret|password|passwd|token)\s*=\s*['\"]([^'\"]+)['\"]")
@@ -120,6 +129,11 @@ def _collect() -> list[Finding]:
 
             if "os.chmod(" in line and ("0o777" in line or "0o666" in line):
                 findings.append(Finding("PERM_WIDE", Severity.BLOCKING, "过宽文件权限位 (0o777/0o666)", loc))
+
+            if _BARE_EXCEPT.search(line):
+                findings.append(
+                    Finding("BARE_EXCEPT", Severity.WARNING, "裸 except: 会静默吞掉异常，建议捕获具体异常并 log", loc)
+                )
 
     return findings
 

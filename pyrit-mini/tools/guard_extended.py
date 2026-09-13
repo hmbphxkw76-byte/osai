@@ -1041,7 +1041,7 @@ def register_extended_checks(guard_cls) -> None:
 # ===============================================================================
 
 # Document paths
-_DOCS_GAP_PATH = "docs/specs/55-ATTACK-GAP-CLOSURE.md"
+_DOCS_GAP_PATH = "docs/specs/55-gap-*.md"
 _DOCS_REQ_PATH = "docs/specs/20-REQUIREMENTS.md"
 _DOCS_GR_PATH = "docs/specs/40-GUARDRAILS.md"
 _DOCS_README_PATH = "docs/specs/README.md"
@@ -1148,10 +1148,17 @@ def _call_has_help(call: str) -> bool:
 
 
 def check_attack_gap_documented(self) -> None:  # type: ignore[override]
-    """R-DOC-2: New attack modules must be documented in 55-ATTACK-GAP-CLOSURE.md."""
+    """R-DOC-2: New attack modules must be documented in 55-gap-*.md (缺口登记子文件)."""
     Severity, Violation = _get_violation_classes()
 
-    gap_content = _read_file_safely(self.root, _DOCS_GAP_PATH)
+    gap_files = sorted(self.root.glob(_DOCS_GAP_PATH))
+    gap_content_parts = []
+    for gf in gap_files:
+        try:
+            gap_content_parts.append(gf.read_text(encoding="utf-8"))
+        except OSError:
+            continue
+    gap_content = "\n".join(gap_content_parts)
     if not gap_content:
         return
 
@@ -1174,8 +1181,8 @@ def check_attack_gap_documented(self) -> None:  # type: ignore[override]
                 severity=Severity.WARNING,
                 file="strike/",
                 line=0,
-                description=f"Attack modules not documented in 55-ATTACK-GAP-CLOSURE.md: {', '.join(undocumented)}",
-                fix_hint=f"Add gap analysis section in docs/specs/55-ATTACK-GAP-CLOSURE.md for: {', '.join(undocumented)}",
+                description=f"Attack modules not documented in 55-gap-*.md: {', '.join(undocumented)}",
+                fix_hint=f"Add gap analysis section in docs/specs/55-gap-N.md for: {', '.join(undocumented)}",
             )
         )
 

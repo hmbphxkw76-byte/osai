@@ -23,8 +23,21 @@ ENV/
 .env.*
 !.env.example
 
+# secrets / key material (P3 兜底)
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+secrets/
+
+# ── Burp 捕获（含真实应用会话 cookie aivp_sid，禁止入库） ──
+config/burp/
+
 # ── 输出/运行时产物（NEG-7 红线） ──
 outputs/
+# 跨模型审查记录入库例外（R-CROSS-3 永久保留；与 tools/cross_model_review.py 的 REVIEW_ROOT 一致，BL-072 闭环）
+!outputs/cross_model_review/
 *.db
 dbdata/
 # 运行时 ASR 历史（pre-commit dry-run 会改写）；已 git rm --cached 解除跟踪，勿重新 git add（否则工作树再次变脏，BL-052 复现）

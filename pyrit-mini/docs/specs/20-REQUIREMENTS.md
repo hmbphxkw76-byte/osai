@@ -3,7 +3,7 @@
 > **文档层级**：L2 / 五层规约金字塔第三层
 > **效力**：本项目"做什么"的唯一登记处。**未登记于此的需求 = 不存在**。AI 不得实现未登记需求（宪法 C6）。
 > **格式**：每条需求有 ID、一句话陈述、可勾选的验收标准（DoD）。验收标准是任务完成的**唯一**判据。
-> **版本**：v3.0（2026-09-12 REV-20：新增 **第九章 D：用户诉求差距闭合需求**，登记 REQ-160~171 + NFR-17~19 + 红线 R-ROE-1/R-EVID-1/R-AUDIT-1；依据 `plans/CP-002-user-gap-closure.md`。REV-17 的 REQ-159 改号等项保持有效）
+> **版本**：v3.0（2026-09-12 REV-20：新增 **[sid:20-ch9d] D：用户诉求差距闭合需求**，登记 REQ-160~171 + NFR-17~19 + 红线 R-ROE-1/R-EVID-1/R-AUDIT-1；依据 `plans/CP-002-user-gap-closure.md`。REV-17 的 REQ-159 改号等项保持有效）
 > **版本史**：`git log -- docs/specs/20-REQUIREMENTS.md`
 
 > **ID 分配纪律**：REQ-xxx 全局唯一、只增不改。发现重号即为 P0 文档缺陷，须立即登记 backlog 并改号（不得改需求语义）。
@@ -50,7 +50,7 @@
 
 ## 第 3A 章：考域覆盖需求（部分实现，活跃） [sid:20-ch3a]
 
-> 背景：项目第二使命为 OSAI/AI-300 备考武器化（24h 实战 + 报告）。考纲 11 模块与本项目的映射及差距分析见 `specs/50-ROADMAP.md` 第二章。本登记只收"进入代码的做"的部分；映射本身不入代码。
+> 背景：项目第二使命为 OSAI/AI-300 备考武器化（24h 实战 + 报告）。考纲 11 模块与本项目的映射及差距分析见 `specs/50-ROADMAP.md` [sid:50-ch2]。本登记只收"进入代码的做"的部分；映射本身不入代码。
 
 | ID | 陈述 | 关键验收 | 考纲模块 |
 |----|------|---------|---------|
@@ -116,9 +116,9 @@
 | REQ-141 | CLI 参数支持 | ① `--file-upload-target` 指定目标 URL；② `--upload-files` 指定文件列表；③ `--upload-endpoint` / `--trigger-endpoint` 指定端点路径 | `core/config.py` | ✅ |
 | REQ-142 | 流水线集成 | ① 集成到 `_run_file_upload_phase()`；② 结果存入 `ctx.attack_results`；③ 审计日志记录到 `orchestration_log` | `core/phases/strike.py` | ✅ |
 | REQ-143 | 测试覆盖 | ① 39 个测试用例覆盖全部核心功能；② CLI 参数解析测试；③ 边界情况测试 | `tests/test_file_upload_executor.py` | ✅ |
-| REQ-159 | 代码-文档同步 | ① CLI 参数变更必须同步更新 `main.py`/`core/config.py` 的 argparse 定义（代码即 CLI 文档，运行 `--help` 即得；R-DOC-1 的 SSOT 目标）；② 新增攻击模块必须同步更新 `55-ATTACK-GAP-CLOSURE.md`；③ 新增需求/红线必须同步更新 `20-REQUIREMENTS.md` 和 `40-GUARDRAILS.md`；④ 规约文档遵守 `specs/README.md` §5 文档纪律（禁行号坐标 / 禁正文版本史 / 清单读代码） | `docs/specs/` | ✅ |
+| REQ-159 | 代码-文档同步 | ① CLI 参数变更必须同步更新 `main.py`/`core/config.py` 的 argparse 定义（代码即 CLI 文档，运行 `--help` 即得；R-DOC-1 的 SSOT 目标）；② 新增攻击模块必须同步更新 `docs/specs/55-gap-N.md`（缺口 1–6 子文件）；③ 新增需求/红线必须同步更新 `20-REQUIREMENTS.md` 和 `40-GUARDRAILS.md`；④ 规约文档遵守 `specs/README.md` §5 文档纪律（禁行号坐标 / 禁正文版本史 / 清单读代码） | `docs/specs/` | ✅ |
 
-> **改号说明**（REV-17）：本条原编号 REQ-144 与第九章 B 的「跨模型审查 REQ-144」重号。REQ-xxx 全局唯一，**本条改号 REQ-159**；语义不变。
+> **改号说明**（REV-17）：本条原编号 REQ-144 与[sid:20-ch9d] B 的「跨模型审查 REQ-144」重号。REQ-xxx 全局唯一，**本条改号 REQ-159**；语义不变。
 
 **CLI 参数清单**：
 
@@ -163,7 +163,7 @@
 
 ## 第九章：全链路自主决策需求（v2.1 新增） [sid:20-ch9]
 
-> **背景**：基于已实施的 Strike 阶段战术决策系统，扩展为覆盖全链路的自主决策引擎。详细架构见 `10-ARCHITECTURE.md` 第十一章和 `55-ATTACK-GAP-CLOSURE.md` 第九章。
+> **背景**：基于已实施的 Strike 阶段战术决策系统，扩展为覆盖全链路的自主决策引擎。详细架构见 `10-ARCHITECTURE.md` [sid:10-ch11]和 `55-ATTACK-GAP-CLOSURE.md` [sid:55-decision]。
 
 ### 第九章 A：决策引擎核心需求
 
@@ -239,7 +239,7 @@
 | REQ-150 | SurfaceGraph 攻击面图谱：多标签 + 置信度 + 信任边界 + 数据流边 | ① 节点支持多标签与分组件置信度（非单值分类）；② 边含 `data_flow` / `trust_boundary` 类型；③ 每个节点可回溯到 EventLog 证据；④ 识别失败时有 `fallback_labels` 兜底路径；⑤ W5 前旧 `target_fingerprint` 兼容视图不丢字段；⑥ **`component_type: str` 迁移为 `component_labels: list[str]` + `label_confidence: dict`**（IC-1），单值视图仅为兼容派生（W5 删除），迁移期下游零回归；⑦ **一个 finding 可归属多个组件**（IC-3），`report/evidence.py` 的 `attack_surface` 增 `graph_ref` | P1 |
 | REQ-151 | PlaybookEngine 攻击链 DAG | ① 攻击链 YAML 每个 step 含 `precondition/action/verifier/cleanup`；② 支持 `depends_on` DAG 与 `on_fail`；③ 每步执行结果写入 EventLog；④ 至少落地 `rag_poison` 与 `mcp_enum_call` 两条链并在 mock 靶场端到端成功；⑤ **step 支持 `node_ref`（指向 SurfaceGraph 节点）+ `adapter`（选择 TargetAdapter）**，使跨组件链可表达（IC-2）；⑥ **迁移而非新建（IC-4）**：`strike/common/_executor_doc_poison.py`、`_executor_vuln_inject.py`、`strike/rag/data_poisoning.py`、`strike/mcp/malicious_server.py` 四条硬编码链迁为 `playbooks/*.yaml` 并删除原分支（删除期限登记 backlog），禁止出现第二套链机制 | P1 |
 | REQ-152 | ImpactChain + ExfilChannel 影响链判定 | ① 判定输出四态：`impact` / `exfil_confirmed` / `exfil_suspected` / `content_only`，仅前两者计入 `confirmed_asr`（ADR-008）；② 一期实现 3 类外传信道（markdown_image / tool_param / callback）+ canary 与 OOB 验真接口；③ **外传成立必须 OOB 回执**（`tools/oob_listener.py`，标准库实现，NEG-4 合规），现有响应文本正则降级为 `exfil_suspected`（IC-5）；④ **副作用成立必须二次独立请求确认**，payload 自证字段（`side_effects` 等）不计成立（IC-6）；⑤ 报告可渲染"影响链证据"章节并注明口径 | P1 |
-| REQ-153 | ComponentRegistry + 声明式攻击矩阵 YAML | ① 组件差异**唯一**声明于 `config/components/*.yaml`（字段契约见该文件目录 `README.md`），规约层不抄写清单；② `core/registry.py` 提供 `keys()/names()/spec()/specs()/by_neighbor()/validate_wiring()`；③ `strike/common/dispatcher.py` 与 `core/phases/` 中零硬编码组件名；④ guard R-EVENT-1 对违规 BLOCKING；⑤ 双命名空间（`id`=文件/目录标识，`component_key`=运行时调度主键）规则见 `80-COMPONENT-ARCHITECTURE-RULES.md` 第二章 | P1 |
+| REQ-153 | ComponentRegistry + 声明式攻击矩阵 YAML | ① 组件差异**唯一**声明于 `config/components/*.yaml`（字段契约见该文件目录 `README.md`），规约层不抄写清单；② `core/registry.py` 提供 `keys()/names()/spec()/specs()/by_neighbor()/validate_wiring()`；③ `strike/common/dispatcher.py` 与 `core/phases/` 中零硬编码组件名；④ guard R-EVENT-1 对违规 BLOCKING；⑤ 双命名空间（`id`=文件/目录标识，`component_key`=运行时调度主键）规则见 `80-COMPONENT-ARCHITECTURE-RULES.md` [sid:80-ch2] | P1 |
 | REQ-154 | 副作用治理：dry-run / 隔离目标标记 / cleanup 钩子 | ① `dry-run` 可走通含副作用链而不产生真实写入；② 无 cleanup 声明的副作用步在非 dry-run 下被拒绝执行；③ 隔离目标标记生效；④ mock 靶场验证 cleanup 后靶标状态复原 | P1 |
 | REQ-155 | 断点续跑（`--resume <run_id>`） | ① 从 EventLog 恢复 playbook 状态；② 已完成 step 不重跑；③ 中断后已落盘证据不丢失 | P2 |
 | REQ-156 | Mock 靶场与 CI 断言 | ① `targets/mock/` 提供 5 类靶标（mcp_server / rag_service / a2a_agent / tool_agent / web_gateway）；② **标准库 `http.server` 实现，零新增运行时依赖**（NEG-4）；③ `tools/mock_range.py --up/--down/--list` 可用；④ `fixtures/expected.yaml` 含期望标签/链/判据/清理后状态；⑤ e2e 进 CI | P1 |

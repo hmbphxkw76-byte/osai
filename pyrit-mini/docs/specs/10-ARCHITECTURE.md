@@ -5,7 +5,7 @@
 > **读者**：实施任务前的 AI（必读相关章节）、评审 diff 的人工/AI。
 > **版本**：v3.2（2026-09-12 REV-20：4.4 ctx 字段总表新增 `attack_success_levels`（L1–L4 分层，REQ-164）与 `hitl_state`（运行期人工干预，REQ-171）；配套 CP-002）
 > **版本史**：`git log -- docs/specs/10-ARCHITECTURE.md`（文档纪律 D3，正文不再维护）
-> **已合并**：`45-DATA-FLOW-INTEGRITY.md` → 本文件第四章（原文件已删除）；其验证工具链 `tools/data_flow_validator.py` + `tools/dataflow/` + `tests/common/test_data_flow_integrity.py` 仍正常运行。
+> **已合并**：`45-DATA-FLOW-INTEGRITY.md` → 本文件[sid:10-ch4]（原文件已删除）；其验证工具链 `tools/data_flow_validator.py` + `tools/dataflow/` + `tests/common/test_data_flow_integrity.py` 仍正常运行。
 
 ---
 
@@ -30,13 +30,13 @@ config/attack_surface_index.yaml  ← 统一攻击面索引（从 config/profile
 > **v2.9 目标架构 v4.0（新增）**：在六阶段之上引入**六层架构**与**六个一等公民抽象**——
 > L0 输入与作用域 / L1 侦察与图谱 / L2 攻击链编排 / L3 执行适配 / L4 判定与取证 / L5 交付；
 > EventLog / TargetAdapter / SurfaceGraph / PlaybookEngine / ImpactChain+ExfilChannel / ComponentRegistry。
-> **完整落点见第十三章**；六阶段流水线作为该架构的**运行实例**保留（不改变 1.1 阶段词汇映射）。
+> **完整落点见[sid:10-ch13]**；六阶段流水线作为该架构的**运行实例**保留（不改变 1.1 阶段词汇映射）。
 > 立项背景：现有形态为"单组件 / 单轮 prompt / 以 ASR 为唯一判据"，与企业场景（认证态+多步会话+多协议+多租户的组合体）存在输入契约、识别输出、成功判据三处架构级误配。
 
 > **组件清单不由本章维护**（文档纪律 D4）。唯一事实源为 `config/components/*.yaml`，经 `core/registry.py` 加载。
 > 实时读取：`python -c "from core.registry import get_registry; print(get_registry().keys())"`
 > 接线自检：`python -c "from core.registry import get_registry; print(get_registry().validate_wiring())"`
-> 命名规则（`id` vs `component_key` 双命名空间）见 `80-COMPONENT-ARCHITECTURE-RULES.md` 第二章。
+> 命名规则（`id` vs `component_key` 双命名空间）见 `80-COMPONENT-ARCHITECTURE-RULES.md` [sid:80-ch2]。
 
 ### 1.1 阶段词汇映射
 
@@ -165,7 +165,7 @@ Q1: PyRIT 1.0.1 有现成组件吗？
 |------|------|---------|------|------|---------|
 | `args` / `output_dir` | dict / str | main | 全部 | CLI 参数（创建后只读） | 4.1 |
 | `parsed_request` | dict | recon | arm/strike/report | 解析后的 HTTP 请求总线（含 target_fingerprint） | 4.1 |
-| `target_fingerprint` | dict | recon | arm/strike | 能力/模型族/MCP 工具/系统提示泄露指纹（recon 唯一输出总线） | 第五章 |
+| `target_fingerprint` | dict | recon | arm/strike | 能力/模型族/MCP 工具/系统提示泄露指纹（recon 唯一输出总线） | [sid:10-ch5] |
 | `service_profile` | dict | recon | arm/strike/assess | 服务画像 | 4.2 |
 | `objective_target` / `multi_turn_target` | Target | recon | strike | 攻击目标（per-endpoint，循环内重置） | 4.1 |
 | `adversarial_target` / `scoring_target` | Target | recon | strike/assess | 攻击/评分目标（跨 endpoint 共享） | 4.1 |
@@ -188,12 +188,12 @@ Q1: PyRIT 1.0.1 有现成组件吗？
 | `orchestration_log` | list | 各阶段（自己追加自己的条目） | report | 编排日志（每阶段至少一条） | 4.1 |
 | `timing_metadata` | dict | strike/assess | assess/决策引擎 | 响应时序特征（时序侧信道分析） | R-DATA-3 |
 | `successful_evidence_log` / `refusal_classification_log` / `guardrail_triggers` | list | strike/assess | report/验证器 | Why-Success 取证字段组（R-DATA-3，缺失即契约违规） | 1B-DATA |
-| `event_log` | EventLog | 各阶段（自己追加） | 终端/报告/证据/续跑 | append-only 事件流，交付物唯一派生源（REQ-148） | 第十三章 |
-| `surface_graph` | SurfaceGraph | recon | arm/strike/report | 攻击面图谱：多标签+置信度+信任边界+数据流边（REQ-150） | 第十三章 |
-| `playbook_state` | PlaybookState | strike | report/续跑 | 攻击链执行状态（断点续跑，REQ-151/155） | 第十三章 |
-| `impact_verdicts` | list[ImpactVerdict] | assess | report | 影响链判定（impact / exfil / content_only，REQ-152） | 第十三章 |
-| `attack_success_levels` | dict | assess | report | L1–L4 成功分层（附加证据强度维度，不改变 success 二值；REQ-164） | 第九章 D |
-| `hitl_state` | dict | strike | report | 运行期人工干预状态（暂停/注入/覆盖，默认关闭；REQ-171） | 第九章 D |
+| `event_log` | EventLog | 各阶段（自己追加） | 终端/报告/证据/续跑 | append-only 事件流，交付物唯一派生源（REQ-148） | [sid:10-ch13] |
+| `surface_graph` | SurfaceGraph | recon | arm/strike/report | 攻击面图谱：多标签+置信度+信任边界+数据流边（REQ-150） | [sid:10-ch13] |
+| `playbook_state` | PlaybookState | strike | report/续跑 | 攻击链执行状态（断点续跑，REQ-151/155） | [sid:10-ch13] |
+| `impact_verdicts` | list[ImpactVerdict] | assess | report | 影响链判定（impact / exfil / content_only，REQ-152） | [sid:10-ch13] |
+| `attack_success_levels` | dict | assess | report | L1–L4 成功分层（附加证据强度维度，不改变 success 二值；REQ-164） | [sid:10-ch9] D |
+| `hitl_state` | dict | strike | report | 运行期人工干预状态（暂停/注入/覆盖，默认关闭；REQ-171） | [sid:10-ch9] D |
 
 ## 第五章：Burp 目标数据流（输入契约） [sid:10-ch5]
 
@@ -399,7 +399,7 @@ web_orchestrator.py (统一入口)
 ## 第十一章：全链路自主决策引擎架构（v2.4 增补） [sid:10-ch11]
 
 > **目的**：定义覆盖 Recon→ARM→Strike→Assess→Report 全链路的自主决策引擎架构，明确各阶段决策点、决策依赖与数据流契约。
-> **详细规约**：见 `docs/specs/55-ATTACK-GAP-CLOSURE.md` 第九章。
+> **详细规约**：见 `docs/specs/55-ATTACK-GAP-CLOSURE.md` [sid:55-decision]。
 
 ### 11.1 决策引擎在架构分层中的位置
 
@@ -562,7 +562,7 @@ Phase N 执行完成
 
 ## 第十三章：目标架构 v4.0（v2.9 新增） [sid:10-ch13]
 
-> **引用**：00-CONSTITUTION C6 / 20-REQUIREMENTS 第九章 C（REQ-148~158）/ 提案 `docs/specs/plans/CP-001-target-architecture-v4.0.md`
+> **引用**：00-CONSTITUTION C6 / 20-REQUIREMENTS [sid:20-ch9d] C（REQ-148~158）/ 提案 `docs/specs/plans/CP-001-target-architecture-v4.0.md`
 > **执行计划**：`docs/specs/plans/447be21ad0594078a923a53f701087d3-EXECUTION-PLAN.md`（W0–W5 波次与门禁）
 > **版本**：v1.0（2026-09-11）
 
@@ -621,7 +621,7 @@ python -c "from core.registry import get_registry; print(get_registry().validate
 ```
 
 **验收**：`validate_wiring()` 返回空列表 = 全部组件接线完整（架构体检 `COMPONENT_WIRING` 项复用同一结果）。
-**新增组件**：按 `80-COMPONENT-ARCHITECTURE-RULES.md` 第六章 Checklist 执行，只增 YAML + 实现，**不改框架层调度逻辑**（开放-封闭，IA-7）。
+**新增组件**：按 `80-COMPONENT-ARCHITECTURE-RULES.md` [sid:80-ch6] Checklist 执行，只增 YAML + 实现，**不改框架层调度逻辑**（开放-封闭，IA-7）。
 **已知漂移**：`session.yaml` 与 `web_api.yaml` 的 `id` 不等于文件名 stem（应为 `session` / `web_api`）——已登记 backlog，未修正前禁止依赖 `id == stem` 的假设。
 
 > **横切**：`ExfilChannel` 与 `ImpactChain` 不属于任何组件；所有组件的"成立"最终落到二者之一。
@@ -639,7 +639,7 @@ python -c "from core.registry import get_registry; print(get_registry().validate
 | Playbook ↔ `strike/common/executor.py` 双轨开关 | W2 | W5 | backlog 期限 |
 | `--no-events` 旁路开关 | W0 | W5 | 随 EventLog 转正删除 |
 
-**只减不增**：上表为临时兼容，到期未删视为新增债务（第八章债务簿）。
+**只减不增**：上表为临时兼容，到期未删视为新增债务（[sid:10-ch8]债务簿）。
 
 ### 13.7 三条主线贯穿性约束（复审补强，v2.9）
 
