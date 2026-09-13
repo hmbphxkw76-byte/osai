@@ -19,7 +19,9 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
@@ -120,8 +122,25 @@ class MockRange:
         self._httpd = ThreadingHTTPServer((self._host, self._port), _MockHandler)
         self._thread = threading.Thread(target=self._httpd.serve_forever, name="mock-range", daemon=True)
         self._thread.start()
+        # 就绪探针：server 线程已在后台，但 serve_forever 未必已开始 accept；
+        # 若不等待直接返回，首个请求会在端口尚未 accept 时偶发连不上，导致
+        # fetch_agent_card 等返回 {} 进而触发 KeyError（tests/common/test_adapters.py
+        # 的 test_a2a_fetch_card_and_send_task 偶发失败，BL-066）。这里确认端口可连才返回
+        # —— 这是就绪等待，非掩盖：若服务本身无法 accept 仍会在超时后失败。
+        self._wait_until_ready(timeout=5.0)
         logger.info("[MockRange] started at %s (personas=%s)", self.url, ",".join(PERSONAS))
         return self
+
+    def _wait_until_ready(self, timeout: float = 5.0) -> None:
+        """Probe the bound port until it accepts a TCP connection (or timeout)."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                with socket.create_connection((self._host, self.port), timeout=0.5):
+                    return
+            except OSError:
+                time.sleep(0.02)
+        logger.warning("[MockRange] readiness probe timed out for %s", self.url)
 
     def stop(self) -> None:
         if self._httpd is None:

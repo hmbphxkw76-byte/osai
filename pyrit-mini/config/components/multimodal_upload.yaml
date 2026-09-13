@@ -29,10 +29,11 @@ recon_modules:
   - recon.web.web_input_mapper
 service_profile_keys: ["upload_surface", "document_processing"]
 
-# 专用种子集待补：当前复用 web 种子目录（data/seeds/web/ 实测存在）。
-# 登记 backlog：新增 data/seeds/_attack_surface/T*_UPLOAD_* 种子集。
+# 专用种子集（BL-062）：`data/seeds/_attack_surface/uploads/` 下 T*_UPLOAD_* 文档载体注入/元数据侧信道/投毒语料；
+# web 种子作为相邻面补充。frontmatter `category` 为技术标签（依 §8.4 D-3，`suitable_for` 现役语义为 technique 过滤器）。
 seed_sets:
   - "data/seeds/web/"
+  - "data/seeds/_attack_surface/uploads/"
 seeds: ["data/seeds/web/*"]
 seed_suitable_for: ["multimodal_upload"]
 converter_vectors: ["split_document_injection", "poisoned_rag_upload", "metadata_injection"]
@@ -44,15 +45,14 @@ asr_prior: 0.75
 strike_modules:
   - strike.multimodal_upload.file_upload_executor
 
-# 判定复用 model_behavior_shift rubric：文档间接注入的成立判据 = 目标是否执行了文档内指令
-# （属模型行为改变）。专用 rubric 待补，登记 backlog。
+# 专用判定：文档内嵌指令执行 = 目标是否执行了文档内指令（间接注入成立判据）。
 assess:
-  t0_check: "assess.component_scorers:t0_model_behavior_shift_check"
-  rubric: "data/scorers/component_scorers/model_behavior_shift.yaml"
-scorer: model_behavior_shift
+  t0_check: "assess.component_scorers:t0_multimodal_upload_check"
+  rubric: "data/scorers/component_scorers/multimodal_upload.yaml"
+scorer: multimodal_upload
 
-report_builder: "report.component_reports:_build_model_behavior_shift_sections"
-report_section: "report.component_reports.model"
+report_builder: "report.component_reports:_build_multimodal_upload_sections"
+report_section: "report.component_reports.multimodal_upload"
 poc_template: "report.component_poc:web_poc"
 
 owasp: ["LLM01", "LLM03"]

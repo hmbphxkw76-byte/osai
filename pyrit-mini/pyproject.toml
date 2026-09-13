@@ -85,6 +85,14 @@ ignore = ["E501"]
 "recon/rag/rag_collection.py" = ["F401", "I001"]
 "recon/rag/rag_response_parser.py" = ["F401", "I001"]
 "recon/rag/rag_query_stealth.py" = ["F401", "I001"]
+# Object-axis refactor facades: star-import re-export surface (F403). These
+# <object>/__init__.py files re-export the object-scoped t0/sections/poc modules
+# as a public façade; F403 is the standard suppression for intentional `import *`.
+"assess/*/__init__.py" = ["F403"]
+"report/*/__init__.py" = ["F403", "I001"]
+# Object-first CLI implementation (`tools/target.py`, invoked via `tools/__main__.py`):
+# user-facing output uses print; exempt per the CP-008 CLI-print-gate convention.
+"tools/target.py" = ["T201"]
 
 # ---- CP-008 (slice 0) transitional T201 ignore ---------------------------------
 # `print` is now enforced repo-wide via ruff T201. The files below are exempted

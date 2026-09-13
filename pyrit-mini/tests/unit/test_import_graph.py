@@ -175,7 +175,11 @@ def collect_import_breakages(root: Path = PROJECT_ROOT) -> list[str]:
                 continue
 
             if node.level > 0:
-                target = _resolve_relative(base_module, node.level, node.module)
+                # 包 `__init__.py` 的模块名已被折叠为包名（如 `assess.a2a`），
+                # 此时一个前导点 `.` 指代包自身，需比普通模块少剥一级，
+                # 否则 `from .t0 import` 会被误解析成 `assess.t0`（应为 `assess.a2a.t0`）。
+                effective_level = node.level - 1 if path.name == "__init__.py" else node.level
+                target = _resolve_relative(base_module, max(effective_level, 0), node.module)
             else:
                 if node.module is None:
                     continue
