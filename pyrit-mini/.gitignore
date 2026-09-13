@@ -27,7 +27,7 @@ ENV/
 outputs/
 *.db
 dbdata/
-data/seeds/asr_history.json
+data/seeds/asr_history.json  # 运行时 ASR 历史（pre-commit dry-run 会改写）；已 git rm --cached 解除跟踪，勿重新 git add（否则工作树再次变脏，BL-052 复现）
 
 # ── IDE ──
 .vscode/
