@@ -1223,11 +1223,19 @@ def check_readme_version_synced(self) -> None:  # type: ignore[override]
     # Extract version numbers from README
     versions_in_readme = {}
     for match in re.finditer(
-        r"\[(\d+)-(CONSTITUTION|ARCHITECTURE|REQUIREMENTS|TASKS|GUARDRAILS|ROADMAP|ATTACK-GAP|COMPONENT|CROSS-MODEL)[^\]]*\]\([^)]+\).*?\b(v[\d.]+)\b",
+        r"\[(\d+)-(CONSTITUTION|ARCHITECTURE|REQUIREMENTS|TASKS|GUARDRAILS|ROADMAP|ATTACK-GAP|COMPONENT|CROSS-MODEL|AI-DEV-ARCHITECTURE)[^\]]*\]\([^)]+\).*?\b(v[\d.]+)\b",
         readme_content,
     ):
         doc_key = f"{match.group(1)}-{match.group(2)}"
         versions_in_readme[doc_key] = match.group(3)
+
+    # AGENTS.md 的 README 索引行格式不同（[../../AGENTS.md](../../AGENTS.md) | vX.Y）
+    agents_match = re.search(
+        r"\[\.\./\.\./AGENTS\.md\]\(\.\./\.\./AGENTS\.md\)\s*\|\s*(v[\d.]+)",
+        readme_content,
+    )
+    if agents_match:
+        versions_in_readme["AGENTS"] = agents_match.group(1)
 
     # Check individual doc files for mismatches
     # 版本行格式：`> **版本**：vX.Y（...）`。冒号兼容全角/半角（历史文件两种都出现过）。
@@ -1242,6 +1250,8 @@ def check_readme_version_synced(self) -> None:  # type: ignore[override]
         "80-COMPONENT": ("docs/specs/80-COMPONENT-ARCHITECTURE-RULES.md", _VERSION_PATTERN),
         "55-ATTACK-GAP": ("docs/specs/55-ATTACK-GAP-CLOSURE.md", _VERSION_PATTERN),
         "60-CROSS-MODEL": ("docs/specs/60-CROSS-MODEL-VERIFICATION.md", _VERSION_PATTERN),
+        "90-AI-DEV-ARCHITECTURE": ("docs/specs/90-AI-DEV-ARCHITECTURE.md", _VERSION_PATTERN),
+        "AGENTS": ("AGENTS.md", _VERSION_PATTERN),
     }
 
     mismatches = []
@@ -1268,7 +1278,7 @@ def check_readme_version_synced(self) -> None:  # type: ignore[override]
         self.violations.append(
             Violation(
                 rule="R-DOC-4",
-                severity=Severity.INFO,
+                severity=Severity.BLOCKING,
                 file=_DOCS_README_PATH,
                 line=0,
                 description=f"Version mismatch: {details}",

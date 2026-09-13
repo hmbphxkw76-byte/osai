@@ -88,9 +88,9 @@ ctx.bypass_context → 存储结果
 
 ---
 
-## 5. 缺口 4: 文件上传攻击 (File Upload Attack) [sid:55-gap4-upload]
+## 3. 缺口 4: 文件上传攻击 (File Upload Attack) [sid:55-gap4-upload]
 
-### 5.1 学术理论基础
+### 3.1 学术理论基础
 
 | 技术 | 论文 | ASR | 机制 |
 |------|------|-----|------|
@@ -99,7 +99,7 @@ ctx.bypass_context → 存储结果
 | Multimodal Document Attack | arXiv:2306.13254 (Shayegani et al.) | 50-70% | 多模态文档载体攻击 |
 | Backdoor via Data Poisoning | arXiv:2302.10149 (Bagdasaryan et al.) | 65-85% | 训练数据投毒后门攻击 |
 
-### 5.2 攻击模式
+### 3.2 攻击模式
 
 | 模式 | 说明 | 适用场景 |
 |------|------|----------|
@@ -108,14 +108,14 @@ ctx.bypass_context → 存储结果
 | Split Document Injection | 分文档注入（模板+载荷） | 间接Prompt注入绕检测 |
 | PoisonedRAG Upload | 知识库文档投毒 | RAG系统污染 |
 
-### 5.3 PyRIT 原生组件
+### 3.3 PyRIT 原生组件
 
 ```python
 import aiohttp  # HTTP multipart上传
 from pathlib import Path  # 文件操作
 ```
 
-### 5.4 新增文件
+### 3.4 新增文件
 
 **文件**: `strike/file_upload_executor.py` (~400行)
 
@@ -131,7 +131,7 @@ from pathlib import Path  # 文件操作
 - `TriggerResult` — 触发结果
 - `FileUploadAttackResult` — 完整攻击链结果
 
-### 5.5 CLI 参数
+### 3.5 CLI 参数
 
 | 参数 | 默认值 | 说明 | 示例 |
 |------|--------|------|------|
@@ -142,7 +142,7 @@ from pathlib import Path  # 文件操作
 | `--upload-field-name` | `file` | 表单字段名 | `document`, `attachment` |
 | `--trigger-method` | `POST` | 触发请求方法 | `POST`, `GET`, `PUT` |
 
-### 5.6 数据流
+### 3.6 数据流
 
 ```
 CLI参数 (--file-upload-target, --upload-files, --trigger-endpoint)
@@ -160,7 +160,7 @@ FileUploadAttackResult → 结果存入 ctx.attack_results
 orchestration_log → 审计日志记录
 ```
 
-### 5.7 使用示例
+### 3.7 使用示例
 
 ```bash
 # 基础文件上传攻击
@@ -182,7 +182,7 @@ python main.py --file-upload-target http://target:8004 \
                --trigger-method POST
 ```
 
-### 5.8 测试覆盖
+### 3.8 测试覆盖
 
 **文件**: `tests/test_file_upload_executor.py` (39个测试用例)
 
@@ -198,7 +198,7 @@ python main.py --file-upload-target http://target:8004 \
 | TestEdgeCases | 4 | 边界情况 |
 | TestUniversalTargetSupport | 2 | 通用目标支持 |
 
-### 5.9 验收标准
+### 3.9 验收标准
 
 - ✅ 支持任意端口（0-65535，无硬编码限制）
 - ✅ 支持任意上传端点路径
@@ -213,9 +213,9 @@ python main.py --file-upload-target http://target:8004 \
 
 ---
 
-## 6. 缺口 2: 多模态注入攻击 (移至原Section 3) [sid:55-gap2-multimodal]
+## 4. 缺口 2: 多模态注入攻击 (移至原Section 3) [sid:55-gap2-multimodal]
 
-### 3.1 学术理论基础
+### 4.1 学术理论基础
 
 | 技术 | 论文 | ASR | 机制 |
 |------|------|-----|------|
@@ -224,7 +224,7 @@ python main.py --file-upload-target http://target:8004 \
 | HADES-style Multi-Image | arXiv:2401.06022 (Ying et al.) | 70-90% | 多张图片递进式引导 |
 | Audio Steganography | arXiv:2306.13254 (Shayegani et al.) | 50-70% | 音频载体隐写注入 |
 
-### 3.2 PyRIT 原生组件
+### 4.2 PyRIT 原生组件
 
 ```python
 from pyrit.prompt_converter import (
@@ -235,7 +235,7 @@ from pyrit.prompt_converter import (
 )
 ```
 
-### 3.3 新增文件
+### 4.3 新增文件
 
 **文件**: `strike/multimodal_injection.py` (~240行)
 
@@ -255,7 +255,7 @@ from pyrit.prompt_converter import (
 目标有 OCR → Adversarial Vision
 ```
 
-### 3.4 数据流
+### 4.4 数据流
 
 ```
 multimodal_seeds
@@ -273,9 +273,9 @@ ctx.multimodal_context → 存储结果
 
 ---
 
-## 4. 缺口 3: 对抗性微调/后门攻击 [sid:55-gap3-backdoor]
+## 5. 缺口 3: 对抗性微调/后门攻击 [sid:55-gap3-backdoor]
 
-### 4.1 学术理论基础
+### 5.1 学术理论基础
 
 | 技术 | 论文 | ASR | 机制 |
 |------|------|-----|------|
@@ -284,7 +284,7 @@ ctx.multimodal_context → 存储结果
 | BadPre | arXiv:2105.12400 (Chen et al.) | 55-80% | 预训练后门注入 |
 | Data Poisoning | arXiv:2307.10709 (Wan et al.) | 50-75% | 指令微调投毒 |
 
-### 4.1-B 黑盒可测性约束（v1.3 增补，对齐 REV-11 裁决口径）
+### 5.1-B 黑盒可测性约束（v1.3 增补，对齐 REV-11 裁决口径）
 
 > 本缺口策略**只保留黑盒 HTTP 可测试的子集**（同 50-ROADMAP REV-11 摘除向量DB/微调 Glue 的裁决逻辑）。硬约束：
 
@@ -293,7 +293,7 @@ ctx.multimodal_context → 存储结果
 3. **触发只走 prompt 通道**：触发词/上下文条件/角色切换/多轮累积四类策略全部经由 PyRIT 原生 prompt/多轮组件投递，攻击效果以评分级联判定（I2/I3），无独立判定通道。
 4. **不可测即摘除**：任一策略若无法在黑盒 HTTP 路径下构造输入并观察输出差异，登记 backlog 裁决摘除（R-H1 禁止 stub 化保留）。
 
-### 4.2 新增文件
+### 5.2 新增文件
 
 **文件**: `strike/backdoor_attack.py` (~250行)
 
@@ -313,7 +313,7 @@ ctx.multimodal_context → 存储结果
 多轮可用 → Multi-Turn Accumulation
 ```
 
-### 4.3 已知触发词数据库
+### 5.3 已知触发词数据库
 
 ```python
 _KNOWN_TRIGGERS = [
@@ -337,7 +337,7 @@ _KNOWN_TRIGGERS = [
 ]
 ```
 
-### 4.4 数据流
+### 5.4 数据流
 
 ```
 trigger_seeds
@@ -353,9 +353,9 @@ ctx.backdoor_context → 存储结果
 
 ---
 
-## 5. 集成方案 [sid:55-integration]
+## 6. 集成方案 [sid:55-integration]
 
-### 5.1 流水线集成 ✅ 已完成
+### 6.1 流水线集成 ✅ 已完成
 
 新模块统一集成到 `_run_advanced_attacks_phase()` 阶段，在 Web 攻击之后、Escalation 之前执行：
 
@@ -392,7 +392,7 @@ async def _run_advanced_attacks_phase(ctx: "PipelineContext") -> None:
 
 **调用位置**: `_run_strike_phase()` → `_run_web_attacks_phase()` → **`_run_advanced_attacks_phase()`** → `_run_escalate_phase()`
 
-### 5.2 CLI 参数扩展 ✅ 已完成
+### 6.2 CLI 参数扩展 ✅ 已完成
 
 ```bash
 # core/config.py 新增 6 个参数
@@ -407,7 +407,7 @@ async def _run_advanced_attacks_phase(ctx: "PipelineContext") -> None:
 
 **参数分组**: `Advanced Attacks (arXiv-backed)`
 
-### 5.3 执行顺序
+### 6.3 执行顺序
 
 ```
 1. Recon Phase (侦察)
@@ -426,9 +426,9 @@ async def _run_advanced_attacks_phase(ctx: "PipelineContext") -> None:
 
 ---
 
-## 6. 验证与测试 [sid:55-verification]
+## 7. 验证与测试 [sid:55-verification]
 
-### 6.1 语法验证
+### 7.1 语法验证
 
 ```bash
 # 所有新模块通过 py_compile 验证
@@ -438,7 +438,7 @@ python -m py_compile strike/backdoor_attack.py        # ✅ OK
 python -m py_compile strike/__init__.py               # ✅ OK
 ```
 
-### 6.2 架构守卫验证
+### 7.2 架构守卫验证
 
 ```bash
 # 运行架构守卫确保合规
@@ -446,7 +446,7 @@ py -m tools.guard
 # 预期: 0 BLOCKING / 0 WARNING / 0 INFO (新增)
 ```
 
-### 6.3 测试覆盖 ✅ 已完成
+### 7.3 测试覆盖 ✅ 已完成
 
 | 模块 | 测试类型 | 测试数 | 状态 |
 |------|----------|--------|------|
@@ -467,9 +467,9 @@ py -m tools.guard
 
 ---
 
-## 7. 文件清单 [sid:55-files]
+## 8. 文件清单 [sid:55-files]
 
-### 7.1 新增文件
+### 8.1 新增文件
 
 | 文件 | 行数 | 学术引用 |
 |------|------|----------|
@@ -478,7 +478,7 @@ py -m tools.guard
 | `strike/backdoor_attack.py` | ~250 | arXiv:2301.11916 |
 | `docs/specs/55-ATTACK-GAP-CLOSURE.md` | ~300 | 本文档 |
 
-### 7.2 更新文件
+### 8.2 更新文件
 
 | 文件 | 变更 |
 |------|------|
@@ -489,7 +489,7 @@ py -m tools.guard
 
 ---
 
-## 8. 学术引用汇总 [sid:55-references]
+## 9. 学术引用汇总 [sid:55-references]
 
 | 论文 | 引用ID | 应用场景 |
 |------|--------|----------|
@@ -504,9 +504,9 @@ py -m tools.guard
 
 ---
 
-## 9. 全链路自主决策架构 [sid:55-decision]
+## 10. 全链路自主决策架构 [sid:55-decision]
 
-### 9.1 架构概述
+### 10.1 架构概述
 
 基于已实施的战术决策系统（Strike 阶段），扩展为覆盖 Recon→ARM→Strike→Assess→Report 全链路的自主决策引擎。
 
@@ -537,7 +537,7 @@ py -m tools.guard
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 9.2 各阶段决策系统
+### 10.2 各阶段决策系统
 
 #### 9.2.1 Recon 阶段 — 侦察决策
 
@@ -592,7 +592,7 @@ py -m tools.guard
 
 **决策函数**: `determine_report_strategy(ctx, evidence_collection)`
 
-### 9.3 决策依赖与数据流
+### 10.3 决策依赖与数据流
 
 #### 9.3.1 核心依赖图
 
@@ -687,7 +687,7 @@ class DecisionEngine:
             return Action.CONTINUE  # 继续当前策略
 ```
 
-### 9.4 实施路线图
+### 10.4 实施路线图
 
 #### Phase 1: 战术决策层 ✅ 已完成 (v1.1)
 
@@ -720,7 +720,7 @@ class DecisionEngine:
 - [ ] 预测性攻击路径规划
 - [ ] 自适应 RoE (Rules of Engagement)
 
-### 9.5 决策系统护栏
+### 10.5 决策系统护栏
 
 > **SSOT 声明**（v1.3）：决策系统护栏的**唯一定义**在 [40-GUARDRAILS.md 1G-DECIDE](40-GUARDRAILS.md)（R-DECIDE-1~6，含检查器登记簿 1F）。本节原重复登记表已删除——此前本节 R-DECIDE-4（策略先验优先）与 40 中 R-DECIDE-4（人类控制权）编号冲突，该条款在 40 中已归位为 R-DECIDE-6。架构设计（本章 9.1~9.4）不受影响。
 
@@ -728,7 +728,23 @@ class DecisionEngine:
 |------|--------|------|
 | R-DECIDE-1~6 | 见 40-GUARDRAILS 1F 登记簿（check_decision_* / check_human_override） | BLOCKING/WARNING/INFO |
 
-### 9.7 Adaptive Executor 文档补全 (v1.6 新增)
+### 10.6 跨模型规约审查集成（v1.5 新增）
+
+> **引用**: 跨模型规约审查完整协议见 [60-CROSS-MODEL-VERIFICATION.md](60-CROSS-MODEL-VERIFICATION.md)
+
+为确保本缺口优化方案与跨模型审查协议对齐：
+
+| 审查护栏 | 本方案落点 | 级别 |
+|---------|-----------|------|
+| R-CROSS-1 审查前置 | 本方案变更需经过 ≥2 模型交叉确认 | BLOCKING |
+| R-CROSS-2 一致性达标 | κ < 0.6 时禁止合入本方案任何变更 | BLOCKING |
+| R-CROSS-3 审查记录完整 | 审查记录包含 raw/ + aligned/ + adjudication/ 三层产物 | WARNING |
+| R-CROSS-4 修复跟踪 | confirmed findings 创建跟踪任务 | WARNING |
+| R-CROSS-5 审查时效 | 本方案合入后 90 天内必须有一次跨模型审查 | INFO |
+
+**实施依赖**：阶段 1D（T1D-1~10）完成后，本方案后续变更自动纳入跨模型审查流水线。
+
+### 10.7 Adaptive Executor 文档补全 (v1.6 新增)
 
 > **R-DOC-2 修复**: `strike/adaptive_executor.py` 此前未在本规范中登记。
 
@@ -769,40 +785,9 @@ AttackOutcome (success/failure + evidence_chain)
 
 ---
 
-## 10. 版本记录
+## 11. 缺口 5: A2A 多智能体侦察框架 (Multi-Agent Reconnaissance) [sid:55-gap5-a2a]
 
-| 版本 | 日期 | 变更 |
-|------|------|------|
-| v1.0 | 2026-09-09 | 初始版本，三大缺口完整优化方案 |
-| v1.1 | 2026-09-09 | 流水线集成完成：`_run_advanced_attacks_phase()` 集成到 strike.py；CLI 参数扩展完成：新增 6 个参数；测试覆盖完成：23/23 passed |
-| v1.2 | 2026-09-09 | 新增第九章"全链路自主决策架构"：① 五阶段决策系统 (Recon/ARM/Strike/Assess/Report)；② 决策依赖与数据流契约；③ 实施路线图 (4 Phase)；④ 决策系统护栏 (R-DECIDE-1~4) |
-| v1.3 | 2026-09-09 | 规约优化 P0-A3 + P1-B7：① 9.5 决策护栏去重——删除与 40-GUARDRAILS 1G 冲突的重复登记表（原 R-DECIDE-4 编号冲突归位），改为 SSOT 引用；② 9.2 伪代码连续失败阈值 `>3`→`>=3` 对齐 R-DECIDE-3；③ 新增 4.1-B 黑盒可测性约束（禁止白盒假设/指纹黑盒来源/prompt 通道触发/不可测即摘除） | 用户会话批准 |
-| v1.4 | 2026-09-09 | 新增缺口 4: 文件上传攻击 (File Upload Attack)：① 新增 `strike/file_upload_executor.py` (~400行) 通用文件上传执行器；② 新增 6 个 CLI 参数 (`--file-upload-target`, `--upload-endpoint`, `--trigger-endpoint`, `--upload-files`, `--upload-field-name`, `--trigger-method`)；③ 流水线集成 `_run_file_upload_phase()`；④ 新增 39 个测试用例 (tests/test_file_upload_executor.py)；⑤ 支持任意端口 (0-65535)、任意端点路径、分文档注入、知识库投毒等攻击模式 | 用户会话批准 |
-| v1.5 | 2026-09-09 | 新增跨模型规约审查引用：① 新增 9.6 节引用 60-CROSS-MODEL-VERIFICATION.md 协议；② 决策系统护栏新增 R-CROSS-1~5 引用（跨模型审查前置/一致性达标/审查记录完整/修复跟踪/审查时效）；③ 阶段 1D 任务清单引用（T1D-1~10） | 用户会话批准 |
-| v1.6 | 2026-09-09 | 文档覆盖补全 (R-DOC-2 修复)：① 新增 9.7 节 Adaptive Executor 完整文档；② 登记 `strike/adaptive_executor.py` 核心API、数据流、学术依据 (Best-of-N arXiv:2402.01135)；③ 版本升至 v1.6 | 用户会话批准 |
-| v1.7 | 2026-09-09 | **新增缺口 5: A2A 多智能体侦察框架**: ① 新增 4 个核心模块 (multi_agent_topology.py, a2a_defense_awareness.py, a2a_attack_planner.py, 扩展 a2a_discoverer.py)；② 新增 3 个 CLI 参数 (--a2a-target, --a2a-ports, --a2a-timeout)；③ PipelineContext 新增 4 字段契约；④ OffSec 风格多端口扫描；⑤ 拓扑模式检测 (Hub-and-Spoke/Pipeline/Mesh)；⑥ 防御Agent检测与规避；⑦ 攻击路径规划 (ASR最大化)；⑧ 30个测试全部通过 | 用户会话批准 |
-
-### 9.6 跨模型规约审查集成（v1.5 新增）
-
-> **引用**: 跨模型规约审查完整协议见 [60-CROSS-MODEL-VERIFICATION.md](60-CROSS-MODEL-VERIFICATION.md)
-
-为确保本缺口优化方案与跨模型审查协议对齐：
-
-| 审查护栏 | 本方案落点 | 级别 |
-|---------|-----------|------|
-| R-CROSS-1 审查前置 | 本方案变更需经过 ≥2 模型交叉确认 | BLOCKING |
-| R-CROSS-2 一致性达标 | κ < 0.6 时禁止合入本方案任何变更 | BLOCKING |
-| R-CROSS-3 审查记录完整 | 审查记录包含 raw/ + aligned/ + adjudication/ 三层产物 | WARNING |
-| R-CROSS-4 修复跟踪 | confirmed findings 创建跟踪任务 | WARNING |
-| R-CROSS-5 审查时效 | 本方案合入后 90 天内必须有一次跨模型审查 | INFO |
-
-**实施依赖**：阶段 1D（T1D-1~10）完成后，本方案后续变更自动纳入跨模型审查流水线。
-
----
-
-## 10. 缺口 5: A2A 多智能体侦察框架 (Multi-Agent Reconnaissance) [sid:55-gap5-a2a]
-
-### 10.1 学术理论基础
+### 11.1 学术理论基础
 
 | 技术 | 论文/标准 | ASR | 机制 |
 |------|----------|-----|------|
@@ -811,7 +796,7 @@ AttackOutcome (success/failure + evidence_chain)
 | 防御规避策略 | OWASP ASI06 - Vulnerable Output Handling | 20-40% | 识别防御Agent → 自动生成规避战术 |
 | 攻击路径规划 | 组合优化 | 增强15-25% | 基于拓扑的攻击优先级排序 (ASR最大化) |
 
-### 10.2 核心模块
+### 11.2 核心模块
 
 | 文件 | 行数 | 职责 |
 |------|------|------|
@@ -821,7 +806,7 @@ AttackOutcome (success/failure + evidence_chain)
 | `recon/a2a_attack_planner.py` | 396行 | 攻击路径规划 + 风险评估 |
 | `tests/test_a2a_multi_agent.py` | 507行 | 30个测试用例 (30/30 passed) |
 
-### 10.3 新增CLI参数
+### 11.3 新增CLI参数
 
 ```bash
 python main.py --a2a-target 192.168.50.25                # 启用多智能体扫描
@@ -829,7 +814,7 @@ python main.py --a2a-target 192.168.50.25 --a2a-ports 8000,8001,8002  # 自定�
 python main.py --a2a-target 192.168.50.25 --a2a-timeout 5.0           # 超时设置
 ```
 
-### 10.4 数据流
+### 11.4 数据流
 
 ```
 CLI(--a2a-target IP)
@@ -847,7 +832,7 @@ generate_attack_plan(topology, defense) → A2AAttackPlan
 ARM/Strike Phase: 消费 attack plan 调整种子优先级
 ```
 
-### 10.5 PipelineContext 新增字段
+### 11.5 PipelineContext 新增字段
 
 ```python
 # A2A Multi-Agent Reconnaissance 数据契约
@@ -877,7 +862,7 @@ ctx.a2a_defense_profile = {
 ctx.a2a_attack_plan = {"pattern": str, "steps": list[dict], "primary_target": str, "risk_level": str}
 ```
 
-### 10.6 测试覆盖
+### 11.6 测试覆盖
 
 | 测试类 | 测试数 | 覆盖范围 |
 |--------|--------|---------|
@@ -889,7 +874,7 @@ ctx.a2a_attack_plan = {"pattern": str, "steps": list[dict], "primary_target": st
 | TestConvenienceFunctions | 2 | 公共API |
 | **合计** | **30** | **全部通过** |
 
-### 10.7 护栏合规
+### 11.7 护栏合规
 
 | 护栏 | 状态 | 应对策略 |
 |------|------|---------|
@@ -899,15 +884,15 @@ ctx.a2a_attack_plan = {"pattern": str, "steps": list[dict], "primary_target": st
 | R-DATA-1 (数据流) | ✅ | 通过 PipelineContext 契约化传递 |
 | R-NATIVE-1 | ✅ | 侦察模块使用 aiohttp，符合 R2 |
 
-### 10.8 版本更新
+### 11.8 版本更新
 
 版本升至 **v1.7**（Delta 文档更新，无需跨模型审查）
 
 ---
 
-## 11. 缺口 6: Workflow Evasion (安全扫描绕过) [sid:55-gap6-workflow]
+## 12. 缺口 6: Workflow Evasion (安全扫描绕过) [sid:55-gap6-workflow]
 
-### 11.1 学术理论基础
+### 12.1 学术理论基础
 
 | 技术 | 论文 | ASR | 机制 |
 |------|------|-----|------|
@@ -917,7 +902,7 @@ ctx.a2a_attack_plan = {"pattern": str, "steps": list[dict], "primary_target": st
 | Incremental Trust | arXiv:2302.12173 (Greshake et al.) | 45-55% | 在对话历史中嵌入绕过信号，主 prompt 保持干净 |
 | Combined Evasion | 多技术融合 | 50-65% | 组合权威+效率+范围三种技术最大化绕过效果 |
 
-### 11.2 核心模块
+### 12.2 核心模块
 
 | 文件 | 行数 | 职责 |
 |------|------|------|
@@ -926,7 +911,7 @@ ctx.a2a_attack_plan = {"pattern": str, "steps": list[dict], "primary_target": st
 | `strike/a2a_workflow_attacker.py` | ~489行 | A2A工作流攻击器（已更新6种新策略） |
 | `tests/test_workflow_evasion.py` | ~280行 | 29个测试用例 |
 
-### 11.3 新增CLI参数
+### 12.3 新增CLI参数
 
 ```bash
 # 启用 Workflow Evasion 攻击
@@ -957,7 +942,7 @@ python main.py --enable-workflow-evasion --workflow-auth-ref CISO-EXEMPT-8847
 python main.py --enable-workflow-evasion --enable-bypass --offensive
 ```
 
-### 11.4 数据流
+### 12.4 数据流
 
 ```
 CLI(--enable-workflow-evasion)
@@ -973,7 +958,7 @@ a2a_workflow_attacker → 执行工作流攻击 (10种绕过策略)
 Re-score → 评估绕过效果
 ```
 
-### 11.5 测试覆盖
+### 12.5 测试覆盖
 
 | 测试类 | 测试数 | 覆盖范围 |
 |--------|--------|---------|
@@ -983,7 +968,7 @@ Re-score → 评估绕过效果
 | TestWorkflowEvasionIntegration | 2 | 端到端管道 |
 | **合计** | **29** | **全部通过 (29/29)** |
 
-### 11.6 护栏合规
+### 12.6 护栏合规
 
 | 护栏 | 状态 | 应对策略 |
 |------|------|---------|
@@ -993,7 +978,7 @@ Re-score → 评估绕过效果
 | R-DOC-1 | ✅ | CLI 参数以代码 argparse 为唯一权威，每个 `--xxx` 具备非空 `help`（见 `tools/guard_extended.py`） |
 | R-DOC-5 | ✅ | 交付验收显示完整命令行用法（参数列表+示例） |
 
-### 11.7 绕过策略详解
+### 12.7 绕过策略详解
 
 | 策略名 | 描述 | 适用场景 |
 |--------|------|---------|
@@ -1004,7 +989,7 @@ Re-score → 评估绕过效果
 | `compliance_preapproval` | 合规预批准 | 合规审查场景 |
 | `incremental_trust` | 增量信任引用 | 多轮对话场景 |
 
-### 11.8 版本更新
+### 12.8 版本更新
 
 版本升至 **v1.8**（Delta 文档更新，无需跨模型审查）
 

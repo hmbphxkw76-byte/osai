@@ -77,7 +77,7 @@
 > 目录结构对齐 `60-CROSS-MODEL-VERIFICATION.md` 第 6.1 节规范。
 
 ```
-outputs/cross_model_review/
+docs/specs/reviews/
 └── {YYYYMMDD}-{change_id}/
     ├── trigger.md          # 触发变更说明（本报告）
     ├── raw/                # 原始审查报告

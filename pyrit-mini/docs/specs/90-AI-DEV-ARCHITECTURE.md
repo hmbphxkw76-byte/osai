@@ -58,14 +58,14 @@ v4.0 六层目标架构（L0 输入与作用域 → L5 交付）与六个一等�
 
 | 维度 | 落点（代码实证） |
 |------|----------------|
-| 输入契约 | `data/burp/*.txt` / `config/burp/*.txt`（蓝图第五章承诺：`{PROMPT}` 占位符经 PyRIT 原生 `HTTPTarget` 注入，任何模块不得自行拼接 prompt 进 body） |
+| 输入契约 | `data/burp/*.txt` / `config/burp/*.txt`（蓝图 [sid:10-ch5]承诺：`{PROMPT}` 占位符经 PyRIT 原生 `HTTPTarget` 注入，任何模块不得自行拼接 prompt 进 body） |
 | CLI 入口 | `--burp` / `--target` 等 argparse 定义以 `python main.py --help` 实时输出为唯一权威（R-DOC-1，代码即 CLI 文档） |
 | 浅层探测 | `recon._target_router_helpers._run_background_probes`（含关联端点发现 `recon.api.url_endpoint_discoverer`，BL-032 已闭环） |
 | 深度探测 | `recon._target_router_helpers._run_deep_probe_queue`——显式优先级队列 + `deep_probe_budget` 预算确定性调度，低优先级探测显式跳过并记录（BL-036 已闭环） |
 | MCP 专项深探 | `recon.mcp`（capability_probe / surface_scanner / version_fingerprint）；MCPSec 桥不可用时走 `recon._target_router_helpers._probe_mcp_locally` 本地回退（BL-029 已闭环），结果写 `target_fingerprint.extra`（蓝图 I12） |
 | RAG / Embedding / GraphQL 深探 | `recon.rag.pipeline_probe` / `recon.embedding.vector_probe` / GraphQL 双通道探测（被动信号 + 主动 introspection，BL-033 已闭环） |
 | 目标构建 | `recon.target_router`（现状主链路）与 `recon.adapters`（http / sse / jsonrpc / multipart 协议适配，已落地；**主链接线为差距 BL-037，归宿 REQ-151**） |
-| 攻击面图谱 | `ctx.surface_graph` 字段已在蓝图 4.4 总表登记（REQ-150）；实现按蓝图第十三章波次推进（当前无 `recon/surface/` 目录，勿按已落地引用） |
+| 攻击面图谱 | `ctx.surface_graph` 字段已在蓝图 4.4 总表登记（REQ-150）；实现按蓝图 [sid:10-ch13]波次推进（当前无 `recon/surface/` 目录，勿按已落地引用） |
 | 需求 / 不变量 / 验证 | REQ-001/002/149/150/160/161；I12；回归 `pytest tests/common/test_recon_deep_wiring.py -q` |
 
 ### 2.2 需求② 组件感知武器化 → ② ARM（六层：L2）
@@ -88,7 +88,7 @@ v4.0 六层目标架构（L0 输入与作用域 → L5 交付）与六个一等�
 | 原生优先决策树 | 写新能力前的强制四问（Q1 原生现成？Q2 包装原生？Q3 Glue/Output 范畴？）见 `10-ARCHITECTURE.md` 第三章；原生组件完整速查见 `00-CONSTITUTION.md` 7C |
 | 目标类型 → 最优攻击 | `00-CONSTITUTION.md` 7B 映射表 + `10-ARCHITECTURE.md` 9.2 攻击路径决策树（按 capability 指纹分支）与 9.1 原生攻击类落点表 |
 | 攻击编排 | PyRIT 原生 `PromptSendingAttack` 多路径 FIRST_SUCCESS（REQ-004）+ 升级链 L1→L4（REQ-005，蓝图 I4 动态阈值；触发参数唯一汇总见蓝图 6.1 SSOT 表） |
-| Playbook | 现状：`strike.playbook` 单模块 + `config/playbooks/*.yaml`。蓝图第十三章的 `strike/playbook/` 目录形态为 v4.0 规划落点，**未落地前勿按目录形态引用** |
+| Playbook | 现状：`strike.playbook` 单模块 + `config/playbooks/*.yaml`。蓝图 [sid:10-ch13]的 `strike/playbook/` 目录形态为 v4.0 规划落点，**未落地前勿按目录形态引用** |
 | 协议旁路 | MCP JSON-RPC 结构化直发（ADR-003，唯一 HTTPTarget 占位符机制例外） |
 | 执行适配 | `recon.adapters`（TargetAdapter，REQ-149）——已落地并通过 MockRange 端到端测试；**主链切换到 adapter 是差距 BL-037**（归宿 REQ-151 step.adapter，IC-2），禁止在 router 内另建适配分支（C3） |
 | 需求 / 不变量 | REQ-004/005/151；I2（攻击路径 0-token 评分）/ I4 / I5（三角色分离）/ IC-2 / IC-4（四条多步链迁 playbook 时是迁移不是新建） |
@@ -109,7 +109,7 @@ v4.0 六层目标架构（L0 输入与作用域 → L5 交付）与六个一等�
 |------|----------------|
 | 级联评分 | T0→J1→J2→J3 固定级联（蓝图 I3）；0-token 攻击路径评分（I2）；双 Judge OR 聚合（ADR-001）；ASR 统计与 Wilson CI（REQ-006） |
 | 判定四态 | `impact` / `exfil_confirmed` / `exfil_suspected` / `content_only`（ADR-008）；仅前两态计入 `confirmed_asr`，与 `reported_asr` 双口径分列（NFR-13 / 蓝图 I11） |
-| 影响链取证 | `assess.impact.exfil` / `assess.impact.verdict`；外传成立必须 OOB 回执——canary + `tools.oob_listener`（蓝图 IC-5）；副作用成立必须二次独立请求确认（IC-6）。`assess/impact/` 其余件（model / canary 独立模块化）按蓝图第十三章波次落地，勿按已存在引用 |
+| 影响链取证 | `assess.impact.exfil` / `assess.impact.verdict`；外传成立必须 OOB 回执——canary + `tools.oob_listener`（蓝图 IC-5）；副作用成立必须二次独立请求确认（IC-6）。`assess/impact/` 其余件（model / canary 独立模块化）按蓝图 [sid:10-ch13]波次落地，勿按已存在引用 |
 | 组件专项报告 | `report.component_reports`——组件级 report_section 插件（组件 YAML 契约见 `config/components/README.md`；MCP 等组件的专项报告结构经此承载，不另立报告管线，C3） |
 | OffSec 标准结构 | REQ-113 四段结构（executive summary / findings 含风险等级 / impact / remediation）；OWASP LLM 2025 与 MITRE ATLAS 映射：`report.owasp_mapping` / `report.owasp_constants` / `report.standards` |
 | 证据链 | `report.evidence` + `report.evidence_manifest`（Why-Success 取证字段组 R-DATA-3：`successful_evidence_log` / `refusal_classification_log` / `guardrail_triggers`）；PoC 独立可执行（NFR-5）：`report.poc_generator` / `report.component_poc` / `report._poc_templates`；SARIF：`report.sarif_report`；多格式：`report.report_markdown` / `report.report_html` |
@@ -177,9 +177,9 @@ v4.0 六层目标架构（L0 输入与作用域 → L5 交付）与六个一等�
 | BL-025 | `config/components/*.yaml` 新旧双 schema 并存 | 蓝图 13.3 兼容层"只减不增"专项清理 |
 | BL-027 | `docs/guides/ai-dev-guides.md` 与 specs 职责重叠（违反 C3） | 待裁决（降级为方法论 / 删除重复模板） |
 | BL-039 | R-DOC-4 检查器白名单未含本文件（90 版本同步暂无自动校验） | guard_extended 专项任务（1C-DOC） |
-| D-04 | recon → assess 跨层依赖（target_router 调 assess.scorer 验证函数） | 蓝图第八章债务簿（验证函数移入 core 或 targets） |
-| D-16 | `pyrit>=1.0.1` 未钉住 + `asr_history.json` 运行时产物入库 | 蓝图第八章债务簿 |
-| v4.0 未落地件 | `recon/surface/`、`strike/playbook/` 目录形态、`assess/impact/` 独立模块化等 | 蓝图第十三章执行计划波次（引用其 plans/ 执行计划，不在本文复制波次表） |
+| D-04 | recon → assess 跨层依赖（target_router 调 assess.scorer 验证函数） | 蓝图 [sid:10-ch8]债务簿（验证函数移入 core 或 targets） |
+| D-16 | `pyrit>=1.0.1` 未钉住 + `asr_history.json` 运行时产物入库 | 蓝图 [sid:10-ch8]债务簿 |
+| v4.0 未落地件 | `recon/surface/`、`strike/playbook/` 目录形态、`assess/impact/` 独立模块化等 | 蓝图 [sid:10-ch13]执行计划波次（引用其 plans/ 执行计划，不在本文复制波次表） |
 
 **Embedding 特别注记**：需求②中"embedding 的 strike 策略"按 REQ-110 裁决口径收敛——黑盒 HTTP 目标不可测试 embedding 反演，编排内不实装；该攻击向量经间接注入种子覆盖，Embedding 组件的 recon / detect / seeds 字段仅服务组件识别。任何"补齐 embedding 攻击编排"的提议均须先走 change-proposal 推翻 Q4 裁决（C12）。
 

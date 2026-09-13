@@ -228,7 +228,7 @@
 > **关联提案**：`docs/specs/plans/CP-001-target-architecture-v4.0.md`（approved 后方可编码）
 > **执行计划**：`docs/specs/plans/447be21ad0594078a923a53f701087d3-EXECUTION-PLAN.md`
 > **护栏**：R-EVENT-1 / R-EVENT-2 / R-COMP-1（唯一定义见 `40-GUARDRAILS.md`，本表不重复登记）
-> **不变量**：I12（阶段间只经 ctx + EventLog）/ I13（副作用步必须声明 cleanup）—— 见蓝图第六章
+> **不变量**：I12（阶段间只经 ctx + EventLog）/ I13（副作用步必须声明 cleanup）—— 见蓝图 [sid:10-ch6]
 
 ### 第九章 C1：核心需求登记
 

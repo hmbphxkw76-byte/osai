@@ -28,7 +28,7 @@ draft（草案） → spec'd（规格完成） → approved（人工批准）
 |------|---------|
 | 新功能 | 必须先有 REQ-ID（20-REQUIREMENTS 登记）→ 生成任务 |
 | 修 bug | 复现 → 定位 → 直接生成任务（bug 修复可引用现象而非 REQ） |
-| 消除债务 | 引用 DEBT-ID（蓝图第八章）→ 生成专项任务 |
+| 消除债务 | 引用 DEBT-ID（蓝图 [sid:10-ch8]）→ 生成专项任务 |
 | 重构 | 一律视为债务消除任务，引用 DEBT-ID 或先提案登记新 DEBT |
 | 路线图任务 | 从 `specs/50-ROADMAP.md` 第四章任务序列领取——**顺序与依赖以路线图为准，任务合法性仍以 ③④ 层为准**（路线图无裁决权威） |
 | 临时想法 | 写入 `docs/backlog.md`（一行），**不动代码** |
@@ -137,8 +137,8 @@ Step 8  如实汇报     按第六章格式汇报
 
 - `implementation_checklist.md` → 已于 2026-09-06 删除；其职能由 `specs/templates/task-spec.md` 完全接管（30-TASKS 第一章 draft→spec'd 流程）。
 - SKILL.md 的 Anti-Derailment Checklist → 保留为编码期细则；与本层冲突处以本层为准（裁决序 ②>⑤）。
-- `docs/backlog.md` → 已由制宪会话创建（宪法第六章附则，v1.1），唯一待办池；AI 发现的任何非本任务问题一律进 backlog，一行一条。
-- `specs/50-ROADMAP.md` → REV-02 创建（宪法第六章附则，v1.2），任务顺序与 vibe coding 会话模型的登记处。
+- `docs/backlog.md` → 已由制宪会话创建（宪法 [sid:00-ch6]附则，v1.1），唯一待办池；AI 发现的任何非本任务问题一律进 backlog，一行一条。
+- `specs/50-ROADMAP.md` → REV-02 创建（宪法 [sid:00-ch6]附则，v1.2），任务顺序与 vibe coding 会话模型的登记处。
 
 ---
 

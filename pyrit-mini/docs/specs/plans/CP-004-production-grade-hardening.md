@@ -267,7 +267,7 @@
 
 | 子条 | 内容 |
 |------|------|
-| P2-N1 | PyRIT 的**域边界** = "与 LLM 的 prompt 交互与响应评估"（蓝图第三章）。域内的多样性由 `PromptConverter` / `Attack` / `Scorer` 表达，**不是由"新建组件/新建目录"表达** |
+| P2-N1 | PyRIT 的**域边界** = "与 LLM 的 prompt 交互与响应评估"（蓝图 [sid:10-ch3]）。域内的多样性由 `PromptConverter` / `Attack` / `Scorer` 表达，**不是由"新建组件/新建目录"表达** |
 | P2-N2 | Web 侧三个攻击向量的终点是**同一个 `HTTPTarget`**（宪法 7C.4）。"多了一种 payload 构造器" ≠ "多了一种 target 类型"；自研部分必须收在 Glue / Enhancement / Output 三类之内（C13 企业扩展三原则） |
 | P2-N3 | **复用原生 > 新建分支**：差异应由同一组件的 `converters` / `playbooks` / `scorer` 字段表达（ADR-007），不得用新目录表达同一原语内部的差异 |
 

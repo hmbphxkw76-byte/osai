@@ -308,7 +308,7 @@ pyrit-drift --full --report
 
 | # | 红线 | 级别 | 判定特征 | 检查器 |
 |---|------|------|----------|--------|
-| R-CROSS-1 | **审查前置**：L0-L4 规约变更必须经过跨模型审查（≥2 模型），single-model 审查结论不得直接写入规约文档 | BLOCKING | 规约文档已变更但 outputs/cross_model_review/ 无对应记录 | `check_cross_model_review()` |
+| R-CROSS-1 | **审查前置**：L0-L4 规约变更必须经过跨模型审查（≥2 模型），single-model 审查结论不得直接写入规约文档 | BLOCKING | 规约文档已变更但 docs/specs/reviews/ 无对应记录 | `check_cross_model_review()` |
 | R-CROSS-2 | **一致性达标**：跨模型审查 Overall κ < 0.6 时禁止合入，必须人工仲裁 | BLOCKING | κ 值低于阈值却已合入 | `check_review_consistency()` |
 | R-CROSS-3 | **审查记录完整**：审查记录必须包含 raw/ + aligned/ + adjudication/ 三层产物，永久保留 | WARNING | 审查记录缺失任何一层 | `check_review_artifacts()` |
 | R-CROSS-4 | **修复跟踪**：confirmed findings 必须创建跟踪任务，single-model findings 标记待人工 | WARNING | confirmed findings 未创建跟踪或 single-model 未标记 | `check_review_followup()` |

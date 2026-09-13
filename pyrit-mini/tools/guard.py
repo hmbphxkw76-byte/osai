@@ -921,8 +921,19 @@ def _register_gate_checks() -> None:
         logger.warning("Gate checks NOT registered: %s", e)
 
 
+def _register_cross_model_checks() -> None:
+    try:
+        from tools.cross_model_review import register as register_cross_model_checks
+
+        register_cross_model_checks(ArchitectureGuard)
+    except ImportError as e:
+        _FAILED_REGISTRATIONS.append(f"tools.cross_model_review（R-CROSS-1~5）: {e}")
+        logger.warning("Cross-model checks NOT registered: %s", e)
+
+
 _register_all_extended_checks()
 _register_gate_checks()
+_register_cross_model_checks()
 
 
 if __name__ == "__main__":

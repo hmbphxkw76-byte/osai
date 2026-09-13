@@ -338,7 +338,7 @@ def align_reviews(reviews: list[dict]) -> dict:
 ### 6.1 目录结构
 
 ```
-outputs/cross_model_review/
+docs/specs/reviews/
 └── {YYYYMMDD}-{change_id}/
     ├── trigger.md          # 触发变更说明
     ├── raw/                # 原始审查报告
@@ -423,7 +423,7 @@ outputs/cross_model_review/
 
 if git diff --name-only | grep -E "^docs/specs/[0-9]+-"; then
     # 检查是否有审查记录
-    if ! grep -q "cross_model_review:" outputs/cross_model_review/latest/summary.md 2>/dev/null; then
+    if ! grep -q "cross_model_review:" docs/specs/reviews/latest/summary.md 2>/dev/null; then
         echo "BLOCKING: 规约变更未执行跨模型审查"
         exit 1
     fi

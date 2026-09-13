@@ -7,7 +7,9 @@ S2（禁整文件覆盖）/ S3（禁重排章节号）/ S6（规模自检），�
 检测项：
   1. 整篇覆盖重写（相对 HEAD，单文件删除行 ≥ 70% 总行且非新增）→ BLOCKING
   2. 大规模改动（增+删 ≥ 50% 总行）→ WARNING（提示拆分为增量编辑）
-  3. sid 锚点唯一性与格式（--sid）→ BLOCKING（重复）/ WARNING（格式）
+  3. sid 锚点唯一性（全局）→ BLOCKING（重复）/ WARNING（格式）
+  4. sid 引用存在性（正文 [sid:...] 须指向已声明锚点）→ BLOCKING（悬空，D8）
+  5. 文档路径存在性（markdown 链接本地路径须真实存在）→ WARNING（失效，D5）
 
 用法：
   python -m tools.spec_lint              # 检测 docs/specs 相对 HEAD 的 diff 规模
@@ -135,13 +137,93 @@ def _describe() -> None:
         f"  整篇覆盖重写  : 相对 HEAD 单文件删除行 ≥ {_REWRITE_DEL_RATIO:.0%} 总行 → BLOCKING\n"
         f"  大规模改动    : 增+删 ≥ {_LARGE_CHURN_RATIO:.0%} 总行 → WARNING\n"
         "  sid 唯一性    : [sid:<doc>-<slug>] 全局唯一 → BLOCKING(重复) / WARNING(格式)\n"
+        "  sid 引用      : 正文 [sid:...] 须指向已声明锚点 → BLOCKING(悬空, D8)\n"
+        "  路径存在性    : markdown 链接本地路径须存在 → WARNING(失效, D5)\n"
         "  豁免          : 经批准的合法重写走 change-proposal（C12），不在本门禁豁免之列\n"
     )
 
 
+def _collect_defined_sids() -> set[str]:
+    """收集所有规约标题中声明的 [sid:...] 锚点（D8 权威集）。"""
+    defined: set[str] = set()
+    for md in sorted(SPECS_DIR.rglob("*.md")):
+        try:
+            text = md.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for line in text.splitlines():
+            m = _SID_TITLE_RE.match(line.strip())
+            if m:
+                defined.add(m.group(1))
+    return defined
+
+
+def check_sid_references() -> tuple[list[str], list[str]]:
+    """校验正文 [sid:...] 引用均指向已声明锚点（D8 跨文档引用；BLOCKING=悬空）。
+
+    仅校验方括号形式 `[sid:<doc>-<slug>]`（D8 规范写法）；标题自身的 sid 已在
+    权威集中，不会误报；只有指向「从未声明的 sid」的引用才升级为 BLOCKING。
+    """
+    blocking: list[str] = []
+    warning: list[str] = []
+    defined = _collect_defined_sids()
+    for md in sorted(SPECS_DIR.rglob("*.md")):
+        rel = md.relative_to(ROOT).as_posix()
+        try:
+            text = md.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for i, line in enumerate(text.splitlines(), 1):
+            for m in re.finditer(r"\[sid:([a-z0-9]+-[a-z0-9\-]+)\]", line):
+                if m.group(1) not in defined:
+                    blocking.append(
+                        f"{rel}:{i}: 悬空 sid 引用 `[sid:{m.group(1)}]`（未在任意规约标题声明，违反 D8）"
+                    )
+    return blocking, warning
+
+
+_MD_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+
+
+def check_path_references() -> tuple[list[str], list[str]]:
+    """校验正文 markdown 链接的本地路径真实存在（D5；WARNING=失效路径）。
+
+    跳过：外部链接(http/https/mailto/tel)、纯 #anchor、outputs/ 运行时目录、
+    templates/ 与 plans/ 下的示例/计划文档（含故意占位路径）。
+    解析顺序：先相对链接所在目录，再相对仓库根（兼容 `docs/specs/X` 写法）。
+    """
+    blocking: list[str] = []
+    warning: list[str] = []
+    for md in sorted(SPECS_DIR.rglob("*.md")):
+        rel = md.relative_to(ROOT).as_posix()
+        if rel.startswith("docs/specs/templates/") or rel.startswith("docs/specs/plans/"):
+            continue
+        try:
+            text = md.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for i, line in enumerate(text.splitlines(), 1):
+            for m in _MD_LINK_RE.finditer(line):
+                target = m.group(1).strip()
+                if not target or target.startswith(("#", "http://", "https://", "mailto:", "tel:")):
+                    continue
+                if target.startswith("outputs/"):
+                    continue
+                path_part = target.split("#", 1)[0]
+                if not path_part:
+                    continue
+                cand = (ROOT / md.parent / path_part).resolve()
+                if not cand.exists():
+                    cand2 = (ROOT / path_part).resolve()
+                    if cand2.exists():
+                        continue
+                    warning.append(f"{rel}:{i}: 文档引用路径不存在（D5）：{target}")
+    return blocking, warning
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="规约最小 diff 门禁")
-    ap.add_argument("--sid", action="store_true", help="校验 sid 锚点唯一性")
+    ap.add_argument("--sid", action="store_true", help="兼容别名：默认已含 sid 锚点校验")
     ap.add_argument("--describe", action="store_true", help="打印检查规则后退出")
     args = ap.parse_args()
 
@@ -152,14 +234,19 @@ def main() -> int:
     blocking: list[str] = []
     warning: list[str] = []
 
-    if args.sid:
-        b, w = check_sid_uniqueness()
-        blocking += b
-        warning += w
-    else:
-        b, w = check_diff_scale()
-        blocking += b
-        warning += w
+    # 规模门禁（相对 HEAD diff）+ 锚点体系（D8）+ 路径存在性（D5）
+    b, w = check_diff_scale()
+    blocking += b
+    warning += w
+    b, w = check_sid_uniqueness()
+    blocking += b
+    warning += w
+    b, w = check_sid_references()
+    blocking += b
+    warning += w
+    b, w = check_path_references()
+    blocking += b
+    warning += w
 
     for msg in warning:
         print(f"  [WARN] {msg}")

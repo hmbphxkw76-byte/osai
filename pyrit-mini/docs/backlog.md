@@ -60,10 +60,10 @@
 | BL-068 | 2026-09-12 | ~~**规约同步（ADR-009 / R-DOC-4）待办**~~ **已闭环**：① `specs/README.md §2` 改为"命令以 `tools/gate.py` 为准、文档只描述阶段"，明写 `python -m tools.gate --describe` 为命令唯一权威并禁手抄（含 E-01 教训）；§2.1 钩子阶段同步；§4 CLI 表删除不存在的 `pyrit-cross`/`pyrit-quick`/`pyrit-watch`（BL-042），补 `pyrit-gate`/`pyrit-mock-range`/`pyrit-oob`/`pyrit-poc`/审计族；② `40-GUARDRAILS.md` 新增 **1K-GATE 门禁本体护栏**（R-GATE-1~4）+ 1F 登记簿同步 4 行；③ `pyproject.toml` 增 `pyrit-gate = tools.gate:main`（NFR-24）；④ 40-G 升至 v3.5 并同步 README §1 索引。验证：`drift_detector --full` → HEALTHY（R-DOC-4 版本一致） | 本次交付 | **completed** |
 | BL-069 | 2026-09-12 | **e2e 门禁步骤处于"目录不存在即跳过"状态**：`tools/gate.py` 的 e2e 步在 `tests/e2e/` 缺失时打印 INFO 并跳过（不阻塞）。`tests/e2e/` 落地后该步自动生效，届时**须把跳过改为阻塞**（否则 REQ-156⑤ 形同虚设） | 本次交付 / BL-056 | **open** |
 | BL-071 | 2026-09-13 | **`AGENTS.md` 未纳入 R-DOC-4 版本校验白名单**：`tools/guard_extended.check_readme_version_synced` 的 `doc_files` 硬编码 00/10/20/30/40/50/55/60/80 九文档，`AGENTS.md`（v1.0）已登记进 `specs/README.md` §1 索引但版本同步暂无自动校验（同 BL-039 病根）；纳入需改 `tools/guard_extended.py` | P0 跨模型入口 | **open** |
-| BL-072 | 2026-09-13 | **跨模型审查记录不入库（R-CROSS-3 冲突）**：`outputs/` 被 `.gitignore` 忽略，`outputs/cross_model_review/` 审查记录无法 git 跟踪，与 60 §6「审查记录永久保留」矛盾；需裁决改存 `docs/specs/reviews/`（入库）或修订 R-CROSS-3 | P0 review-only | **open** |
-| BL-073 | 2026-09-13 | **`55-ATTACK-GAP-CLOSURE.md` 结构修复（D3 违例 + 编号混乱）**：① `## 10. 版本记录` 正文维护 8 行版本史（D3 违例，应交 git log）；② 一级标题编号重复/错位（两个 `5.`/`6.`/`10.`，`9.6` 小节落在 `10. 缺口 5` 之后）；须专项任务：删版本表 + 归一章节编号（sid 已加，仅编号文本待修） | P1 sid 标注 | **open** |
-| BL-074 | 2026-09-13 | **sid 引用迁移**：9 份规约文档一级标题已加 `[sid:...]` 锚点（D8），但跨文档引用仍用"第 X 章 / §X / 第十章"裸章节号（如 `30-TASKS 第十章`、`40-GUARDRAILS 1I-CROSS`）；须专项任务把引用改为 sid，实现"增删章节不漂移"的闭环 | P1 sid 标注 | **open** |
-| BL-075 | 2026-09-13 | **拆大文件 + 清单外置（P2 遗留，走 CP 通道）**：`55-ATTACK-GAP-CLOSURE`(802 行)/`10-ARCHITECTURE`(527 行)/`40-GUARDRAILS`(487 行) 超长，整文件读+写成本高、易丢内容，诱发"换模型即重写"；须 change-proposal：55 按攻击面拆文件、不变量表/组件清单外置 YAML 由代码读（D4 清单不进正文） | P2 拆大文件 | **open** |
+| BL-072 | 2026-09-13 | ~~**跨模型审查记录不入库（R-CROSS-3 冲突）**~~ **已闭环**：裁决改存 `docs/specs/reviews/`（入库，满足 R-CROSS-3 永久保留）；同步 7 处路径引用（60 §6.1/§9.1、40 R-CROSS-1、10 12.1、templates §6、AGENTS.md §3） | P0 review-only | **completed** |
+| BL-073 | 2026-09-13 | ~~**`55-ATTACK-GAP-CLOSURE.md` 结构修复（D3 违例 + 编号混乱）**~~ **已闭环**：① 删除正文 `## 10. 版本记录`（8 行版本史，D3 违例）；② 一级标题归一为连续 1~12（消除两个 `5.`/`6.`/`10.` 重复）；③ 子标题 49 处跟随父标题重编号（3.x~12.x）；④ `9.6 跨模型审查集成` 归位至 `9.5` 之后（原落在 `9.7 Adaptive` 之后） | P1 sid 标注 | **completed** |
+| BL-074 | 2026-09-13 | ~~**sid 引用迁移**~~ **已闭环（跨文档部分）**：跨文档"别名+第X章"引用 14 处已迁移为 sid（如 `蓝图第八章`→`蓝图 [sid:10-ch8]`、`宪法第六章`→`宪法 [sid:00-ch6]`），涉及 6 文件；文档内自引用（"第五章/第六章"）与 `§X`（README 章节未加 sid）保留——同文档内引用漂移风险低且可读性优先 | P1 sid 标注 | **completed** |
+| BL-075 | 2026-09-13 | **拆大文件 + 清单外置（P2 遗留，走 CP 通道）**：已转 `plans/CP-005-spec-splitting.md`（draft 待人工批准）。方案：55 按攻击面拆 `55-gap-1~6.md` + 保留索引、10 不变量表外置 `config/invariants.yaml`、40 已合规不拆；含 R-DOC-2 检查器与 drift_detector 同步义务 | P2 拆大文件 | **converted** |
 
 ---
 
