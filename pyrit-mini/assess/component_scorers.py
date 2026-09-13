@@ -17,6 +17,7 @@ import logging
 from pathlib import Path
 
 from assess.a2a.t0 import t0_a2a_agent_integrity_check
+from assess.agent.t0 import t0_agent_check
 from assess.mcp.t0 import t0_mcp_tool_poisoning_check
 from assess.model.t0 import t0_model_behavior_shift_check
 from assess.multimodal_upload.t0 import t0_multimodal_upload_check
@@ -35,6 +36,7 @@ _COMPONENT_T0_FUNCTIONS = [
     ("session_memory", t0_session_memory_check),
     ("web_api", t0_web_api_check),
     ("multimodal_upload", t0_multimodal_upload_check),
+    ("agent", t0_agent_check),
 ]
 
 

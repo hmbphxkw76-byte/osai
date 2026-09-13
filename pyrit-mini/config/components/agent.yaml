@@ -1,0 +1,68 @@
+# config/components/agent.yaml — ReAct / Tool-use Agent 攻击面（组件声明 SSOT）
+#
+# 覆盖：函数调用 / 工具使用 Agent（ReAct/Tool-use）的侦察与攻击。
+# 企业第一大类目标（C6「未登记 = 不存在」）；与 a2a（Agent-to-Agent 协议）区分：
+#   - a2a   = 多智能体之间的协议 / 身份 / 信任链
+#   - agent = 单个 ReAct/Tool-use Agent 的工具循环被劫持（工具结果注入 / 恶意工具 / 诱导外泄）
+# 学术依据：
+#   - Greshake et al. (arXiv:2302.12173) 间接 Prompt 注入（工具结果载体）
+#   - Zhan et al. (arXiv:2307.00929) 模式引导注入（InjecAgent）
+#   - OWASP ASI04 工具/函数滥用、OWASP ASI10 恶意 Agent/工具
+# 实现落点：recon/agent/*、strike/agent/*（本组件新增；t0 判定与 rubric 见 assess/agent、data/scorers）。
+
+schema_version: "1.0"
+component_key: agent
+id: agent
+display_name: "ReAct / Tool-use Agent"
+labels: [agent, tool_use, react, function_calling, agent_integrity]
+
+recon_dir: agent
+strike_dir: agent
+
+detection:
+  path_patterns: ["/tools", "/functions", "/agent", "/v1/chat/completions", "/run", "/action"]
+  body_markers: ["tool_calls", "function_call", "tools", "functions", "action_input", "agent_scratchpad", "intermediate_steps"]
+  active_probes: ["recon.agent.discoverer"]
+  signals: ["tool_calls", "function_call", "tools", "action"]
+  min_confidence: 0.55
+
+recon_modules:
+  - recon.agent.discoverer
+  - recon.agent.tool_analyzer
+  - recon.agent.capability_enumerator
+service_profile_keys: ["agent_surface", "agent_tool_inventory", "agent_capabilities"]
+
+# 专用种子集（BL-048）：`data/seeds/_attack_surface/T1_agent_tool_use/` 下 T*_AGENT_* 工具结果注入/恶意工具/外泄语料。
+seed_sets:
+  - "data/seeds/_attack_surface/T1_agent_tool_use/"
+seeds: ["data/seeds/_attack_surface/T1_agent_tool_use/*"]
+seed_suitable_for: ["agent"]
+converter_vectors: ["tool_result_injection", "rogue_tool_registration", "prompt_leak_via_tool"]
+
+# C1 PyRIT 原生优先：注入步经 PromptSendingAttack 投递；工具调用为 C13 企业扩展。
+preferred_attack_class: "PromptSendingAttack"
+asr_prior: 0.70
+
+strike_modules:
+  - strike.agent.tool_injector
+  - strike.agent.exfiltration
+  - strike.agent.rogue_tool
+
+# 专用判定：agent 是否执行了工具结果中的注入指令 / 注册恶意工具 / 经工具外泄。
+assess:
+  t0_check: "assess.component_scorers:t0_agent_check"
+  rubric: "data/scorers/component_scorers/agent.yaml"
+scorer: agent
+
+report_builder: "report.component_reports:_build_agent_sections"
+report_section: "report.agent"
+poc_template: "report.component_poc:agent_poc"
+
+owasp: ["ASI01", "ASI04", "ASI05", "LLM01"]
+# 工具循环常挂载在模型层之上、经 web_api 调用，且与 a2a（多智能体）相邻
+neighbors: ["a2a_agent_integrity", "mcp_tool_poisoning", "model_behavior_shift", "web_api"]
+
+# I13：未声明 cleanup 的副作用步禁止在非 dry-run 下执行。
+# `unregister_rogue_tool` / `restore_agent_tools` 已声明但**尚未实现** → 含工具副作用步
+# 只能在 dry-run 下执行（登记 backlog，实装为本组件 P0 前置）。
+cleanup: [unregister_rogue_tool, restore_agent_tools]

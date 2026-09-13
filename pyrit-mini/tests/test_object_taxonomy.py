@@ -19,7 +19,8 @@ from core.object_taxonomy import (
 def test_objects_are_canonically_ordered():
     assert "mcp" in OBJECTS
     assert "a2a" in OBJECTS
-    assert len(OBJECTS) == 11
+    assert "agent" in OBJECTS
+    assert len(OBJECTS) == 12
 
 
 def test_normalize_object_passthrough():
@@ -30,7 +31,7 @@ def test_normalize_object_passthrough():
 
 def test_normalize_object_aliases():
     assert normalize_object("mcpsec") == "mcp"
-    assert normalize_object("agent") == "a2a"
+    assert normalize_object("agent") == "agent"
     assert normalize_object("llm") == "model"
     assert normalize_object("retrieval") == "rag"
 
@@ -62,7 +63,7 @@ def test_is_object():
 def test_validate_object_list():
     normalized, unknown = validate_object_list(["mcp", "agent", "bogus", "MCP"])
     assert "mcp" in normalized
-    assert "a2a" in normalized  # alias expanded
+    assert "agent" in normalized  # agent now canonical
     assert normalized.count("mcp") == 1  # deduplicated
     assert unknown == ["bogus"]
 

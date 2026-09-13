@@ -26,6 +26,7 @@ from typing import Iterable
 # Canonical ordered object axis. Order matters only for stable display.
 OBJECTS: tuple[str, ...] = (
     "a2a",
+    "agent",
     "mcp",
     "rag",
     "model",
@@ -40,7 +41,6 @@ OBJECTS: tuple[str, ...] = (
 
 # Aliases accepted on the CLI but normalized to OBJECTS.
 OBJECT_ALIASES: dict[str, str] = {
-    "agent": "a2a",
     "agent2agent": "a2a",
     "mcpsec": "mcp",
     "model_context_protocol": "mcp",
@@ -57,6 +57,7 @@ OBJECT_ALIASES: dict[str, str] = {
 # Mapping: object -> assess/report component_type key (the legacy component
 # classification used by assess.component_scorers / report.component_reports).
 OBJECT_TO_COMPONENT: dict[str, str] = {
+    "agent": "agent",
     "mcp": "mcp_tool_poisoning",
     "a2a": "a2a_agent_integrity",
     "model": "model_behavior_shift",
