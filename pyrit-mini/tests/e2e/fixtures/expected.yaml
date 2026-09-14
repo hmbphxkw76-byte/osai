@@ -1,0 +1,63 @@
+# fixtures/expected.yaml — W-P4 P4-4 golden 期望（NFR-22 / REQ-156⑤）
+#
+# 每个 playbook 的期望结构；e2e 断言以此为基准，结构漂移即失败。
+# steps 为 [name, action, depends_on] 列表。
+#
+# 组件 → playbook 登记映射（与 config/components/*.yaml 的 `playbooks:` 字段一致）。
+targets:
+  a2a:
+    playbooks: [a2a_card_spoof, a2a_workflow_hijack, a2a_cross_agent_inject]
+  mcp:
+    playbooks: [mcp_enum_call, mcp_schema_poison, mcp_tool_chain]
+  rag:
+    playbooks: [rag_poison, rag_citation_spoof]
+  embedding:
+    playbooks: [embedding_poison_then_retrieve]
+
+playbooks:
+  a2a_card_spoof:
+    adapter: a2a
+    steps:
+      - [fetch_card, fetch_agent_card, []]
+      - [spoof_task, send_task, [fetch_card]]
+  a2a_workflow_hijack:
+    adapter: a2a
+    steps:
+      - [fetch_card, fetch_agent_card, []]
+      - [hijack_task, send_task, [fetch_card]]
+  a2a_cross_agent_inject:
+    adapter: a2a
+    steps:
+      - [fetch_card, fetch_agent_card, []]
+      - [cross_inject, send_task, [fetch_card]]
+  mcp_enum_call:
+    adapter: mcp
+    steps:
+      - [handshake, handshake, []]
+      - [tools_list, list_tools, [handshake]]
+      - [tool_call, call_tool, [tools_list]]
+  mcp_schema_poison:
+    adapter: mcp
+    steps:
+      - [handshake, handshake, []]
+      - [list_tools, list_tools, [handshake]]
+      - [call_tool_poisoned, call_tool, [list_tools]]
+  mcp_tool_chain:
+    adapter: mcp
+    steps:
+      - [handshake, handshake, []]
+      - [list_tools, list_tools, [handshake]]
+      - [call_tool_a, call_tool, [list_tools]]
+      - [call_tool_b, call_tool, [call_tool_a]]
+  rag_poison:
+    adapter: rag
+    steps:
+      - [retrieve_and_generate, query, []]
+  rag_citation_spoof:
+    adapter: rag
+    steps:
+      - [query_spoofed_source, query, []]
+  embedding_poison_then_retrieve:
+    adapter: rag
+    steps:
+      - [retrieve_and_generate, query, []]

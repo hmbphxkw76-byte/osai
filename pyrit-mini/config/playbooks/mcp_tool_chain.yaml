@@ -1,0 +1,30 @@
+name: mcp_tool_chain
+description: >-
+  MCP 工具链组合（REQ-175 / W-P4 P4-2）：handshake → list_tools → call_tool → call_tool，
+  验证多工具串联可被编排执行（fetch 后接 exec 的链式利用）。
+steps:
+  - name: handshake
+    adapter: mcp
+    action: handshake
+  - name: list_tools
+    adapter: mcp
+    action: list_tools
+    depends_on: [handshake]
+  - name: call_tool_a
+    adapter: mcp
+    action: call_tool
+    depends_on: [list_tools]
+    params:
+      arguments:
+        tool: "fetch_url"
+        arguments:
+          url: "http://internal/config"
+  - name: call_tool_b
+    adapter: mcp
+    action: call_tool
+    depends_on: [call_tool_a]
+    params:
+      arguments:
+        tool: "exec"
+        arguments:
+          cmd: "echo chained"

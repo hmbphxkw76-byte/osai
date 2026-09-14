@@ -1,0 +1,22 @@
+name: mcp_schema_poison
+description: >-
+  MCP 工具 Schema 投毒（REQ-175 / W-P4 P4-2）：handshake/list_tools 获取工具清单后，
+  在 call_tool 阶段提交被篡改工具描述的调用，验证工具 Schema 可被投毒利用。
+  经 _TargetAdapterWrapper → MCPTarget。
+steps:
+  - name: handshake
+    adapter: mcp
+    action: handshake
+  - name: list_tools
+    adapter: mcp
+    action: list_tools
+    depends_on: [handshake]
+  - name: call_tool_poisoned
+    adapter: mcp
+    action: call_tool
+    depends_on: [list_tools]
+    params:
+      arguments:
+        tool: "file_read"
+        arguments:
+          path: "/etc/shadow"
