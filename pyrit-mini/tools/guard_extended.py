@@ -2665,13 +2665,13 @@ _IMPORT_FOOTNOTE_EXCEPTIONS: dict[tuple[str, str], frozenset[str]] = {
 
 # 存量违例豁免（随对应收口切片删除；只减不增）。
 # 已闭环（CP-009 S2/S3/S7）：strike→assess / assess→arm / report→utils 三条条目已删除。
-# 待 REQ-151 分层重构一并消除（均为非叶节点 / 子系统，搬运会反转依赖层，故不在此 CP 强求）：
-#   - ("recon","strike")  : S4 ✅ 已收口（CP-012）：get_shared_bridge/SessionConfig/SessionStateManager 经 core.adapter_registry 接缝（recon→core ✓），豁免已删
-#   - ("core","recon")    : S5 parse_burp_request 牵引 recon 指纹子系统（非叶）
-#   - ("strike","recon")  : S6 ✅ 已收口（CP-012）：AgentCard/get_stealth_manager/get_tls_verify 经 core.adapter_registry 接缝（strike→core ✓），豁免已删
-_IMPORT_DEBT_EXCEPTIONS: dict[tuple[str, str], frozenset[str]] = {
-    ("core", "recon"): frozenset({"ParsedBurpRequest", "parse_burp_request", "get_playwright_handles"}),  # S5 → REQ-151
-}
+# 已闭环（CP-012 S4/S5/S6）：recon→strike / core→recon / strike→recon 三对全部经
+#   core.adapter_registry 接缝收口（recon→core ✓ / strike→core ✓），豁免已全部删除（R-IMPORT 0 豁免）：
+#   - ("recon","strike")  : S4 ✅ get_shared_bridge/SessionConfig/SessionStateManager 经 core.adapter_registry（recon→core ✓）
+#   - ("core","recon")    : S5 ✅ ParsedBurpRequest/TargetFingerprint 下沉 core（core._burp_models）；
+#                           parse_burp_request/get_playwright_handles 经 core.adapter_registry（recon→core ✓）
+#   - ("strike","recon")  : S6 ✅ AgentCard/get_stealth_manager/get_tls_verify 经 core.adapter_registry（strike→core ✓）
+_IMPORT_DEBT_EXCEPTIONS: dict[tuple[str, str], frozenset[str]] = {}
 
 
 def _row_key_to_prefix(row: str) -> str:
