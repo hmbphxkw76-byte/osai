@@ -2668,24 +2668,13 @@ _IMPORT_FOOTNOTE_EXCEPTIONS: dict[tuple[str, str], frozenset[str]] = {
 # 待 REQ-151 分层重构一并消除（均为非叶节点 / 子系统，搬运会反转依赖层，故不在此 CP 强求）：
 #   - ("recon","strike")  : S4 recon→strike（BL-082 ②）：MCPTarget/RAGTarget/A2ATarget 已改经 core.target_factory 接缝（recon→core ✓），剩 get_shared_bridge/SessionConfig/SessionStateManager 3 符号待 REQ-151
 #   - ("core","recon")    : S5 parse_burp_request 牵引 recon 指纹子系统（非叶）
-#   - ("strike","recon")  : S6 适配器子系统（AdapterResponse/BaseAdapter/...，非叶）
+#   - ("strike","recon")  : S6 strike→recon（非叶）：AdapterResponse/BaseAdapter/HTTPAdapter/JSONRPCAdapter/build_adapter 已改经 core.adapter_registry 接缝（strike→core ✓），剩 AgentCard/get_stealth_manager/get_tls_verify 3 符号待 REQ-151
 _IMPORT_DEBT_EXCEPTIONS: dict[tuple[str, str], frozenset[str]] = {
     ("recon", "strike"): frozenset(
         {"get_shared_bridge", "SessionConfig", "SessionStateManager"}
     ),  # S4 余 3 符号 → REQ-151
     ("core", "recon"): frozenset({"ParsedBurpRequest", "parse_burp_request", "get_playwright_handles"}),  # S5 → REQ-151
-    ("strike", "recon"): frozenset(
-        {
-            "AdapterResponse",
-            "AgentCard",
-            "BaseAdapter",
-            "HTTPAdapter",
-            "JSONRPCAdapter",
-            "adapters",
-            "get_stealth_manager",
-            "get_tls_verify",
-        }
-    ),  # S6 → REQ-151
+    ("strike", "recon"): frozenset({"AgentCard", "get_stealth_manager", "get_tls_verify"}),  # S6 余 3 符号 → REQ-151
 }
 
 

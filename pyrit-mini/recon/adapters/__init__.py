@@ -14,8 +14,10 @@
 from __future__ import annotations
 
 import logging
+import sys
 from typing import Any
 
+from core.adapter_registry import register_adapter
 from recon.adapters.base import (
     CHAT_ID_PLACEHOLDER,
     SESSION_ID_PLACEHOLDER,
@@ -217,3 +219,17 @@ __all__ = [
     "build_adapter",
     "choose_kind",
 ]
+
+# 跨层接缝（CP-009 S6）：把本层 Adapter 类与 build_adapter 登记进 core.adapter_registry，
+# 使 strike 侧经注册表取用而不静态 import recon 域（recon→core ✓）。
+def _build_adapter_live(*args: Any, **kwargs: Any) -> BaseAdapter:
+    # 每次调用取 recon.adapters 当前 build_adapter 属性，使单测 monkeypatch 生效
+    #（recon→recon，不反转依赖层）。
+    return getattr(sys.modules[__name__], "build_adapter")(*args, **kwargs)
+
+
+register_adapter("BaseAdapter", BaseAdapter)
+register_adapter("HTTPAdapter", HTTPAdapter)
+register_adapter("JSONRPCAdapter", JSONRPCAdapter)
+register_adapter("AdapterResponse", AdapterResponse)
+register_adapter("build_adapter", _build_adapter_live)

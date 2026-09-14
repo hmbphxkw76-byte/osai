@@ -17,9 +17,15 @@ from typing import Any
 from pyrit.models import Message, construct_response_from_request
 from pyrit.prompt_target.common.prompt_target import PromptTarget
 
-from recon.adapters.jsonrpc import JSONRPCAdapter
+from core.adapter_registry import get_adapter
 
 logger = logging.getLogger(__name__)
+
+# 跨层注解类型经注册表取用（strike→core ✓）；仅注解用，运行时由 future-annotations 不求值。
+try:
+    JSONRPCAdapter = get_adapter("JSONRPCAdapter")
+except KeyError:
+    JSONRPCAdapter = None
 
 
 class MCPTarget(PromptTarget):
@@ -36,7 +42,7 @@ class MCPTarget(PromptTarget):
     def __init__(
         self,
         *,
-        adapter: JSONRPCAdapter,
+        adapter: "JSONRPCAdapter",
         endpoint: str = "",
         model_name: str = "mcp",
         tool_name: str = "",
@@ -87,7 +93,12 @@ class MCPTarget(PromptTarget):
         return list(self._mcp_tools)
 
     def describe(self) -> dict[str, Any]:
-        return {"target": "mcp", "adapter": self._adapter.describe(), "tools": self._mcp_tools, "handshaken": self._handshaken}
+        return {
+            "target": "mcp",
+            "adapter": self._adapter.describe(),
+            "tools": self._mcp_tools,
+            "handshaken": self._handshaken,
+        }
 
     # -- PyRIT 契约 ------------------------------------------------------
     async def _send_prompt_to_target_async(self, *, normalized_conversation: list[Message]) -> list[Message]:

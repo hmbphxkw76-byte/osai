@@ -16,9 +16,15 @@ from typing import Any
 from pyrit.models import Message, construct_response_from_request
 from pyrit.prompt_target.common.prompt_target import PromptTarget
 
-from recon.adapters.base import BaseAdapter
+from core.adapter_registry import get_adapter
 
 logger = logging.getLogger(__name__)
+
+# 跨层注解类型经注册表取用（strike→core ✓）；仅注解用，运行时由 future-annotations 不求值。
+try:
+    BaseAdapter = get_adapter("BaseAdapter")
+except KeyError:
+    BaseAdapter = None
 
 # 检索响应中常见的结果容器键
 _CHUNK_CONTAINER_KEYS = ("results", "chunks", "documents", "matches", "contexts", "sources")
@@ -37,8 +43,8 @@ class RAGTarget(PromptTarget):
     def __init__(
         self,
         *,
-        adapter: BaseAdapter,
-        retrieval_adapter: BaseAdapter | None = None,
+        adapter: "BaseAdapter",
+        retrieval_adapter: "BaseAdapter | None" = None,
         endpoint: str = "",
         model_name: str = "rag",
         system_prompt: str = "",

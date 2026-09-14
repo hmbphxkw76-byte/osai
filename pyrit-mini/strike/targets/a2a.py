@@ -16,10 +16,16 @@ from typing import Any
 from pyrit.models import Message, construct_response_from_request
 from pyrit.prompt_target.common.prompt_target import PromptTarget
 
-from recon.adapters.base import AdapterResponse, BaseAdapter
-from recon.adapters.http import HTTPAdapter
+from core.adapter_registry import get_adapter
 
 logger = logging.getLogger(__name__)
+
+# 跨层注解类型经注册表取用（strike→core ✓）；仅注解用，运行时由 future-annotations 不求值。
+# recon.adapters 未导入时退化为 None（孤立单测 / 导入序），不影响运行期。
+try:
+    BaseAdapter = get_adapter("BaseAdapter")
+except KeyError:
+    BaseAdapter = None
 
 AGENT_CARD_PATH = "/.well-known/agent.json"
 DEFAULT_TASK_PATH = "/a2a/tasks/send"
@@ -37,8 +43,8 @@ class A2ATarget(PromptTarget):
     def __init__(
         self,
         *,
-        adapter: BaseAdapter,
-        card_adapter: BaseAdapter | None = None,
+        adapter: "BaseAdapter",
+        card_adapter: "BaseAdapter | None" = None,
         endpoint: str = "",
         model_name: str = "a2a",
         task_path: str = DEFAULT_TASK_PATH,
@@ -54,7 +60,9 @@ class A2ATarget(PromptTarget):
         if self._card_adapter is None:
             base = adapter.url.split("//", 1)[-1].split("/", 1)[0]
             scheme = adapter.url.split("//", 1)[0] or "http:"
-            self._card_adapter = HTTPAdapter(url=f"{scheme}//{base}{AGENT_CARD_PATH}", method="GET", verify=adapter.verify)
+            self._card_adapter = get_adapter("HTTPAdapter")(
+                url=f"{scheme}//{base}{AGENT_CARD_PATH}", method="GET", verify=adapter.verify
+            )
         # PyRIT 1.0.1 的 PromptTarget 不接收 system_prompt 形参，仅作实例属性保留
         self._system_prompt = system_prompt
         super().__init__(
@@ -110,9 +118,9 @@ class A2ATarget(PromptTarget):
         prompt = request_piece.converted_value or request_piece.original_value or ""
 
         task = await self.send_task(prompt)
-        text = self._adapter.extract_text(AdapterResponse(status=200, payload=task, text=str(task.get("status") or ""))) or str(
-            task.get("status") or ""
-        )
+        text = self._adapter.extract_text(
+            get_adapter("AdapterResponse")(status=200, payload=task, text=str(task.get("status") or ""))
+        ) or str(task.get("status") or "")
 
         return [
             construct_response_from_request(

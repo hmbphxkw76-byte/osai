@@ -19,7 +19,7 @@ from typing import Any
 
 import yaml
 
-from recon import adapters
+from core.adapter_registry import get_build_adapter
 
 logger = logging.getLogger(__name__)
 
@@ -32,9 +32,9 @@ class PlaybookStep:
     params: dict[str, Any] = field(default_factory=dict)
     depends_on: list[str] = field(default_factory=list)
     # --- REQ-154 副作用治理 ---
-    side_effect: bool = False          # 该步产生真实写入（副作用）
-    cleanup: str | None = None         # cleanup 钩子/清理步名（I13：副作用步必须声明）
-    isolated_target: bool = False      # 该步要求隔离靶标（沙箱）执行
+    side_effect: bool = False  # 该步产生真实写入（副作用）
+    cleanup: str | None = None  # cleanup 钩子/清理步名（I13：副作用步必须声明）
+    isolated_target: bool = False  # 该步要求隔离靶标（沙箱）执行
 
 
 @dataclass
@@ -166,10 +166,14 @@ class PlaybookEngine:
             if step.side_effect and not dry_run and not step.cleanup:
                 results.append(
                     StepResult(
-                        name=step.name, adapter=step.adapter, action=step.action,
+                        name=step.name,
+                        adapter=step.adapter,
+                        action=step.action,
                         status="rejected",
-                        data={"error": "side-effect step without cleanup declaration (REQ-154 I13)",
-                              "side_effect": True},
+                        data={
+                            "error": "side-effect step without cleanup declaration (REQ-154 I13)",
+                            "side_effect": True,
+                        },
                     )
                 )
                 by_name[step.name] = results[-1]
@@ -179,10 +183,11 @@ class PlaybookEngine:
             if step.isolated_target and not dry_run and not isolated_base_url:
                 results.append(
                     StepResult(
-                        name=step.name, adapter=step.adapter, action=step.action,
+                        name=step.name,
+                        adapter=step.adapter,
+                        action=step.action,
                         status="rejected",
-                        data={"error": "isolated_target step requires isolated_base_url",
-                              "isolated_target": True},
+                        data={"error": "isolated_target step requires isolated_base_url", "isolated_target": True},
                     )
                 )
                 by_name[step.name] = results[-1]
@@ -194,10 +199,15 @@ class PlaybookEngine:
             if dry_run:
                 results.append(
                     StepResult(
-                        name=step.name, adapter=step.adapter, action=step.action,
+                        name=step.name,
+                        adapter=step.adapter,
+                        action=step.action,
                         status="dry_run",
-                        data={"dry_run": True, "side_effect": step.side_effect,
-                              "isolated_target": step.isolated_target},
+                        data={
+                            "dry_run": True,
+                            "side_effect": step.side_effect,
+                            "isolated_target": step.isolated_target,
+                        },
                     )
                 )
                 by_name[step.name] = results[-1]
@@ -205,7 +215,7 @@ class PlaybookEngine:
 
             adapter = None
             try:
-                adapter = adapters.build_adapter(
+                adapter = get_build_adapter()(
                     url=step_url,
                     kind=step.adapter,
                     headers=headers,
@@ -222,8 +232,12 @@ class PlaybookEngine:
                 text, data, status = "", {"error": str(e)}, "error"
             results.append(
                 StepResult(
-                    name=step.name, adapter=step.adapter, action=step.action,
-                    status=status, text=text, data=data,
+                    name=step.name,
+                    adapter=step.adapter,
+                    action=step.action,
+                    status=status,
+                    text=text,
+                    data=data,
                 )
             )
             by_name[step.name] = results[-1]
