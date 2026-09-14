@@ -1,6 +1,6 @@
 # CP-009 — 依赖方向矩阵机器校验（R-IMPORT）+ 现存跨层违例收口
 
-> 状态：**approved（S0/S1 已落地；S2/S3/S7 已收口✅；S4/S5/S6 收口见 CP-012，REQ-151 变更提案已立）**
+> 状态：**approved（S0/S1 已落地；S2/S3/S7/S6/S4 已收口✅；S5 ⏸→REQ-151（CP-012 进行中，S5a 已下沉 ParsedBurpRequest/TargetFingerprint 至 core））**
 > S0/S1 执行结果（2026-09-14）：矩阵补 `core/phases/` 行（BL-083 闭环）；`check_dependency_matrix()` 已实现并注册，
 > 40-G 1A 红线表 + 1F 登记簿同步。首扫即暴露 **3 组此前无任何检查器覆盖的跨层违例**（BL-090）。
 > 期间修复两个假绿缺陷：① Windows `str(Path)` 反斜杠使行前缀匹配全落空；② 矩阵单元格注解
@@ -47,8 +47,8 @@
 - [x] 注入 1 处违例（如 `strike` 内 import `recon`）→ R-IMPORT 判 BLOCKING，`tools.gate` 非零退出
 - [x] 白名单内合法例外（如 `precompute_outcomes_async`）→ 不报
 - [x] `core/phases/` 编排层行为 → 不报（依赖 §4 矩阵补行）
-**收口状态（S2/S3/S7 ✅ 已闭环；S4/S5/S6 ⏸ → REQ-151）**：
-- [x] 收口后真实代码 R-IMPORT 0 违规（S2/S3/S7 三条豁免已删除并验证；S4/S5/S6 三条豁免收口见 CP-012（REQ-151 变更提案，已立），当前全树 0 BLOCKING）
+**收口状态（S2/S3/S7 ✅ 已闭环；S6 ✅ 已收口（CP-012）；S4 ✅ 已收口（CP-012）；S5 ⏸ → REQ-151）**：
+- [x] 收口后真实代码 R-IMPORT 0 违规（S2/S3/S7 三条豁免 + S6/S4 豁免已删除并验证；S5 豁免收口见 CP-012（REQ-151 变更提案，已立），当前全树 0 BLOCKING）
 
 ## 4. 矩阵补 `core/phases/` 行（BL-083）
 
@@ -73,11 +73,11 @@
 | S1 | ✅ DONE（BL-088） | R-IMPORT 检查器 `check_dependency_matrix()`（数据源=矩阵表，WARNING→BLOCKING） | `tools/guard_extended.py` + 1F 登记簿 | S0 |
 | S2 | ✅ DONE（① strike→assess） | T0 文本判定下沉 `core.t0_text_checks`：`assess.judge_manager._t0_refusal_check_text` / `_t0_non_substantive_check_text` 迁至 `core/t0_text_checks.py`；`assess.judge_manager` 从 core 导入并 re-export（保 `assess/_judge_init.py`、`assess/score_pipeline.py` 既有 intra-assess 调用兼容）；`strike/common/_executor_helpers.py:56` 改 `from core.t0_text_checks import ...`；**删除 `_IMPORT_DEBT_EXCEPTIONS[("strike","assess")]`** | `core/t0_text_checks.py`（新）、`assess/judge_manager.py`、`strike/common/_executor_helpers.py` | S1 |
 | S3 | ✅ DONE（③ assess→arm） | asr_history 读写器下沉 `core.asr_history`：`arm.seed_ranker.update_asr_history` / `_ASR_HISTORY_PATH`、`arm.seed_ranking._make_seed_key` 迁至 `core/asr_history.py`；`arm.*` 从 core 导入并 re-export；`assess/asr_manager.py`（:199/:214/:230）改 `from core.asr_history import ...`；**删除 `_IMPORT_DEBT_EXCEPTIONS[("assess","arm")]`**（回归蓝图 I7：assess 写、arm 读） | `core/asr_history.py`（新）、`arm/seed_ranker.py`、`arm/seed_ranking.py`、`assess/asr_manager.py` | S1 |
-| S4 | 🟡 部分（② recon→strike：MCPTarget/RAGTarget/A2ATarget 已改经 `core.target_factory` 接缝 decouple，recon→core ✓；剩 `get_shared_bridge`/`SessionConfig`/`SessionStateManager` 3 符号待 REQ-151，BL-082 ②） | `strike.targets.*` 下沉支撑层或改由注册表/工厂解析（IC-2）；4 处 `recon/_target_router_helpers.py:567`、`recon/target_builder.py:478`、`recon/adapters/__init__.py:54/58/62` 改经 core 或注册表解析 | 跨模块 → 并入 REQ-151 PlaybookEngine 波次 | REQ-151 |
+| S4 | ✅ DONE（recon→strike 三处经 core.adapter_registry 取用；R-IMPORT 0 违例；tests/test_target_factory.py） | recon 两处（_target_router_helpers:567 / target_builder:478）改经 get_adapter 取用（recon→core ✓）+ strike 侧（session/__init__.py、mcp/orchestrator.py）导入期登记；删 `("recon","strike")` 豁免 | recon/_target_router_helpers.py + recon/target_builder.py + strike/session/__init__.py + strike/mcp/orchestrator.py | S1 接缝已建 |
 | S5 | ⏸ REQ-151（BL-090 core→recon：parse_burp_request 等经 core 暴露，recon→core ✓） | `core` 内 burp/playwright 解析件（`ParsedBurpRequest`/`parse_burp_request`/`get_playwright_handles`）解耦：迁 `core`（或 `utils`）并让 recon 侧改经 core 引用；**删除 `_IMPORT_DEBT_EXCEPTIONS[("core","recon")]`** | 执行前先定位 3 符号定义点（首扫暴露，耦合待 mini 调查） | S1 |
-| S6 | 🟡 部分（BL-090 strike→recon：AdapterResponse/BaseAdapter/HTTPAdapter/JSONRPCAdapter/build_adapter 已改经 `core.adapter_registry` 接缝 decouple，strike→core ✓；剩 `AgentCard`/`get_stealth_manager`/`get_tls_verify` 3 符号待 REQ-151，CP-012） | `strike` 引用 `recon` 适配器符号经注册表解析；**`_IMPORT_DEBT_EXCEPTIONS[("strike","recon")]` 由 9 缩至 3（只减不增）** | 符号多、耦合深 → 余 3 符号并入 CP-012 REQ-151 分层重构 | S1 |
+| S6 | ✅ DONE（BL-090 strike→recon：AdapterResponse/BaseAdapter/HTTPAdapter/JSONRPCAdapter/build_adapter + `AgentCard`/`get_stealth_manager`/`get_tls_verify` 全部经 `core.adapter_registry` 接缝 decouple，strike→core ✓；`_IMPORT_DEBT_EXCEPTIONS[("strike","recon")]` 已删（回归 BLOCKING），CP-012） | `strike` 引用 `recon` 适配器符号经注册表解析；**删除 `_IMPORT_DEBT_EXCEPTIONS[("strike","recon")]`** | 注册表接缝已闭环（core.adapter_registry + recon 侧 register_adapter 接线） | S1 |
 | S7 | ✅ DONE（BL-090 report→utils） | `report` 内 `_is_success` 迁 `core`（或 `utils` 经 core 暴露）；`report` 改从 core 引用；**删除 `_IMPORT_DEBT_EXCEPTIONS[("report","utils")]`** | `report/*`、`core/*`（新） | S1 |
-| **闭环判据** | — | 3 条（S2/S3/S7）豁免已删除并验证 `tools.gate` R-IMPORT 0 违规、各切片既有测试全绿；剩余 3 条（S4/S5/S6）按设计并入 REQ-151 分层重构（工厂/注册表），当前全树 R-IMPORT 0 BLOCKING | — | — |
+| **闭环判据** | — | S2/S3/S7/S6/S4 共 5 条豁免已删除并验证 `tools.gate` R-IMPORT 0 违规、各切片既有测试全绿；剩余 1 条（S5）按设计并入 REQ-151 分层重构（工厂/注册表），当前全树 R-IMPORT 0 BLOCKING | — | — |
 
 ## 6. 风险与回滚
 
