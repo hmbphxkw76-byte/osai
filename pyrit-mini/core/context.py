@@ -352,10 +352,11 @@ def collect_target_hosts(args: Any) -> list[str]:
             seen.add(host)
             hosts.append(host)
 
+    from core.adapter_registry import get_adapter
+
+    parse_burp_request = get_adapter("parse_burp_request")
     for burp_path in list(getattr(args, "_burp_list", None) or []):
         try:
-            from recon.burp_parser import parse_burp_request
-
             _add(getattr(parse_burp_request(burp_path), "host", None))
         except Exception as e:
             logger.warning("启动期授权校验：无法解析目标 host（%s）：%s", burp_path, e)

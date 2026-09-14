@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from core.adapter_registry import register_adapter
 from recon._burp_fingerprint import _parse_raw_http
 from recon._burp_models import ParsedBurpRequest
 
@@ -304,7 +305,7 @@ def _parse_postman(raw: str) -> list[ParsedBurpRequest]:
 
 
 def build_raw_http_request(parsed: ParsedBurpRequest) -> str:
-    """HTTP (CRLF )"""
+    """Reconstruct a raw HTTP request string (CRLF framing) from a parsed one."""
     lines = [f"{parsed.method} {parsed.path} {parsed.http_version}"]
 
     for key, value in parsed.raw_headers:
@@ -321,3 +322,11 @@ def build_raw_http_request(parsed: ParsedBurpRequest) -> str:
     else:
         request += "\r\n\r\n"
     return request
+
+
+# CP-012 S5: register into the core seam so `core` (context.py startup auth
+# validation) can resolve `parse_burp_request` without importing `recon`
+# (the matrix forbids `core -> recon`). This module is imported by
+# `recon.burp_parser` at recon-package import time, so registration is live
+# before `core` touches it (recon -> core ✓).
+register_adapter("parse_burp_request", parse_burp_request)

@@ -77,6 +77,12 @@ logging.getLogger().setLevel(logging.INFO)
 if not logging.getLogger().handlers:
     logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stdout)
 
+# 启动期引导（CP-012 S5）：recon 在导入期把 parse_burp_request 等符号登记进
+# core.adapter_registry（recon→core ✓）。core/context.py 启动期授权校验需经
+# get_adapter 取用，故此处先确保 recon 已导入、注册表已就绪。main→recon 为
+# 依赖矩阵允许格（10-ARCHITECTURE §2.2），不反转依赖层。
+import recon  # noqa: F401
+
 
 def _load_auto_guard_from_yaml() -> dict[str, Any]:
     """Load auto-guard settings from config/defaults.yaml.
