@@ -58,7 +58,6 @@ strike_modules:
   - strike.web.page_injector
   - strike.web.http_engine
   - strike.injection.auth_attacks
-playbooks: [web_auth_bypass, web_rate_limit_evasion]
 
 assess:
   t0_check: "assess.component_scorers:t0_web_api_check"

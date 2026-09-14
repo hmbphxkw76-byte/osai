@@ -56,7 +56,7 @@ strike_modules:
   - strike.mcp.schema_manipulator
   - strike.mcp.dynamic_seeds
   - strike.mcp.rag_attack
-playbooks: [mcp_enum_call, mcp_tool_chaining]
+playbooks: [mcp_enum_call, mcp_schema_poison, mcp_tool_chain]
 
 assess:
   t0_check: "assess.component_scorers:t0_mcp_tool_poisoning_check"

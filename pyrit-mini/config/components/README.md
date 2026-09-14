@@ -48,7 +48,7 @@ recon:
   - recon.mcp.schema_extract
 seeds: ["data/seeds/mcp/*"]
 converters: [json_rpc_wrap, base64, unicode_tag]
-playbooks: [mcp_enum_call, mcp_tool_chaining]
+playbooks: [mcp_enum_call, mcp_tool_chain]
 scorer: mcp_tool_poisoning
 report_section: report.component_reports.mcp
 cleanup: [unregister_tool, restore_schema]

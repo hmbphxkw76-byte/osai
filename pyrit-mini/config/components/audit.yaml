@@ -36,7 +36,6 @@ asr_prior: 0.60
 strike_modules:
   - strike.evasion.audit
   - strike.injection.stealth_exec
-playbooks: [audit_log_evasion]
 
 assess:
   t0_check: "assess.component_scorers:t0_model_behavior_shift_check"

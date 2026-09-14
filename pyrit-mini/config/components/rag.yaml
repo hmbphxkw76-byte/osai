@@ -48,7 +48,7 @@ strike_modules:
   - strike.rag.retrieval_manipulator
   - strike.rag.context_exploit
   - strike.rag.targeted_consumer
-playbooks: [rag_poison_then_query, rag_citation_spoof]
+playbooks: [rag_poison, rag_citation_spoof]
 
 assess:
   t0_check: "assess.component_scorers:t0_rag_pipeline_check"

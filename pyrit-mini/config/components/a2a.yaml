@@ -55,7 +55,7 @@ strike_modules:
   - strike.a2a.cross_agent_injector
   - strike.a2a.trust_builder
   - strike.a2a.task_interceptor
-playbooks: [a2a_card_spoof, a2a_workflow_hijack]
+playbooks: [a2a_card_spoof, a2a_workflow_hijack, a2a_cross_agent_inject]
 
 assess:
   t0_check: "assess.component_scorers:t0_a2a_agent_integrity_check"

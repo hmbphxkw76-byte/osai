@@ -40,7 +40,6 @@ strike_modules:
   - strike.model.filter_bypass
   - strike.injection.indirect_pi
   - strike.model.pair_tap
-playbooks: [gateway_guardrail_bypass, gateway_route_hijack]
 
 assess:
   t0_check: "assess.component_scorers:t0_model_behavior_shift_check"

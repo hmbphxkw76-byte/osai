@@ -55,7 +55,6 @@ strike_modules:
   - strike.memory.memory_injector
   - strike.memory.memory_reader
   - strike.memory.forensics_extractor
-playbooks: [session_persist_poison, memory_cross_tenant_read]
 
 assess:
   t0_check: "assess.component_scorers:t0_session_memory_check"
