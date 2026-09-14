@@ -157,7 +157,9 @@ class AgentCardSpoofer:
         """Hijack agent URL via orchestrator registry API."""
         import aiohttp
 
-        from recon.config_loader import get_tls_verify
+        from core.adapter_registry import get_adapter
+
+        get_tls_verify = get_adapter("get_tls_verify")
 
         result = SpoofResult(
             method="registry_hijack",
@@ -206,7 +208,9 @@ class AgentCardSpoofer:
         """Update Agent Card URL via orchestrator API."""
         import aiohttp
 
-        from recon.config_loader import get_tls_verify
+        from core.adapter_registry import get_adapter
+
+        get_tls_verify = get_adapter("get_tls_verify")
 
         result = SpoofResult(
             method="agent_card_update",

@@ -26,7 +26,12 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from recon.a2a.agent_card import AgentCard
+from core.adapter_registry import get_adapter
+
+try:
+    AgentCard = get_adapter("AgentCard")
+except KeyError:
+    AgentCard = None
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +147,9 @@ class RogueAgentRegistrar:
         """
         import aiohttp
 
-        from recon.config_loader import get_tls_verify
+        from core.adapter_registry import get_adapter
+
+        get_tls_verify = get_adapter("get_tls_verify")
 
         url = f"{orchestrator_url.rstrip('/')}/agents/register"
         verify = get_tls_verify()
@@ -196,7 +203,9 @@ class RogueAgentRegistrar:
         """
         import aiohttp
 
-        from recon.config_loader import get_tls_verify
+        from core.adapter_registry import get_adapter
+
+        get_tls_verify = get_adapter("get_tls_verify")
 
         url = f"{orchestrator_url.rstrip('/')}/agents/deregister"
         verify = get_tls_verify()
@@ -267,7 +276,9 @@ class RogueAgentRegistrar:
         """
         import aiohttp
 
-        from recon.config_loader import get_tls_verify
+        from core.adapter_registry import get_adapter
+
+        get_tls_verify = get_adapter("get_tls_verify")
 
         # Log sensitive data
         self._log_sensitive_data(task)

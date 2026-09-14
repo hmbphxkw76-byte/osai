@@ -18,6 +18,7 @@ import sys
 from typing import Any
 
 from core.adapter_registry import register_adapter
+from recon.a2a.agent_card import AgentCard
 from recon.adapters.base import (
     CHAT_ID_PLACEHOLDER,
     SESSION_ID_PLACEHOLDER,
@@ -34,6 +35,8 @@ from recon.adapters.http import HTTPAdapter
 from recon.adapters.jsonrpc import PROTOCOL_VERSION, JSONRPCAdapter
 from recon.adapters.multipart import MultipartAdapter
 from recon.adapters.sse import DONE_SENTINEL, SSEAdapter, parse_event_frames, parse_event_stream
+from recon.config_loader import get_tls_verify
+from recon.stealth_config import get_stealth_manager
 
 logger = logging.getLogger(__name__)
 
@@ -233,3 +236,9 @@ register_adapter("HTTPAdapter", HTTPAdapter)
 register_adapter("JSONRPCAdapter", JSONRPCAdapter)
 register_adapter("AdapterResponse", AdapterResponse)
 register_adapter("build_adapter", _build_adapter_live)
+
+# S6 收口（CP-012）：把本层其余跨层符号登记进注册表，
+# 使 strike 侧经 get_adapter 取用而不静态 import recon 域（strike→recon ✗ → strike→core ✓）。
+register_adapter("AgentCard", AgentCard)
+register_adapter("get_tls_verify", get_tls_verify)
+register_adapter("get_stealth_manager", get_stealth_manager)

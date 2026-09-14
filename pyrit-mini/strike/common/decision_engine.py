@@ -124,7 +124,9 @@ class DecisionEngine:
         stealth_config = None
         if stealth_enabled:
             try:
-                from recon.stealth_config import get_stealth_manager
+                from core.adapter_registry import get_adapter
+
+                get_stealth_manager = get_adapter("get_stealth_manager")
 
                 mgr = get_stealth_manager()
                 stealth_config = mgr.get_policy_for_guardrail(

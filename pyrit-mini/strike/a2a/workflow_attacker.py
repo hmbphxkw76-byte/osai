@@ -245,7 +245,9 @@ class A2AWorkflowAttacker:
         """
         import aiohttp
 
-        from recon.config_loader import get_tls_verify
+        from core.adapter_registry import get_adapter
+
+        get_tls_verify = get_adapter("get_tls_verify")
 
         url = f"{target_url.rstrip('/')}/a2a/workflow"
         verify = get_tls_verify()

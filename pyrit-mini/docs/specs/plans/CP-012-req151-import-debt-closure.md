@@ -22,7 +22,7 @@ CP-009 已闭环 S2/S3/S7（删除 `strike→assess` / `assess→arm` / `report�
 
 | 文件 | 位置 | 现文 | 改为 |
 |------|------|------|------|
-| `tools/guard_extended.py` | 2672–2678 | `_IMPORT_DEBT_EXCEPTIONS = {("recon","strike"):{get_shared_bridge,SessionConfig,SessionStateManager}, ("core","recon"):{ParsedBurpRequest,parse_burp_request,get_playwright_handles}, ("strike","recon"):{AgentCard,get_stealth_manager,get_tls_verify}}` | **删除整块**（清零，使 R-IMPORT 对这三对回归 BLOCKING） |
+| `tools/guard_extended.py` | 2672–2678 | `_IMPORT_DEBT_EXCEPTIONS = {("recon","strike"):{get_shared_bridge,SessionConfig,SessionStateManager}, ("core","recon"):{ParsedBurpRequest,parse_burp_request,get_playwright_handles}}` | S6 的 `("strike","recon")` 已删（✅ 闭环）；余 `("recon","strike")`/`("core","recon")` 两对待 REQ-151 分层重构（删豁免会触发 R-IMPORT BLOCKING，须先建 core 接缝） |
 | `core/target_factory.py`（WIP 已建） | 全文 | 注册表已建，`strike` 侧 `register_target` 与 `recon` 侧 `build_target` 接线在途 | 补全 `strike/targets/__init__.py` 导入期注册 + `recon` 三处调用改经 `build_target`（S4） |
 | `core/adapter_registry.py`（WIP 已建） | 全文 | 注册表已建，`recon` 侧 `register_adapter` 接线在途 | 补全 `recon/adapters/__init__.py` 注册（消 E402）+ `strike` 侧 `get_adapter` 取用（S6） |
 | `recon/adapters/__init__.py` | 223 | `from core.adapter_registry import register_adapter` 置于 `register_adapter(...)` 调用之后（**E402**） | 上移至模块首部或 `TYPE_CHECKING` 块，消 E402 |
@@ -44,7 +44,7 @@ CP-009 已闭环 S2/S3/S7（删除 `strike→assess` / `assess→arm` / `report�
   - R-IMPORT 已由 `check_dependency_matrix()` 覆盖，**本 CP 不新增检查器**；仅删除豁免使三对回归 BLOCKING。
   - 删前须确认三对零违例（即 WIP 接缝已接线且无裸跨层 import）——否则删豁免会立刻触发 R-IMPORT BLOCKING。
 - **同批义务**：
-  - ① CP-009 §5 状态 `S4/S5/S6` 由 `⏸→REQ-151` 改为 `✅ DONE`；
+  - ① CP-009 §5 状态 `S6` 由 `⏸→REQ-151` 改为 `✅ DONE`（CP-012 已收口）；`S4/S5` 仍 `⏸→REQ-151`；
   - ② 40-GUARDRAILS 1F 登记簿若列了这 3 豁免则同步清掉；
   - ③ 新增 core 接缝文件头版本号 + `specs/README.md` 索引（D3 禁止文末版本表，版本史交 git log）。
 - **迁移 / 兼容义务**：沿用 S2/S3/S7 的 re-export 模式保 intra-module 调用兼容；`strike.targets.__init__` / `recon.adapters.__init__` 导入期注册须**幂等**且**不引入启动期循环 import**（注册置于域包导入末尾，接缝模块绝不反向 import 域）。
@@ -59,8 +59,8 @@ CP-009 已闭环 S2/S3/S7（删除 `strike→assess` / `assess→arm` / `report�
 |----|------|------|---------|------|
 | **S4** | 🟡 部分（targets 经 factory 已闭环） | `recon/adapters:54/58/62` 已改经 `core.target_factory`（commit 87780f4）；余 `_target_router_helpers:567`（`get_shared_bridge`）/ `target_builder:478`（`SessionConfig`/`SessionStateManager`）待 core 接缝；**`("recon","strike")` 由 6→3** | `recon/*` + `core/target_factory.py` | S1 接缝已建 |
 | **S5** | ⏸ mini 调查 | 定位 `ParsedBurpRequest` / `parse_burp_request` / `get_playwright_handles` 定义点，迁 `core`（或 `utils` 经 core），`recon` 侧改经 core 引用；**删 `("core","recon")` 豁免** | `core/*` + `recon/*` | 调查定义点 |
-| **S6** | 🟡 部分（adapter registry 已闭环） | `recon/adapters` 注册补全（E402 已消）+ `strike/targets/*` 模块级经 `core.adapter_registry.get_adapter` 解析注解别名（F821 已消，`strike→core ✓`，未引入 `strike→recon`）+ `get_stealth_manager` / `get_tls_verify` / `AgentCard` 待 core 接缝；**`("strike","recon")` 由 9→3** | `core/adapter_registry.py` + `recon/adapters/__init__.py` + `strike/targets/{a2a,mcp,rag}.py` | S1 接缝已建 |
-| **闭环判据** | — | 3 豁免删除且 `tools.gate` R-IMPORT 0 违规、WIP 现存 F821/E402 已消、各切片既有测试全绿 | — | — |
+| **S6** | ✅ DONE（adapter registry 已闭环） | `recon/adapters` 注册补全（E402 已消）+ `strike/targets/*` 模块级经 `core.adapter_registry.get_adapter` 解析注解别名（F821 已消，`strike→core ✓`，未引入 `strike→recon`）+ `AgentCard` / `get_stealth_manager` / `get_tls_verify` 经 `register_adapter` 接线（`recon/adapters/__init__.py:242-244`）；**`("strike","recon")` 豁免已删，strike→recon 0 违例** | `core/adapter_registry.py` + `recon/adapters/__init__.py` + `strike/targets/{a2a,mcp,rag}.py` + `strike/{a2a,common}/*` | S1 接缝已建 |
+| **闭环判据** | — | S6 豁免已删（剩 S4/S5 两对豁免待 REQ-151）；`tools.gate` R-IMPORT 0 违规（strike→recon 已清零）、WIP 现存 F821/E402 已消、各切片既有测试全绿 | — | — |
 
 ## 6. 风险与回滚
 

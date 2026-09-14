@@ -240,7 +240,9 @@ class TaskInterceptor:
         """
         import aiohttp
 
-        from recon.config_loader import get_tls_verify
+        from core.adapter_registry import get_adapter
+
+        get_tls_verify = get_adapter("get_tls_verify")
 
         result = TaskInterceptionResult()
         url = f"{task_endpoint.rstrip('/')}/tasks"
