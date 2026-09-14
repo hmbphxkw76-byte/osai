@@ -9,8 +9,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-# P0-D: _is_success SSOT import from utils.attack_utils
-from utils.attack_utils import _is_success  # noqa: F401  # re-exported for evidence.py
+# P0-D: _is_success SSOT — 经 core 引用（CP-009 S7 破解 report→utils）
+from core.is_success import _is_success  # noqa: F401  # re-exported for evidence.py
 
 logger = logging.getLogger(__name__)
 
