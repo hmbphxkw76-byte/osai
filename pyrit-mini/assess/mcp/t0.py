@@ -11,6 +11,8 @@ from __future__ import annotations
 import logging
 import re
 
+from core.technique_registry import register_scorer
+
 logger = logging.getLogger(__name__)
 
 # MCP Tool Poisoning indicators (strike/mcp/malicious_server.py side-effects)
@@ -39,6 +41,7 @@ _MCP_T0_FAILURE = [
 ]
 
 
+@register_scorer("mcp_tool_poisoning")
 def t0_mcp_tool_poisoning_check(response_text: str) -> tuple[bool, float, str]:
     """T0 heuristic for MCP tool poisoning success (0 token cost).
 

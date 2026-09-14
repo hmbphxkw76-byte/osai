@@ -1,10 +1,12 @@
 """Tests for arm.technique_picker module.
 
 Covers: select_techniques, _validate_techniques, is_multi_turn_technique,
-        augment_techniques_by_capability.
+        augment_techniques_by_capability, merge_component_techniques (S9 接线可见性).
 """
 
 from __future__ import annotations
+
+from unittest import mock
 
 from arm.technique_picker import (
     _AVAILABLE_TECHNIQUES,
@@ -12,8 +14,70 @@ from arm.technique_picker import (
     SINGLE_TURN_TECHNIQUES,
     augment_techniques_by_capability,
     is_multi_turn_technique,
+    merge_component_techniques,
     select_techniques,
 )
+
+
+class TestMergeComponentTechniques:
+    """S9 运行期接线（最小可见性）：组件 required_techniques 并入 ctx.techniques。
+
+    通过 monkeypatch collect_component_techniques 隔离注册表/文件系统，只验证『合并』语义。
+    """
+
+    def _fake_ctx(self, techniques, *, wire=True, graph_nodes=1):
+        class _Args:
+            wire_component_techniques = wire
+
+        class _Node:
+            component_key = "mcp_tool_poisoning"
+
+        class _Graph:
+            nodes = [_Node()] if graph_nodes else []
+
+        class _Ctx:
+            pass
+
+        c = _Ctx()
+        c.args = _Args()
+        c.techniques = list(techniques)
+        c.component_graph = _Graph()
+        c.orchestration_log = []
+        return c
+
+    def test_merges_required_techniques_without_duplicates(self) -> None:
+        sample = ["tool_poisoning", "schema_manipulation", "tool_poisoning"]
+        with mock.patch(
+            "arm.technique_picker.collect_component_techniques", return_value=sample
+        ):
+            ctx = self._fake_ctx(["prompt_sending", "skeleton_key"])
+            added = merge_component_techniques(ctx)
+        assert added == ["tool_poisoning", "schema_manipulation"]  # 去重
+        assert ctx.techniques == [
+            "prompt_sending",
+            "skeleton_key",
+            "tool_poisoning",
+            "schema_manipulation",
+        ]
+        assert ctx.component_techniques == ["tool_poisoning", "schema_manipulation"]
+        assert any(e.get("decision") == "component_technique_wiring" for e in ctx.orchestration_log)
+
+    def test_no_graph_is_noop(self) -> None:
+        with mock.patch(
+            "arm.technique_picker.collect_component_techniques", return_value=[]
+        ):
+            ctx = self._fake_ctx(["prompt_sending"], graph_nodes=0)
+            assert merge_component_techniques(ctx) == []
+            assert ctx.techniques == ["prompt_sending"]
+
+    def test_gate_disabled_is_noop(self) -> None:
+        with mock.patch(
+            "arm.technique_picker.collect_component_techniques",
+            return_value=["tool_poisoning"],
+        ):
+            ctx = self._fake_ctx(["prompt_sending"], wire=False)
+            assert merge_component_techniques(ctx) == []
+            assert ctx.techniques == ["prompt_sending"]
 
 
 class TestSelectTechniques:

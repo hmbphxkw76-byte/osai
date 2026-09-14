@@ -335,3 +335,44 @@ async def test_idor_via_session(
     """便捷函数: 快速测试指定 session 的 IDOR 漏洞"""
     tester = IdorTester(http_target, config)
     return await tester.test_all(victim_session)
+
+
+async def run_idor_testing(
+    victim_sessions: list[str],
+    *,
+    http_target: Any | None = None,
+    dry_run: bool = True,
+) -> dict[str, Any]:
+    """IDOR 漏洞验证（coverage 策略 idor_testing）。
+
+    真实实现：对每个受害 session 经 IdorTester 验证越权访问（READ/WRITE/ADMIN）；
+    提供 http_target 且非 dry_run 时实投，否则仅产出测试计划（不触网，C9 诚实）。
+
+    Academic basis:
+        - OWASP A01:2021 — Broken Access Control
+        - CWE-639: Authorization Bypass Through User-Controlled Key
+
+    Args:
+        victim_sessions: 待验证的受害 session ID 列表
+        http_target: 可选 PyRIT HTTPTarget，实投目标
+        dry_run: True 时仅产出计划（默认）
+
+    Returns:
+        {"attack_type": "IDOR 验证", "plan": [...], "results": list|None}
+    """
+    plan = [
+        {"victim_session": s, "access_types": ["read", "write", "admin"]}
+        for s in victim_sessions
+    ]
+    produced: dict[str, Any] = {"attack_type": "IDOR 验证", "plan": plan, "results": None}
+    if http_target is not None and not dry_run:
+        try:
+            results: list[Any] = []
+            for s in victim_sessions:
+                tester = IdorTester(http_target)
+                results.extend(await tester.test_all(s))
+            produced["results"] = [r.to_dict() for r in results]
+            logger.info("[Chain] idor_testing 实投 %d 个 session", len(victim_sessions))
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[Chain] idor_testing 实投失败（不影响计划产出）: %s", e)
+    return produced

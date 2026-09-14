@@ -1,0 +1,24 @@
+POST /api/labs/MM_05/chat HTTP/1.1
+Host: localhost
+Content-Length: 24
+Content-Type: application/json
+Accept: */*
+Origin: http://localhost
+Referer: http://localhost/labs/MM_05
+Cookie: aivp_sid=00000000-0000-4000-8000-000000000000; Path=/; SameSite=lax
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+Accept-Language: zh-CN,zh;q=0.9
+Accept-Encoding: gzip, deflate, br
+Connection: keep-alive
+
+{
+  "prompt": "hello"
+}
+
+HTTP/1.1 200 OK
+Server: nginx/1.27.5
+Content-Type: application/json
+access-control-allow-origin: http://localhost
+Connection: keep-alive
+
+{"reply": "Hello! How can I help you today?", "request_id": "5f2a1c33-9b47-4e88-a0d1-6c3f8e2b7a95"}

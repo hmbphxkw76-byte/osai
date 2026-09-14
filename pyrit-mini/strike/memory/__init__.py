@@ -47,6 +47,13 @@ from strike.memory.memory_reader import (
     SessionData,
     read_cross_session_memory,
 )
+from strike.memory.techniques import (
+    MemoryTechniqueResult,
+    run_cross_session_leakage_attack,
+    run_episodic_memory_injection_attack,
+    run_memory_extraction_attack,
+    run_memory_poisoning_attack,
+)
 
 __all__ = [
     # Memory Reader
@@ -69,4 +76,10 @@ __all__ = [
     "ForensicEvidence",
     "EvidenceType",
     "generate_forensics_summary",
+    # Named techniques (session_memory / OWASP LLM06)
+    "MemoryTechniqueResult",
+    "run_memory_poisoning_attack",
+    "run_episodic_memory_injection_attack",
+    "run_cross_session_leakage_attack",
+    "run_memory_extraction_attack",
 ]

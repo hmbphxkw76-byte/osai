@@ -17,7 +17,9 @@ tools/guard_extended.py - R-PIPE / R-IMPORT / R-REDTEAM / R-EVID / R-REPORT 扩�
 
 from __future__ import annotations
 
+import ast
 import re
+import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -34,6 +36,26 @@ def _get_violation_classes():
 # ===============================================================================
 # 规则配置
 # ===============================================================================
+
+# R-PIPE-5 字段白名单。
+# 必须是**模块级**：检查器方法会被挂载到 `ArchitectureGuard`，扩展类的类体内属性
+# 不会随之迁移 —— 此前 `self._PIPE5_FIELD_WHITELIST` 每次抛 AttributeError 并被
+# guard 静默吞掉，导致 check_data_flow_consistency 长期空转（BL-091）。
+_PIPE5_FIELD_WHITELIST = {
+    "output_dir",  # main.py, orchestrator.py, report/generator.py 多处访问
+    "mcpsec_version",  # recon/_target_router_helpers.py MCPSec桥接后填充
+    "scenario_name",  # core/scenario_router.py 场景路由设置
+    "memory_labels",  # main.py CentralMemory.set_labels 使用
+    "stealth_config",  # strike/stealth_exec.py 读取
+    "session_state",  # strike/executor.py 会话感知攻击读取
+    "synergy_config",  # adaptive_executor.py 读取
+    "scenario_config",  # adaptive_executor.py 读取
+    # --- BL-092(c)：v4.0 目标架构预留字段，当前未消费（已显式标注，非死字段）---
+    "surface_graph",    # [未消费·预留 REQ-150] recon 产出，报告消费待波次接线
+    "playbook_state",   # [未消费·预留 REQ-151] 待 PlaybookEngine 波次
+    "impact_chains",    # [未消费·预留 REQ-152] 待影响链报告波次
+    "score_manifest",   # [未消费·预留 REQ-152] assess 产出，报告消费待波次接线
+}
 
 # R-PIPE: 流水线模块注册检查
 _PIPELINE_MODULES: dict[str, dict[str, str]] = {
@@ -315,18 +337,6 @@ def register_extended_checks(guard_cls) -> None:
         if not executor_file.exists():
             return
 
-    # R-PIPE-5 字段白名单: 默认值字段在多个模块中被消费，但检测器无法追踪
-    _PIPE5_FIELD_WHITELIST = {
-        "output_dir",  # main.py, orchestrator.py, report/generator.py 多处访问
-        "mcpsec_version",  # recon/_target_router_helpers.py MCPSec桥接后填充
-        "scenario_name",  # core/scenario_router.py 场景路由设置
-        "memory_labels",  # main.py CentralMemory.set_labels 使用
-        "stealth_config",  # strike/stealth_exec.py 读取
-        "session_state",  # strike/executor.py 会话感知攻击读取
-        "synergy_config",  # adaptive_executor.py 读取
-        "scenario_config",  # adaptive_executor.py 读取
-    }
-
     def check_data_flow_consistency(self) -> None:
         """R-PIPE-5~6: PipelineContext 数据流一致性"""
         Severity, Violation = _get_violation_classes()
@@ -382,7 +392,7 @@ def register_extended_checks(guard_cls) -> None:
             if field_name.startswith("_"):
                 continue
             # 白名单: 确认被消费但检测器无法追踪的字段
-            if field_name in self._PIPE5_FIELD_WHITELIST:
+            if field_name in _PIPE5_FIELD_WHITELIST:
                 continue
             access_pattern = rf"ctx\.{field_name}(?![a-zA-Z0-9_])"
             if not re.search(access_pattern, orch_content):
@@ -1025,15 +1035,21 @@ def register_extended_checks(guard_cls) -> None:
     guard_cls.check_delivery_architecture_alignment = check_delivery_architecture_alignment
     guard_cls.check_delivery_init_export_consistency = check_delivery_init_export_consistency
     guard_cls.check_delivery_module_docstring = check_delivery_module_docstring
-    # R-DOC-1~4: 代码-文档同步护栏检查器 (v2.7)
+    # R-DOC-1~6: 代码-文档同步护栏检查器 (v2.8 新增 R-DOC-5/6)
     guard_cls.check_cli_params_documented = check_cli_params_documented
     guard_cls.check_attack_gap_documented = check_attack_gap_documented
     guard_cls.check_requirements_guardrails_synced = check_requirements_guardrails_synced
     guard_cls.check_readme_version_synced = check_readme_version_synced
+    guard_cls.check_gate_step_count_synced = check_gate_step_count_synced
+    guard_cls.check_guardrail_registry_count_synced = check_guardrail_registry_count_synced
     # R-L1 / R-L7: 攻击端防御逻辑检查 + 根目录结构检查 (v2.9 新增实现, 修复 spec-code drift)
     guard_cls.check_no_defense_in_attack_dirs = check_no_defense_in_attack_dirs
     guard_cls.check_top_level_structure = check_top_level_structure
     guard_cls.check_no_hardcoded_component_names = check_no_hardcoded_component_names
+    # R-IMPORT: 依赖方向矩阵机器校验（CP-009 S1）
+    guard_cls.check_dependency_matrix = check_dependency_matrix
+    # R-MOJIBAKE: 新增行乱码防复发（BL-081 / BL-087）
+    guard_cls.check_mojibake_in_diff = check_mojibake_in_diff
 
 
 # ===============================================================================
@@ -1230,7 +1246,8 @@ def check_readme_version_synced(self) -> None:  # type: ignore[override]
     # Extract version numbers from README
     versions_in_readme = {}
     for match in re.finditer(
-        r"\[(\d+)-(CONSTITUTION|ARCHITECTURE|REQUIREMENTS|TASKS|GUARDRAILS|ROADMAP|ATTACK-GAP|COMPONENT|CROSS-MODEL|AI-DEV-ARCHITECTURE)[^\]]*\]\([^)]+\).*?\b(v[\d.]+)\b",
+        # `gap-\d` 覆盖 55-gap-1~6.md 子文件（BL-079：纳入 R-DOC-4 版本守护）
+        r"\[(\d+)-(CONSTITUTION|ARCHITECTURE|REQUIREMENTS|TASKS|GUARDRAILS|ROADMAP|ATTACK-GAP|COMPONENT|CROSS-MODEL|AI-DEV-ARCHITECTURE|gap-\d)[^\]]*\]\([^)]+\).*?\b(v[\d.]+)\b",
         readme_content,
     ):
         doc_key = f"{match.group(1)}-{match.group(2)}"
@@ -1259,6 +1276,13 @@ def check_readme_version_synced(self) -> None:  # type: ignore[override]
         "60-CROSS-MODEL": ("docs/specs/60-CROSS-MODEL-VERIFICATION.md", _VERSION_PATTERN),
         "90-AI-DEV-ARCHITECTURE": ("docs/specs/90-AI-DEV-ARCHITECTURE.md", _VERSION_PATTERN),
         "AGENTS": ("AGENTS.md", _VERSION_PATTERN),
+        # BL-079：55 的六个缺口子文件（文件头带版本号，此前无机器守护）
+        "55-gap-1": ("docs/specs/55-gap-1.md", _VERSION_PATTERN),
+        "55-gap-2": ("docs/specs/55-gap-2.md", _VERSION_PATTERN),
+        "55-gap-3": ("docs/specs/55-gap-3.md", _VERSION_PATTERN),
+        "55-gap-4": ("docs/specs/55-gap-4.md", _VERSION_PATTERN),
+        "55-gap-5": ("docs/specs/55-gap-5.md", _VERSION_PATTERN),
+        "55-gap-6": ("docs/specs/55-gap-6.md", _VERSION_PATTERN),
     }
 
     mismatches = []
@@ -1290,6 +1314,138 @@ def check_readme_version_synced(self) -> None:  # type: ignore[override]
                 line=0,
                 description=f"Version mismatch: {details}",
                 fix_hint="Sync version numbers in docs/specs/README.md pyramid index to match individual document version headers",
+            )
+        )
+
+
+# ===============================================================================
+# R-DOC-5: Gate step count must match README §2 documentation
+# ===============================================================================
+
+def _count_gate_steps(step_var_name: str, gate_content: str) -> int | None:
+    """从 gate.py 源码中解析 COMMIT_STEPS / PUSH_STEPS 元组的元素数量。"""
+    # 匹配 `COMMIT_STEPS: tuple[str, ...] = ("step1", "step2", ...)`
+    pattern = rf'{step_var_name}\s*:\s*tuple\[str,\s*\.\.\.\]\s*=\s*\(([^)]*)\)'
+    m = re.search(pattern, gate_content, re.DOTALL)
+    if not m:
+        return None
+    # 统计双引号/单引号包裹的 step 名
+    steps = re.findall(r'["\']([\w-]+)["\']', m.group(1))
+    return len(steps)
+
+
+def _count_documented_steps(readme_content: str, stage: str) -> int | None:
+    """从 README §2 解析文档中声称的步数（如 'commit=6 步' / '10 步'）。"""
+    # 匹配 `[commit]` 段落后紧跟的 `N 步` 或 `（N 步）`
+    pattern = rf'\[{stage}\].*?(\d+)\s*步'
+    m = re.search(pattern, readme_content, re.DOTALL)
+    if m:
+        return int(m.group(1))
+    return None
+
+
+def check_gate_step_count_synced(self) -> None:  # type: ignore[override]
+    """R-DOC-5: README §2 声称的门禁步数必须与 gate.py 源码一致。
+
+    漂移模式：往 gate.py 加新步骤后忘记更新 README §2 描述，导致文档
+    声称的步数与实际执行步数不符（C10 / R-DOC-4 同类）。
+    """
+    Severity, Violation = _get_violation_classes()
+
+    gate_content = _read_file_safely(self.root, "tools/gate.py")
+    readme_content = _read_file_safely(self.root, _DOCS_README_PATH)
+    if not gate_content or not readme_content:
+        return
+
+    issues = []
+    for stage, var_name in (("commit", "COMMIT_STEPS"), ("push", "PUSH_STEPS")):
+        code_count = _count_gate_steps(var_name, gate_content)
+        doc_count = _count_documented_steps(readme_content, stage)
+        if code_count is not None and doc_count is not None and code_count != doc_count:
+            issues.append(f"[{stage}] README 声称 {doc_count} 步，代码实际 {code_count} 步")
+
+    if issues:
+        self.violations.append(
+            Violation(
+                rule="R-DOC-5",
+                severity=Severity.WARNING,
+                file=_DOCS_README_PATH,
+                line=0,
+                description="; ".join(issues),
+                fix_hint="Update step count in docs/specs/README §2 to match tools/gate.py COMMIT_STEPS/PUSH_STEPS",
+            )
+        )
+
+
+# ===============================================================================
+# R-DOC-6: 40-GUARDRAILS.md 1F 登记簿行数必须与代码 check_* 数量一致
+# ===============================================================================
+
+# 参与 R-DOC-6 计数的工具模块（guard 主入口 + 扩展 + gate 子模块）
+_R_DOC6_MODULES = ("tools/guard.py", "tools/guard_extended.py", "tools/guard_gate.py")
+
+
+def _count_code_checkers_all(root: str, modules: tuple) -> int:
+    """统计指定模块中 ``def check_`` 函数总数（排除 check_all 聚合入口）。"""
+    total = 0
+    for mod in modules:
+        content = _read_file_safely(root, mod)
+        if content:
+            # 排除 check_all 聚合入口（pass-through，非独立检查逻辑）
+            total += len(
+                re.findall(r'^\s*def check_(?!all\b)\w+\s*\(', content, re.MULTILINE)
+            )
+    return total
+
+
+def _count_registry_rows(gr_content: str) -> int:
+    """统计 40-GUARDRAILS.md 1F 登记簿中所有表格行数。
+
+    匹配登记簿表格行：``| check_xxx | ... |`` 或 ``| R-xxx | ... |``
+    （涵盖所有列排版，不仅限 R-xxx 条目）。
+    仅统计 1F 节（从 ``### 1F.`` 到下一个 ``###`` 节）内的行。
+    """
+    # 截取 1F 节范围
+    section_match = re.search(r'### 1F\..*?\n(.*?)(?=\n### |\Z)', gr_content, re.DOTALL)
+    if not section_match:
+        return 0
+    section_content = section_match.group(1)
+    # 匹配完整表格行（首列含 check_ 前缀或 R-xxx 形式，排除表头分隔线）
+    rows = re.findall(r'^\|\s*(?:check_\w+|R-\w+)\s*\|', section_content, re.MULTILINE)
+    return len(rows)
+
+
+def check_guardrail_registry_count_synced(self) -> None:  # type: ignore[override]
+    """R-DOC-6: 40-GUARDRAILS.md 1F 登记簿行数必须与代码 check_* 数量一致。
+
+    漂移模式：新增检查器后忘记更新 1F 登记簿（或删除检查器后未删登记行），
+    导致文档声称的检查器数量与实际可执行数量不符（C10 / R-DOC-4 同类）。
+    """
+    Severity, Violation = _get_violation_classes()
+
+    gr_content = _read_file_safely(self.root, _DOCS_GR_PATH)
+    if not gr_content:
+        return
+
+    code_count = _count_code_checkers_all(self.root, _R_DOC6_MODULES)
+    registry_count = _count_registry_rows(gr_content)
+
+    if code_count != registry_count:
+        diff = code_count - registry_count
+        if diff > 0:
+            desc = f"代码有 {code_count} 个 check_* 函数（guard+gate），登记簿 {registry_count} 行（少 {diff} 行）"
+            hint = "Add missing rows to 40-GUARDRAILS.md 1F registry for new check_* functions"
+        else:
+            desc = f"代码有 {code_count} 个 check_* 函数（guard+gate），登记簿 {registry_count} 行（多 {-diff} 行）"
+            hint = "Remove stale rows from 40-GUARDRAILS.md 1F registry for deleted check_* functions"
+        self.violations.append(
+            Violation(
+                rule="R-DOC-6",
+                severity=Severity.WARNING,
+                file=_DOCS_GR_PATH,
+                line=0,
+                description=desc,
+                fix_hint=hint,
             )
         )
 
@@ -2485,3 +2641,273 @@ def check_delivery_module_docstring(self) -> None:
                         fix_hint="在文件顶部添加模块说明 docstring (包含功能、架构对齐、学术引用)",
                     )
                 )
+
+
+# ==============================================================================
+# R-IMPORT — 依赖方向矩阵机器校验（CP-009 S1）
+#
+# 判据数据源 = `docs/specs/10-ARCHITECTURE.md` 2.2 依赖方向矩阵表（C3 / D1：
+# 规约是唯一声明处，代码不抄第二份清单；改表即改判据）。表不可解析时升级为
+# BLOCKING（NEG-9：判据失效等同于放行，禁止静默跳过）。
+# ==============================================================================
+
+_IMPORT_MATRIX_DOC = "docs/specs/10-ARCHITECTURE.md"
+_IMPORT_MATRIX_HEADER = "| 依赖方 ↓ 被依赖方 →"
+_IMPORT_FIRST_PARTY_TOPS = frozenset(
+    {"core", "recon", "arm", "strike", "assess", "report", "utils", "tools", "main"}
+)
+
+# 矩阵脚注声明的合法例外（例外只减不增）
+_IMPORT_FOOTNOTE_EXCEPTIONS: dict[tuple[str, str], frozenset[str]] = {
+    ("strike", "assess"): frozenset({"precompute_outcomes_async"}),
+    ("recon", "assess"): frozenset({"validate_scoring_target_capabilities"}),  # 债务 D-04
+}
+
+# 存量违例豁免（BL-082 ①②③，由 CP-009 S2/S3/S4 收口；收口后必须删除对应条目）
+_IMPORT_DEBT_EXCEPTIONS: dict[tuple[str, str], frozenset[str]] = {
+    ("strike", "assess"): frozenset({"_t0_refusal_check_text", "_t0_non_substantive_check_text"}),
+    ("recon", "strike"): frozenset(
+        {"get_shared_bridge", "SessionConfig", "SessionStateManager", "MCPTarget", "RAGTarget", "A2ATarget"}
+    ),
+    ("assess", "arm"): frozenset({"seed_ranker", "update_asr_history", "_make_seed_key"}),
+    # BL-090：R-IMPORT 上线首扫暴露（此前无任何检查器覆盖）
+    ("core", "recon"): frozenset({"ParsedBurpRequest", "parse_burp_request", "get_playwright_handles"}),
+    ("strike", "recon"): frozenset(
+        {
+            "AdapterResponse",
+            "AgentCard",
+            "BaseAdapter",
+            "HTTPAdapter",
+            "JSONRPCAdapter",
+            "adapters",
+            "get_stealth_manager",
+            "get_tls_verify",
+        }
+    ),
+    ("report", "utils"): frozenset({"_is_success"}),
+}
+
+
+def _row_key_to_prefix(row: str) -> str:
+    """矩阵行名 → 模块前缀（`core/phases/`（编排层）→ `core.phases`；`main.py` → `main`）。"""
+    cleaned = row.split("（")[0].strip().strip("`").rstrip("/")
+    if cleaned.endswith(".py"):
+        return cleaned[:-3]
+    return cleaned.replace("/", ".")
+
+
+def _col_to_module(col: str) -> str:
+    """矩阵列名 → 顶层模块名（`data(config)` → `data`）。"""
+    return col.split("(")[0].strip()
+
+
+def _parse_dependency_matrix(text: str) -> dict[tuple[str, str], bool]:
+    """解析 2.2 矩阵表 → `{(行前缀, 列模块): 是否允许}`；不可解析抛 ValueError。"""
+    lines = text.splitlines()
+    header_idx = next(
+        (i for i, line in enumerate(lines) if line.startswith(_IMPORT_MATRIX_HEADER)), None
+    )
+    if header_idx is None:
+        raise ValueError("未找到矩阵表头")
+    cols = [_col_to_module(c) for c in lines[header_idx].split("|")[2:-1]]
+    matrix: dict[tuple[str, str], bool] = {}
+    for line in lines[header_idx + 2 :]:
+        if not line.startswith("|"):
+            break
+        cells = [c.strip() for c in line.split("|")[1:-1]]
+        if len(cells) < 2 or set(cells[0]) <= set("-: "):
+            continue
+        row_prefix = _row_key_to_prefix(cells[0])
+        for idx, cell in enumerate(cells[1:]):
+            if idx >= len(cols):
+                break
+            # 单元格允许带注解（`✓（context）` / `✗*` / `—` / `内部`）：
+            # 只有 `✗` 是禁止；`—` 表示不适用（不判定）；其余视为允许。
+            # `—` 记为 None（不适用）：命中即不判定，且**不回退**到更一般的行
+            # —— 否则具体行的"不适用"会被一般行的 `✗` 覆盖，制造误报。
+            matrix[(row_prefix, cols[idx])] = (
+                None if cell.startswith("—") else not cell.startswith("✗")
+            )
+    return matrix
+
+
+def _candidate_row_prefixes(rel_path: str) -> list[str]:
+    """文件 → 矩阵行前缀候选（最具体在前：`recon/adapters/x.py` → `recon.adapters`, `recon`）。"""
+    parts = rel_path.split("/")
+    top = parts[0]
+    sub_map = {"core": "phases", "recon": "adapters", "strike": "playbook", "assess": "impact"}
+    candidates: list[str] = []
+    if top in sub_map and len(parts) > 2 and parts[1] == sub_map[top]:
+        candidates.append(f"{top}.{sub_map[top]}")
+    candidates.append(top)
+    return candidates
+
+
+def check_dependency_matrix(self) -> None:
+    """R-IMPORT: 跨阶段/跨层 import 必须落在依赖矩阵允许格内（含函数级延迟导入）。"""
+    Severity, Violation = _get_violation_classes()
+
+    doc_path = self.root / _IMPORT_MATRIX_DOC
+    try:
+        matrix = _parse_dependency_matrix(doc_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        self.violations.append(
+            Violation(
+                rule="R-IMPORT",
+                severity=Severity.BLOCKING,
+                file=_IMPORT_MATRIX_DOC,
+                line=0,
+                description=f"依赖方向矩阵不可解析（{e}）—— 判据失效等同于没有判据",
+                fix_hint="恢复 10-ARCHITECTURE.md 2.2 矩阵表头与行格式（NEG-9：禁止静默跳过）",
+            )
+        )
+        return
+
+    skip_dirs = {"__pycache__", ".git", ".venv", "venv", "outputs", ".pytest_cache", ".ruff_cache"}
+    for py_file in sorted(self.root.rglob("*.py")):
+        # 必须 as_posix()：Windows 的 `str(Path)` 用反斜杠，会让行前缀匹配全部落空
+        # （表现为检查器恒 0 违规的假绿）。
+        rel = py_file.relative_to(self.root).as_posix()
+        if any(part in skip_dirs for part in py_file.relative_to(self.root).parts):
+            continue
+        try:
+            tree = ast.parse(py_file.read_text(encoding="utf-8", errors="replace"))
+        except (OSError, SyntaxError):
+            continue
+
+        rows = _candidate_row_prefixes(rel)
+        for node in ast.walk(tree):
+            targets: list[tuple[str, str]] = []
+            if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                top = node.module.split(".")[0]
+                if top in _IMPORT_FIRST_PARTY_TOPS:
+                    targets = [(alias.name, top) for alias in node.names]
+            elif isinstance(node, ast.Import):
+                targets = [
+                    (alias.name, alias.name.split(".")[0])
+                    for alias in node.names
+                    if alias.name.split(".")[0] in _IMPORT_FIRST_PARTY_TOPS
+                ]
+
+            for symbol, top in targets:
+                if top in rows:  # 同模块内部依赖（含子包）不判定
+                    continue
+                allowed: bool | None = None
+                matched_row = rows[0]
+                for row in rows:
+                    if (row, top) in matrix:
+                        allowed = matrix[(row, top)]
+                        matched_row = row
+                        break
+                if allowed is not False:
+                    continue
+                for row in rows:
+                    for table in (_IMPORT_FOOTNOTE_EXCEPTIONS, _IMPORT_DEBT_EXCEPTIONS):
+                        if symbol in table.get((row, top), frozenset()):
+                            allowed = True
+                            break
+                    if allowed:
+                        break
+                if allowed:
+                    continue
+                self.violations.append(
+                    Violation(
+                        rule="R-IMPORT",
+                        severity=Severity.BLOCKING,
+                        file=rel,
+                        line=getattr(node, "lineno", 0),
+                        description=(
+                            f"跨层依赖违例：{matched_row} → {top}（`{symbol}`）不在依赖矩阵允许格内"
+                        ),
+                        fix_hint=(
+                            "共享件下沉 core/ 后双向引用；确属例外须登记进 "
+                            "guard_extended 白名单并注明债务 ID（只减不增）"
+                        ),
+                    )
+                )
+
+
+# ==============================================================================
+# R-MOJIBAKE — 新增行乱码防复发（BL-081 / BL-087）
+#
+# 只扫 **staged diff 的新增行**：全量扫描会把历史遗留的 154 行一次性变成告警
+# 噪声（且现有存量已登记专项），而防复发只需守住"新写进去的行"。
+# 判定一律基于已解码文本（BL-060：禁止以终端渲染判断乱码）。
+# ==============================================================================
+
+# 高置信乱码特征（中文被 ASCII 替换后在本仓的实际形态）
+_MOJIBAKE_PATTERNS = (
+    re.compile(r"\?[A-Za-z]{2,}"),  # "?ASR" / "?UCB"
+    re.compile(r"\bEUR\b"),  # "EUR?" / "EURX"
+    re.compile(r"[\u4e00-\u9fff]\?"),  # 中文后紧跟孤立问号
+)
+# 这些行里的 `?` / `EUR` 是合法内容（URL、查询串、本检查器自身的模式定义），跳过
+_MOJIBAKE_SKIP_HINTS = (
+    "http://",
+    "https://",
+    "://",
+    "?=",
+    "urllib",
+    "requests.get",
+    "re.compile",
+    "_MOJIBAKE_PATTERNS",
+)
+
+
+def check_mojibake_in_diff(self) -> None:
+    """R-MOJIBAKE: staged diff 新增行不得出现"中文被 ASCII 替换"的乱码特征。"""
+    Severity, Violation = _get_violation_classes()
+
+    try:
+        # BL-070 纪律：git 输出必须显式按 UTF-8 解码（仓库路径含非 ASCII）
+        proc = subprocess.run(
+            ["git", "diff", "--cached", "--unified=0", "--", "*.py"],
+            cwd=str(self.root),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except OSError as e:
+        self.violations.append(
+            Violation(
+                rule="R-MOJIBAKE",
+                severity=Severity.WARNING,
+                file="git",
+                line=0,
+                description=f"无法读取 staged diff（{e}）——防复发检查未执行",
+                fix_hint="确认 git 可用；本检查依赖 `git diff --cached`",
+            )
+        )
+        return
+
+    if not proc.stdout:
+        return
+
+    current_file = ""
+    for line in proc.stdout.splitlines():
+        if line.startswith("+++ b/"):
+            current_file = line[6:].strip()
+            continue
+        if not line.startswith("+") or line.startswith("+++"):
+            continue
+        added = line[1:]
+        if any(hint in added for hint in _MOJIBAKE_SKIP_HINTS):
+            continue
+        stripped = added.strip()
+        for pattern in _MOJIBAKE_PATTERNS:
+            if pattern.search(added):
+                self.violations.append(
+                    Violation(
+                        rule="R-MOJIBAKE",
+                        severity=Severity.WARNING,
+                        file=current_file or "staged",
+                        line=0,
+                        description=f"新增行疑似乱码（匹配 {pattern.pattern}）：{stripped[:60]}",
+                        fix_hint=(
+                            "中文注释/doscstring 被 ASCII 替换（BL-081/BL-087）；"
+                            "请恢复中文原文，勿提交 `?`/`EUR` 形态的损坏文本"
+                        ),
+                    )
+                )
+                break

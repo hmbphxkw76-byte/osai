@@ -140,8 +140,8 @@ class PipelineContext:
     # Data flow: 各阶段 emit -> ctx.event_log -> 终端/报告/证据/续跑（唯一派生源，不变量 I12）
     # W0 为旁路埋点：未挂载时 core.events.get_event_log() 返回禁用实例，调用即 no-op（零行为回归）
     event_log: Any = None  # core.events.EventLog 实例
-    surface_graph: Any = None  # recon.surface.SurfaceGraph（W1，REQ-150）
-    playbook_state: Any = None  # strike.playbook.state.PlaybookState（W2，REQ-151）
+    surface_graph: Any = None  # [未消费·预留 REQ-150] recon.surface.SurfaceGraph；recon._attach_surface_graph 产出，下游报告消费待 REQ-150 波次接线（BL-092(c)）
+    playbook_state: Any = None  # [未消费·预留 REQ-151] strike.playbook.state.PlaybookState；待 PlaybookEngine 波次接线（BL-092(c)）
     impact_verdicts: list[dict[str, Any]] = field(default_factory=list)  # assess（W3，REQ-152）
 
     # == plan Wave 1/3：多组件组合体 / 有状态攻击链 / 影响链 ==
@@ -153,9 +153,9 @@ class PipelineContext:
     # 有状态攻击链（plan Wave 3）：跨步骤携带 ChainState，支持 checkpoint/resume
     attack_chain: Any = None  # core.contracts.attack_chain.StatefulAttackChain
     # 影响链举证（plan Wave 3）：入口组件 → 最终业务影响的因果链
-    impact_chains: list[Any] = field(default_factory=list)  # list[ImpactChain]
+    impact_chains: list[Any] = field(default_factory=list)  # [未消费·预留 REQ-152] list[ImpactChain]；待影响链报告波次接线（BL-092(c)）
     # 评分运行清单（plan Wave 5）：消费 adaptive_random_seed，支撑 ASR 可复现/重跑比对
-    score_manifest: Any = None  # core.contracts.manifest.ScoreRunManifest
+    score_manifest: Any = None  # [未消费·预留 REQ-152] core.contracts.manifest.ScoreRunManifest；assess 产出，报告消费待 REQ-152 波次接线（BL-092(c)）
     # 预算控制（plan Wave 2 §4.4）：与 51 个模块接线同批落地的安全阀
     budget: Any = None  # strike.budget.BudgetController
     # L1–L4 成功分层（REQ-164）：附加"证据强度"维度，**不改变** ASR 分子/分母

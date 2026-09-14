@@ -274,3 +274,24 @@ def decode_jwt_payload(token: str) -> dict[str, Any] | None:
 # Backward compatibility alias
 AuthStateManager = AuthDetector
 _decode_jwt_payload = decode_jwt_payload
+
+
+async def run_auth_detection(parsed: Any) -> dict[str, Any]:
+    """认证检测入口（coverage 策略 auth_detection）。
+
+    委托既有 AuthDetector.detect_auth_type 做真实认证态检测。
+
+    Args:
+        parsed: ParsedBurpRequest 或含 headers 的对象
+
+    Returns:
+        {"auth_type": str, "tenant_id": str|None, "csrf": bool, "expired": bool}
+    """
+    detector = AuthDetector()
+    state = await detector.detect_auth_type(parsed)
+    return {
+        "auth_type": state.auth_type,
+        "tenant_id": state.tenant_id,
+        "csrf": state.csrf_token is not None,
+        "expired": detector.is_token_expired(state),
+    }

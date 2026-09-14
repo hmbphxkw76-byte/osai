@@ -1,7 +1,7 @@
 # config/components/session.yaml — Session / Memory / Tenant（组件声明 SSOT）
 #
 # 覆盖：会话态、长期记忆、跨会话上下文、租户隔离。
-# 修 A.3 缺陷：`architecture_validator.py:83` session_memory 的 recon 清单曾为空数组 → 无法识别。
+# 修 A.3 缺陷：架构体检（`tools.architecture_validator`）曾把 session_memory 的 recon 清单例为空数组 → 无法识别。
 
 schema_version: "1.0"
 component_key: session_memory
@@ -35,6 +35,12 @@ seed_sets:
 seeds: ["data/seeds/session/*", "data/seeds/memory/*", "data/seeds/_attack_surface/T1_MEMORY/*"]
 seed_suitable_for: ["session_memory"]
 converter_vectors: ["memory_poisoning", "session_fixation", "context_leak"]
+# 高成功率 converter 组合（最佳实践候选集，按优先级降序）；空 -> 回退 l5_optimal（W0 零回归）
+converter_presets:
+  - DecompositionConverter
+  - PolicyPuppetryConverter
+  - PersuasionConverter
+  - VariationConverter
 
 preferred_attack_class: "CrescendoAttack"
 asr_prior: 0.72

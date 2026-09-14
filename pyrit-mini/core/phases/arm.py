@@ -270,7 +270,11 @@ async def _run_arm_phase(
     # - PyRIT (arXiv:2407.01232) - Native attack techniques
     # - Greshake et al. (arXiv:2302.12173) - Capability-aware technique augmentation
     # Data flow: ctx.args.techniques + detected capabilities -> select_techniques + augment -> ctx.techniques
-    from arm.technique_picker import augment_techniques_by_capability, select_techniques
+    from arm.technique_picker import (
+        augment_techniques_by_capability,
+        merge_component_techniques,
+        select_techniques,
+    )
 
     techniques = select_techniques(
         mode=getattr(ctx.args, "techniques", "auto"),
@@ -429,6 +433,18 @@ async def _run_arm_phase(
         converter_overrides=getattr(args, "converter_overrides", None),
         seeds=ctx.seeds,
     )
+
+    # == S9 运行期接线（最小可见性 / REQ-151 范畴）==
+    # RECON 已识别组件 → 其 required_techniques 并入 ctx.techniques，使 reporting/coverage
+    # 可见「这些组件 technique 已被识别但未在真实攻击路径执行」。不新增真实执行（B/C 切片）。
+    # 放在 build_converter_map 之后：converter_map 不受影响，仅 technique 列表 / 报告可见性变化。
+    _merged_component_tech = merge_component_techniques(ctx)
+    if _merged_component_tech:
+        logger.info(
+            "[ARM] S9 组件 technique 接线（可见性）：并入 %d 项（合计 %d）",
+            len(_merged_component_tech),
+            len(ctx.techniques),
+        )
 
     _record_arm_seed_orchestration(
         ctx,

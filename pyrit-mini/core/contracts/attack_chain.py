@@ -34,7 +34,7 @@ StepStatus = Literal["pending", "running", "succeeded", "failed", "skipped"]
 
 
 class FailedStep(BaseModel):
-    """失败步骤留痕（反静默：失败必须有 reason，禁止 except: pass）。"""
+    """失败步骤留痕（反静默：失败必须有 reason，禁止裸 except 静默吞掉）。"""
 
     schema_version: Literal["1.0"] = SCHEMA_VERSION
     step_id: str
@@ -96,6 +96,7 @@ class AttackStep(BaseModel):
     id: str
     component_key: str
     action: str  # 对应 strike 模块 id
+    techniques: list[str] = Field(default_factory=list)  # 该步骤覆盖的 S9 组件 technique（REQ-151 路由/可见性）
     depends_on: list[str] = Field(default_factory=list)
     produces: list[str] = Field(default_factory=list)
     consumes: list[str] = Field(default_factory=list)

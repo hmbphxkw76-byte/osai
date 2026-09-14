@@ -158,37 +158,37 @@ def compute_cohens_kappa(
     judge1_successes: int = 0,
     judge2_successes: int = 0,
 ) -> float:
-    """Cohen's Kappa ??Judge EUREURuEUR?
+    """计算 Cohen's Kappa（双 Judge 一致性度量）。
 
-    L5 v29 X: EUR?agreement_rate, EUREURcEUR?
-    L5 v48 :  P_e,  0.5 ?
+    L5 v29 新增: 替代 agreement_rate，把"随机一致"也计入基线。
+    L5 v48 改进: 用观察到的边际频率计算 P_e，替代固定 0.5 先验。
 
-    [:
-        - Cohen (1960) ?Cohen's Kappa coefficient
-        - Zhang et al. (arXiv:2308.07920) ??Judge yu
-        - Zheng et al. (arXiv:2306.05685) ?LLM-as-a-Judge X?
+    学术依据:
+        - Cohen (1960) — Cohen's Kappa coefficient
+        - Zhang et al. (arXiv:2308.07920) — 双 Judge 交叉验证
+        - Zheng et al. (arXiv:2306.05685) — LLM-as-a-Judge 鲁棒性
 
     Cohen's Kappa = (P_o - P_e) / (1 - P_e)
-    :
+    其中:
         P_o = observed agreement rate = agreements / (agreements + disagreements)
         P_e = expected agreement by chance
-        ?Judge ?(success/failure):
+        对于双 Judge 二分判定 (success/failure):
         P_e = p1^2 + p0^2  (p1 = proportion of success, p0 = proportion of failure)
 
-    X:
-         > 0.80: EUR?
-        0.60 <  ?0.80: raEUR?
-        0.40 <  ?0.60: XEUR?
-         ?0.40: EUREURts?
+    解读:
+        κ > 0.80: 几乎完全一致
+        0.60 < κ ≤ 0.80: 显著一致
+        0.40 < κ ≤ 0.60: 中等一致
+        κ ≤ 0.40: 一致性较差
 
     Args:
-        agreements: ?Judge EURXEUR?
-        disagreements: ?Judge XC?
-        judge1_successes: J1 yu success X?(angX)?
-        judge2_successes: J2 yu success X?(angX)?
+        agreements: 双 Judge 判定一致的次数
+        disagreements: 双 Judge 判定分歧的次数
+        judge1_successes: J1 判定 success 的次数（用于边际频率估计）
+        judge2_successes: J2 判定 success 的次数（用于边际频率估计）
 
     Returns:
-        Cohen's Kappa ?[-1, 1], 0.0 izuXEUR?
+        Cohen's Kappa ∈ [-1, 1]，0.0 表示无数据
     """
     total = agreements + disagreements
     if total == 0:
@@ -223,10 +223,10 @@ def compute_overall_asr(asr_per_technique: dict[str, float]) -> float:
     """ASR?
 
     Args:
-        asr_per_technique: X ASR?
+        asr_per_technique: 按技术统计的 ASR
 
     Returns:
-         ASR EUR?
+        总体 ASR 百分比
     """
     if not asr_per_technique:
         return 0.0

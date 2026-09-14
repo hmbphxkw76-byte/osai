@@ -403,3 +403,27 @@ def create_poisoned_document(
         "payload_preview": payload[:100],
         "status": "generated",
     }
+
+
+def run_document_poisoning(
+    payload: str,
+    output_dir: str,
+    doc_type: str = "pdf",
+) -> dict[str, Any]:
+    """文档投毒攻击（coverage 策略 document_poisoning）。
+
+    真实实现：委托既有 create_poisoned_document 生成含注入指令的投毒文档
+    （PDF/DOCX/Markdown），用于后续经 PyRIT 文档转换器触发间接注入。
+
+    Academic basis:
+        - Greshake et al. (arXiv:2302.12173): Indirect Prompt Injection via Documents
+
+    Args:
+        payload: 嵌入文档的攻击指令
+        output_dir: 输出目录
+        doc_type: "pdf" / "docx" / "markdown"
+
+    Returns:
+        create_poisoned_document 的结果 dict（含 file_path / doc_type / status）
+    """
+    return create_poisoned_document(payload, output_dir, doc_type)

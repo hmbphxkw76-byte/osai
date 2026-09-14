@@ -4,8 +4,8 @@
 > 规则本体的唯一权威在 `docs/specs/` 规约金字塔（裁决序见 `docs/specs/00-CONSTITUTION.md` 第二章）。
 > 本文件只做三件事：**① 指向冷启动入口 ② 约束"编辑规约的动作方式（how）" ③ 定义跨模型协作角色**。
 > 任何冲突以规约金字塔为准（宪法 C3）；本文件不复制任何规则、命令、阈值与清单（文档纪律 D1）。
-> **版本**：v1.1（2026-09-13 REV-1：① 冷启动顺序加 sid 稳定锚点并声明唯一定义处；② 新增 S7 机器校验纪律与 §4 锚点门禁；③ 版本史外置）
-> **版本史**：`git log -- AGENTS.md`（文档纪律 D3，正文不维护）
+> **版本**：v1.2（2026-09-14 REV-2：冷启动顺序加第 1 步"版本自检"（R-DOC-4 校验），步骤编号顺延；§5 STOP-REPORT 段落精简为指针。REV-1：① 冷启动顺序加 sid 稳定锚点；② 新增 S7 纪律与 §4 锚点门禁）
+> **版本史外置**：`git log -- AGENTS.md`（文档纪律 D3；文件头只保留当前版本号 + 最近 REV 摘要，不积累历史）
 
 ---
 
@@ -14,11 +14,12 @@
 > **本节是冷启动顺序的唯一定义处**：任何规约文档（含 `90-AI-DEV-ARCHITECTURE.md`）如需描述阅读顺序，
 > 一律引用本节 sid，**不得另立一份顺序表**（D1；由 `python -m tools.spec_lint` 的 AI 入口唯一性检查守护）。
 
-1. `docs/specs/README.md` [sid:readme-ch1] —— 规约金字塔唯一入口 + 门禁唯一表（[sid:readme-ch2]）
-2. `docs/specs/90-AI-DEV-ARCHITECTURE.md` [sid:90-ch2] —— 产品契约 → 架构落点导航（[sid:90-ch3] 走流程）
-3. `docs/specs/00-CONSTITUTION.md` [sid:00-ch0] —— 使命 + 裁决序 [sid:00-ch2] + C1–C14（Step 1 宪法自检）
-4. `docs/specs/30-TASKS.md` [sid:30-ch4] —— 八步协议 / 粒度上限 [sid:30-ch3] / STOP-REPORT [sid:30-ch5] / 三栏汇报 [sid:30-ch6]
-5. `docs/specs/10-ARCHITECTURE.md` 与 `docs/specs/20-REQUIREMENTS.md` 的相关章节（Step 2 落点 / Step 3 验收标准）
+1. **自检**：各 cold-start 文件版本号与 `docs/specs/README.md` [sid:readme-ch1] §1 金字塔索引所列一致（R-DOC-4 机器校验；若不匹配，以金字塔索引为本文件版本 SSOT，先同步再开工）
+2. `docs/specs/README.md` [sid:readme-ch1] —— 规约金字塔唯一入口 + 门禁唯一表（[sid:readme-ch2]）
+3. `docs/specs/90-AI-DEV-ARCHITECTURE.md` [sid:90-ch2] —— 产品契约 → 架构落点导航（[sid:90-ch3] 走流程）
+4. `docs/specs/00-CONSTITUTION.md` [sid:00-ch0] —— 使命 + 裁决序 [sid:00-ch2] + C1–C14（Step 1 宪法自检）
+5. `docs/specs/30-TASKS.md` [sid:30-ch4] —— 八步协议 / 粒度上限 [sid:30-ch3] / STOP-REPORT [sid:30-ch5] / 三栏汇报 [sid:30-ch6]
+6. `docs/specs/10-ARCHITECTURE.md` 与 `docs/specs/20-REQUIREMENTS.md` 的相关章节（Step 2 落点 / Step 3 验收标准）
 
 > **只加载与当前任务相关的文件，禁止"全读一遍"**（README [sid:readme-ch1] 规则）。
 
@@ -79,6 +80,4 @@
 
 ## 5. 熔断（STOP-REPORT） [sid:agents-ch5]
 
-出现规格含糊 / 未登记变更 / 超受影响文件清单 / 超粒度上限 / 红线风险 / 对"ASR 变高还是变低"无有据答案 —— 立即停止编码并输出 STOP-REPORT（格式见 `docs/specs/30-TASKS.md` [sid:30-ch5]）。
-
-**猜着做 = 违宪；停下来问 = 合宪。**
+> **唯一权威 = `30-TASKS.md` [sid:30-ch5]**（六类触发信号 + 格式模板）。本文只声明原则：**猜着做 = 违宪；停下来问 = 合宪。**

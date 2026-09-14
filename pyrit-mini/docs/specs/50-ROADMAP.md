@@ -1,8 +1,8 @@
-﻿# 50 — 使命执行路线图（Roadmap & Vibe Coding Master Plan）
+﻿﻿# 50 — 使命执行路线图（Roadmap & Vibe Coding Master Plan）
 
 > **文档层级**：配套资产（宪法 [sid:00-ch6]附则，v1.2）。**无裁决权威**——与 ③需求/④任务规格冲突时以后者为准；40-GUARDRAILS 对本文件无门禁效力。
 > **职能**：任务顺序与依赖、阶段退出条件、vibe coding 会话模型、考试日 Runbook 的**唯一登记处**。
-> **版本**：v1.13（2026-09-13 REV-13：修复 `20-REQUIREMENTS.md` 文件名的畸形 sid 粘连；跨文档引用统一为 sid 锚点。REV-12：① [sid:50-ch1]规模热点改为**以命令实测为准**（原手工数值已失效）；② 现状基线删除易腐快照，改为指向门禁基线；③ 版本史外置）
+> **版本**：v1.14（2026-09-14 REV-14：① [sid:50-ch1] §1.2 移除静态快照表（命令实测段保留，易腐数字删除）；② [sid:50-ch8] 头加"考前配套资产"定位声明。REV-13：① 修复畸形 sid 粘连；② 跨文档引用统一为 sid 锚点）
 > **版本史**：`git log -- docs/specs/50-ROADMAP.md`
 
 ---
@@ -35,16 +35,7 @@
 python -c "import pathlib;sorted_=sorted(((len(p.read_text(encoding='utf-8',errors='ignore').splitlines()),str(p)) for p in pathlib.Path('.').rglob('*.py') if '.git' not in str(p)),reverse=True);[print(f'{n:>6}  {f}') for n,f in sorted_[:20]]"
 ```
 
-**2026-09-12 实测快照**（仅作当时参照，勿当作当前事实）：
-
-| 文件 | 行数 | 判定 |
-|------|------|------|
-| `tools/guard_extended.py` | ~2071 | 扩展检查器主体（34 检查）——**超 R-TOOLS-2**，已登记拆分候选 |
-| `tools/guard.py` | ~762 | 门禁本体，规模可接受 |
-| `tools/architecture_validator.py` | ~654 | 架构体检 |
-| `core/registry.py` | ~293 | 组件注册表 SSOT |
-
-> 拆分属债务消除，须持 DEBT-xxx 专项任务规格，**禁止日常任务顺手重构**（宪法 C4 / NEG-1）。
+> 最新实测：跑上述命令即可。拆分属债务消除，须持 DEBT-xxx 专项任务规格，**禁止日常任务顺手重构**（宪法 C4 / NEG-1）。
 
 ### 1.3 P0 状态
 
@@ -278,6 +269,8 @@ python -c "import pathlib;sorted_=sorted(((len(p.read_text(encoding='utf-8',erro
 ---
 
 ## 第八章：考试就绪评分卡与快速交战 Playbook [sid:50-ch8]
+
+> **定位声明**：本章属**考前配套资产**（工具链验证手册 + 考试日操作 SOP），非路线图任务序列本身。任务序列见 [sid:50-ch4]。
 
 ### 8A. 考试就绪评分卡
 

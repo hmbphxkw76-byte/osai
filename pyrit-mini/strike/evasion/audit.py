@@ -176,3 +176,48 @@ async def run_audit_evasion(ctx: Any) -> dict[str, Any]:
 
     logger.info("[Chain] audit_evasion 生成 %d 条日志注入 payload", len(seeds))
     return produced
+
+
+def run_audit_log_evasion(ctx: Any = None) -> dict[str, Any]:
+    """审计日志逃逸攻击（coverage 策略 audit_log_evasion）。
+
+    真实实现：委托既有 AuditEvasionAttacks 生成审计日志逃逸（日志注入）payload；
+    若 ctx.adversarial_target 可用则经 PyRIT HTTPTarget 实跑日志注入，否则仅产出 payload
+    （C9 诚实、R-NATIVE 原生优先）。
+
+    Academic basis:
+        - OWASP: Log Injection / CRLF Injection
+        - OWASP: Security Logging and Monitoring Failures
+
+    Args:
+        ctx: PipelineContext（可选读取 ctx.adversarial_target）
+
+    Returns:
+        {"seeds": [...], "execution_report": dict|None, "count": int}
+    """
+    payloads = AuditEvasionAttacks._get_default_injection_payloads()
+    seeds = [
+        {
+            "value": p["payload"],
+            "metadata": {
+                "category": "audit_log_evasion",
+                "owasp_id": "LLM09",
+                "severity": "high",
+                "technique": p["name"],
+            },
+        }
+        for p in payloads
+    ]
+    produced: dict[str, Any] = {"seeds": seeds, "execution_report": None, "count": len(seeds)}
+    target = getattr(ctx, "adversarial_target", None) if ctx is not None else None
+    if target is not None:
+        try:
+            attacker = AuditEvasionAttacks(pyrit_target=target)
+            report = attacker.log_injection_attack(payloads=payloads)
+            produced["execution_report"] = report
+            produced["count"] += 1
+            logger.info("[Chain] audit_log_evasion 实跑日志注入：%d 条 payload", len(payloads))
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[Chain] audit_log_evasion 实跑失败（不影响 payload 产出）: %s", e)
+    logger.info("[Chain] audit_log_evasion 生成 %d 条日志注入 payload", len(seeds))
+    return produced

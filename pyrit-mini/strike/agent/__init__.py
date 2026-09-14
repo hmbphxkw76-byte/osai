@@ -19,6 +19,10 @@ Constitution compliance:
     - R-S4: 测试全部 mock
 """
 
+from strike.agent.cleanup import (
+    restore_agent_tools,
+    unregister_rogue_tool,
+)
 from strike.agent.exfiltration import (
     coerce_tool_exfiltration,
     exfiltration_converter_payload,
@@ -42,4 +46,7 @@ __all__ = [
     # Rogue tool
     "build_rogue_tool_schema",
     "register_rogue_tool_prompt",
+    # I13 cleanup actions
+    "unregister_rogue_tool",
+    "restore_agent_tools",
 ]

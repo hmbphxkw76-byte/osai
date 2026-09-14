@@ -117,7 +117,13 @@ def validate_roe(policy: ROEPolicy, *, now: datetime | None = None) -> list[str]
     if not policy.targets:
         problems.append("缺少 targets（授权目标清单），无法进行范围锁定")
 
-    today = (now or datetime.now(timezone.utc)).date()
+    if now is not None:
+        today = now.date() if isinstance(now, datetime) else now
+    else:
+        # R-ROE-1 fail-closed：授权窗口按「本地日期与 UTC 日期中较晚者」判定。
+        # 纯 UTC 口径在 UTC+ 时区会滞后（如 UTC+8 凌晨 UTC 仍为前一日），
+        # 使已过期的授权在窗口末日被放行 —— 授权边界宁可早拒、不可晚拒。
+        today = max(date.today(), datetime.now(timezone.utc).date())
     start = _as_date(policy.valid_from)
     end = _as_date(policy.valid_until)
 

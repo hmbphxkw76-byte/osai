@@ -24,7 +24,8 @@ Constitution compliance:
     - R-S4: 测试全部 mock
 """
 
-from recon.model.api_classifier import APICategory, detect_api_category
+from recon.model.api_classifier import APICategory, detect_api_category, run_api_classification
+from recon.model.capability_detection import run_capability_detection
 from recon.model.prompt_injector import (
     build_full_url,
     detect_and_inject_chat_id_placeholder,
@@ -49,6 +50,9 @@ __all__ = [
     # api_classifier
     "APICategory",
     "detect_api_category",
+    "run_api_classification",
+    # capability_detection
+    "run_capability_detection",
     # prompt_injector utilities
     "infer_tls",
     "build_full_url",

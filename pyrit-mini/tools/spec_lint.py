@@ -5,7 +5,8 @@ S2（禁整文件覆盖）/ S3（禁重排章节号）/ S6（规模自检）/ S7
 稳定锚点 sid 的完整性校验。规则本体见宪法 C4 / `docs/specs/README.md` §5 文档纪律。
 
 检测项：
-  1. 整篇覆盖重写（相对 HEAD，单文件删除行 ≥ 70% 总行且非新增）→ BLOCKING
+  1. 整篇覆盖重写（相对 HEAD，旧内容删比 ≥ 70% 且 新内容新写比 ≥ 70% 同时成立）→ BLOCKING；
+     仅大量删行而新增很少的精简/压缩 → WARNING（不误阻塞，符合 D1）
   2. 大规模改动（增+删 ≥ 50% 总行）→ WARNING（提示拆分为增量编辑）
   3. sid 锚点唯一性（全局）→ BLOCKING（重复）/ WARNING（格式）
   4. sid 引用存在性（正文 [sid:...] 须指向已声明锚点）→ BLOCKING（悬空，D8）
@@ -181,7 +182,15 @@ def _line_count(rel_path: str) -> int:
 
 
 def check_diff_scale() -> tuple[list[str], list[str]]:
-    """检测整篇重写(BLOCKING)与大规模改动(WARNING)。"""
+    """检测整篇覆盖重写(BLOCKING)与大规模改动(WARNING)。
+
+    判定口径对齐 S2「禁止整篇覆盖重写」的真实意图 = 内容被整体*替换*，而非单纯删减：
+    - 反推旧文件总行 old = new + dele - add；旧删比 = dele / old（旧内容被抹去多少）
+    - 新写比 = add / new（新文件里有多少是全新写入）
+    - 仅当「旧内容几乎删光 且 新内容几乎全为新写」(两者均 ≥ 阈值) 才判整篇覆盖重写(BLOCKING)。
+    - 仅大量删行但新增很少 = 精简/压缩（如删冗余实现细节、改引用代码 SSOT），属合法的大规模改动，
+      降为 WARNING（保留信号但不误阻塞，符合宪法 D1 文档纪律）。
+    """
     blocking: list[str] = []
     warning: list[str] = []
     for add, dele, path in _git_diff_numstat():
@@ -190,17 +199,23 @@ def check_diff_scale() -> tuple[list[str], list[str]]:
             continue
         if add <= 0 and dele <= 0:
             continue
-        del_ratio = dele / total
+        # 反推旧文件总行，避免「文件被压缩变短」时删行数 > 新文件总行导致比率虚高误报
+        old_total = total + dele - add
+        if old_total <= 0:
+            old_total = total
+        del_ratio = dele / old_total
+        add_ratio = add / total
         churn_ratio = (add + dele) / total
-        if del_ratio >= _REWRITE_DEL_RATIO:
+        if del_ratio >= _REWRITE_DEL_RATIO and add_ratio >= _REWRITE_DEL_RATIO:
             blocking.append(
-                f"{path}: 疑似整篇覆盖重写（删 {dele}/{total} 行 = {del_ratio:.0%}，"
-                f"违反 AGENTS.md S2 增量编辑）。若为经批准的合法重写，请走 change-proposal 并人工放行"
+                f"{path}: 疑似整篇覆盖重写（旧删 {dele}/{old_total} 行 = {del_ratio:.0%}，"
+                f"新写 {add}/{total} 行 = {add_ratio:.0%}，违反 AGENTS.md S2 增量编辑）。"
+                f"若为经批准的合法重写，请走 change-proposal 并人工放行"
             )
         elif churn_ratio >= _LARGE_CHURN_RATIO:
             warning.append(
                 f"{path}: 大规模改动（增 {add} 删 {dele} 共 {add+dele}/{total} 行 = {churn_ratio:.0%}），"
-                f"疑似重排章节，违反 AGENTS.md S3/S6。请拆分为增量编辑"
+                f"疑似重排章节或精简，违反 AGENTS.md S3/S6。请拆分为增量编辑"
             )
     return blocking, warning
 
@@ -234,7 +249,8 @@ def check_sid_uniqueness() -> tuple[list[str], list[str]]:
 def _describe() -> None:
     print(
         "规约最小 diff 门禁规则（唯一权威 = 本文件常量；规约文档引用本输出，不手抄）\n"
-        f"  整篇覆盖重写  : 相对 HEAD 单文件删除行 ≥ {_REWRITE_DEL_RATIO:.0%} 总行 → BLOCKING\n"
+        f"  整篇覆盖重写  : 相对 HEAD 旧内容删比 ≥ {_REWRITE_DEL_RATIO:.0%} 且 新内容新写比 ≥ {_REWRITE_DEL_RATIO:.0%} → BLOCKING\n"
+        f"                  仅大量删行而新增很少的精简/压缩 → WARNING（不误阻塞，D1）\n"
         f"  大规模改动    : 增+删 ≥ {_LARGE_CHURN_RATIO:.0%} 总行 → WARNING\n"
         "  sid 唯一性    : [sid:<doc>-<slug>] 全局唯一 → BLOCKING(重复) / WARNING(格式)\n"
         "  sid 引用      : 正文 [sid:...] 须指向已声明锚点 → BLOCKING(悬空, D8)\n"

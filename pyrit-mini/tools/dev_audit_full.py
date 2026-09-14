@@ -286,10 +286,11 @@ def run_phase(phase: Phase, verbose: bool = False) -> tuple[bool, str, float]:
             phase.command,
             capture_output=True,
             text=True,
-            timeout=phase.timeout,
-            cwd=str(PROJECT_ROOT),
+            # BL-070：路径可能含非 ASCII，显式按 UTF-8 解码
             encoding="utf-8",
             errors="replace",
+            timeout=phase.timeout,
+            cwd=str(PROJECT_ROOT),
         )
         duration = time.monotonic() - start
         output = result.stdout + result.stderr

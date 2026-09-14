@@ -35,66 +35,15 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+# ComponentProfile 已下沉至 `core.component_profile`（阶段间交接契约，BL-082④）：
+# arm 与 recon 双向依赖该结构，留在 recon 会造成 arm → recon 的逆向依赖
+# （依赖矩阵 [sid:10-ch2] 2.2）。此处 re-export，既有导入路径零回归。
+from core.component_profile import ComponentProfile  # noqa: F401  (re-export)
+
 logger = logging.getLogger(__name__)
 
 
-# ====================================================================
-# Component Profile - 组件画像 (唯一输出总线)
-# ====================================================================
-
-
-@dataclass
-class ComponentProfile:
-    """目标组件画像 - recon 阶段的唯一结构化输出。
-
-    聚合各组件侦察结果，供 arm/strike 阶段直接消费。
-
-    Attributes:
-        target_type: 目标组件类型 (a2a/mcp/rag/model/embedding/generic)
-        capabilities: 已发现的能力集合
-        attack_surface: 攻击面评估
-        recon_budget_consumed: 已消耗的探测预算
-        component_specific: 各组件类型的侦察结果子字典
-        confidence_scores: 各组件侦察结果的置信度
-        recommended_techniques: 基于侦察结果推荐的攻击技术
-        guardrail_indicators: 检测到的防护机制指标
-    """
-
-    target_type: str = "generic"
-    capabilities: set[str] = field(default_factory=set)
-    attack_surface: dict[str, Any] = field(default_factory=dict)
-    recon_budget_consumed: dict[str, float] = field(default_factory=dict)
-    component_specific: dict[str, Any] = field(default_factory=dict)
-    confidence_scores: dict[str, float] = field(default_factory=dict)
-    recommended_techniques: list[str] = field(default_factory=list)
-    guardrail_indicators: dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> dict[str, Any]:
-        """序列化为字典，供 ctx.service_profile 消费。"""
-        return {
-            "target_type": self.target_type,
-            "capabilities": list(self.capabilities),
-            "attack_surface": self.attack_surface,
-            "recon_budget_consumed": self.recon_budget_consumed,
-            "component_specific": self.component_specific,
-            "confidence_scores": self.confidence_scores,
-            "recommended_techniques": self.recommended_techniques,
-            "guardrail_indicators": self.guardrail_indicators,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> ComponentProfile:
-        """从字典反序列化。"""
-        return cls(
-            target_type=data.get("target_type", "generic"),
-            capabilities=set(data.get("capabilities", [])),
-            attack_surface=data.get("attack_surface", {}),
-            recon_budget_consumed=data.get("recon_budget_consumed", {}),
-            component_specific=data.get("component_specific", {}),
-            confidence_scores=data.get("confidence_scores", {}),
-            recommended_techniques=data.get("recommended_techniques", []),
-            guardrail_indicators=data.get("guardrail_indicators", {}),
-        )
+# ComponentProfile 定义已下沉至 `core.component_profile`（见文件头 re-export import）。
 
 
 # ====================================================================

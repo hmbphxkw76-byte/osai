@@ -32,6 +32,12 @@ seed_sets:
 seeds: []
 seed_suitable_for: ["embedding", "rag_pipeline"]
 converter_vectors: ["vector_poisoning", "embedding_inversion", "similarity_gaming"]
+# 高成功率 converter 组合（最佳实践候选集，按优先级降序）；空 -> 回退 l5_optimal（W0 零回归）
+converter_presets:
+  - DecompositionConverter
+  - PolicyPuppetryConverter
+  - PersuasionConverter
+  - VariationConverter
 
 preferred_attack_class: "PromptSendingAttack"
 asr_prior: 0.65

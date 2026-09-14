@@ -272,7 +272,10 @@ class TestExecuteFileUpload:
             mock_session_class.return_value.__aenter__ = AsyncMock(return_value=mock_session)
             mock_session_class.return_value.__aexit__ = AsyncMock(return_value=False)
 
-            mock_post = AsyncMock()
+            # post() 返回异步上下文管理器（非协程），须用 MagicMock；
+            # 用 AsyncMock 时 `async with session.post(...)` 会因协程未 await 而抛 TypeError，
+            # 被生产代码 except 吞掉 → 测试假绿（只断言 called 也会通过）。
+            mock_post = MagicMock()
             mock_session.post = mock_post
 
             mock_context = AsyncMock()
@@ -280,14 +283,15 @@ class TestExecuteFileUpload:
             mock_context.__aexit__ = AsyncMock(return_value=False)
             mock_post.return_value = mock_context
 
-            await execute_file_upload(
+            result = await execute_file_upload(
                 target_url="http://target:8004",
                 upload_endpoint="/upload",
                 upload_config=UploadConfig(file_path=sample_file),
             )
 
-            # Verify the call was made
+            # Verify the call was made — 并确认真正走通成功路径（防假绿）
             assert mock_post.called
+            assert result.success is True, f"upload failed unexpectedly: {result.error}"
 
     @pytest.mark.asyncio
     async def test_upload_with_extra_fields(self, sample_file: str):
@@ -301,7 +305,10 @@ class TestExecuteFileUpload:
             mock_response.status = 200
             mock_response.text = AsyncMock(return_value='{"status": "ok"}')
 
-            mock_post = AsyncMock()
+            # post() 返回异步上下文管理器（非协程），须用 MagicMock；
+            # 用 AsyncMock 时 `async with session.post(...)` 会因协程未 await 而抛 TypeError，
+            # 被生产代码 except 吞掉 → 测试假绿（只断言 called 也会通过）。
+            mock_post = MagicMock()
             mock_session.post = mock_post
 
             mock_context = AsyncMock()
@@ -309,7 +316,7 @@ class TestExecuteFileUpload:
             mock_context.__aexit__ = AsyncMock(return_value=False)
             mock_post.return_value = mock_context
 
-            await execute_file_upload(
+            result = await execute_file_upload(
                 target_url="http://target:8004",
                 upload_endpoint="/upload",
                 upload_config=UploadConfig(
@@ -319,6 +326,7 @@ class TestExecuteFileUpload:
             )
 
             assert mock_post.called
+            assert result.success is True, f"upload failed unexpectedly: {result.error}"
 
 
 # ====================================================================
@@ -341,7 +349,8 @@ class TestExecuteTrigger:
             mock_response.status = 200
             mock_response.text = AsyncMock(return_value='{"summary": "Document processed successfully"}')
 
-            mock_request = AsyncMock()
+            # 同 mock_post：request() 返回异步上下文管理器，须用 MagicMock。
+            mock_request = MagicMock()
             mock_session.request = mock_request
 
             mock_context = AsyncMock()
@@ -349,12 +358,13 @@ class TestExecuteTrigger:
             mock_context.__aexit__ = AsyncMock(return_value=False)
             mock_request.return_value = mock_context
 
-            await execute_trigger(
+            result = await execute_trigger(
                 target_url="http://target:8004",
                 trigger_endpoint="/summarize",
             )
 
             assert mock_request.called
+            assert result.success is True, f"trigger failed unexpectedly: {result.error}"
 
     @pytest.mark.asyncio
     async def test_trigger_with_json_body(self):
@@ -368,7 +378,8 @@ class TestExecuteTrigger:
             mock_response.status = 200
             mock_response.text = AsyncMock(return_value='{"result": "ok"}')
 
-            mock_request = AsyncMock()
+            # 同 mock_post：request() 返回异步上下文管理器，须用 MagicMock。
+            mock_request = MagicMock()
             mock_session.request = mock_request
 
             mock_context = AsyncMock()
@@ -376,13 +387,14 @@ class TestExecuteTrigger:
             mock_context.__aexit__ = AsyncMock(return_value=False)
             mock_request.return_value = mock_context
 
-            await execute_trigger(
+            result = await execute_trigger(
                 target_url="http://target:8004",
                 trigger_endpoint="/process",
                 json_body={"action": "analyze", "mode": "full"},
             )
 
             assert mock_request.called
+            assert result.success is True, f"trigger failed unexpectedly: {result.error}"
 
 
 # ====================================================================
@@ -417,7 +429,10 @@ class TestExecuteFileUploadAttackChain:
             mock_response.status = 200
             mock_response.text = AsyncMock(return_value='{"status": "ok"}')
 
-            mock_post = AsyncMock()
+            # post() 返回异步上下文管理器（非协程），须用 MagicMock；
+            # 用 AsyncMock 时 `async with session.post(...)` 会因协程未 await 而抛 TypeError，
+            # 被生产代码 except 吞掉 → 测试假绿（只断言 called 也会通过）。
+            mock_post = MagicMock()
             mock_session.post = mock_post
 
             mock_context = AsyncMock()
@@ -433,6 +448,7 @@ class TestExecuteFileUploadAttackChain:
             )
 
             assert result.total_uploads == 1
+            assert not result.errors, f"chain reported errors: {result.errors}"
 
 
 # ====================================================================
@@ -615,7 +631,10 @@ class TestUniversalTargetSupport:
             mock_response.status = 200
             mock_response.text = AsyncMock(return_value='{"status": "ok"}')
 
-            mock_post = AsyncMock()
+            # post() 返回异步上下文管理器（非协程），须用 MagicMock；
+            # 用 AsyncMock 时 `async with session.post(...)` 会因协程未 await 而抛 TypeError，
+            # 被生产代码 except 吞掉 → 测试假绿（只断言 called 也会通过）。
+            mock_post = MagicMock()
             mock_session.post = mock_post
 
             mock_context = AsyncMock()
@@ -633,12 +652,13 @@ class TestUniversalTargetSupport:
             ]
 
             for endpoint in endpoints:
-                await execute_file_upload(
+                result = await execute_file_upload(
                     target_url="http://target:8004",
                     upload_endpoint=endpoint,
                     upload_config=UploadConfig(file_path=sample_file),
                 )
                 assert mock_post.called
+                assert result.success is True, f"upload to {endpoint} failed: {result.error}"
 
     @pytest.mark.asyncio
     async def test_custom_trigger_endpoint(self):
@@ -652,7 +672,8 @@ class TestUniversalTargetSupport:
             mock_response.status = 200
             mock_response.text = AsyncMock(return_value='{"result": "ok"}')
 
-            mock_request = AsyncMock()
+            # 同 mock_post：request() 返回异步上下文管理器，须用 MagicMock。
+            mock_request = MagicMock()
             mock_session.request = mock_request
 
             mock_context = AsyncMock()
@@ -671,11 +692,12 @@ class TestUniversalTargetSupport:
             ]
 
             for trigger in triggers:
-                await execute_trigger(
+                result = await execute_trigger(
                     target_url="http://target:8004",
                     trigger_endpoint=trigger,
                 )
                 assert mock_request.called
+                assert result.success is True, f"trigger {trigger} failed: {result.error}"
 
 
 if __name__ == "__main__":

@@ -59,18 +59,21 @@ class _MockHandler(BaseHTTPRequestHandler):
             return
 
         body: dict[str, Any] = {}
-        if self.command in ("POST", "PUT", "PATCH"):
+        # 无论方法一律排空请求体：适配器对 GET 同样带 JSON body，
+        # 未在回包前排空会让服务端在客户端仍在发送时关闭连接 → 客户端
+        # ReadError(BrokenResourceError) / 后续 connect_tcp ConnectTimeout
+        # （test_a2a_fetch_card_and_send_task 等偶发失败的真正根因）。
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except (TypeError, ValueError):
+            length = 0
+        raw = self.rfile.read(length) if length > 0 else b""
+        if raw and self.command in ("GET", "POST", "PUT", "PATCH"):
             try:
-                length = int(self.headers.get("Content-Length") or 0)
-            except (TypeError, ValueError):
-                length = 0
-            raw = self.rfile.read(length) if length > 0 else b""
-            if raw:
-                try:
-                    parsed = json.loads(raw.decode("utf-8", "replace"))
-                    body = parsed if isinstance(parsed, dict) else {}
-                except (json.JSONDecodeError, UnicodeDecodeError):
-                    body = {}
+                parsed = json.loads(raw.decode("utf-8", "replace"))
+                body = parsed if isinstance(parsed, dict) else {}
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                body = {}
 
         status, payload = respond(persona, sub_path_for(self.path), self.command, body)
         self._send(status, payload)
@@ -92,6 +95,26 @@ class _MockHandler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt: str, *args: object) -> None:
         logger.debug("[MockRange] " + fmt, *args)
+
+
+class _ReadyHTTPServer(ThreadingHTTPServer):
+    """带 accept 循环就绪信号的 `ThreadingHTTPServer`。
+
+    `ThreadingHTTPServer` 在 `__init__` 即完成 bind/listen，故**裸 TCP 连接在
+    `serve_forever()` 开始 accept 之前就会成功**（内核 backlog 收下）—— 仅靠
+    "端口可连"无法证明"已可服务"，这正是 `test_a2a_fetch_card_and_send_task`
+    偶发 `KeyError: 'name'` 的来源（BL-066 的探针不够强）。
+    `service_actions()` 由 `serve_forever` 每轮循环调用，置位即代表 accept 循环已运行。
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.ready = threading.Event()
+
+    def service_actions(self) -> None:
+        if not self.ready.is_set():
+            self.ready.set()
+        super().service_actions()
 
 
 class MockRange:
@@ -119,20 +142,24 @@ class MockRange:
     def start(self) -> "MockRange":
         if self._httpd is not None:
             return self
-        self._httpd = ThreadingHTTPServer((self._host, self._port), _MockHandler)
+        self._httpd = _ReadyHTTPServer((self._host, self._port), _MockHandler)
         self._thread = threading.Thread(target=self._httpd.serve_forever, name="mock-range", daemon=True)
         self._thread.start()
-        # 就绪探针：server 线程已在后台，但 serve_forever 未必已开始 accept；
-        # 若不等待直接返回，首个请求会在端口尚未 accept 时偶发连不上，导致
-        # fetch_agent_card 等返回 {} 进而触发 KeyError（tests/common/test_adapters.py
-        # 的 test_a2a_fetch_card_and_send_task 偶发失败，BL-066）。这里确认端口可连才返回
-        # —— 这是就绪等待，非掩盖：若服务本身无法 accept 仍会在超时后失败。
+        # 就绪等待：确认 accept 循环已运行（Event）+ 端口可连（TCP）——
+        # 这是就绪确认，非掩盖：服务本身无法 accept 时仍会在超时后失败。
         self._wait_until_ready(timeout=5.0)
         logger.info("[MockRange] started at %s (personas=%s)", self.url, ",".join(PERSONAS))
         return self
 
     def _wait_until_ready(self, timeout: float = 5.0) -> None:
-        """Probe the bound port until it accepts a TCP connection (or timeout)."""
+        """Wait until the accept loop is running, then confirm the port answers.
+
+        两段确认：① `serve_forever` 的 `service_actions()` 置位（accept 循环已运行）；
+        ② TCP 可连。仅 ② 不足——listen backlog 会让连接在 accept 之前就成功。
+        """
+        ready = getattr(self._httpd, "ready", None)
+        if ready is not None and not ready.wait(timeout):
+            logger.warning("[MockRange] accept loop not ready within %.1fs for %s", timeout, self.url)
         deadline = time.time() + timeout
         while time.time() < deadline:
             try:

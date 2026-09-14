@@ -47,6 +47,12 @@ from strike.a2a.rogue_registrar import (
     RogueAgentRegistrar,
     create_rogue_agent_registrar,
 )
+from strike.a2a.task_interceptor import (
+    TaskInterceptionResult,
+    TaskInterceptor,
+    create_task_interceptor,
+    run_task_interception,
+)
 from strike.a2a.trust_builder import (
     TrustSession,
     build_authority_session,
@@ -69,6 +75,11 @@ __all__ = [
     "WorkflowAttackResult",
     "PipelineAnalysis",
     "create_a2a_workflow_attacker",
+    # Task Interceptor
+    "TaskInterceptor",
+    "TaskInterceptionResult",
+    "create_task_interceptor",
+    "run_task_interception",
     # Card Spoofer
     "AgentCardSpoofer",
     "SpoofResult",

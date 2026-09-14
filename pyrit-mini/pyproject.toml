@@ -2,7 +2,9 @@
 name = "pyrit-mini"
 version = "3.0.0"
 description = "模块化 PyRIT 攻击链路: Burp拦截→侦察→种子→Converter→攻击→评分→证据"
-requires-python = ">=3.13"
+# 上界对齐 PyRIT 1.0.1 的 Requires-Python（<3.15）：避免装到 PyRIT 不支持的解释器
+# （NFR-6：冲突时以 PyRIT 官方区间为准；BL-002 核查结论）。
+requires-python = ">=3.13,<3.15"
 dependencies = [
     "pyrit==1.0.*",
     "pyyaml>=6.0",
@@ -41,11 +43,26 @@ pyrit-security-audit = "tools.security_audit:main"
 pyrit-test-audit = "tools.test_audit:main"
 pyrit-dependency-audit = "tools.dependency_audit:main"
 pyrit-release-audit = "tools.release_audit:main"
+# BL-055：README §4 已列但 [project.scripts] 缺失的两条 CLI
+pyrit-mock-range = "tools.mock_range:main"
+pyrit-oob = "tools.oob_listener:main"
 
 [tool.setuptools.packages.find]
 # W0 fix: "main" was missing, so the pyrit-mini console script declared below referenced a
 # module that never got packaged.
-include = ["core*", "recon*", "arm*", "strike*", "assess*", "report*", "utils*", "tools*", "main"]
+# targets*：靶场层（`targets/mock/`，REQ-156）——R-L7 白名单已含，此前打包清单漏列（BL-055）。
+include = [
+    "core*",
+    "recon*",
+    "arm*",
+    "strike*",
+    "assess*",
+    "report*",
+    "utils*",
+    "tools*",
+    "targets*",
+    "main",
+]
 
 [tool.ruff]
 line-length = 120

@@ -2,8 +2,10 @@
 
 > **文档层级**：L4 / 五层规约金字塔第五层
 > **效力**：红线 = 绝对禁止，视同宪法级（裁决序见 00-CONSTITUTION [sid:00-ch2]）。质量门禁 = 完成任务的必要不充分条件。
-> **执行机制**：三层防线（静态 guard / 运行时 dry-run / git 钩子），继承 SKILL.md D2 条款并收编。
-> **版本**：v3.9（2026-09-13 REV-26：① 删除已不存在的 `tools/quick_check.py` / `tools/watch_guard.py` 及其 `.env.local` 自动守卫与 7G 三步钩子图（D5，BL-042）；② 7E/7G 改为引用 `tools.gate --describe` 单一权威；③ R-GATE-1 判定补齐 spec-lint/security/e2e 三步（防"门禁新增步骤却无人守护"复发）；④ 跨文档引用统一为 sid 锚点。REV-25 的R-CROSS-1 级别由 BLOCKING 降 WARNING（与 tools.cross_model_review 实现一致，人工编排降级、不阻断、标记 needs-cross-model-pending）；1F 登记簿补 R-CROSS-1~5 检查器；存储路径统一 outputs/cross_model_review/（加 !outputs/cross_model_review/ 入库例外）。REV-24 的 R-DOC-4 BLOCKING 提级 / 5 检查器落地 / R-L7 文件许可 / §4.4 review-only 保持有效）
+> **执行机制**：三层防线（静态 guard / 运行时 dry-run / git 钩子），继承 SKILL.md D2 条款并收编
+> （**SKILL.md 已明确降级为"本机可选细则"且不入库**，本体位于 `.assistant_pyrit/skills/…`，跨模型协同时不可依赖；
+> 项目级规则一律以 `specs/` 为准，见 §6 资产表与 BL-080）。
+> **版本**：v3.11（2026-09-14 REV-28：① R-DOC 红线表加 R-DOC-5（门禁步数同步）/ R-DOC-6（登记簿行数同步）两条 WARNING 机器检查；② 1F 登记簿同步加 check_gate_step_count_synced / check_guardrail_registry_count_synced 两行；③ 原 R-DOC-5（CLI 交付验收，无对应函数）从红线表移除。REV-27：护栏登记簿与代码同步 49→56 条）
 > **v3.4 摘要**（REV-21）：R-L7 顶层目录许可清单同步纳入 `targets/` —— 依 `10-ARCHITECTURE.md` 2.1「靶场层」与 REQ-156，修复检查器白名单滞后于规格的 spec-code drift。
 > **版本史**：`git log -- docs/specs/40-GUARDRAILS.md`
 
@@ -23,6 +25,9 @@
 | R-L6 | 报告生成未调用 pyrit.output 原生模块 | `check_pyrit_native_output()` |
 | R-L7 | 根目录出现未授权顶层目录/文件 | `check_top_level_structure()` **[v2.9 已实现]** |
 | R-L8 | `--dry-run` 参数或实现缺失 | `check_dry_run_available()` |
+| R-IMPORT | 跨阶段/跨层 import 不在依赖方向矩阵允许格内（矩阵为唯一判据源，含函数级延迟导入） | `check_dependency_matrix()` **[CP-009 S1 已实现]** |
+
+> **R-IMPORT 判据源与级别（CP-009 S1）**：判据**解析自 `10-ARCHITECTURE.md` 2.2 依赖方向矩阵表**（C3 / D1：规约是唯一声明处，代码不抄第二份清单；改表即改判据）。矩阵不可解析 → BLOCKING（NEG-9：判据失效等同放行）。含函数级延迟导入（现存违例多为延迟导入，只扫模块级等于没扫）。**存量违例以显式白名单豁免**（登记 `BL-082` / `BL-090`，只减不增），**新增即 BLOCKING** —— 通过标准是"不新增"（[sid:40-ch4]）。
 
 > **R-L7 许可清单（v3.4 同步）**：`check_top_level_structure()` 的顶层目录白名单除 `strike/arm/recon/core/assess/report/utils/tools/tests/data/docs/outputs/config/scripts` 外，**含 `targets/`** —— 依据 `10-ARCHITECTURE.md` 2.1「靶场层」（`targets/mock/`，**非交付包**）与 **REQ-156**（Mock 靶场与 CI 断言）。此前检查器白名单滞后于规格（spec-code drift / R-DRIFT-2），本次同步修复。
 >
@@ -67,7 +72,8 @@
 | R-DOC-2 | 新增攻击模块必须同步更新 `docs/specs/55-gap-N.md` 对应缺口章节（缺口 1–6 已拆为子文件） | `check_attack_gap_documented()` | WARNING |
 | R-DOC-3 | 新增需求/红线必须同步更新 `docs/specs/20-REQUIREMENTS.md` 和 `docs/specs/40-GUARDRAILS.md` | `check_requirements_guardrails_synced()` | WARNING |
 | R-DOC-4 | 文档版本号变更必须同步更新 `docs/specs/README.md` 金字塔版本索引（否则门禁 BLOCKING，C10） | `check_readme_version_synced()` | BLOCKING |
-| R-DOC-5 | **新增/修改 CLI 参数必须在交付验收时显示完整命令行用法**，包括：参数组合示例、与其他模块联合使用示例、完整参数列表 | `check_cli_usage_shown_in_delivery()` | WARNING |
+| R-DOC-5 | `docs/specs/README.md` §2 声称的门禁步骤数必须与 `tools/gate.py` 的 COMMIT_STEPS / PUSH_STEPS 数量一致（防漂移，C10） | `check_gate_step_count_synced()` | WARNING |
+| R-DOC-6 | `docs/specs/40-GUARDRAILS.md` 1F 登记簿行数必须与代码实际 `def check_*` 函数数量一致（防登记遗漏，C10） | `check_guardrail_registry_count_synced()` | WARNING |
 
 **R-DOC-1 判定**:
 - ✅ PASS: `core/config.py` / `main.py` 中新增的 `--xxx` 参数均具备非空 `help`（代码即文档，运行 `python main.py --help` 可核对）
@@ -90,8 +96,12 @@
 - ❌ BLOCKING: 版本号不一致 → 门禁拦截（C10，须先同步 README 索引再合入）
 
 **R-DOC-5 判定**:
-- ✅ PASS: 交付验收清单中包含"CLI 文档"章节，显示：完整参数列表、基础用法示例、组合攻击示例
-- ❌ FAIL: 新增 CLI 参数但交付验收未显示命令行用法 → WARNING (提示补充)
+- ✅ PASS: `README.md` §2 声称的 commit / push 步数与 `gate.py` COMMIT_STEPS / PUSH_STEPS 数量一致
+- ❌ FAIL: 文档步进与代码不一致 → WARNING（提示同步 README §2 步数）
+
+**R-DOC-6 判定**:
+- ✅ PASS: `40-GUARDRAILS.md` 1F 登记簿 R-xxx 行数 = 代码 `def check_*` 函数总数
+- ❌ FAIL: 行数不一致 → WARNING（提示补充或清理 1F 登记簿）
 
 **文档同步清单**（代码变更时必须检查）：
 
@@ -163,11 +173,11 @@
 
 | 攻击向量 | 对应模块 | 关键技术 | 引用要求 |
 |---------|---------|---------|----------|
-| JWT 算法混淆 | `strike/auth_attacks.py` | alg=none、RS256→HS256 降级、kid注入 | CVE-2015-9235（RS256→HS256 混淆）或 CVE-2018-0114（jwk header 注入） |
+| JWT 算法混淆 | `strike/web/attacks.py` | alg=none、RS256→HS256 降级、kid注入 | CVE-2015-9235（RS256→HS256 混淆）或 CVE-2018-0114（jwk header 注入） |
 | HTTP 请求走私 | `strike/web_attacks.py` | CL.TE/TE.CL 走私、路径参数覆盖 | PortSwigger HTTP Desync（Kettle, 2019） |
 | 审计日志注入 | `strike/audit_evasion.py` | CRLF 注入、ANSI 注入、时间戳伪造 | CWE-117 / CWE-93（OWASP Log Injection） |
-| 文件上传间接Prompt注入 | `strike/file_upload_executor.py` | multipart/form-data 上传、分文档注入 | arXiv:2302.12173（Greshake et al.） |
-| RAG知识库投毒 | `strike/file_upload_executor.py` | PoisonedRAG、chunk边界利用 | arXiv:2406.04245（Zou et al.） |
+| 文件上传间接Prompt注入 | `strike/multimodal_upload/file_upload_executor.py` | multipart/form-data 上传、分文档注入 | arXiv:2302.12173（Greshake et al.） |
+| RAG知识库投毒 | `strike/multimodal_upload/file_upload_executor.py` | PoisonedRAG、chunk边界利用 | arXiv:2406.04245（Zou et al.） |
 
 > **v2.5 引用修正**：新增文件上传攻击白名单条目（R-WEB-6 护栏 + 2个攻击向量）。
 
@@ -214,7 +224,7 @@ pyrit-drift --full --report
 ### 1F. Guard 检查器登记簿（索引，非权威清单）
 
 > **权威清单 = 代码**。本表只是"红线 → 检查器"的**分组索引**，用于回答"这条红线由谁守"，**允许滞后于代码**（文档纪律 D4）。
-> 计数与名称以 `tools/guard.py` + `tools/guard_extended.py` + `tools/drift_detector.py` 的 `def check_*` 为准：
+> 计数与名称以 `tools/guard.py` + `tools/guard_extended.py` + `tools/guard_gate.py` 的 `def check_*` 为准（drift_detector.py / cross_model_review.py 检查器分别由对应子模块自行维护，不计入本登记簿 R-DOC-6 同步）：
 > ```bash
 > python -m tools.guard --list-checks 2>/dev/null || python -c "import re,pathlib,glob;print(sorted(re.findall(r'def (check_\w+)', ''.join(pathlib.Path(f).read_text(encoding='utf-8') for f in glob.glob('tools/*.py')))))"
 > ```
@@ -225,56 +235,56 @@ pyrit-drift --full --report
 | check_no_defense_in_attack_dirs | C2 / R-L1 | BLOCKING | 核心安全 |
 | check_forbidden_custom_classes | C1 / R-L2 | BLOCKING | 核心安全 |
 | check_serial_stacking | C2 / R-L3 | BLOCKING | 核心安全 |
-| check_l5_params | C2·C7 / R-L4 | BLOCKING | 核心安全 |
-| check_intermediate_exit | I4 / R-L5 | BLOCKING | 核心安全 |
-| check_pyrit_native_output | I9·C1 / R-L6 | BLOCKING | 核心安全 |
 | check_top_level_structure | R-L7 | BLOCKING | 核心安全 |
-| check_no_hardcoded_component_names | ADR-007 / R-EVENT-1 | WARNING（W4 起 BLOCKING） | 目标架构 v4.0 |
-| check_test_coverage | R-L7 | BLOCKING | 核心安全 |
-| check_dry_run_available | C10 / R-L8 | BLOCKING | 核心安全 |
-| check_native_attack_usage | C1 | WARNING | PyRIT 原生 |
-| check_native_attack_instantiation | C1 | WARNING | PyRIT 原生 |
-| check_llm_scorer_in_attack | C2·I2 | WARNING | PyRIT 原生 |
-| check_hardcoded_params | C7 | WARNING | 配置纪律 |
-| check_config_data_flow | C7 | WARNING | 配置纪律 |
-| check_native_params_from_config | C7 | WARNING | 配置纪律 |
-| check_arxiv_citations | C8 | INFO | 学术留痕 |
-| check_silent_degradation | C9 | WARNING | 静默降级 |
-| check_silent_swallowing | C9 | WARNING | 静默吞错 |
-| check_dual_track | D-11 / C7 | INFO | 双轨检测 |
-| check_glue_pluginisolation | R-WEB-1 | BLOCKING | Web 攻击 |
-| check_glue_pyrit_delegation | R-WEB-2 | WARNING | Web 攻击 |
-| check_glue_config_flow | R-WEB-3 | WARNING | Web 攻击 |
-| check_glue_silent_degradation | R-WEB-4 | WARNING | Web 攻击 |
-| check_glue_academic_citation | R-WEB-5 | INFO | Web 攻击 |
-| check_pyrit_api_resolution | R-DRIFT-1 | BLOCKING | 漂移检测 |
-| check_spec_code_sync | R-DRIFT-2 | WARNING | 漂移检测 |
-| check_version_lock | R-DRIFT-3 | BLOCKING | 漂移检测 |
-| check_context_contract_usage | R-DRIFT-4 | INFO | 漂移检测 |
-| check_native_patterns | R-DRIFT-5 | WARNING | 漂移检测 |
+| check_no_hardcoded_component_names | ADR-007 | WARNING | 架构边界 |
+| check_dependency_matrix | 蓝图 [sid:10-ch2] 2.2 / R-IMPORT | BLOCKING（存量白名单化） | 架构边界 |
+| check_cli_location | R-TOOLS-1 | BLOCKING | 目录职责 |
+| check_size_escape | R-TOOLS-2 | WARNING | 目录职责 |
+| check_circular_imports | 架构不变量 | WARNING | 架构边界 |
+| check_pipeline_integration | 流水线完整性 | WARNING | 架构边界 |
+| check_data_flow_integrity | R-DATA-1 | INFO/WARNING | 数据流 |
+| check_data_flow_consistency | 数据流一致性 | WARNING | 数据流 |
+| check_native_attack_class_usage | C1 | WARNING | PyRIT 原生 |
+| check_native_converter_usage | C1 | WARNING | PyRIT 原生 |
+| check_native_scorer_usage | C1 | WARNING | PyRIT 原生 |
+| check_native_target_usage | C1 | WARNING | PyRIT 原生 |
+| check_best_practices | 编码规范 | INFO | 代码质量 |
+| check_dead_code | 死代码检测 | WARNING | 代码质量 |
+| check_academic_citations | C8 / R-WEB-5 | INFO | 学术留痕 |
+| check_asr_completeness | ASR 度量 | WARNING | 质量度量 |
+| check_evidence_completeness | 证据完整性 | WARNING | 质量度量 |
+| check_report_completeness | 报告完整性 | WARNING | 质量度量 |
+| check_init_export_usage | 导出一致性 | WARNING | 接口契约 |
+| check_delivery_module_size | 模块规模 | WARNING | 交付质量 |
+| check_delivery_test_coverage | 测试覆盖率 | WARNING | 交付质量 |
+| check_delivery_architecture_alignment | 架构对齐 | WARNING | 交付质量 |
+| check_delivery_init_export_consistency | 导出一致性 | WARNING | 交付质量 |
+| check_delivery_module_docstring | 模块文档 | INFO | 交付质量 |
+| check_mcpsec_bridge_integration | MCP 桥接 | WARNING | 组件集成 |
+| check_session_module_completeness | Session 模块 | WARNING | 组件集成 |
+| check_session_integration_completeness | Session 集成 | WARNING | 组件集成 |
+| check_session_config_exists | Session 配置 | WARNING | 组件集成 |
+| check_session_test_coverage | Session 测试 | WARNING | 组件集成 |
+| check_session_pyrit_native_compatibility | Session PyRIT 兼容 | WARNING | 组件集成 |
+| check_session_context_integration | Session 上下文 | WARNING | 组件集成 |
+| check_recon_submodule_invocation | Recon 子模块 | WARNING | 组件集成 |
+| check_mojibake_in_diff | BL-081 / BL-087 | WARNING | 文档完整性 |
 | check_cli_params_documented | R-DOC-1 | WARNING | 文档同步 |
 | check_attack_gap_documented | R-DOC-2 | WARNING | 文档同步 |
 | check_requirements_guardrails_synced | R-DOC-3 | WARNING | 文档同步 |
 | check_readme_version_synced | R-DOC-4 | BLOCKING | 文档同步 |
-| check_decision_safety_boundary | R-DECIDE-1 | BLOCKING | 自主决策 |
-| check_decision_audit_trail | R-DECIDE-2 | WARNING | 自主决策 |
-| check_decision_stability | R-DECIDE-3 | WARNING | 自主决策 |
-| check_human_override | R-DECIDE-4 | INFO | 自主决策 |
-| check_decision_data_source | R-DECIDE-5 | WARNING | 自主决策 |
+| check_gate_step_count_synced | R-DOC-5 | WARNING | 文档同步 |
+| check_guardrail_registry_count_synced | R-DOC-6 | WARNING | 文档同步 |
 | check_gate_stage_parity | R-GATE-1 | BLOCKING | 门禁本体 |
 | check_gate_no_silent_skip | R-GATE-2 | BLOCKING | 门禁本体 |
 | check_hooks_installed | R-GATE-3 | WARNING | 门禁本体 |
-| check_cross_model_review | C14 / R-CROSS-1 | WARNING（人工编排降级） | 跨模型审查 |
-| check_review_schema | R-CROSS-2 | BLOCKING | 跨模型审查 |
-| check_adjudication_record | R-CROSS-3 | WARNING | 跨模型审查 |
-| check_review_model_pool | R-CROSS-4 | INFO | 跨模型审查 |
-| check_review_freshness | R-CROSS-5 | WARNING | 跨模型审查 |
+| check_checks_registered | R-GATE-4 | BLOCKING | 门禁本体 |
 
 **保留注记**：
-- **门禁本体检查器落点**：上表三条位于 `tools/guard_gate.py`（未塞进已超限的 `tools/guard_extended.py`，见 BL-053）；由 `tools/guard.py` 的 `_register_gate_checks()` 注册。
+- **检查器总数**：上表 48 条 = guard.py (6) + guard_extended.py (38) + guard_gate.py (4)。
+- **门禁本体检查器落点**：R-GATE-1~4 四条位于 `tools/guard_gate.py`（未塞进已超限的 `tools/guard_extended.py`，见 BL-053）；由 `tools/guard.py` 的 `_register_gate_checks()` 注册。
 - **specs-guard 联动**: guard 启动时读取 `00-CONSTITUTION.md` 版本号并输出至报告脚注（裁决序基准）；版本不匹配时以 guard 实现为准、规约文档视为待同步。
-- **R9 误报白名单**: `display.py`、`display_stages.py` 中通过 `_resolve('param', default)` 包裹的动态配置读取，视为已修复配置数据流断点（不报 R9）。
-- **跨模型检查器落点**：R-CROSS-1~5 五检查器位于 `tools/cross_model_review.py`，由 `tools/guard.py` 在模块级调用 `cross_model_review.register(ArchitectureGuard)` 注册（BL-042 闭环）；`docs/specs` 无变更时零产出（纯代码提交无感）。
+- **子模块自维护检查器**（不计入本登记簿 R-DOC-6 同步）：drift_detector.py (5 条 R-DRIFT-*) + cross_model_review.py (5 条 R-CROSS-*)，分别由对应子模块自行维护。
 
 ### 1G-DECIDE. 自主决策系统护栏（v2.2 新增）
 
@@ -373,6 +383,7 @@ pyrit-drift --full --report
 | **R-GATE-2** | **门禁不得静默跳过**：依赖缺失 / 命令不存在 = 环境不合格 = 阻塞（NEG-9） | BLOCKING | gate.py 中出现 `[SKIP]` / "非阻塞" 降级分支 | `check_gate_no_silent_skip()` |
 | **R-GATE-3** | **hooks 在线性**：pre-commit / pre-push 必须已安装（三层防线 L3） | WARNING | 真实 git 目录的 `hooks/` 下缺钩子 | `check_hooks_installed()` |
 | **R-GATE-4** | **检查器注册不得静默失败**：扩展/门禁检查器导入失败必须暴露，禁止 `logger.debug` 吞掉（BL-067） | BLOCKING | `tools/guard.py` 的 `_FAILED_REGISTRATIONS` 非空 | `check_checks_registered()` |
+| **R-GATE-5** | **检查器运行不得静默失败**：扩展检查器**运行时**异常必须暴露为 BLOCKING（BL-091：仅覆盖"注册失败"不够——R-PIPE-5 检查器曾因常量留在扩展类体内、未随方法迁移而每次抛 `AttributeError`，被吞后空转数周无人知） | BLOCKING | `guard.check_all()` 中任一 `check_*` 抛异常 | `check_all()` 内联（登记 R-GATE-5 违规） |
 
 **R-GATE-* 判定逻辑**：
 - ✅ PASS: 全部通过 → INFO（不阻断）

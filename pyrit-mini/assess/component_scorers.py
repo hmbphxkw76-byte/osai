@@ -24,6 +24,7 @@ from assess.multimodal_upload.t0 import t0_multimodal_upload_check
 from assess.rag.t0 import t0_rag_pipeline_check
 from assess.session.t0 import t0_session_memory_check
 from assess.web.t0 import t0_web_api_check
+from core.technique_registry import get_scorer
 
 logger = logging.getLogger(__name__)
 
@@ -43,12 +44,18 @@ _COMPONENT_T0_FUNCTIONS = [
 def get_t0_checker(component_type: str):
     """Get the T0 checker function for a component type.
 
+    Plug-in path first: a scorer registered via ``@register_scorer`` wins;
+    falls back to the hardcoded ``_COMPONENT_T0_FUNCTIONS`` (W0 zero regression).
+
     Args:
         component_type: Component type name (e.g., "mcp_tool_poisoning")
 
     Returns:
         Callable or None if not found
     """
+    reg = get_scorer(component_type)
+    if reg is not None:
+        return reg
     for ct, func in _COMPONENT_T0_FUNCTIONS:
         if ct == component_type:
             return func

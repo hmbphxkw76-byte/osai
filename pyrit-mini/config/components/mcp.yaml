@@ -38,6 +38,13 @@ seed_sets:
 seeds: ["data/seeds/mcp/*", "data/seeds/_attack_surface/T1_ASI02_mcp_full_surface/*"]
 seed_suitable_for: ["mcp_tool_poisoning"]
 converter_vectors: ["mcp_tool_registration", "mcp_message_injection", "mcp_schema_poisoning"]
+# 高成功率 converter 组合（最佳实践候选集，按优先级降序）；空 -> 回退 l5_optimal（W0 零回归）
+converter_presets:
+  - DecompositionConverter
+  - PolicyPuppetryConverter
+  - CodeChameleonConverter
+  - PersuasionConverter
+  - VariationConverter
 
 # 宪法 7B 目标类型 → PyRIT 最优攻击映射表
 preferred_attack_class: "PromptSendingAttack"

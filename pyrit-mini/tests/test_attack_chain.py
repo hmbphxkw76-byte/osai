@@ -24,6 +24,7 @@ from core.contracts import (
     VerdictRecord,
 )
 from strike.common.budget import BudgetController
+from strike.common.chain_executor import _record_technique_execution
 from strike.common.chain_planner import ChainPlanner
 
 
@@ -90,6 +91,69 @@ class TestChainPlanner:
         chain = ChainPlanner().plan(_graph())
         assert chain.total_cost() == len(chain.steps)
         assert chain.progress() == (0, len(chain.steps))
+
+
+class _CtxTech:
+    def __init__(self, techniques: list[str]) -> None:
+        self.techniques = techniques
+        self.args = type("Args", (), {})()
+
+
+class TestChainPlannerS9Routing:
+    """REQ-151 / 切片 B：ctx.techniques（切片 A 已并入组件 required_techniques）驱动
+    逐 technique 链步骤生成；ctx.techniques 为空时回退单一组件步骤（向后兼容）。"""
+
+    def test_emits_per_technique_steps_when_ctx_techniques_present(self) -> None:
+        from core.component_techniques import techniques_for_component
+
+        ctx_techs = ["tool_poisoning", "schema_manipulation"]
+        planner = ChainPlanner.from_ctx(_CtxTech(ctx_techs))
+        chain = planner.plan(_graph())
+
+        mcp_steps = [s for s in chain.steps if s.component_key == "mcp_tool_poisoning"]
+        expected = [t for t in techniques_for_component("mcp_tool_poisoning") if t in set(ctx_techs)]
+        assert len(mcp_steps) == len(expected)
+        assert {tuple(s.techniques) for s in mcp_steps} == {(t,) for t in expected}
+        # 其余组件仍单步（向后兼容）
+        for comp in ("web_api", "llm_gateway", "model_behavior_shift"):
+            assert len([s for s in chain.steps if s.component_key == comp]) == 1
+
+    def test_falls_back_to_single_step_when_no_ctx_techniques(self) -> None:
+        planner = ChainPlanner.from_ctx(_CtxTech([]))
+        chain = planner.plan(_graph())
+        mcp_steps = [s for s in chain.steps if s.component_key == "mcp_tool_poisoning"]
+        assert len(mcp_steps) == 1
+        assert mcp_steps[0].techniques == []
+
+
+class _FakeStep:
+    component_key = "mcp_tool_poisoning"
+    id = "mcp_tool_poisoning:tool_poisoning"
+    techniques = ["tool_poisoning"]
+
+
+class TestRecordTechniqueExecution:
+    """REQ-151 / 切片 B：chain_executor 把步骤覆盖的 technique 记入
+    ctx.technique_execution_log（供 reporting/coverage）；ctx 不可写时静默降级。"""
+
+    def test_records_each_technique(self) -> None:
+        ctx = type("C", (), {})()
+        _record_technique_execution(ctx, _FakeStep(), "strike.mcp.orchestrator", status="executed")
+        assert len(ctx.technique_execution_log) == 1
+        rec = ctx.technique_execution_log[0]
+        assert rec["technique"] == "tool_poisoning"
+        assert rec["component_key"] == "mcp_tool_poisoning"
+        assert rec["module"] == "strike.mcp.orchestrator"
+        assert rec["status"] == "executed"
+
+    def test_silent_on_unwritable_ctx(self) -> None:
+        class RO:
+            def __setattr__(self, _k: str, _v: object) -> None:
+                raise AttributeError("read-only")
+
+        ro = RO()
+        # 不抛异常（C9：仅记录、不阻断主链路）
+        _record_technique_execution(ro, _FakeStep(), "m", status="failed", error="boom")
 
 
 # =============================================================================

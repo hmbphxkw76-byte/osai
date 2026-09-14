@@ -77,7 +77,11 @@ class ChainPlanner:
             val = getattr(args, key, None) if args is not None else None
             return default if val is None else val
 
-        return cls(max_steps=int(_g("max_steps", 12)), max_depth=int(_g("max_depth", 6)))
+        planner = cls(max_steps=int(_g("max_steps", 12)), max_depth=int(_g("max_depth", 6)))
+        # 缓存 ctx.techniques（切片 A 已并入组件 required_techniques），供切片 B 按
+        # technique 生成链步骤；无则回退单一组件步骤（向后兼容）。
+        planner._ctx_techniques = set(getattr(ctx, "techniques", []) or [])
+        return planner
 
     # ------------------------------------------------------------------
     # 规划
@@ -145,25 +149,37 @@ class ChainPlanner:
             produces = _produces_for(key)
             consumes = [c for c in _consumes_for(key) if c in producible and c not in produces]
 
-            step = AttackStep(
-                id=f"{key}:{action}",
-                component_key=key,
-                action=action,
-                depends_on=[],  # 第二遍统一解析（生产者可能排在后面）
-                produces=produces,
-                consumes=consumes,
-                budget_cost=1,
-                metadata={
+            # == S9 真实路由（REQ-151 / 切片 B）==
+            # 若该组件有「已被 ctx.techniques 识别」的 required_techniques，则按 technique 各
+            # 生成一条链步骤（逐 technique 真实执行 + 覆盖可见性）；否则回退单一组件步骤
+            # （向后兼容：切片 A 关闭或 ctx.techniques 未含组件 technique 时行为不变）。
+            comp_techs = self._techniques_for_component(key)
+            tech_iter = comp_techs if comp_techs else [None]
+            for tech in tech_iter:
+                is_tech = tech is not None
+                meta = {
                     "confidence": node.confidence,
                     "asr_prior": node.attributes.get("asr_prior", 0.0),
                     "inferred": bool(node.attributes.get("inferred", False)),
                     "a2a_priority": a2a_priority.get(key),
                     "order": idx,
-                },
-            )
-            chain.steps.append(step)
-            chain.state.status[step.id] = "pending"
-            chain.state.budget_spent = 0
+                }
+                if is_tech:
+                    meta["technique"] = tech
+                step = AttackStep(
+                    id=f"{key}:{tech}" if is_tech else f"{key}:{action}",
+                    component_key=key,
+                    action=action,
+                    techniques=[tech] if is_tech else [],
+                    depends_on=[],  # 第二遍统一解析（生产者可能排在后面）
+                    produces=produces,
+                    consumes=consumes,
+                    budget_cost=1,
+                    metadata=meta,
+                )
+                chain.steps.append(step)
+                chain.state.status[step.id] = "pending"
+                chain.state.budget_spent = 0
 
         # 第二遍：解析 depends_on —— 生产者可能排在消费者之后，必须全量扫一遍
         for step in chain.steps:
@@ -260,6 +276,24 @@ class ChainPlanner:
         except Exception:
             pass
         return "prompt_sending"
+
+    def _techniques_for_component(self, component_key: str) -> list[str]:
+        """返回该组件『已被 ctx.techniques 识别』的 required_techniques（切片 B 路由依据）。
+
+        仅返回同时出现在 ctx.techniques 中的 technique —— 即 RECON/ARM 实际识别到的组件
+        technique（切片 A 已并入）。全部缺失 → 返回 []（回退单一组件步骤，零回归）。
+        """
+        try:
+            from core.component_techniques import techniques_for_component
+        except Exception:
+            return []
+        all_techs = techniques_for_component(component_key)
+        if not all_techs:
+            return []
+        ctx_techs = getattr(self, "_ctx_techniques", None) or set()
+        if not ctx_techs:
+            return []
+        return [t for t in all_techs if t in ctx_techs]
 
 
 def build_chain_state(chain: StatefulAttackChain) -> ChainState:

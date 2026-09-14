@@ -18,6 +18,11 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+# Burp 样本固定在 `tests/fixtures/burp/`：`.gitignore` 忽略 `config/burp/`
+# （该目录存放真实拦截流量，含真实会话 cookie，禁止入库），
+# 故测试样本放 `config/burp/` 会因不入 Git 而在 CI 上再度 skip。
+_BURP_FIXTURES = _PROJECT_ROOT / "tests" / "fixtures" / "burp"
+
 
 class TestCapabilityDetection:
     """Tests for capability detection from burp files."""
@@ -26,7 +31,7 @@ class TestCapabilityDetection:
         """mcp05.txt should detect MCP capability."""
         from recon.api.endpoint_sorter import _detect_capabilities_from_burp
 
-        burp_path = str(_PROJECT_ROOT / "config" / "burp" / "mcp05.txt")
+        burp_path = str(_BURP_FIXTURES / "mcp05.txt")
         if not Path(burp_path).exists():
             pytest.skip("mcp05.txt not found")
 
@@ -37,7 +42,7 @@ class TestCapabilityDetection:
         """mcp09.txt should detect MCP or shadow_mcp capability."""
         from recon.api.endpoint_sorter import _detect_capabilities_from_burp
 
-        burp_path = str(_PROJECT_ROOT / "config" / "burp" / "mcp09.txt")
+        burp_path = str(_BURP_FIXTURES / "mcp09.txt")
         if not Path(burp_path).exists():
             pytest.skip("mcp09.txt not found")
 
@@ -48,7 +53,7 @@ class TestCapabilityDetection:
         """mm05.txt (basic chat) should have low priority."""
         from recon.api.endpoint_sorter import _detect_capabilities_from_burp
 
-        burp_path = str(_PROJECT_ROOT / "config" / "burp" / "mm05.txt")
+        burp_path = str(_BURP_FIXTURES / "mm05.txt")
         if not Path(burp_path).exists():
             pytest.skip("mm05.txt not found")
 
@@ -131,8 +136,8 @@ class TestEndpointSorting:
         from recon.api.endpoint_sorter import sort_endpoints_by_priority
 
         # Use actual burp files if they exist
-        mm05 = str(_PROJECT_ROOT / "config" / "burp" / "mm05.txt")
-        mcp05 = str(_PROJECT_ROOT / "config" / "burp" / "mcp05.txt")
+        mm05 = str(_BURP_FIXTURES / "mm05.txt")
+        mcp05 = str(_BURP_FIXTURES / "mcp05.txt")
 
         if not Path(mm05).exists() or not Path(mcp05).exists():
             pytest.skip("Required burp files not found")
@@ -147,7 +152,7 @@ class TestEndpointSorting:
         """sort_endpoints_by_priority should return list of dicts."""
         from recon.api.endpoint_sorter import sort_endpoints_by_priority
 
-        mcp05 = str(_PROJECT_ROOT / "config" / "burp" / "mcp05.txt")
+        mcp05 = str(_BURP_FIXTURES / "mcp05.txt")
         if not Path(mcp05).exists():
             pytest.skip("mcp05.txt not found")
 
@@ -163,8 +168,8 @@ class TestEndpointSorting:
         """sort_burp_list_by_priority should return list of paths."""
         from recon.api.endpoint_sorter import sort_burp_list_by_priority
 
-        mcp05 = str(_PROJECT_ROOT / "config" / "burp" / "mcp05.txt")
-        mm05 = str(_PROJECT_ROOT / "config" / "burp" / "mm05.txt")
+        mcp05 = str(_BURP_FIXTURES / "mcp05.txt")
+        mm05 = str(_BURP_FIXTURES / "mm05.txt")
 
         if not Path(mcp05).exists() or not Path(mm05).exists():
             pytest.skip("Required burp files not found")
@@ -181,7 +186,7 @@ class TestEndpointSorting:
         """Endpoints with same priority should be sorted by filename."""
         from recon.api.endpoint_sorter import sort_endpoints_by_priority
 
-        mm05 = str(_PROJECT_ROOT / "config" / "burp" / "mm05.txt")
+        mm05 = str(_BURP_FIXTURES / "mm05.txt")
         if not Path(mm05).exists():
             pytest.skip("mm05.txt not found")
 

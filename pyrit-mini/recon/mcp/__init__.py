@@ -33,6 +33,7 @@ from recon.mcp.capability_probe import (
     MCPCapabilityInfo,
     MCPCapabilityProbe,
     probe_mcp_capabilities,
+    run_capability_scan,
 )
 from recon.mcp.endpoint_enumerator import (
     EndpointEnumerationResult,
@@ -89,6 +90,7 @@ __all__ = [
     "MCPCapabilityProbe",
     "MCPCapabilityInfo",
     "probe_mcp_capabilities",
+    "run_capability_scan",
     # Version Fingerprint
     "MCPVersionFingerprinter",
     "VersionFingerprintResult",

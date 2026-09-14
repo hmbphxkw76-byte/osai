@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from arm.converter_presets import (
-    build_converter_map,
+    build_object_preset_converters,
     l5_optimal,
 )
 
@@ -29,10 +29,13 @@ def build_converters(
 ) -> dict[str, list[Any]]:
     """Build the session-specific technique-aware converter map.
 
-    Delegates to arm.converter_presets.build_converter_map with the session
-    target_type pinned, so `--converters session` resolves to this module.
+    Delegates to ``arm.converter_presets.build_object_preset_converters``,
+    which honors ``config/components/session.yaml`` ``converter_presets`` (the
+    high-ASR default combo) via ``core.technique_registry``, falling back to
+    the target-aware ``build_converter_map`` (W0 zero regression).
     """
-    return build_converter_map(
+    return build_object_preset_converters(
+        "session",
         technique_names,
         chain_names,
         converter_target,

@@ -491,7 +491,12 @@ def _build_global_args(parser: argparse.ArgumentParser) -> None:
 
         # == ==
         parser.add_argument("--output-dir", type=str, default=None, help="Output directory")
-        parser.add_argument("--resume", type=str, default=None, help="imports")
+        parser.add_argument(
+            "--resume",
+            type=str,
+            default=None,
+            help="续跑已有运行的 scenario_result_id（复用其 run_id 与事件流；不指定则新建运行）",
+        )
 
         # == W0-4: EventLog bypass switch (REQ-148, target architecture v4.0) ==
         # --no-events: disable event bus entirely (all emit() become no-op)

@@ -20,6 +20,8 @@ Constitution compliance:
     - R-S1 (Embedding): 仅注册结果不执行黑盒 HTTP 不可测试内容
 """
 
+from recon.embedding.embedding_extraction import run_embedding_extraction
+from recon.embedding.similarity_behavior import run_similarity_behavior_analysis
 from recon.embedding.vector_probe import (
     EmbeddingVectorProbe,
     VectorProbeResult,
@@ -31,4 +33,8 @@ __all__ = [
     "EmbeddingVectorProbe",
     "VectorProbeResult",
     "probe_embedding_vector",
+    # similarity_behavior_analysis
+    "run_similarity_behavior_analysis",
+    # embedding_extraction
+    "run_embedding_extraction",
 ]

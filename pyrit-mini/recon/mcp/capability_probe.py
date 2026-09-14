@@ -209,3 +209,26 @@ async def probe_mcp_capabilities(
     """
     probe = MCPCapabilityProbe(timeout=timeout)
     return await probe.probe_capabilities(target_url)
+
+
+async def run_capability_scan(target_url: str, timeout: float = 10.0) -> dict[str, Any]:
+    """MCP 能力扫描入口（coverage 策略 capability_scan）。
+
+    委托既有 probe_mcp_capabilities 做真实能力探测，枚举能力位并给出攻击面风险评级。
+
+    Args:
+        target_url: MCP 服务器 URL
+        timeout: 请求超时
+
+    Returns:
+        {"capabilities": dict, "transport": list, "server": str, "risk": str}
+    """
+    info = await probe_mcp_capabilities(target_url, timeout=timeout)
+    caps = info.capability_bits or {}
+    risk = "high" if (caps.get("tools") or caps.get("resources")) else "medium"
+    return {
+        "capabilities": caps,
+        "transport": info.supported_transports,
+        "server": f"{info.server_name} v{info.server_version}",
+        "risk": risk,
+    }

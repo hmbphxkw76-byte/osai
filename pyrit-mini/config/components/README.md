@@ -20,6 +20,7 @@
 | `recon` | list[str] | ✅ | 专项侦察器 dotted path（如 `recon.mcp.enum_tools`） |
 | `seeds` | list[str] | ✅ | 种子目录/glob（如 `data/seeds/mcp/*`） |
 | `converters` | list[str] | 否 | 推荐 Converter 链 |
+| `converter_presets` | list[str] | 否 | 高成功率 Converter 组合（按优先级降序）；空 → 回退 `l5_optimal`（W0 零回归）；名字须为 `core.technique_registry` 注册键 |
 | `playbooks` | list[str] | 否 | 攻击链 id（对应 `strike/playbook/playbooks/*.yaml`） |
 | `scorer` | str | ✅ | 评分 rubric 名（`data/scorers/component_scorers/<name>.yaml`） |
 | `report_section` | str | 否 | 报告章节 dotted path |

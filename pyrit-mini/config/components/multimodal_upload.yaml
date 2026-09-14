@@ -37,6 +37,12 @@ seed_sets:
 seeds: ["data/seeds/web/*"]
 seed_suitable_for: ["multimodal_upload"]
 converter_vectors: ["split_document_injection", "poisoned_rag_upload", "metadata_injection"]
+# 高成功率 converter 组合（最佳实践候选集，按优先级降序）；空 -> 回退 l5_optimal（W0 零回归）
+converter_presets:
+  - DecompositionConverter
+  - PolicyPuppetryConverter
+  - PersuasionConverter
+  - VariationConverter
 
 # C1 PyRIT 原生优先：触发步经 PromptSendingAttack 投递；上传步为 C13 企业扩展（HTTP multipart）。
 preferred_attack_class: "PromptSendingAttack"
@@ -60,6 +66,7 @@ owasp: ["LLM01", "LLM03"]
 neighbors: ["rag_pipeline", "model_behavior_shift", "web_api"]
 
 # I13：未声明 cleanup 的副作用步禁止在非 dry-run 下执行。
-# `delete_uploaded_document` 已声明但**尚未实现** → 在其实装前，含上传的副作用步
-# 只能在 dry-run 下执行（登记 backlog，实装为本组件 P0 前置）。
+# `delete_uploaded_document` 已实装并注册（`strike/multimodal_upload/cleanup.py`，
+# 经 `preflight_cleanup` 校验、由 `run_file_upload_attack` 在副作用步前/后调用）→
+# 非 dry-run 真实上传现已放行，失败不静默（见 BL-064 / BL-059 completed）。
 cleanup: [delete_uploaded_document]

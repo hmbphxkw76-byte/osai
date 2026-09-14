@@ -138,6 +138,8 @@ Step 8  如实汇报     按[sid:30-ch6]格式汇报
 
 - `implementation_checklist.md` → 已于 2026-09-06 删除；其职能由 `specs/templates/task-spec.md` 完全接管（30-TASKS [sid:30-ch1] draft→spec'd 流程）。
 - SKILL.md 的 Anti-Derailment Checklist → 保留为编码期细则；与本层冲突处以本层为准（裁决序 ②>⑤）。
+  **降级标注（BL-080）**：SKILL.md **不入库**（本体在 `.assistant_pyrit/skills/pyrit-strike-dev-rules/`），
+  仅本机可选；新机器/外部模型不可达，故**任何项目级规则以 `specs/` 为准**，SKILL.md 只作本机编码期提醒。
 - `docs/backlog.md` → 已由制宪会话创建（宪法 [sid:00-ch6]附则，v1.1），唯一待办池；AI 发现的任何非本任务问题一律进 backlog，一行一条。
 - `specs/50-ROADMAP.md` → REV-02 创建（宪法 [sid:00-ch6]附则，v1.2），任务顺序与 vibe coding 会话模型的登记处。
 

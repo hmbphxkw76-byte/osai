@@ -408,10 +408,11 @@ class ComponentAuditor:
                 [sys.executable, "-m", "pytest", "tests/common/test_component_purity.py", "-v", "--tb=short"],
                 capture_output=True,
                 text=True,
-                timeout=120,
-                cwd=str(self.project_root),
+                # BL-070：路径可能含非 ASCII，显式按 UTF-8 解码
                 encoding="utf-8",
                 errors="replace",
+                timeout=120,
+                cwd=str(self.project_root),
             )
             if result.returncode == 0:
                 passed_count = result.stdout.count(" PASSED")
@@ -433,10 +434,11 @@ class ComponentAuditor:
                 [sys.executable, "-m", "tools.guard"],
                 capture_output=True,
                 text=True,
-                timeout=120,
-                cwd=str(self.project_root),
+                # BL-070：路径可能含非 ASCII，显式按 UTF-8 解码
                 encoding="utf-8",
                 errors="replace",
+                timeout=120,
+                cwd=str(self.project_root),
             )
             blocking_count = result.stdout.count("BLOCKING")
             warning_count = result.stdout.count("WARNING")

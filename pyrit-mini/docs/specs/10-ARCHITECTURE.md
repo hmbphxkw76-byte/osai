@@ -5,7 +5,7 @@
 > **读者**：实施任务前的 AI（必读相关章节）、评审 diff 的人工/AI。
 > **版本**：v3.3（2026-09-13 REV-21：第六章依据列补图例（R2/R6/R8 指向 SKILL.md 落点）、跨文档引用统一为 sid 锚点。REV-20：4.4 ctx 字段总表新增 `attack_success_levels`（L1–L4 分层，REQ-164）与 `hitl_state`（运行期人工干预，REQ-171）；配套 CP-002）
 > **版本史**：`git log -- docs/specs/10-ARCHITECTURE.md`（文档纪律 D3，正文不再维护）
-> **已合并**：`45-DATA-FLOW-INTEGRITY.md` → 本文件[sid:10-ch4]（原文件已删除）；其验证工具链 `tools/data_flow_validator.py` + `tools/dataflow/` + `tests/common/test_data_flow_integrity.py` 仍正常运行。
+> **已合并**：`45-DATA-FLOW-INTEGRITY.md` → 本文件[sid:10-ch4]（原文件已删除）；其验证工具链 `tools.dataflow.validator` + `tools/dataflow/` + `tests/common/test_data_flow_integrity.py` 仍正常运行。
 
 ---
 
@@ -80,9 +80,14 @@ config/attack_surface_index.yaml  ← 统一攻击面索引（从 config/profile
 | recon/adapters/（v2.9） | ✓ | 内部 | ✗ | ✗ | ✗ | ✗ | ✗ | 只读 |
 | strike/playbook/（v2.9） | ✓ | ✗ | ✓ | 内部 | ✓** | ✗ | ✗ | 只读 |
 | assess/impact/（v2.9） | ✓ | ✗ | ✗ | ✗ | 内部 | ✗ | ✗ | 只读 |
+| `core/phases/`（编排层） | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | 只读 |
 
 \* recon/target_router 调 `assess.scorer.validate_scoring_target_capabilities` —— 已登记债务 D-04。
 \** strike → assess 仅限 `precompute_outcomes_async`（升级前预评分），不得扩大。
+\*** `core/phases/` 是**阶段编排层**（`{recon,arm,strike,assess,report}.py` 的实现宿主），
+其 import 阶段层属设计内行为；但对阶段层的调用**只经 PipelineContext + EventLog 交接**，
+沿用 R-EVENT-1（编排层禁止硬编码组件名）/ R-EVENT-2（阶段产出必须有事件）约束。
+本行由 R-IMPORT 机器校验（`check_dependency_matrix()`），改表即改判据。
 
 **硬规则**：
 1. 阶段层模块之间（recon/arm/strike/assess/report）**只准通过 PipelineContext 字段交接数据**，禁止直接 import 对方实现（表内已标注的既存例外除外，且例外只减不增）。
@@ -211,6 +216,7 @@ Q1: PyRIT 1.0.1 有现成组件吗？
 以下不变量任何变更不得破坏（均可由 guard 或 dry-run 检查）：
 
 > **依据列图例**：`R2` / `R6` / `R8` = SKILL.md 编码期细则条款（落点见 `40-GUARDRAILS.md` [sid:40-ch6]）；
+> **SKILL.md 不入库、仅本机可选**（BL-080），外部/新模型请以 [sid:40-ch6] 为准；
 > `C*` = 宪法条款；`I*` = 本层不变量；arXiv 编号 = 学术依据。跨文档引用一律用 sid（D8）。
 
 | # | 不变量 | 依据 |
@@ -361,7 +367,7 @@ recon 完成 → capability 指纹分支:
 
 | 模块 | 职责 | 专用工具 | PyRIT 集成 |
 |------|------|---------|----------|
-| `strike/auth_attacks.py` | 认证攻击（JWT/OAuth/Session） | PyJWT | HTTPTarget |
+| `strike/web/attacks.py` | 认证攻击（JWT/OAuth/Session） | PyJWT | HTTPTarget |
 | `strike/web_attacks.py` | API Gateway 攻击（速率限制/请求走私/缓存投毒） | urllib.request | HTTPTarget |
 | `strike/audit_evasion.py` | 审计逃逸（日志注入） | logging、base64 | HTTPTarget |
 | `strike/web_orchestrator.py` | 统一编排器 | 上述所有 | HTTPTarget |

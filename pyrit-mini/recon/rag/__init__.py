@@ -24,6 +24,9 @@ Constitution compliance:
     - R-S4: 测试全部 mock
 """
 
+from recon.rag.embedding_dimension_scan import run_embedding_dimension_scan
+from recon.rag.kb_enumeration import run_kb_enumeration
+from recon.rag.metadata_extraction import run_metadata_extraction
 from recon.rag.metadata_parser import (
     KnowledgeBaseMap,
     RAGResponseMetadata,
@@ -46,4 +49,10 @@ __all__ = [
     # pipeline_probe
     "RAGPipelineProfile",
     "run_rag_pipeline_probe",
+    # metadata_extraction
+    "run_metadata_extraction",
+    # embedding_dimension_scan
+    "run_embedding_dimension_scan",
+    # kb_enumeration
+    "run_kb_enumeration",
 ]

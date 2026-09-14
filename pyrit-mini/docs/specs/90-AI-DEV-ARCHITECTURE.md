@@ -137,32 +137,35 @@ v4.0 六层目标架构（L0 输入与作用域 → L5 交付）与六个一等�
 | 5 | `10-ARCHITECTURE.md` 相关章节 | Step 2 蓝图落点声明 |
 | 6 | `20-REQUIREMENTS.md` 对应 REQ | Step 3 规格核对；未登记 = 不存在 |
 
-### 3.2 每次编码任务的强制闭环（30-TASKS 八步协议引用）
+### 3.2 每次编码任务的强制闭环
 
-| 步 | 动作 | 唯一权威 |
+> **唯一权威 = `30-TASKS.md` [sid:30-ch4]**（八步协议完整定义）。本文只声明各步与金字塔的映射关系，不复述步骤细节。
+
+| 步 | 动作 | 权威落点 |
 |----|------|---------|
-| 1 | 宪法自检 | 00-CONSTITUTION |
-| 2 | 蓝图落点声明 | 10-ARCHITECTURE（本文 [sid:90-ch2] 是落点导航入口） |
-| 3 | 规格核对（task-spec + REQ 验收标准可勾选） | 20-REQUIREMENTS / 30-TASKS |
-| 4 | 代码精读（先读后写，C5） | 00-CONSTITUTION C5 |
-| 5 | 计划复述 | 30-TASKS |
-| 6 | 最小实现（C4 粒度上限内） | 00-CONSTITUTION C4 / 30-TASKS [sid:30-ch3] |
-| 7 | 门禁全过（命令唯一表，顺序固定） | [sid:readme-ch2]（统一入口 `python -m tools.gate`） |
-| 8 | 如实汇报（三态：已验证 / 未验证 / 未完成） | 00-CONSTITUTION C9 / 30-TASKS |
+| 1 | 宪法自检 | `00-CONSTITUTION` [sid:00-ch2] |
+| 2 | 蓝图落点声明 | `10-ARCHITECTURE` + 本文 [sid:90-ch2] |
+| 3 | 规格核对 | `20-REQUIREMENTS` REQ 验收标准 |
+| 4 | 代码精读 | `00-CONSTITUTION` C5 |
+| 5 | 计划复述 | `30-TASKS` [sid:30-ch4] |
+| 6 | 最小实现 | `00-CONSTITUTION` C4 + `30-TASKS` [sid:30-ch3] |
+| 7 | 门禁全过 | `python -m tools.gate`（[sid:readme-ch2]） |
+| 8 | 如实汇报 | `00-CONSTITUTION` C9 |
 
-### 3.3 L5 质量锚点（全部为引用，本文不复述数值）
+### 3.3 L5 质量锚点
 
-| 质量维度 | 唯一权威 |
+> 以下为**引用指针**，具体数值与规则以目标文档为准（D1：一概念一处声明）。
+
+| 质量维度 | 权威落点 |
 |---------|---------|
-| PyRIT 原生优先 | 宪法 C1（判定标准 + 违例示例）+ 7C 组件速查 |
-| ASR 至上与边界 | 宪法 C2 + 蓝图 I1~I4 / I8 |
-| 配置数据流不可断 | 宪法 C7 + 蓝图 4.4 ctx 字段总表（唯一登记簿） |
-| 学术留痕 | 宪法 C8（arXiv 三处之一） |
-| 组件化规则 | 80：不变量 [sid:80-ch7]（IA-1~IA-8）+ 新增组件 Checklist [sid:80-ch6] + 双命名空间 [sid:80-ch2] |
-| 任务粒度上限 | 30-TASKS [sid:30-ch3]（文件数 / diff 行数 / 跨模块数硬上限） |
-| 非功能标准 | 20-REQUIREMENTS [sid:20-ch4] NFR-1~13 |
-| 红线与门禁 | 40-GUARDRAILS [sid:40-ch1]（1A 机器可查 / 1B 人工评审 / 1C 安全合规）+ README [sid:readme-ch2] |
-| 决策系统约束 | 40-GUARDRAILS 1G-DECIDE（R-DECIDE-1~6）+ 蓝图 11.5（ID-1~ID-5） |
+| PyRIT 原生优先 | `00-CONSTITUTION` C1 + 7C |
+| ASR 至上与边界 | `00-CONSTITUTION` C2 + `10-ARCHITECTURE` I1~I4 |
+| 配置数据流 | `00-CONSTITUTION` C7 + 蓝图 4.4 |
+| 学术留痕 | `00-CONSTITUTION` C8 |
+| 组件化规则 | `80-COMPONENT-ARCHITECTURE-RULES` |
+| 任务粒度上限 | `30-TASKS` [sid:30-ch3] |
+| 非功能标准 | `20-REQUIREMENTS` NFR |
+| 红线与门禁 | `40-GUARDRAILS` + README [sid:readme-ch2] |
 
 ### 3.4 偏航熔断（STOP-REPORT）
 

@@ -79,10 +79,23 @@ def _collect() -> list[Finding]:
     # 4) 回滚验证：git 状态
     try:
         r = subprocess.run(
-            ["git", "rev-parse", "--is-inside-work-tree"], capture_output=True, text=True, timeout=20
+            # BL-070：仓库路径可能含非 ASCII，git 输出须显式按 UTF-8 解码
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=20,
         )
         if r.returncode == 0:
-            clean = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True, timeout=20)
+            clean = subprocess.run(
+                ["git", "status", "--porcelain"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=20,
+            )
             state = "dirty" if clean.stdout.strip() else "clean"
             findings.append(Finding("ROLLBACK", Severity.INFO, f"git 仓库状态: {state}", "git"))
     except Exception as e:

@@ -38,6 +38,13 @@ seed_sets:
 seeds: ["data/seeds/_attack_surface/T1_agent_tool_use/*"]
 seed_suitable_for: ["agent"]
 converter_vectors: ["tool_result_injection", "rogue_tool_registration", "prompt_leak_via_tool"]
+# 高成功率 converter 组合（最佳实践候选集，按优先级降序）；空 -> 回退 l5_optimal（W0 零回归）
+converter_presets:
+  - DecompositionConverter
+  - PolicyPuppetryConverter
+  - PersuasionConverter
+  - VariationConverter
+  - TranslationConverter
 
 # C1 PyRIT 原生优先：注入步经 PromptSendingAttack 投递；工具调用为 C13 企业扩展。
 preferred_attack_class: "PromptSendingAttack"
@@ -63,6 +70,8 @@ owasp: ["ASI01", "ASI04", "ASI05", "LLM01"]
 neighbors: ["a2a_agent_integrity", "mcp_tool_poisoning", "model_behavior_shift", "web_api"]
 
 # I13：未声明 cleanup 的副作用步禁止在非 dry-run 下执行。
-# `unregister_rogue_tool` / `restore_agent_tools` 已声明但**尚未实现** → 含工具副作用步
-# 只能在 dry-run 下执行（登记 backlog，实装为本组件 P0 前置）。
+# `unregister_rogue_tool` / `restore_agent_tools` 已**实装并注册**（`strike/agent/cleanup.py`，
+# 经 `preflight_cleanup` 校验）；分发器接线（agent 攻击路径调用 `run_side_effect_cleanup`）
+# 待 BL-093 闭环——agent 当前无专用攻击分发器（无 `run_agent_attack`），故真实攻击路径中
+# 清理尚未执行（I13 安全保证待 BL-093 完结）。
 cleanup: [unregister_rogue_tool, restore_agent_tools]

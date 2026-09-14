@@ -29,7 +29,7 @@ Constitution compliance:
 """
 
 from recon.api.adaptive_config import compute_probe_budget
-from recon.api.auth_detector import AuthDetector, AuthState, decode_jwt_payload
+from recon.api.auth_detector import AuthDetector, AuthState, decode_jwt_payload, run_auth_detection
 from recon.api.endpoint_sorter import (
     ClassificationResult,
     classify_http_content,
@@ -58,6 +58,7 @@ __all__ = [
     "AuthDetector",
     "AuthState",
     "decode_jwt_payload",
+    "run_auth_detection",
     # endpoint_sorter
     "ClassificationResult",
     "sort_burp_list_by_priority",

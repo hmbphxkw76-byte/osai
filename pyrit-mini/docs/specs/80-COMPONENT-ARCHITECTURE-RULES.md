@@ -2,7 +2,7 @@
 
 > **文档层级**：L1（架构规则补充）
 > **效力**：定义组件化架构的目录组织、命名、注册与归属规则。任何涉及组件的代码变更必须能在本文件"落点"。
-> **版本**：v2.1（2026-09-13 REV-03：修复 IA-7 依据列的畸形/粘连 sid 锚点；跨文档引用统一为 sid。REV-02：与 `config/components/*.yaml` 严格对齐——引入双命名空间规则、修正组件状态登记表、新增组件 Checkpoint 改为注册表驱动）
+> **版本**：v2.2（2026-09-14 REV-04：**修订 C-NAME-2 / IA-5（BL-058）** —— 承认种子 `suitable_for` 的既有语义为 **technique 名**（历史 117 份种子均如此，禁止批量改写），组件归属改由组件 YAML 的 `seeds:` 字段承载。REV-03：修复 IA-7 依据列的畸形/粘连 sid 锚点；跨文档引用统一为 sid。REV-02：与 `config/components/*.yaml` 严格对齐——引入双命名空间规则、修正组件状态登记表、新增组件 Checkpoint 改为注册表驱动）
 > **版本史**：`git log -- docs/specs/80-COMPONENT-ARCHITECTURE-RULES.md`
 > **读者**：新增/修改组件时**必读**；评审涉及组件的 diff 时**必读**。
 
@@ -43,7 +43,7 @@
 | 键 | 定义 | 消费 API | 约束 |
 |----|------|---------|------|
 | **`id`** | **文件/目录标识**。`mcp.yaml` → `mcp`；用于定位 `strike/<id>/`、`recon/<id>/` | `get(id)`、`names()`、`by_label()`、`for_seed_component()` | **必须等于 YAML 文件名 stem** |
-| **`component_key`** | **语义键**（运行时调度主键）。形如 `mcp_tool_poisoning`，与种子 `suitable_for`、评分 rubric 名、报告章节对齐 | `keys()`、`spec(key)`、`specs()`、`by_neighbor(key)`、`validate_wiring()` | **全局唯一**，与 `labels` 至少有一个交集 |
+| **`component_key`** | **语义键**（运行时调度主键）。形如 `mcp_tool_poisoning`，与评分 rubric 名、报告章节对齐（**不与**种子 `suitable_for` 对齐——后者语义为 technique 名，见 C-NAME-2 / BL-058） | `keys()`、`spec(key)`、`specs()`、`by_neighbor(key)`、`validate_wiring()` | **全局唯一**，与 `labels` 至少有一个交集 |
 
 ### 2.1 当前实际映射（2026-09-12 快照）
 
@@ -131,7 +131,10 @@ owasp_id: ASI02
 {ATTACK_PROMPT_CONTENT}
 ```
 
-> **C-NAME-2**：`suitable_for` 的取值必须等于 **`component_key`**（不是 `id`）。`for_seed_component()` 按此匹配。
+> **C-NAME-2（2026-09-14 修订，BL-058）**：种子 frontmatter 的 `suitable_for` 语义为 **technique 名**
+> （`core/seed_router.py` 按 `attack_vector` + `suitable_for` 路由到 Converter 链；历史 117 份种子均按此语义撰写，
+> **禁止批量改写**）。**组件归属不写在这里**，而由组件 YAML 的 `seeds:` 字段声明"该组件消费哪些种子集"；
+> `for_seed_component()` 因此零消费者（已登记 BL-058，保留供后续按 `seeds:` 口径重构时复用）。
 
 ---
 
@@ -221,7 +224,7 @@ python main.py --dry-run --max-seeds 1
 | IA-2 | 框架层不含组件专属攻击实现 | F-DIR-1 |
 | IA-3 | 组件类型键由 `core/registry.py` 统一管理，**禁止任何第二处硬编码映射** | C-NAME-1 / ADR-007 |
 | IA-4 | 组件归属由 `_component_bridge` 统一写入 | CB-1 |
-| IA-5 | 种子 `suitable_for` 取值必须等于 `component_key` | C-NAME-2 |
+| IA-5 | 种子 `suitable_for` 语义为 **technique 名**；组件归属由组件 YAML `seeds:` 字段承载（禁止批量改写既有种子） | C-NAME-2（BL-058 修订版） |
 | IA-6 | 未知组件返回 `None` / 默认实现，**禁止崩溃** | 调度器兜底 |
 | IA-7 | 新组件经注册扩展，**不改框架层调度逻辑**（开放-封闭） | [sid:80-ch6] |
 | IA-8 | `id` 必须等于 YAML 文件名 stem | [sid:80-ch2] |

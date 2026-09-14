@@ -103,6 +103,33 @@ def _pick_entry(mod: Any, action: str) -> Any:
     return None
 
 
+def _record_technique_execution(
+    ctx: Any, step: Any, module_dotted: str, *, status: str, error: str | None = None
+) -> None:
+    """S9 真实执行留痕（REQ-151 / 切片 B）：把本步骤覆盖的 technique 记入
+    `ctx.technique_execution_log`，供 reporting/coverage 展示「逐 technique 真实执行」。
+    静默降级：ctx 不可写时返回（C9：仅记录、不阻断主链路）。
+    """
+    try:
+        log = getattr(ctx, "technique_execution_log", None)
+        if log is None:
+            log = []
+            ctx.technique_execution_log = log
+    except Exception:
+        return
+    for tech in getattr(step, "techniques", []) or []:
+        log.append(
+            {
+                "technique": tech,
+                "component_key": str(getattr(step, "component_key", "")),
+                "step_id": str(getattr(step, "id", "")),
+                "module": module_dotted,
+                "status": status,
+                "error": error,
+            }
+        )
+
+
 async def _invoke(fn: Any, ctx: Any, state: Any) -> Any:
     """按签名健壮地调用入口函数：(ctx) / (ctx, state) / ()。"""
     try:
@@ -157,12 +184,21 @@ async def execute_step(step: Any, state: Any, *, ctx: Any) -> dict[str, Any]:
 
     logger.info("[ChainExecutor] 执行步骤 %s → %s.%s", step.id, dotted, getattr(entry, "__name__", "?"))
 
+    # 把本步覆盖的 S9 technique 暴露给模块入口（可选特化；模块不消费也无害）
+    try:
+        ctx._active_step_techniques = list(getattr(step, "techniques", []) or [])
+    except Exception:
+        pass
+
     try:
         raw = await _invoke(entry, ctx, state)
     except asyncio.CancelledError:
         raise
     except Exception as e:
+        _record_technique_execution(ctx, step, dotted, status="failed", error=str(e))
         raise RuntimeError(f"{dotted}.{getattr(entry, '__name__', '?')} 执行失败: {e}") from e
+
+    _record_technique_execution(ctx, step, dotted, status="executed")
 
     # 归一化产出物：只保留 step.produces 声明的键
     produced: dict[str, Any] = {}

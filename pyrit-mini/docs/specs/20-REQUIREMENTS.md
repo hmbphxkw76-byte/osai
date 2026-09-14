@@ -1,9 +1,9 @@
-﻿# 20 — 需求与规格层：做什么（Requirements & Specifications）
+﻿﻿# 20 — 需求与规格层：做什么（Requirements & Specifications）
 
 > **文档层级**：L2 / 五层规约金字塔第三层
 > **效力**：本项目"做什么"的唯一登记处。**未登记于此的需求 = 不存在**。AI 不得实现未登记需求（宪法 C6）。
 > **格式**：每条需求有 ID、一句话陈述、可勾选的验收标准（DoD）。验收标准是任务完成的**唯一**判据。
-> **版本**：v3.1（2026-09-13 REV-21：决策组子节由"第九章 A/B/C"改号 A1/A2/A3（消除与 [sid:20-ch9b] 的重名锚点歧义）；跨文档引用统一为 sid。REV-20：新增 **[sid:20-ch9d] D：用户诉求差距闭合需求**，登记 REQ-160~171 + NFR-17~19 + 红线 R-ROE-1/R-EVID-1/R-AUDIT-1；依据 `plans/CP-002-user-gap-closure.md`。REV-17 的 REQ-159 改号等项保持有效）
+> **版本**：v3.2（2026-09-14 REV-22：归档已完成需求 REQ-001~008 / REQ-101~108 / REQ-114~126 / REQ-127~134 / REQ-138~143+159 至 [sid:20-ch11] 归档章，活跃文档只保留实施中/待实施需求，减少阅读噪音。REV-21 的 A1/A2/A3 改号与 REQ-159 改号保持有效）
 > **版本史**：`git log -- docs/specs/20-REQUIREMENTS.md`
 
 > **ID 分配纪律**：REQ-xxx 全局唯一、只增不改。发现重号即为 P0 文档缺陷，须立即登记 backlog 并改号（不得改需求语义）。
@@ -18,35 +18,17 @@
 | **P1** | 支撑能力：报告格式、多 endpoint、配置体系、可观测性、考域覆盖（REV-02 起） | 修改需规格变更（本文件 diff） |
 | **P2** | 体验与优化：终端 UI、性能调优、文档 | 可经普通任务规格变更 |
 
-## 第二章：P0 — ASR 主链路需求（已实现 ✅） [sid:20-ch2]
+## 第二章：P0 — ASR 主链路需求（已归档 ✅） [sid:20-ch2]
 
-> P0 的总验收标准（一条顶一切）：**对 `data/burp/` 下任一真实目标，`python main.py` 端到端运行后，`ctx.overall_asr` 为有效数值且 `evidence.total_attacks > 0`；若存在成功攻击（overall_asr > 0），每条成功必须附可复现 PoC；若 ASR = 0（目标确未攻破），须交付零成功证据链与失败分析——攻击未成功 ≠ 验收失败，证据链缺失才是。**
+> **2026-09-14 REV-22 归档**：P0 全部 8 条需求已于 2026-09-08 全面审计确认实现，详见 [sid:20-ch11] 归档章。
 
-### P0 需求归档摘要（2026-09-08 全面审计确认 implemented）
+**归档摘要**：REQ-001~008（Burp 目标接入 / 侦察 / 武器化 / 单轮攻击 / 升级链 / 级联评分 / 证据报告 / 多 endpoint 联合攻击）—— 全部 ✅ implemented。
 
-| ID | 陈述 | 实现状态 | 代码落点 |
-|----|------|---------|---------|
-| REQ-001 | Burp 目标接入 | ✅ 已实现 | `recon/target_builder.py` + `core/config.py` |
-| REQ-002 | 目标能力侦察（三级探测→fingerprint） | ✅ 已实现 | `recon/health_probe.py` + `recon/capability_probe.py` |
-| REQ-003 | 武器化（UCB1 排序 + Converter 多路径） | ✅ 已实现 | `arm/seed_ranker.py` + `arm/converter_selector.py` |
-| REQ-004 | 单轮攻击（SequentialAttack + FIRST_SUCCESS） | ✅ 已实现 | `strike/executor.py` + `strike/escalation_runtime.py` |
-| REQ-005 | 多轮升级链（L1→L4 + 中间退出） | ✅ 已实现 | `strike/escalation_runtime.py` |
-| REQ-006 | 级联评分（T0→J1→J2→J3 + Wilson CI） | ✅ 已实现 | `assess/scorer.py` + `assess/asr_stats.py` |
-| REQ-007 | 证据与报告（多格式 + PoC） | ✅ 已实现 | `report/generator.py` + `report/evidence.py` |
-| REQ-008 | 多 endpoint 联合攻击（能力排序 + 联合 ASR） | ✅ 已实现 | `main.py` 多 endpoint 循环 |
+## 第三章：P1 — 支撑需求（已归档 ✅） [sid:20-ch3]
 
-## 第三章：P1 — 支撑需求（已实现 ✅，摘要） [sid:20-ch3]
+> **2026-09-14 REV-22 归档**：P1 全部 8 条需求已于 2026-09-08 全面审计确认实现，详见 [sid:20-ch11] 归档章。
 
-| ID | 陈述 | 代码落点 |
-|----|------|---------|
-| REQ-101 | 四级配置体系（CLI > config-file > defaults > 硬编码） | `core/config.py` |
-| REQ-102 | ~~战役预设~~（已删除，功能被 `--target`/`--strike` CLI 路由替代） | ~~`config/profiles/*.yaml`~~ → `strike/dispatcher.py` + `data/seeds/_attack_surface/` |
-| REQ-103 | 分阶段调试（`--stage` 六值独立运行） | `main.py` |
-| REQ-104 | dry-run（0 token 走通六阶段） | `utils/dry_run.py` |
-| REQ-105 | ASR 先验矩阵（priors 人工修订 + history 运行时 SSOT） | `config/asr_priors.yaml` + `assess/asr_stats.py` |
-| REQ-106 | 攻击面场景路由（分类→technique_tags） | `core/scenario_router.py` |
-| REQ-107 | 资源生命周期（LIFO + 幂等清理） | `core/context.py` |
-| REQ-108 | 架构守卫（BLOCKING 违规阻断提交） | `tools/guard.py` |
+**归档摘要**：REQ-101~108（四级配置体系 / 分阶段调试 / dry-run / ASR 先验矩阵 / 场景路由 / 资源生命周期 / 架构守卫）—— 全部 ✅ implemented。
 
 ## 第 3A 章：考域覆盖需求（部分实现，活跃） [sid:20-ch3a]
 
@@ -60,76 +42,33 @@
 | REQ-112 | 考试模式 campaign | `--target model --strike prompt_sending --max-seeds 5 --timeout 300`：单 endpoint 快速链路 + token 预算上限 + 证据优先策略（evidence/ 实时落盘）+ 时间盒超时；通过 CLI 参数组合实现（原 REQ-102 已删除） |
 | REQ-113 | OffSec 风格报告 | 报告生成器输出四段结构：executive summary / findings（含风险等级 CVSS 类比 + OWASP LLM 2025 + MITRE ATLAS 映射）/ impact / remediation；作为现有 REQ-007 多格式报告的增量 section，不另立报告管线（C3） |
 
-## 第 3B 章：P0-NEW / P0-EXAM — 已修复需求归档（2026-09-08 ✅） [sid:20-ch3b]
+## 第 3B 章：P0-NEW / P0-EXAM — 已修复需求（已归档 ✅） [sid:20-ch3b]
 
-> 以下需求原为 2026-09-06 代码审计发现的缺陷和考试优化需求，已于 2026-09-08 全面过度工程化清理中全部修复。
+> **2026-09-14 REV-22 归档**：P0-NEW / P0-EXAM 全部 13 条需求已于 2026-09-08 全面修复，详见 [sid:20-ch11] 归档章。
 
-| ID | 陈述 | 修复状态 | 代码落点 |
-|----|------|---------|---------|
-| REQ-114 | 升级链默认配置下可达 | ✅ 已修复 | `strike/escalation_runtime.py` |
-| REQ-115 | 多智能体种子完整加载 | ✅ 已修复 | `arm/seed_ranker.py` |
-| REQ-116 | MCP 动态种子链路接通 | ✅ 已修复 | `strike/mcpsec_orchestrator.py` |
-| REQ-117 | 死代码清理 | ✅ 已修复 | 删除 `targets/agent_adapter.py` + `data/scorer_selector.py` |
-| REQ-118 | 编码损坏清零 | ✅ 已修复 | 删除损坏文件 + 清理乱码 |
-| REQ-119 | 场景特异性进入执行层 | ✅ 已修复 | `strike/executor.py` 场景分支 |
-| REQ-120~126 | 考试关键需求（时间盒/证据落盘/Token 监控） | ✅ exam-ready | CLI 参数组合（`--max-seeds`/`--timeout`/`--technique-filter`）+ `main.py` |
+**归档摘要**：REQ-114~126（升级链可达 / 多智能体种子加载 / MCP 链路 / 死代码清理 / 编码清零 / 场景分支 / 考试关键需求）—— 全部 ✅ implemented。
 
-## 第四章：非功能需求 [sid:20-ch4]
+## 第四章：非功能需求（部分已归档 ✅） [sid:20-ch4]
+
+> **2026-09-14 REV-22 归档**：NFR-1~NFR-8 已于 2026-09-08 全面审计确认实现，移至 [sid:20-ch11] 归档章。NFR-13（ASR 度量口径）保留活跃状态。
+
+### 活跃非功能需求
 
 | ID | 维度 | 标准 |
 |----|------|------|
-| NFR-1 | Token 效率 + 精确度 | T0 过滤率≥30%；J1→J2 跳过率≥40%；总节省≥60%（日志可审计）；**精确度约束**：T0 假阴性率≤5%；J1/J2 分歧 OR 聚合假阳性率≤8%；0-token 与 LLM Judge 一致性≥85%；边界案例（confidence 0.4-0.6）自动升级到 LLM Judge |
-| NFR-2 | 时间 | 单 endpoint 默认预算 1800s（quick_scan 300s；exam_mode 另定）；技术级超时受控 |
-| NFR-3 | 并发 | get_effective_concurrency SSOT，clamp [1,3]；SQLite WAL |
-| NFR-4 | 鲁棒 | 三级 fallback（adaptive→multi_path→partial）；空输入守卫；部分结果回收 |
-| NFR-5 | 可复现 | --max-seeds 1 全链路可跑；PoC 独立可执行 |
-| NFR-6 | Python ≥3.13（硬边界：PyRIT 1.0.1 官方支持区间；取交集内 ≥3.13，冲突则以 PyRIT 区间为准并登记 backlog，见 BL-002） | 全类型标注；keyword-only 参数；async 后缀 `_async` |
-| NFR-7 | 离线可检 | 报告/PoC 生成不依赖网络（考试环境审查点）；依赖锁定（pyproject 钉 pyrit==1.0.* 区间，D-16 修复项） |
-| NFR-8 | 考试鲁棒性 | 任一阶段失败不影响其他阶段输出；partial 结果可独立生成报告（REQ-126） |
 | NFR-13 | ASR 度量口径 | ① 双口径分列：`reported_asr`（自动评分级联）/ `confirmed_asr`（人工复核）禁止混用，报告标题注明口径，无复核时 confirmed 标注 n/a；② 目标锚点 SSOT：目标 ASR 唯一定义于 `config/defaults.yaml` `target_asr`（I11），禁止文档/代码硬编码百分比；③ timeout/error 计失败，scorer 未判定归 unparsed 不计成功；④ **影响链口径收紧预告（ADR-008 / 蓝图 IC-5/IC-6）**：判定四态 `impact` / `exfil_confirmed` / `exfil_suspected` / `content_only`，**仅 `impact` 与 `exfil_confirmed` 计入 `confirmed_asr`**；启用 OOB 回执与二次独立确认后 `confirmed_asr` 会下降，属**口径收紧而非能力退化**，报告须注明口径并禁止与历史数值直接对比得出退化结论 |
 
-## 第五章：Web 攻击层需求（已实现 ✅，摘要） [sid:20-ch5]
+## 第五章：Web 攻击层需求（已归档 ✅） [sid:20-ch5]
 
-> **背景**：企业 AI 系统的攻击覆盖面不仅限于 LLM prompt 层，还包括认证、API Gateway、审计系统等。
-> **v2.0 变更**：Glue 层已扁平化到 `strike/` 目录（原 glue/ 目录已删除）。向量 DB/Fine-tuning 攻击已移除（黑盒 HTTP 不可测试）。
+> **2026-09-14 REV-22 归档**：Web 攻击层全部 8 条需求已于 2026-09-08 全面审计确认实现，详见 [sid:20-ch11] 归档章。
 
-| ID | 陈述 | 代码落点 | 状态 |
-|----|------|---------|------|
-| REQ-127 | 认证攻击覆盖（JWT/OAuth/Session） | `strike/auth_attacks.py` | ✅ |
-| REQ-129 | API Gateway 攻击覆盖（速率限制/走私/缓存投毒） | `strike/web_attacks.py` | ✅ |
-| REQ-130 | 审计逃逸攻击覆盖（日志注入） | `strike/audit_evasion.py` | ✅ |
-| REQ-132 | 统一编排器 | `strike/web_orchestrator.py` | ✅ |
-| REQ-133 | 延迟导入机制 | 全部 Web 攻击模块 | ✅ |
-| REQ-134 | 攻击成功率度量 | 全部 Web 攻击模块 | ✅ |
-| REQ-128/131 | ~~向量 DB/Fine-tuning 攻击~~ | 已移除（黑盒不可测试） | — |
+**归档摘要**：REQ-127~134（认证攻击 / API Gateway / 审计逃逸 / 编排器 / 延迟导入 / 成功率度量）—— 全部 ✅ implemented。
 
-## 第 5A 章：文件上传攻击需求（已实现 ✅，v2.4 新增） [sid:20-ch5a]
+## 第 5A 章：文件上传攻击需求（已归档 ✅） [sid:20-ch5a]
 
-> **背景**：支持任意 HTTP 目标系统的文件上传攻击场景，包括 multipart/form-data 上传和后续处理触发。
-> **学术依据**：Greshake et al. (arXiv:2302.12173) 间接 Prompt 注入、Zou et al. (arXiv:2406.04245) PoisonedRAG 投毒。
+> **2026-09-14 REV-22 归档**：文件上传攻击全部 7 条需求已于 2026-09-08 全面审计确认实现，详见 [sid:20-ch11] 归档章。
 
-| ID | 陈述 | 关键验收 | 代码落点 | 状态 |
-|----|------|---------|----------|------|
-| REQ-138 | 通用文件上传执行 | ① 支持 multipart/form-data 上传；② 支持任意端口 (0-65535)；③ 支持自定义表单字段名 | `strike/file_upload_executor.py` | ✅ |
-| REQ-139 | 处理触发机制 | ① 支持上传后触发处理端点；② 支持自定义 HTTP 方法 (POST/GET/PUT)；③ 支持 JSON 请求体 | `strike/file_upload_executor.py` | ✅ |
-| REQ-140 | 多文件攻击链 | ① 支持单/多文件顺序上传；② 支持分文档注入模式；③ 支持知识库投毒模式 | `strike/file_upload_executor.py` | ✅ |
-| REQ-141 | CLI 参数支持 | ① `--file-upload-target` 指定目标 URL；② `--upload-files` 指定文件列表；③ `--upload-endpoint` / `--trigger-endpoint` 指定端点路径 | `core/config.py` | ✅ |
-| REQ-142 | 流水线集成 | ① 集成到 `_run_file_upload_phase()`；② 结果存入 `ctx.attack_results`；③ 审计日志记录到 `orchestration_log` | `core/phases/strike.py` | ✅ |
-| REQ-143 | 测试覆盖 | ① 39 个测试用例覆盖全部核心功能；② CLI 参数解析测试；③ 边界情况测试 | `tests/test_file_upload_executor.py` | ✅ |
-| REQ-159 | 代码-文档同步 | ① CLI 参数变更必须同步更新 `main.py`/`core/config.py` 的 argparse 定义（代码即 CLI 文档，运行 `--help` 即得；R-DOC-1 的 SSOT 目标）；② 新增攻击模块必须同步更新 `docs/specs/55-gap-N.md`（缺口 1–6 子文件）；③ 新增需求/红线必须同步更新 `20-REQUIREMENTS.md` 和 `40-GUARDRAILS.md`；④ 规约文档遵守 README [sid:readme-ch5] 文档纪律（禁行号坐标 / 禁正文版本史 / 清单读代码 / 跨文档引用用 sid） | `docs/specs/` | ✅ |
-
-> **改号说明**（REV-17）：本条原编号 REQ-144 与 [sid:20-ch9b]「跨模型审查 REQ-144」重号。REQ-xxx 全局唯一，**本条改号 REQ-159**；语义不变。
-
-**CLI 参数清单**：
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `--file-upload-target` | str | None | 目标基础 URL（如 `http://192.168.50.22:8004`） |
-| `--upload-endpoint` | str | `/upload` | 上传端点路径 |
-| `--trigger-endpoint` | str | `/summarize` | 处理触发端点路径 |
-| `--upload-files` | str | None | 逗号分隔的文件路径列表 |
-| `--upload-field-name` | str | `file` | 表单字段名（如 `document`、`attachment`） |
-| `--trigger-method` | str | `POST` | 触发请求方法（POST/GET/PUT） |
+**归档摘要**：REQ-138~143 + REQ-159（通用文件上传 / 处理触发 / 多文件攻击链 / CLI 参数 / 流水线集成 / 测试覆盖 / 代码-文档同步）—— 全部 ✅ implemented。
 
 ## 第六章：需求变更流程（防偏航核心） [sid:20-ch6]
 
@@ -243,7 +182,7 @@
 | REQ-154 | 副作用治理：dry-run / 隔离目标标记 / cleanup 钩子 | ① `dry-run` 可走通含副作用链而不产生真实写入；② 无 cleanup 声明的副作用步在非 dry-run 下被拒绝执行；③ 隔离目标标记生效；④ mock 靶场验证 cleanup 后靶标状态复原 | P1 |
 | REQ-155 | 断点续跑（`--resume <run_id>`） | ① 从 EventLog 恢复 playbook 状态；② 已完成 step 不重跑；③ 中断后已落盘证据不丢失 | P2 |
 | REQ-156 | Mock 靶场与 CI 断言 | ① `targets/mock/` 提供 5 类靶标（mcp_server / rag_service / a2a_agent / tool_agent / web_gateway）；② **标准库 `http.server` 实现，零新增运行时依赖**（NEG-4）；③ `tools/mock_range.py --up/--down/--list` 可用；④ `fixtures/expected.yaml` 含期望标签/链/判据/清理后状态；⑤ e2e 进 CI | P1 |
-| REQ-157 | 新增三个组件攻击面 | ① **多模态/文件上传**：构造→上传→触发→验证链可跑（复用 `strike/file_upload_executor.py`）；② **记忆/会话/多租户**：跨会话持久化生效可验 + 跨租户越权（IDOR on `chat_id`/`doc_id`/`tenant_id`）判定成立；③ **Web 基础设施面**：认证绕过 / 限流失效 / 日志注入 / 成本放大 DoW 四类均有验真回执（复用 `strike/{auth_attacks,web_attacks,audit_evasion}.py`）；④ 三者均注册入 ComponentRegistry | P1 |
+| REQ-157 | 新增三个组件攻击面 | ① **多模态/文件上传**：构造→上传→触发→验证链可跑（复用 `strike/multimodal_upload/file_upload_executor.py`）；② **记忆/会话/多租户**：跨会话持久化生效可验 + 跨租户越权（IDOR on `chat_id`/`doc_id`/`tenant_id`）判定成立；③ **Web 基础设施面**：认证绕过 / 限流失效 / 日志注入 / 成本放大 DoW 四类均有验真回执（复用 `strike/web/attacks.py`）；④ 三者均注册入 ComponentRegistry | P1 |
 | REQ-158 | 交付物脱敏与版本化可复现 | ① 报告 / PoC / 证据自动剥离 Authorization / Cookie / API Key；② PII 打码；③ 证据含目标快照 + 种子库版本 + 评分器版本 + PyRIT 版本 + 模型版本；④ 交付物密钥扫描 0 命中 | P1 |
 
 ### 第九章 C2：本组需求状态追踪
@@ -290,6 +229,7 @@
 | REQ-169 | 审计防篡改与操作员身份 | ① EventLog 升级为**哈希链**（每条含前序哈希，满足 `R-AUDIT-1` / NFR-17）；② 提供离线校验入口（检出篡改）；③ 记录 `operator` 身份（who/when/what/why 完整）；④ 仍满足 I12（EventLog 为唯一派生源） | P1 |
 | REQ-170 | 熔断与瞬态故障弹性 | ① 目标 5xx/限流触发熔断，策略可配（暂停 / 降速 / 终止）；② 客户端 5xx 重试（退避 + jitter，尊重 `defaults.yaml`）；③ 接线 `ctx._circuit_breaker_states`（消除 stub）；④ 熔断决策写入 `ctx.orchestration_log` + EventLog | P1 |
 | REQ-171 | 运行期人工干预（HITL） | ① 支持运行中暂停/恢复；② 支持手动注入 seed；③ 支持策略覆盖钩子（人工指令优先级高于自主决策，NFR-10）；④ 全部动作写入 EventLog；⑤ 默认关闭，不影响非交互运行 | P2 |
+| REQ-172 | 统一攻击技术蓝图与扩展注册表 | ① `core/technique_blueprint.build_optimal_blueprint` 消费组件 YAML 为 seeds/converters/strike/scorers 四轴单源真值并按 ASR 重排；② `core.technique_registry` 提供 `@register_converter`/`@register_strategy`/`@register_scorer` 插件式注册，替代散落硬编码表；③ 各对象 YAML `converter_presets` 声明高成功率组合（注册表键名），经注册表解析，**空则回退 `l5_optimal`（W0 零回归）**；④ 新增 primitive = 一处声明即生效；⑤ 底层 100% 复用 PyRIT 原生 Converter/Attack（R-NATIVE-1） | P1 |
 
 ### 第九章 D2：非功能需求
 
@@ -303,7 +243,7 @@
 
 | 需求组 | 状态 | 备注 |
 |--------|------|------|
-| REQ-160~171（用户诉求闭合） | ⚡ 实施中 | 依据 CP-002。**已实施**：REQ-160 ①②③；REQ-161 ①②③（`recon.graphql_probe` + `recon.waf_detector`，WAF 接入 `recon.burp_parser._extract_fingerprint`）；REQ-162（`recon.taxonomy` + `core.phases.recon._attach_taxonomy`）；REQ-163（`core.roe` + `--roe-file/--require-roe`）；**REQ-164 ①②③④⑤**；REQ-165（`report.evidence_manifest` + 报告接线）；REQ-166（`report.standards` + `standards_alignment.md`）；**REQ-167**（`--tenant`/`--operator` 并入 memory labels）；**REQ-169**（`core.events` 哈希链 + `--operator` + `verify_event_log`）；**REQ-170**（`core.resilience` 熔断 + 5xx 退避重试，接线 `recon.target_wrapper` 4 个构造点并消费 `ctx._circuit_breaker_states`）；REQ-152（`assess.impact` + `tools/oob_listener`）；**REQ-156**（`targets/mock/` 5 靶标 + `tools.mock_range --check` + `tests/golden/golden_set.yaml` 量化门禁）。按 R-H1 摘除 5 桩声明。**待实施**：REQ-160 ④（BL-032）；REQ-161 GraphQL 接线（BL-033）+ MCP 接线（BL-029）；REQ-168（REST/SDK/容器，须 NEG-4 提案）；REQ-171（HITL）。关卡：BL-029~035（含 BL-035 跨模型审查待办） |
+| REQ-160~172（用户诉求闭合 + 技术蓝图） | ⚡ 实施中 | 依据 CP-002 + REQ-172。**已实施**：REQ-160 ①②③；REQ-161 ①②③（`recon.graphql_probe` + `recon.waf_detector`，WAF 接入 `recon.burp_parser._extract_fingerprint`）；REQ-162（`recon.taxonomy` + `core.phases.recon._attach_taxonomy`）；REQ-163（`core.roe` + `--roe-file/--require-roe`）；**REQ-164 ①②③④⑤**；REQ-165（`report.evidence_manifest` + 报告接线）；REQ-166（`report.standards` + `standards_alignment.md`）；**REQ-167**（`--tenant`/`--operator` 并入 memory labels）；**REQ-169**（`core.events` 哈希链 + `--operator` + `verify_event_log`）；**REQ-170**（`core.resilience` 熔断 + 5xx 退避重试，接线 `recon.target_wrapper` 4 个构造点并消费 `ctx._circuit_breaker_states`）；REQ-152（`assess.impact` + `tools/oob_listener`）；**REQ-156**（`targets/mock/` 5 靶标 + `tools.mock_range --check` + `tests/golden/golden_set.yaml` 量化门禁）；**REQ-172** 统一技术蓝图与扩展注册表已落地（registry + blueprint + 各对象 converter_presets）。按 R-H1 摘除 5 桩声明。**待实施**：REQ-160 ④（BL-032）；REQ-161 GraphQL 接线（BL-033）+ MCP 接线（BL-029）；REQ-168（REST/SDK/容器，须 NEG-4 提案）；REQ-171（HITL）。关卡：BL-029~035（含 BL-035 跨模型审查待办） |
 | NFR-17~19 | 🟡 规约已登记 | 随对应 REQ 实施同步验证 |
 
 > **红线**：`R-ROE-1` / `R-EVID-1` / `R-AUDIT-1` 登记于 `40-GUARDRAILS.md` 1J-COMPLIANCE（检查器随实施落地，未实施前不产生门禁效力）。
@@ -312,26 +252,26 @@
 
 ## 第十章：需求追踪 [sid:20-ch10]
 
-**状态登记表**（2026-09-09 v2.0 精简重构）：
+**状态登记表**（2026-09-14 v3.2 归档重构）：
 
 | 需求组 | 状态 | 备注 |
 |--------|------|------|
-| REQ-001 ~ REQ-008（P0 主链路） | ✅ implemented | 六阶段链路完整，Best-of-N 已集成 |
-| REQ-101 ~ REQ-108（P1 支撑） | ✅ implemented | 配置体系、dry-run、ASR 先验矩阵均已在位 |
+| REQ-001 ~ REQ-008（P0 主链路） | ✅ 已归档 | 2026-09-14 REV-22 归档至 [sid:20-ch11] |
+| REQ-101 ~ REQ-108（P1 支撑） | ✅ 已归档 | 2026-09-14 REV-22 归档至 [sid:20-ch11] |
 | REQ-109 ~ REQ-113（考域覆盖） | ⚡ partial | exam_mode (REQ-112) 已实现；A2A 执行 (REQ-109) 种子就绪待验证 |
-| REQ-114 ~ REQ-126（P0-NEW + P0-EXAM） | ✅ implemented | 2026-09-08 修复/考试就绪 |
-| REQ-127 ~ REQ-134（Web 攻击层） | ✅ implemented | 认证/API Gateway/审计逃逸/编排器 |
+| REQ-114 ~ REQ-126（P0-NEW + P0-EXAM） | ✅ 已归档 | 2026-09-14 REV-22 归档至 [sid:20-ch11] |
+| REQ-127 ~ REQ-134（Web 攻击层） | ✅ 已归档 | 2026-09-14 REV-22 归档至 [sid:20-ch11] |
 | REQ-135 ~ REQ-137（自主决策） | 🟡 架构设计完成 | 决策引擎框架 + Recon + ARM/Assess/Report |
-| REQ-138 ~ REQ-143 + REQ-159（文件上传 + 代码文档同步） | ✅ implemented | 通用文件上传执行器 + CLI 参数 + 流水线集成 + 39 测试 + 文档同步 |
+| REQ-138 ~ REQ-143 + REQ-159（文件上传 + 代码文档同步） | ✅ 已归档 | 2026-09-14 REV-22 归档至 [sid:20-ch11] |
 | REQ-144 ~ REQ-146（跨模型审查） | 🟡 规约已登记 | 多模型并行 / 一致性指标 / 分级仲裁 |
-| NFR-1 ~ NFR-8 | ✅ implemented | 非功能需求全部达成 |
+| NFR-1 ~ NFR-8 | ✅ 已归档 | 2026-09-14 REV-22 归档至 [sid:20-ch11] |
 | NFR-9 ~ NFR-12（决策非功能） | 🟡 架构设计完成 | 决策透明度/人工覆盖/稳定性/可测试性 |
 | NFR-13（ASR 度量口径） | 🟡 规约已登记 | reported/confirmed 双口径 + `target_asr` 锚点（defaults.yaml 已落盘）；报告双列分列待实施 |
 | NFR-14 ~ NFR-16（审查非功能） | 🟡 规约已登记 | 审查时效/存储/降级能力 |
 | REQ-148 ~ REQ-158（目标架构 v4.0） | ⚡ W0 已实施 | CP-001 已批准（代录入待追认）；W0-4~W0-8 完成（EventLog 埋点 / ctx 四字段 / Registry 骨架 / R-EVENT-1 护栏 / 终端接入）；剩余 W1~W5 |
-| REQ-160 ~ REQ-171（用户诉求差距闭合） | 🟡 规约已登记 | CP-002；含 NFR-17~19 与红线 R-ROE-1/R-EVID-1/R-AUDIT-1；按执行计划波次实施 |
+| REQ-160 ~ REQ-172（用户诉求差距闭合 + 技术蓝图） | ⚡ 实施中 | CP-002 + REQ-172；含 NFR-17~19 与红线 R-ROE-1/R-EVID-1/R-AUDIT-1；REQ-172 蓝图选择器 + 扩展注册表已落地，各对象 converter_presets 补齐中 |
 
-- 活跃需求（待实现）：**REQ-109** A2A 执行层落地（种子已有，需验证编排进升级链）；**REQ-148~158** 目标架构 v4.0 六大抽象（待 CP-001 批准）；
+- 活跃需求（待实现）：**REQ-109** A2A 执行层落地（种子已有，需验证编排进升级链）；**REQ-148~158** 目标架构 v4.0 六大抽象（CP-001 已批准）；**REQ-160~171** 用户诉求差距闭合（CP-002 实施中）；**REQ-172** 统一技术蓝图与扩展注册表（已落地，各对象 converter_presets 补齐中）；
 - 本表为需求登记 SSOT；历史追踪文档 `requirement_traceability_matrix.md` 已于 2026-09-06 删除（D-09 债务消除）。
 - **ID 唯一性自检**（每次新增需求后必跑，防止再次出现 REQ-144 重号）：
 
@@ -342,6 +282,89 @@ python -c "import re,collections,pathlib;rows=re.findall(r'^\|\s*(REQ-\d+)\s*\|'
 > 期望输出 `dups: none`。同一命令可推广到 R-*/NFR-*/NEG-*（把正则中的 `REQ-` 换成对应前缀）。
 
 ---
+
+## 第十一章：已完成需求归档（2026-09-14 REV-22） [sid:20-ch11]
+
+> **归档纪律**：已完成的需求从活跃章节移入本章，保留完整验收标准与代码落点，便于历史审计与回归验证。
+
+### 11.1 P0 — ASR 主链路需求（REQ-001~008）
+
+| ID | 陈述 | 验收标准 | 代码落点 |
+|----|------|----------|----------|
+| REQ-001 | Burp 目标接入 | 支持 `data/burp/` 下真实目标文件解析，输出 `ctx.parsed_request` | `recon/target_builder.py` + `core/config.py` |
+| REQ-002 | 目标能力侦察（三级探测→fingerprint） | health probe → capability probe → fingerprint 递进，输出 `ctx.target_fingerprint` | `recon/health_probe.py` + `recon/capability_probe.py` |
+| REQ-003 | 武器化（UCB1 排序 + Converter 多路径） | UCB1 探索-利用平衡排序；多种 Converter 路径并行尝试 | `arm/seed_ranker.py` + `arm/converter_selector.py` |
+| REQ-004 | 单轮攻击（SequentialAttack + FIRST_SUCCESS） | PyRIT SequentialAttack 执行，首次成功即退出（FIRST_SUCCESS） | `strike/executor.py` + `strike/escalation_runtime.py` |
+| REQ-005 | 多轮升级链（L1→L4 + 中间退出） | 阶梯 `_LADDER` + `resolve_ladder_levels` + 中间退出 `should_exit_ladder`；I4 / ADR-005 | `strike/common/escalation_runtime.py` |
+| REQ-006 | 级联评分（T0→J1→J2→J3 + Wilson CI） | 四级级联，T0→J1→J2→J3 逐级过滤，Wilson CI 置信区间 | `assess/scorer.py` + `assess/asr_stats.py` |
+| REQ-007 | 证据与报告（多格式 + PoC） | JSON/HTML/Markdown 多格式报告，PoC 独立可执行 | `report/generator.py` + `report/evidence.py` |
+| REQ-008 | 多 endpoint 联合攻击（能力排序 + 联合 ASR） | 多 endpoint 能力排序后联合攻击，聚合 ASR | `main.py` 多 endpoint 循环 |
+
+### 11.2 P1 — 支撑需求（REQ-101~108）
+
+| ID | 陈述 | 代码落点 |
+|----|------|----------|
+| REQ-101 | 四级配置体系（CLI > config-file > defaults > 硬编码） | `core/config.py` |
+| REQ-102 | ~~战役预设~~（已删除，功能被 `--target`/`--strike` CLI 路由替代） | `strike/dispatcher.py` + `data/seeds/_attack_surface/` |
+| REQ-103 | 分阶段调试（`--stage` 六值独立运行） | `main.py` |
+| REQ-104 | dry-run（0 token 走通六阶段） | `utils/dry_run.py` |
+| REQ-105 | ASR 先验矩阵（priors 人工修订 + history 运行时 SSOT） | `config/asr_priors.yaml` + `assess/asr_stats.py` |
+| REQ-106 | 攻击面场景路由（分类→technique_tags） | `core/scenario_router.py` |
+| REQ-107 | 资源生命周期（LIFO + 幂等清理） | `core/context.py` |
+| REQ-108 | 架构守卫（BLOCKING 违规阻断提交） | `tools/guard.py` |
+
+### 11.3 P0-NEW / P0-EXAM — 已修复需求（REQ-114~126）
+
+| ID | 陈述 | 修复内容 | 代码落点 |
+|----|------|----------|----------|
+| REQ-114 | 升级链默认配置下可达 | 修复配置使 L1→L4 完整可达 | `strike/escalation_runtime.py` |
+| REQ-115 | 多智能体种子完整加载 | 修复 A2A 种子加载路径 | `arm/seed_ranker.py` |
+| REQ-116 | MCP 动态种子链路接通 | MCP 种子与执行器接通 | `strike/mcpsec_orchestrator.py` |
+| REQ-117 | 死代码清理 | 删除废弃文件 | 删除 `targets/agent_adapter.py` + `data/scorer_selector.py` |
+| REQ-118 | 编码损坏清零 | 删除乱码文件 | 删除损坏文件 + 清理乱码 |
+| REQ-119 | 场景特异性进入执行层 | 场景分支逻辑修复 | `strike/executor.py` |
+| REQ-120~126 | 考试关键需求 | 时间盒/证据落盘/Token 监控 | CLI 参数 + `main.py` |
+
+### 11.4 Web 攻击层需求（REQ-127~134）
+
+| ID | 陈述 | 代码落点 |
+|----|------|----------|
+| REQ-127 | 认证攻击覆盖（JWT/OAuth/Session） | `strike/web/attacks.py` |
+| REQ-129 | API Gateway 攻击覆盖（速率限制/走私/缓存投毒） | `strike/web_attacks.py` |
+| REQ-130 | 审计逃逸攻击覆盖（日志注入） | `strike/audit_evasion.py` |
+| REQ-132 | 统一编排器 | `strike/web_orchestrator.py` |
+| REQ-133 | 延迟导入机制 | 全部 Web 攻击模块 |
+| REQ-134 | 攻击成功率度量 | 全部 Web 攻击模块 |
+
+### 11.5 文件上传攻击需求（REQ-138~143 + REQ-159）
+
+| ID | 陈述 | 验收标准 | 代码落点 |
+|----|------|----------|----------|
+| REQ-138 | 通用文件上传执行 | multipart/form-data 上传 + 任意端口 + 自定义表单字段 | `strike/multimodal_upload/file_upload_executor.py` |
+| REQ-139 | 处理触发机制 | 上传后触发处理端点 + 自定义 HTTP 方法 + JSON 请求体 | `strike/multimodal_upload/file_upload_executor.py` |
+| REQ-140 | 多文件攻击链 | 单/多文件顺序上传 + 分文档注入 + 知识库投毒 | `strike/multimodal_upload/file_upload_executor.py` |
+| REQ-141 | CLI 参数支持 | `--file-upload-target` / `--upload-files` / `--upload-endpoint` / `--trigger-endpoint` | `core/config.py` |
+| REQ-142 | 流水线集成 | 集成到 `_run_file_upload_phase()` + 结果存入 `ctx.attack_results` | `core/phases/strike.py` |
+| REQ-143 | 测试覆盖 | 39 个测试用例覆盖全部核心功能 | `tests/test_file_upload_executor.py` |
+| REQ-159 | 代码-文档同步 | CLI 参数/攻击模块/需求红线变更同步至对应文档 | `docs/specs/` |
+
+### 11.6 非功能需求（NFR-1~NFR-8）
+
+| ID | 维度 | 标准 |
+|----|------|------|
+| NFR-1 | Token 效率 + 精确度 | T0 过滤率≥30%；J1→J2 跳过率≥40%；总节省≥60%；T0 假阴性率≤5%；J1/J2 假阳性率≤8%；0-token 与 LLM Judge 一致性≥85% |
+| NFR-2 | 时间 | 单 endpoint 默认预算 1800s（quick_scan 300s；exam_mode 另定） |
+| NFR-3 | 并发 | get_effective_concurrency SSOT，clamp [1,3]；SQLite WAL |
+| NFR-4 | 鲁棒 | 三级 fallback（adaptive→multi_path→partial）；空输入守卫；部分结果回收 |
+| NFR-5 | 可复现 | --max-seeds 1 全链路可跑；PoC 独立可执行 |
+| NFR-6 | Python ≥3.13 | 全类型标注；keyword-only 参数；async 后缀 `_async` |
+| NFR-7 | 离线可检 | 报告/PoC 生成不依赖网络；依赖锁定 pyrit==1.0.* |
+| NFR-8 | 考试鲁棒性 | 任一阶段失败不影响其他阶段输出；partial 结果可独立生成报告 |
+
+> **归档自检命令**（验证归档需求无重复 ID）：
+> ```bash
+> python -c "import re,collections,pathlib;rows=re.findall(r'^\|\s*(REQ-\d+)\s*\|',pathlib.Path('docs/specs/20-REQUIREMENTS.md').read_text(encoding='utf-8'),re.M);print('archived IDs:',len(rows),'dups:',[k for k,v in collections.Counter(rows).items() if v>1] or 'none')"
+> ```
 
 ---
 

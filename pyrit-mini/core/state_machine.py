@@ -109,7 +109,7 @@ class ChainStateMachine:
                     self._checkpoint()
                     raise
                 except Exception as e:
-                    # 反静默：失败必须有 reason（禁止 except: pass）
+                    # 反静默：失败必须有 reason（禁止裸 except 静默吞掉异常）
                     reason = f"{type(e).__name__}: {e}"
                     state.record_failure(step.id, reason)
                     result.failed += 1

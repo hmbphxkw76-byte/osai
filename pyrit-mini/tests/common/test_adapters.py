@@ -227,6 +227,11 @@ class TestMultipartAdapterE2E:
 
 class _SSEHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
+        # 先排空请求体：否则服务端回包后即关闭，而客户端可能仍在发送，
+        # 触发 TCP RST → httpx ReadError（全量跑时间歇性失败）。
+        body_length = int(self.headers.get("Content-Length") or 0)
+        if body_length:
+            self.rfile.read(body_length)
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.end_headers()

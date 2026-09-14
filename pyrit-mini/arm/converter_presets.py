@@ -246,3 +246,107 @@ def build_converter_map(
             result[technique] = candidates
 
     return result
+
+
+# ============================================================================
+# Per-object converter preset selection
+# ============================================================================
+
+
+def build_object_preset_converters(
+    object_key: str,
+    technique_names: list[str],
+    chain_names: list[str],
+    converter_target: Any | None = None,
+    model_family: str | None = None,
+    *,
+    target_type: str = "unknown",
+    target_fingerprint: dict[str, Any] | None = None,
+    converter_overrides: dict[str, list[str]] | None = None,
+    seeds: list[Any] | None = None,
+) -> dict[str, list[Any]]:
+    """Object-first converter selection honoring per-component ``converter_presets``.
+
+    Mirrors ``arm/mcp/preset.build_converters``: if the component YAML declares
+    ``converter_presets`` (the high-ASR default combo), those names are resolved
+    via ``core.technique_registry`` and reused across all non-baseline techniques;
+    otherwise falls back to the target-aware ``build_converter_map`` (W0 zero
+    regression — behavior byte-for-byte equivalent to today).
+    """
+    from core.object_taxonomy import component_for_object, normalize_object
+    from core.registry import get_registry
+
+    norm = normalize_object(object_key) or object_key
+    reg = get_registry()
+    raw = reg.get(norm) or reg.get(component_for_object(norm) or "")
+    presets = (raw or {}).get("converter_presets") or []
+    if presets:
+        from arm.converter_selector import _prune_low_asr_converters
+        from core.technique_registry import resolve_converters
+
+        convs = resolve_converters(presets, converter_target=converter_target)
+        convs = _prune_low_asr_converters(convs, ctx=None)
+        return {
+            t: ([] if t in _BASELINE_TECHNIQUES else list(convs))
+            for t in technique_names
+        }
+    return build_converter_map(
+        technique_names,
+        chain_names,
+        converter_target,
+        model_family=model_family,
+        target_type=target_type,
+        target_fingerprint=target_fingerprint,
+        converter_overrides=converter_overrides,
+        seeds=seeds,
+    )
+
+
+# ============================================================================
+# Extension registry: register native builders so component YAML converter_presets
+# resolve via core.technique_registry (plug-in for new converters).
+# ============================================================================
+
+def _register_native_converters() -> None:
+    """Register the PyRIT-native builders under canonical preset names.
+
+    Called once at import. New converters = add a builder + one register call
+    here (or apply @register_converter in its own module).
+    """
+    try:
+        from arm.converter_chains import (
+            code_chameleon,
+            decomposition,
+            format_injection,
+            keyword_replacement,
+            persuasion,
+            policy_puppetry,
+            selective_encoding,
+            selective_obfuscation,
+            smoothllm_bypass,
+            template_segment,
+            token_smuggling,
+            translation_multilingual,
+            variation,
+        )
+        from core.technique_registry import register_converter
+    except Exception as e:  # registry/pyrit unavailable -> converters still work via l5_optimal
+        logger.debug("[CONVERTER-PRESETS] native registration skipped: %s", e)
+        return
+
+    register_converter("DecompositionConverter")(decomposition)
+    register_converter("PolicyPuppetryConverter")(policy_puppetry)
+    register_converter("CodeChameleonConverter")(code_chameleon)
+    register_converter("PersuasionConverter")(persuasion)
+    register_converter("VariationConverter")(variation)
+    register_converter("TranslationConverter")(translation_multilingual)
+    register_converter("SelectiveTextConverter")(selective_encoding)
+    register_converter("SearchReplaceConverter")(keyword_replacement)
+    register_converter("TemplateSegmentConverter")(template_segment)
+    register_converter("TokenSmugglerConverter")(token_smuggling)
+    register_converter("SmoothLLMConverter")(smoothllm_bypass)
+    register_converter("FormatInjectionConverter")(format_injection)
+    register_converter("SelectiveObfuscationConverter")(selective_obfuscation)
+
+
+_register_native_converters()

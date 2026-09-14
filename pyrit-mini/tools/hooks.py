@@ -71,6 +71,9 @@ def _find_python_exe() -> str:
             [sys.executable, "-c", "import sys; print(sys.executable)"],
             capture_output=True,
             text=True,
+            # BL-070：仓库路径可能含非 ASCII，子进程输出须显式按 UTF-8 解码
+            encoding="utf-8",
+            errors="replace",
         )
         if result.returncode == 0:
             exe = result.stdout.strip()

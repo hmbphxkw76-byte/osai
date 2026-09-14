@@ -94,3 +94,24 @@ def detect_api_category(path: str, body: str) -> str:
         return "metadata"
 
     return "unknown"
+
+
+def run_api_classification(path: str, body: str) -> dict[str, str]:
+    """API 分类入口（coverage 策略 api_classification）。
+
+    委托既有 detect_api_category 做真实分类，并给出侦察建议。
+
+    Args:
+        path: HTTP 路径
+        body: HTTP body
+
+    Returns:
+        {"category": str, "recommendation": str}
+    """
+    category = detect_api_category(path, body)
+    recommendation = {
+        "chat": "prioritize prompt-injection / jailbreak probes",
+        "metadata": "prioritize info-disclosure / object-enumeration probes",
+        "unknown": "probe content-type and auth surface first",
+    }.get(category, "probe generic surface")
+    return {"category": category, "recommendation": recommendation}
