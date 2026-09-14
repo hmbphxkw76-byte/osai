@@ -10,6 +10,9 @@ id: supply_chain
 display_name: "Plugin / Skill / Supply Chain"
 labels: [supply_chain, plugin, skill, registry]
 
+# 侦察级组件（README 注释）：无对应 strike 实现，显式标记豁免 I15 目录要求。
+recon_only: true
+
 recon_dir: ""
 strike_dir: ""
 

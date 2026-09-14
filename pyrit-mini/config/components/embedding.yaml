@@ -13,6 +13,11 @@ id: embedding
 display_name: "Embedding / Vector Search Layer"
 labels: [embedding, vector, retrieval]
 
+# REQ-177 / §8.5 D-4：embedding 为黑盒 HTTP 不可测组件，显式标记侦察级，
+# 豁免 I15 / IA-8 对 strike/<id>/ 目录的要求；执行路径经 rag/session 间接覆盖。
+recon_only: true
+attack_execution: recon_only
+
 recon_dir: embedding
 strike_dir: rag
 
@@ -46,6 +51,7 @@ strike_modules:
   - strike.rag.vector_db_poisoner
   - strike.rag.retrieval_manipulator
 playbooks: [embedding_poison_then_retrieve]
+attack_paths: []
 
 assess:
   t0_check: "assess.component_scorers:t0_rag_pipeline_check"

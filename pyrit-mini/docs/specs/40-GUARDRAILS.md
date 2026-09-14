@@ -279,6 +279,8 @@ pyrit-drift --full --report
 | check_gate_no_silent_skip | R-GATE-2 | BLOCKING | 门禁本体 |
 | check_hooks_installed | R-GATE-3 | WARNING | 门禁本体 |
 | check_checks_registered | R-GATE-4 | BLOCKING | 门禁本体 |
+| check_component_dir_consistency | R-COMP-2 | WARNING | 组件集成 |
+| check_recon_only_component | R-COMP-3 | BLOCKING | 组件集成 |
 
 **保留注记**：
 - **检查器总数**：上表 48 条 = guard.py (6) + guard_extended.py (38) + guard_gate.py (4)。
