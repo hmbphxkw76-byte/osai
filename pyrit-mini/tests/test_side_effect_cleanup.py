@@ -23,7 +23,7 @@ def test_register_cleanup_action_populates_registry():
     async def _fn(ctx, artifacts):
         return {"success": True}
 
-    assert "sec_test_reg" in sec.CLEANUP_ACTIONS
+    assert "__sec_test_reg" in sec.CLEANUP_ACTIONS
     assert sec.CLEANUP_ACTIONS["__sec_test_reg"] is _fn
     del sec.CLEANUP_ACTIONS["__sec_test_reg"]
 
