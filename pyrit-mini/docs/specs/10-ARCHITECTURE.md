@@ -3,7 +3,7 @@
 > **文档层级**：L1 / 五层规约金字塔第二层
 > **效力**：定义系统的目标架构、模块边界、数据契约与架构不变量。任何代码变更必须能在本蓝图上"落点"——落不了点的变更需要先走 change-proposal 修改蓝图。
 > **读者**：实施任务前的 AI（必读相关章节）、评审 diff 的人工/AI。
-> **版本**：v3.3（2026-09-13 REV-21：第六章依据列补图例（R2/R6/R8 指向 SKILL.md 落点）、跨文档引用统一为 sid 锚点。REV-20：4.4 ctx 字段总表新增 `attack_success_levels`（L1–L4 分层，REQ-164）与 `hitl_state`（运行期人工干预，REQ-171）；配套 CP-002）
+> **版本**：v3.4（2026-09-14 REV-22：P1-6 登记 ADR-009~011 / I14~I15（CP-004 P1-6）。REV-21：第六章依据列补图例（R2/R6/R8 指向 SKILL.md 落点）、跨文档引用统一为 sid 锚点。REV-20：4.4 ctx 字段总表新增 `attack_success_levels`（L1–L4 分层，REQ-164）与 `hitl_state`（运行期人工干预，REQ-171）；配套 CP-002）
 > **版本史**：`git log -- docs/specs/10-ARCHITECTURE.md`（文档纪律 D3，正文不再维护）
 > **已合并**：`45-DATA-FLOW-INTEGRITY.md` → 本文件[sid:10-ch4]（原文件已删除）；其验证工具链 `tools.dataflow.validator` + `tools/dataflow/` + `tests/common/test_data_flow_integrity.py` 仍正常运行。
 
@@ -234,6 +234,8 @@ Q1: PyRIT 1.0.1 有现成组件吗？
 | I11 | **ASR 度量口径统一**：① 定义：ASR = 评分级联（T0→J1→J2→J3）判定 successful 的 objective 数 ÷ 总执行 objective 数（timeout/error 计入分母且计失败；scorer 未判定归入 unparsed，不计成功）；② **双口径分列**：`reported_asr`（自动评分级联产出）与 `confirmed_asr`（人工复核/二次验证确认）在报告中必须分列呈现，禁止混用或只报其一（无人工复核时 confirmed 列标注 `n/a`）；③ **目标锚点 SSOT**：目标 ASR 唯一定义于 `config/defaults.yaml` 的 `target_asr` 键，任何文档/决策/报告引用目标值只准引用该键，禁止硬编码百分比 | NFR-13 / 宪法第 0 条 |
 | I12 | **阶段间数据只经 PipelineContext 与 EventLog**，禁止任何旁路通道；阶段层只写事件，禁止直接读他阶段内存结构（NEG-3 的机器化表述） | NEG-3 / REQ-148 |
 | I13 | **副作用步必须声明 `cleanup`**；未声明 cleanup 的副作用步在 dry-run 之外禁止执行 | REQ-154 / R-S1 |
+| I14 | 门禁等价：`tools.gate --stage push` 的执行步骤集合 ≡ [sid:readme-ch2] 所声称的全部步骤；环境缺失依赖不产生"非阻塞跳过" | NFR-20 / NEG-9 / C10 |
+| I15 | 组件–目录一致：`get_registry().names()` 中每个 `id` 必须存在 `strike/<id>/` 或 `recon/<id>/`；侦察级组件须在 YAML 显式声明 `recon_only: true` 方可豁免 | 80 §3.1 / S-DIR-1 / C-NAME-1 |
 
 ### 6.1 触发参数统一表（SSOT）与一致性裁定（v2.6）
 
@@ -267,6 +269,9 @@ Q1: PyRIT 1.0.1 有现成组件吗？
 | ADR-006 | 多 endpoint 串行 | 高价值优先（能力指纹排序）逐个深度攻击，不做并行（全局状态安全） |
 | ADR-007 | 组件差异声明式（v2.9） | 组件差异全部落在 `config/components/*.yaml` + ComponentRegistry；编排层禁止硬编码组件名（guard R-EVENT-1 BLOCKING） |
 | ADR-008 | 判定四态分列（v2.9，复审修订） | 判定输出 `impact`（副作用/影响成立） / `exfil_confirmed`（OOB 回执证实外传） / `exfil_suspected`（仅响应文本命中，未获回执） / `content_only`（仅内容层面）；**仅 `impact` 与 `exfil_confirmed` 计入 `confirmed_asr`**，其余单列。启用回执后 `confirmed_asr` 下降属**口径收紧而非能力退化**（NFR-13 ④ 预告） |
+| ADR-009 | 单一门禁入口即门禁本体 | [sid:readme-ch2] 不再手工抄写六步命令表，改为描述"阶段 → 责任"并**指向 `tools/gate.py` 的阶段常量**（`--stage commit/push/all`）；命令清单由代码生成（`python -m tools.gate --describe`），彻底消灭"文档表 vs 代码实现"这对孪生漂移源（C3 / D1） |
+| ADR-010 | 组件面以 YAML 为唯一事实源，plan 文档降级为说明 | EXECUTION-PLAN §4 的"9 类组件矩阵"不再是权威；组件的存在性一律以 `config/components/*.yaml` + `get_registry().keys()` 为准。任何 plan 文档中出现而 YAML 中缺席的组件视为**未登记**（C6），落地前必须补 YAML |
+| ADR-011 | 裁决机器化（Q4 → `recon_only`） | 凡属"黑盒 HTTP 不可测试"的组件（当前：embedding），其裁决结论**必须在 YAML 中落为机器可读标记**并由 guard BLOCKING 兜底，不得只写在规约正文里靠人记忆 |
 
 ## 第八章：架构债务登记簿（冻结区） [sid:10-ch8]
 

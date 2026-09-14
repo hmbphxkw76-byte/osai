@@ -3,7 +3,7 @@
 > **文档层级**：L2 / 五层规约金字塔第三层
 > **效力**：本项目"做什么"的唯一登记处。**未登记于此的需求 = 不存在**。AI 不得实现未登记需求（宪法 C6）。
 > **格式**：每条需求有 ID、一句话陈述、可勾选的验收标准（DoD）。验收标准是任务完成的**唯一**判据。
-> **版本**：v3.2（2026-09-14 REV-22：归档已完成需求 REQ-001~008 / REQ-101~108 / REQ-114~126 / REQ-127~134 / REQ-138~143+159 至 [sid:20-ch11] 归档章，活跃文档只保留实施中/待实施需求，减少阅读噪音。REV-21 的 A1/A2/A3 改号与 REQ-159 改号保持有效）
+> **版本**：v3.3（2026-09-14 REV-23：P1-6 登记 REQ-173~177 / NFR-20~24 / NEG-8~10（CP-004 P1-6，原 172 因 CP-002 蓝图占用顺延）。REV-22：归档已完成需求 REQ-001~008 / REQ-101~108 / REQ-114~126 / REQ-127~134 / REQ-138~143+159 至 [sid:20-ch11] 归档章，活跃文档只保留实施中/待实施需求，减少阅读噪音。REV-21 的 A1/A2/A3 改号与 REQ-159 改号保持有效）
 > **版本史**：`git log -- docs/specs/20-REQUIREMENTS.md`
 
 > **ID 分配纪律**：REQ-xxx 全局唯一、只增不改。发现重号即为 P0 文档缺陷，须立即登记 backlog 并改号（不得改需求语义）。
@@ -99,6 +99,9 @@
 | NEG-5 | 禁止修改 guard 检查器以"让违规消失"（检查器只能因规则变更而变更，走 C12） | D3 |
 | NEG-6 | 禁止未经提案修改 `config/defaults.yaml` 中 L5 基线参数（只准上调不准下调，下调需提案） | R4 |
 | NEG-7 | 禁止运行时产物（asr_history.json、outputs/、db/pyrit.db、guard 基线）入 git；`.gitignore` 为唯一防线 | I7 SSOT / 仓库卫生（D-16） |
+| NEG-8 | 禁止在规约文档中引用仓库内不存在的模块路径、CLI 或 entry_point | D5 / R-DRIFT-2；E-02~E-04 复发护栏 |
+| NEG-9 | 禁止 `tools/gate.py` 的阶段覆盖与 `[sid:readme-ch2]` 六步不等价；禁止在 gate 内把缺失依赖降级为 `[SKIP] 非阻塞` | C9 / R-H1；E-01 + E-06 |
+| NEG-10 | 禁止在未跑 `python -m tools.gate --stage push` 的情况下把 L0–L4 规约变更声明为"已验证" | C10 / C9 |
 
 ## 第九章：全链路自主决策需求（v2.1 新增） [sid:20-ch9]
 
@@ -230,6 +233,11 @@
 | REQ-170 | 熔断与瞬态故障弹性 | ① 目标 5xx/限流触发熔断，策略可配（暂停 / 降速 / 终止）；② 客户端 5xx 重试（退避 + jitter，尊重 `defaults.yaml`）；③ 接线 `ctx._circuit_breaker_states`（消除 stub）；④ 熔断决策写入 `ctx.orchestration_log` + EventLog | P1 |
 | REQ-171 | 运行期人工干预（HITL） | ① 支持运行中暂停/恢复；② 支持手动注入 seed；③ 支持策略覆盖钩子（人工指令优先级高于自主决策，NFR-10）；④ 全部动作写入 EventLog；⑤ 默认关闭，不影响非交互运行 | P2 |
 | REQ-172 | 统一攻击技术蓝图与扩展注册表 | ① `core/technique_blueprint.build_optimal_blueprint` 消费组件 YAML 为 seeds/converters/strike/scorers 四轴单源真值并按 ASR 重排；② `core.technique_registry` 提供 `@register_converter`/`@register_strategy`/`@register_scorer` 插件式注册，替代散落硬编码表；③ 各对象 YAML `converter_presets` 声明高成功率组合（注册表键名），经注册表解析，**空则回退 `l5_optimal`（W0 零回归）**；④ 新增 primitive = 一处声明即生效；⑤ 底层 100% 复用 PyRIT 原生 Converter/Attack（R-NATIVE-1） | P1 |
+| REQ-173 | 单 Agent（ReAct / Tool-use）组件登记与接线 | ① 新增 `config/components/agent.yaml`（`id: agent`，`component_key: agent_tool_integrity`，含 `labels`/`detect.signals`(含 `tools[]`/`functions[]`/`tool_calls`)/`recon`/`seeds`/`converters`/`playbooks`/`scorer`/`report_section`/`cleanup`）；② `recon/agent/` 提供工具 Schema 抽取 + 权限边界 + 确认点探测；③ `strike/agent/` 覆盖越权工具调用 / 未确认副作用执行 / 参数越界 / 工具返回值注入四类，全部经 PyRIT 原生 `PromptSendingAttack`/`CrescendoAttack` 投递（C1）；④ 新增种子集 `data/seeds/_attack_surface/T*_agent_*`，归属由 `agent.yaml` 的 `seeds:` 字段声明，frontmatter `category` 保留为技术标签（**依 §8.4 D-3：`suitable_for` 现役语义为 technique 过滤器，不再要求等于 `component_key`**）；⑤ `assess/component_scorers.py` 注册 T0 + rubric；`report/component_reports.py` + `component_poc.py` 注册；⑥ `get_registry().validate_wiring()` 返回空 | P0 |
+| REQ-174 | Multi-Agent / A2A 跨 agent 攻击执行层（承接并加严 REQ-109） | ① cross-agent injection / agent impersonation / workflow corruption 三类**以 `config/playbooks/*.yaml` 表达**（不再仅以种子形态存在）；② 在 `targets/mock/a2a_agent` 靶标端到端跑通并有 e2e 断言；③ 复用已落地的 `_TargetAdapterWrapper` → `A2ATarget`（IC-2），不得另建第二套链机制（C3 / IC-4） | P1 |
+| REQ-175 | MCP 深链覆盖面扩展 | ① 在既有 `mcp_enum_call.yaml` 之外补 `mcp_schema_poison.yaml`（工具描述投毒 → 采纳验证）与 `mcp_tool_chain.yaml`（工具串链 → 外传信道验证）；② 三条链在 `mcp_server` 靶标均有 success/verdict/cleanup 断言；③ 原 `strike/mcp/malicious_server.py` 硬编码分支随迁移删除（IC-4，删除期限登记 backlog） | P1 |
+| REQ-176 | RAG 投毒链与跨租户 IDOR | ① `rag_poison.yaml`（写→触发→"投毒文档被引用"验证）迁移自 `strike/rag/data_poisoning.py` + `strike/common/_executor_doc_poison.py`；② 跨租户 `doc_id` IDOR 判定成立需 **二次独立请求确认**（IC-6）；③ 迁移后删原分支 | P1 |
+| REQ-177 | Embedding 的 Q4 裁决机器化 | ① `config/components/embedding.yaml` 增显式标记 `attack_execution: recon_only`（契约新增字段，见 `config/components/README.md`）；② **任何向 `recon_only` 组件写入 strike/执行分支的 diff 由 `check_recon_only_component()` BLOCKING**（把 90 §4 / 蓝图 Q4 的"黑盒 HTTP 不可测试 → 编排内不实装"从人工记忆变成机器兜底）；③ Embedding 风险经间接注入（arXiv:2302.12173）与 RAG 投毒（arXiv:2406.04245）路径覆盖，不在 embedding 组件内实装执行；④ **黑盒命中的 embedding 相关 finding 一律多归属到 `rag` 或 `session`（IC-3）**，`embedding` 只出现在 labels 与"侦察风险清单"章节，**不产生独立 finding、不计入 ASR 分母**（与 `supply_chain` 同处理）；⑤ 豁免 I15 / IA-8 对 `strike/<id>/` 目录的要求，该豁免须由 YAML 的 `recon_only` 标记驱动（依 §8.5 D-4） | P1 |
 
 ### 第九章 D2：非功能需求
 
@@ -238,6 +246,11 @@
 | NFR-17 | 审计可验证性 | EventLog 每条事件含前序哈希（哈希链），提供离线校验入口；篡改可被检出 |
 | NFR-18 | 证据包可离线校验 | 报告产出含 `evidence_manifest.sha256`，逐文件哈希可离线复算（不依赖网络，对齐 NFR-7） |
 | NFR-19 | 交付可复现 | 容器化构建可复现（依赖锁定 + 固定基础镜像），构建产物与本地一致 |
+| NFR-20 | 门禁等价性 | `python -m tools.gate --stage push` 的执行集合 ≡ `[sid:readme-ch2]` 六步表；由 `check_gate_stage_parity()` 校验，**不等价即 BLOCKING** |
+| NFR-21 | 文档引用可执行性 | 规约正文出现的 `tools.<mod>` / `pyrit-*` / 相对文件路径必须可 import 或存在；失败进 `check_spec_code_sync()` 的 WARNING 及以上 |
+| NFR-22 | e2e 回归 | 5 类 mock 靶标 ×（识别标签 / playbook 成功率 / verdict 四态 / cleanup 后状态）四个维度必须存在断言；新增组件无 e2e 断言不准接入框架层 |
+| NFR-23 | 续跑幂等 | `--resume <run_id>` 从 `events.jsonl` 恢复，已完成 step 不重跑；同一 run 重复 `--resume` 两次，产出的 `evidence_manifest.sha256` 除时间戳外一致（可由 `<run_id>` 归档目录 diff 验证） |
+| NFR-24 | 打包与CLI一致性 | `[project.scripts]` 与 [sid:readme-ch4] 双向对齐（不多不少）；`[tool.setuptools.packages.find] include` 必须包含所有被 R-L7 白名单接受的顶层包 |
 
 ### 第九章 D3：本组需求状态追踪
 

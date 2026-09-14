@@ -16,7 +16,7 @@
 |---|---|
 | **本文主张** | `pyrit-mini` 离生产级的**最大差距不是功能缺失，而是"声明与实现不一致"**：声称的唯一门禁入口实际只跑六步中的三步、文档引用了根本不存在的模块与 CLI、backlog 状态滞后于已闭环的代码、以及**企业第一大类目标（单 Agent）在组件矩阵中根本未登记**。 |
 | **一句话痛点** | 一个严谨的操作员按 `[sid:readme-ch2]` 跑"唯一门禁入口"，实际只跑了六步中的三步；而 C10 要求"全部执行、全部通过"。这是结构性 C9/C10 违例，不是文档小瑕疵。 |
-| **产出形态** | 5 个波次（W-P1~P5），每波可执行 DoD + Go/No-Go；新增 REQ-172~176 / NFR-20~24 / NEG-8~10 / ADR-009~011 / I14~I15 / R-GATE-1~2 · R-DOC-6 · R-COMP-2。全部走既有任务协议（≤3 文件 / ≤300 行 / ≤2 模块 / ≤1 新文件）。 |
+| **产出形态** | 5 个波次（W-P1~P5），每波可执行 DoD + Go/No-Go；新增 REQ-173~177 / NFR-20~24 / NEG-8~10 / ADR-009~011 / I14~I15 / **R-COMP-2~3**；**R-GATE-1~3 · R-DOC-6 已存在免登**（注册表事实）；**D8 跳过（字节取证已为 D9）**。全部走既有任务协议（≤3 文件 / ≤300 行 / ≤2 模块 / ≤1 新文件）。 |
 
 ---
 
@@ -87,11 +87,11 @@
 
 | ID | 陈述 | 验收标准 | 优先级 |
 |----|------|----------|--------|
-| **REQ-172** | **单 Agent（ReAct / Tool-use）组件登记与接线** | ① 新增 `config/components/agent.yaml`（`id: agent`，`component_key: agent_tool_integrity`，含 `labels`/`detect.signals`(含 `tools[]`/`functions[]`/`tool_calls`)/`recon`/`seeds`/`converters`/`playbooks`/`scorer`/`report_section`/`cleanup`）；② `recon/agent/` 提供工具 Schema 抽取 + 权限边界 + 确认点探测；③ `strike/agent/` 覆盖越权工具调用 / 未确认副作用执行 / 参数越界 / 工具返回值注入四类，全部经 PyRIT 原生 `PromptSendingAttack`/`CrescendoAttack` 投递（C1）；④ 新增种子集 `data/seeds/_attack_surface/T*_agent_*`，归属由 `agent.yaml` 的 `seeds:` 字段声明，frontmatter `category` 保留为技术标签（**依 §8.4 D-3：`suitable_for` 现役语义为 technique 过滤器，不再要求等于 `component_key`**）；⑤ `assess/component_scorers.py` 注册 T0 + rubric；`report/component_reports.py` + `component_poc.py` 注册；⑥ `get_registry().validate_wiring()` 返回空 | **P0** |
-| **REQ-173** | **Multi-Agent / A2A 跨 agent 攻击执行层**（承接并加严 REQ-109） | ① cross-agent injection / agent impersonation / workflow corruption 三类**以 `config/playbooks/*.yaml` 表达**（不再仅以种子形态存在）；② 在 `targets/mock/a2a_agent` 靶标端到端跑通并有 e2e 断言；③ 复用已落地的 `_TargetAdapterWrapper` → `A2ATarget`（IC-2），不得另建第二套链机制（C3 / IC-4） | P1 |
-| **REQ-174** | **MCP 深链覆盖面扩展** | ① 在既有 `mcp_enum_call.yaml` 之外补 `mcp_schema_poison.yaml`（工具描述投毒 → 采纳验证）与 `mcp_tool_chain.yaml`（工具串链 → 外传信道验证）；② 三条链在 `mcp_server` 靶标均有 success/verdict/cleanup 断言；③ 原 `strike/mcp/malicious_server.py` 硬编码分支随迁移删除（IC-4，删除期限登记 backlog） | P1 |
-| **REQ-175** | **RAG 投毒链与跨租户 IDOR** | ① `rag_poison.yaml`（写→触发→"投毒文档被引用"验证）迁移自 `strike/rag/data_poisoning.py` + `strike/common/_executor_doc_poison.py`；② 跨租户 `doc_id` IDOR 判定成立需 **二次独立请求确认**（IC-6）；③ 迁移后删原分支 | P1 |
-| **REQ-176** | **Embedding 的 Q4 裁决机器化** | ① `config/components/embedding.yaml` 增显式标记 `attack_execution: recon_only`（契约新增字段，见 `config/components/README.md`）；② **任何向 `recon_only` 组件写入 strike/执行分支的 diff 由 `check_recon_only_component()` BLOCKING**（把 90 §4 / 蓝图 Q4 的"黑盒 HTTP 不可测试 → 编排内不实装"从人工记忆变成机器兜底）；③ Embedding 风险经间接注入（arXiv:2302.12173）与 RAG 投毒（arXiv:2406.04245）路径覆盖，不在 embedding 组件内实装执行；④ **黑盒命中的 embedding 相关 finding 一律多归属到 `rag` 或 `session`（IC-3）**，`embedding` 只出现在 labels 与"侦察风险清单"章节，**不产生独立 finding、不计入 ASR 分母**（与 `supply_chain` 同处理）；⑤ 豁免 I15 / IA-8 对 `strike/<id>/` 目录的要求，该豁免须由 YAML 的 `recon_only` 标记驱动（依 §8.5 D-4） | P1 |
+| **REQ-173** | **单 Agent（ReAct / Tool-use）组件登记与接线** | ① 新增 `config/components/agent.yaml`（`id: agent`，`component_key: agent_tool_integrity`，含 `labels`/`detect.signals`(含 `tools[]`/`functions[]`/`tool_calls`)/`recon`/`seeds`/`converters`/`playbooks`/`scorer`/`report_section`/`cleanup`）；② `recon/agent/` 提供工具 Schema 抽取 + 权限边界 + 确认点探测；③ `strike/agent/` 覆盖越权工具调用 / 未确认副作用执行 / 参数越界 / 工具返回值注入四类，全部经 PyRIT 原生 `PromptSendingAttack`/`CrescendoAttack` 投递（C1）；④ 新增种子集 `data/seeds/_attack_surface/T*_agent_*`，归属由 `agent.yaml` 的 `seeds:` 字段声明，frontmatter `category` 保留为技术标签（**依 §8.4 D-3：`suitable_for` 现役语义为 technique 过滤器，不再要求等于 `component_key`**）；⑤ `assess/component_scorers.py` 注册 T0 + rubric；`report/component_reports.py` + `component_poc.py` 注册；⑥ `get_registry().validate_wiring()` 返回空 | **P0** |
+| **REQ-174** | **Multi-Agent / A2A 跨 agent 攻击执行层**（承接并加严 REQ-109） | ① cross-agent injection / agent impersonation / workflow corruption 三类**以 `config/playbooks/*.yaml` 表达**（不再仅以种子形态存在）；② 在 `targets/mock/a2a_agent` 靶标端到端跑通并有 e2e 断言；③ 复用已落地的 `_TargetAdapterWrapper` → `A2ATarget`（IC-2），不得另建第二套链机制（C3 / IC-4） | P1 |
+| **REQ-175** | **MCP 深链覆盖面扩展** | ① 在既有 `mcp_enum_call.yaml` 之外补 `mcp_schema_poison.yaml`（工具描述投毒 → 采纳验证）与 `mcp_tool_chain.yaml`（工具串链 → 外传信道验证）；② 三条链在 `mcp_server` 靶标均有 success/verdict/cleanup 断言；③ 原 `strike/mcp/malicious_server.py` 硬编码分支随迁移删除（IC-4，删除期限登记 backlog） | P1 |
+| **REQ-176** | **RAG 投毒链与跨租户 IDOR** | ① `rag_poison.yaml`（写→触发→"投毒文档被引用"验证）迁移自 `strike/rag/data_poisoning.py` + `strike/common/_executor_doc_poison.py`；② 跨租户 `doc_id` IDOR 判定成立需 **二次独立请求确认**（IC-6）；③ 迁移后删原分支 | P1 |
+| **REQ-177** | **Embedding 的 Q4 裁决机器化** | ① `config/components/embedding.yaml` 增显式标记 `attack_execution: recon_only`（契约新增字段，见 `config/components/README.md`）；② **任何向 `recon_only` 组件写入 strike/执行分支的 diff 由 `check_recon_only_component()` BLOCKING**（把 90 §4 / 蓝图 Q4 的"黑盒 HTTP 不可测试 → 编排内不实装"从人工记忆变成机器兜底）；③ Embedding 风险经间接注入（arXiv:2302.12173）与 RAG 投毒（arXiv:2406.04245）路径覆盖，不在 embedding 组件内实装执行；④ **黑盒命中的 embedding 相关 finding 一律多归属到 `rag` 或 `session`（IC-3）**，`embedding` 只出现在 labels 与"侦察风险清单"章节，**不产生独立 finding、不计入 ASR 分母**（与 `supply_chain` 同处理）；⑤ 豁免 I15 / IA-8 对 `strike/<id>/` 目录的要求，该豁免须由 YAML 的 `recon_only` 标记驱动（依 §8.5 D-4） | P1 |
 
 ### 3.2 新增 NFR
 
@@ -154,7 +154,7 @@
 | P1-3 | 修 10-ARCHITECTURE 文件头 `tools/data_flow_validator.py` → `tools.dataflow.validator` | `10-ARCHITECTURE.md` | 路径可 import |
 | P1-4 | 修 EXECUTION-PLAN §2.2 / §12 / W5-4 的 `docs/guides/` 引用 | plans/ 执行计划 | 路径存在或删除引用 |
 | P1-5 | **backlog 状态核对**：BL-025/026/031/037/038 复核，按 E-07/E-08 结论标 `converted`/`completed` 并移出 open 区 | `docs/backlog.md` | open 区每条可复现 |
-| P1-6 | 登记 REQ-172~176 / NFR-20~24 / NEG-8~10 / ADR-009~013 / I14~I15 / R-GATE-1~3 · R-DOC-6 · R-COMP-2~3；**登记新纪律 D8（证据须字节级可验证）** | `20-REQUIREMENTS.md`、`40-GUARDRAILS.md`、`10-ARCHITECTURE.md`、`specs/README.md` | ID 唯一性自检 `dups: none` |
+| P1-6 | 登记 REQ-173~177 / NFR-20~24 / NEG-8~10 / ADR-009~011 / I14~I15 / **R-COMP-2~3（新）**；**R-GATE-1~3 · R-DOC-6 免登（注册表已存在）**；**D8 跳过（字节取证已为 D9，README §5 已登记，免登）** | `20-REQUIREMENTS.md`、`40-GUARDRAILS.md`、`10-ARCHITECTURE.md`、`specs/README.md` | ID 唯一性自检 `dups: none` |
 | P1-7 | **§8.2/§8.3 合并裁决落地（纯数据变更，不受粒度上限约束）**：新建 `config/components/web.yaml`（`id: web` / `component_key: web_infra` / `labels: [web_infra, llm_gateway, audit_evasion]`），删 `gateway.yaml` + `audit.yaml` + `web_api.yaml`；`session.yaml` 的 `id` 改为 `session`；E-17 的路径回填一并处理 | `config/components/`、`10-ARCHITECTURE.md`、`55-ATTACK-GAP-CLOSURE.md` | `get_registry().keys()` 由 10 → 8，`names()` 与目录一一对应；BL-024/BL-049 收敛 |
 
 **Go/No-Go**：`python -m tools.drift_detector --full` 0 BLOCKING；REQ/NFR/NEG/R/ADR ID 唯一性命令输出 `dups: none`；README 版本列同步（R-DOC-4）。
@@ -175,12 +175,12 @@
 
 | ID | 任务 | 落点 | DoD |
 |----|------|------|-----|
-| P3-1 | `config/components/agent.yaml`（REQ-172①）+ 契约字段定义写入 `config/components/README.md` | `config/components/` | `get_registry().spec("agent_tool_integrity")` 可读 |
+| P3-1 | `config/components/agent.yaml`（REQ-173①）+ 契约字段定义写入 `config/components/README.md` | `config/components/` | `get_registry().spec("agent_tool_integrity")` 可读 |
 | P3-2 | `recon/agent/`：工具 Schema 抽取 + 权限边界 + 确认点探测 | `recon/agent/` | 对 mock `tool_agent` 识别标签 `agent` 命中 |
 | P3-3 | `strike/agent/`：越权工具调用 / 未确认副作用 / 参数越界 / 工具返回值注入（全部 PyRIT 原生投递） | `strike/agent/` | 四类在靶场各有 verdict |
 | P3-4 | 种子集 `T*_agent_*` + **`agent.yaml` 的 `seeds:` 字段声明归属** + `assess/component_scorers.py` T0/rubric + report/PoC 注册 | `data/seeds/_attack_surface/`、`assess/`、`report/` | `validate_wiring()` 空 |
-| P3-5 | REQ-173：A2A 三条跨 agent 链改 playbook YAML + `a2a_agent` 靶标 e2e | `config/playbooks/`、`tests/e2e/` | 三条链 success + cleanup 生效 |
-| P3-6 | REQ-176：embedding 落 `attack_execution: recon_only` + `check_recon_only_component()`（判定粒度见 §8.6 D-5） | `config/components/embedding.yaml`、`tools/guard_extended.py` | 向 embedding 写执行分支被 BLOCKING；侦察增强类 diff 不被误伤 |
+| P3-5 | REQ-174：A2A 三条跨 agent 链改 playbook YAML + `a2a_agent` 靶标 e2e | `config/playbooks/`、`tests/e2e/` | 三条链 success + cleanup 生效 |
+| P3-6 | REQ-177：embedding 落 `attack_execution: recon_only` + `check_recon_only_component()`（判定粒度见 §8.6 D-5） | `config/components/embedding.yaml`、`tools/guard_extended.py` | 向 embedding 写执行分支被 BLOCKING；侦察增强类 diff 不被误伤 |
 | P3-7 | **D-8 组件补齐**：`multimodal_upload` 组件登记 + `strike/multimodal_upload/`（**迁移** `strike/injection/file_upload_executor.py`，`strike/injection/` 作为共享位保留） | `config/components/`、`strike/` | `get_registry().keys()` 含 `multimodal_upload`；E-19 收敛 |
 
 **Go/No-Go**：`get_registry().keys()` 含 `agent_tool_integrity` 与 `multimodal_upload`；`validate_wiring()` 空；`check_component_dir_consistency()` 对**攻击级**组件 0 WARNING（`embedding` / `supply_chain` 依 `recon_only` 标记豁免）；组件集合 ≡ §8.9 D-8 的 10 项。
@@ -189,8 +189,8 @@
 
 | ID | 任务 | 落点 | DoD |
 |----|------|------|-----|
-| P4-1 | REQ-175：`rag_poison.yaml`（**迁移非新建**，IC-4）+ 跨租户 doc_id IDOR（IC-6 二次确认） | `config/playbooks/` | 靶场端到端 + 删原分支 |
-| P4-2 | REQ-174：MCP schema 投毒 + 工具串链两条 playbook | 同上 | 靶场端到端 + 删原分支 |
+| P4-1 | REQ-176：`rag_poison.yaml`（**迁移非新建**，IC-4）+ 跨租户 doc_id IDOR（IC-6 二次确认） | `config/playbooks/` | 靶场端到端 + 删原分支 |
+| P4-2 | REQ-175：MCP schema 投毒 + 工具串链两条 playbook | 同上 | 靶场端到端 + 删原分支 |
 | P4-3 | `assess/impact/{model,canary}.py` 补齐（plan §2.1 落点） | `assess/impact/` | 四态判定可单测 |
 | P4-4 | `tests/e2e/` 5 靶标 × 4 维断言 + `fixtures/expected.yaml`，进 `python -m tools.gate --stage push` | `tests/e2e/`、`tools/gate.py` | REQ-156⑤ 达成 |
 | P4-5 | 迁移完成登记：删除 `strike/rag/data_poisoning.py`、`strike/common/_executor_doc_poison.py`、`_executor_vuln_inject.py`、`strike/mcp/malicious_server.py` 原分支 | 删除 + backlog 期限 | 无第二套链机制（IC-4 / RK-8） |
@@ -230,7 +230,7 @@
 | 波次 | 对 ASR 的影响 | 依据 |
 |------|--------------|------|
 | W-P1 / W-P2 | **中性**（不改攻击路径），但**恢复可归因性** | 只有六步全跑，`reported_asr` 变化才能被归因到此 diff；这是阶段 0.5「基线后才允许声称 ASR 优化」的前置条件 |
-| W-P3（Agent 组件） | **变高** | 企业第一大类目标此前**未登记**＝不存在（C6）。Tool-use Agent 的越权工具调用 / 未确认副作用执行 / 参数越界，目前既无组件声明、无专项侦察、无专属评分器，属成片未覆盖；登记后按 REQ-172 接线，四种判据均可进入 `reported_asr` 分子 |
+| W-P3（Agent 组件） | **变高** | 企业第一大类目标此前**未登记**＝不存在（C6）。Tool-use Agent 的越权工具调用 / 未确认副作用执行 / 参数越界，目前既无组件声明、无专项侦察、无专属评分器，属成片未覆盖；登记后按 REQ-173 接线，四种判据均可进入 `reported_asr` 分子 |
 | W-P4（深链迁移） | **变高**（长期）/ 口径收紧（短期） | 有状态多步链（RAG 投毒 / MCP 串链）可表达之前不可表达的成功；同时 IC-5/IC-6 使部分"文本命中但无实证"的样本降为 `exfil_suspected`/`content_only` → **`confirmed_asr` 下降属口径收紧而非能力退化**（ADR-008 / NFR-13④ / RK-7），报告须四态分列并注明口径 |
 | W-P5 | 中性 | 交付卫生，不改攻击面 |
 
@@ -241,7 +241,7 @@
 ## 7. 同批义务（批准后必做）
 
 1. 更新受影响文档文件头版本号：`00-CONSTITUTION`（若触及）/ `10-ARCHITECTURE` / `20-REQUIREMENTS` / `40-GUARDRAILS` / `specs/README.md` §1 索引（R-DOC-4）；
-2. 把 `90-AI-DEV-ARCHITECTURE.md` [sid:90-ch4]「已知差距与归宿」指针表补 REQ-172~176 与 R-GATE-*（该文自称无裁决权威，只引用）；
+2. 把 `90-AI-DEV-ARCHITECTURE.md` [sid:90-ch4]「已知差距与归宿」指针表补 REQ-173~177 与 R-GATE-*（该文自称无裁决权威，只引用）；
 3. 跑 ID 唯一性自检（REQ/NFR/NEG/R/ADR 四类前缀）；
 4. 按 C14 / R-CROSS-1：**本提案属 L0–L4 多点变更，合入前须过跨模型审查**；工具链当前未实施（BL-035），按降级条款走**人工审查模式 + 代码存档记录**，并标记 `needs-cross-model-pending`。
 
@@ -308,11 +308,11 @@
 | 事实 | 实测 `suitable_for` 取值 100% 是 technique 名，`core.registry.for_seed_component` **零消费者**（E-18）——即 IA-5 从未被真正执行，改口是"把规则对齐现实"，不是降标准 |
 | P2-N1 | 按 technique 过滤恰恰与 PyRIT 的心智模型一致：`ConverterConfiguration` 与攻击类选择本就按 technique/converter 走，不按目标组件走。让 frontmatter 承载 technique 是**原生友好**的，让它承载 `component_key` 反而制造了一个 PyRIT 域外概念 |
 | P1-R5 / C4 | 迁 117 份文件是超大 diff、零 ASR 收益、高风险纯改造；而 YAML `seeds:` 字段已然存在且被 `validate_wiring()` 消费——**用已有的东西，不要再做一个** |
-| **对 REQ-172 的修改** | 验收标准 ④ 中原写 `suitable_for: [agent_tool_integrity]`，**改为**：「新增种子集由 `config/components/agent.yaml` 的 `seeds:` 字段声明；frontmatter `category` 保留为粗粒度技术标签」 |
+| **对 REQ-173 的修改** | 验收标准 ④ 中原写 `suitable_for: [agent_tool_integrity]`，**改为**：「新增种子集由 `config/components/agent.yaml` 的 `seeds:` 字段声明；frontmatter `category` 保留为粗粒度技术标签」 |
 
 ---
 
-### 8.5 D-4（原 RK-P2 / REQ-176）：Embedding —— **维持 Q4 裁决，保留组件身份 + `recon_only: true`**
+### 8.5 D-4（原 RK-P2 / REQ-177）：Embedding —— **维持 Q4 裁决，保留组件身份 + `recon_only: true`**
 
 > **裁决**：embedding **保留为一个组件**（不降级为纯 label），但显式标记 `attack_execution: recon_only` 且 `attack_paths: []`；豁免 I15 / IA-8 对 `strike/<id>/` 目录的要求。
 
@@ -369,7 +369,7 @@
 | # | `id` | `component_key` | 处置 | 依据 |
 |---|------|-----------------|------|------|
 | 1 | `model` | `model_behavior_shift` | 保留（已含 filter_bypass / multimodal / backdoor → `strike/model/`） | 现状 |
-| 2 | **`agent`** | `agent_tool_integrity` | **新增**（REQ-172） | P1-R1：Tool-use 是企业第一大类目标；P2-N2：其 TargetAdapter = HTTP + tool_calls 的可观测差异，构成独立原语 |
+| 2 | **`agent`** | `agent_tool_integrity` | **新增**（REQ-173） | P1-R1：Tool-use 是企业第一大类目标；P2-N2：其 TargetAdapter = HTTP + tool_calls 的可观测差异，构成独立原语 |
 | 3 | `mcp` | `mcp_tool_poisoning` | 保留 | 现状 |
 | 4 | `a2a` | `a2a_agent_integrity` | 保留 | 现状 |
 | 5 | `rag` | `rag_pipeline` | 保留 | 现状 |
@@ -391,11 +391,11 @@
 | §5 RK-P2（recon_only 误伤） | **已裁决** → §8.6 D-5；R-COMP-3 判定粒度固化为三条件 AND |
 | §5 RK-P3（三组件 vs 合并） | **已裁决** → §8.2 D-1 + §8.3 D-2；**选合并**，否决拆目录 |
 | §4 W-P3 P3-4（种子 `suitable_for`） | **修订** → §8.4 D-3；改为 YAML `seeds:` 字段声明，不迁 117 份种子 |
-| §3.1 REQ-172 ④ | **修订**（同上） |
-| §3.1 REQ-176（embedding） | **维持并加严** → §8.5 D-4；新增"多归属到 rag/session""不计入 ASR 分母" |
+| §3.1 REQ-173 ④ | **修订**（同上） |
+| §3.1 REQ-177（embedding） | **维持并加严** → §8.5 D-4；新增"多归属到 rag/session""不计入 ASR 分母" |
 | §1.2 E-12 | **撤回** → §8.8 D-7；BL-051 同步撤回（标 `discarded`） |
 | §1.2（新增） E-17 / E-18 / E-19 | **新增** → 分别对应 D-3/D-8 的证据基础；E-17 为纯治理滞后（功能未丢），**优先级低于 E-01/E-06** |
-| §3.4 ADR | 追加 **ADR-012（组件粒度：按可利用原语与 TargetAdapter 划分，主体见 §8.2 / §8.3）**、**ADR-013（门禁 stage 划分，主体见 §8.7）** |
+| §3.4 ADR | **不升格 ADR-012/013**：组件粒度（终态见 §8.9 D-8）与门禁 stage 划分（§8.7 D-6）以**裁决记录（D-*）**形式留存，**不升格为独立注册 ADR**（ADR-012/013 无定义体，依 P1-6 注册表事实裁定「ADR 只登 009~011」）；仅 **ADR-009~011** 落注册表（10-ARCHITECTURE [sid:10-ch6]） |
 
 ---
 
@@ -432,7 +432,7 @@
 
 ## 9. 评审结论（2026-09-14 用户本会话显式批准）
 
-> **批准记录（C12 人工批准效力）**：本提案由项目所有者（用户）于 **2026-09-14** 本会话显式批准（指令原文："批准CP-004继续执行"）。AI 依 C12 代录入批准记录；REQ-173~176 / NFR-20~24 / R-GATE-* 等**编码封锁据此解除**（REQ-172 此前已借 CP-002 §6 受控补登获 sanction）。批准附条件：① W-P1/W-P2 为零容忍发布阻断项，优先于任何新功能；② W-P3 先裁决后实现；③ W-P4 迁移非新建（IC-4），原分支删除期限登记 backlog；④ 每波收尾必须跑 `python -m tools.gate --stage push` 并保持 `specs/README.md` 版本列同步。
+> **批准记录（C12 人工批准效力）**：本提案由项目所有者（用户）于 **2026-09-14** 本会话显式批准（指令原文："批准CP-004继续执行"）。AI 依 C12 代录入批准记录；REQ-173~177 / NFR-20~24 / R-GATE-* 等**编码封锁据此解除**（REQ-172 此前已借 CP-002 §6 受控补登获 sanction）。批准附条件：① W-P1/W-P2 为零容忍发布阻断项，优先于任何新功能；② W-P3 先裁决后实现；③ W-P4 迁移非新建（IC-4），原分支删除期限登记 backlog；④ 每波收尾必须跑 `python -m tools.gate --stage push` 并保持 `specs/README.md` 版本列同步。
 
 - [x] 批准（附条件见上，2026-09-14 用户本会话追认生效）
 - [ ] 驳回
