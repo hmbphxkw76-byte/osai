@@ -1,4 +1,4 @@
-"""assess/impact/exfil.py — ExfilChannel：canary 生成 + OOB 回执登记（REQ-152 / IC-5）。
+"""assess/impact/exfil.py — ExfilChannel：OOB 回执登记（canary 生成见 `assess.impact.canary`，REQ-152 / IC-5）。
 
 设计约束：
     - **零新增运行时依赖**（NEG-4）：仅标准库（`secrets` / `threading` / `re`）。
@@ -15,38 +15,20 @@
 from __future__ import annotations
 
 import logging
-import re
-import secrets
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any
+
+# 兼容性 re-export：canary 逻辑已下沉至 `assess.impact.canary`（W-P4 P4-3），
+# 原从 `exfil` 导入 canary 符号的调用方无需改动（C3：单一归属 + 兼容保留）。
+from assess.impact.canary import (  # noqa: F401  # 兼容性 re-export，供仍从 exfil 导入 canary 符号的调用方使用
+    CANARY_PREFIX,
+    build_callback_url,
+    extract_canaries,
+    generate_canary,
+)
 
 logger = logging.getLogger(__name__)
-
-# Attack OOB Canary 前缀（用于在响应文本中检索回显）
-CANARY_PREFIX = "AOBC"
-
-_CANARY_RE = re.compile(rf"\b{CANARY_PREFIX}_[0-9a-fA-F]{{6,}}\b")
-
-
-def generate_canary(prefix: str = CANARY_PREFIX) -> str:
-    """Generate a unique, unpredictable canary token (cannot be guessed by the target)."""
-    return f"{prefix}_{secrets.token_hex(8)}"
-
-
-def extract_canaries(text: Any) -> list[str]:
-    """Find all canary tokens appearing in a text (response echo / log)."""
-    if not isinstance(text, str):
-        return []
-    return sorted(set(_CANARY_RE.findall(text)))
-
-
-def build_callback_url(base_url: str, canary: str, *, param: str = "c") -> str:
-    """Build the OOB callback URL carrying the canary as a query parameter."""
-    base = (base_url or "").rstrip("/")
-    sep = "&" if "?" in base else "?"
-    return f"{base}{sep}{param}={canary}"
 
 
 @dataclass(frozen=True)

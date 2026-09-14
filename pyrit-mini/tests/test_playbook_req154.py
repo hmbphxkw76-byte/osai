@@ -14,6 +14,7 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
+import recon.adapters as adapters_mod
 from strike.playbook import (
     Playbook,
     PlaybookEngine,
@@ -38,13 +39,11 @@ class _FakeAdapter:
 
 
 def _make_engine(monkeypatch, calls: list) -> PlaybookEngine:
-    from strike import playbook as pb_module
-
     def _build(**kw):
         calls.append(kw.get("url"))
         return _FakeAdapter(**kw)
 
-    monkeypatch.setattr(pb_module.adapters, "build_adapter", _build)
+    monkeypatch.setattr(adapters_mod, "build_adapter", _build)
     return PlaybookEngine(verify=False)
 
 
@@ -161,13 +160,11 @@ def test_cleanup_hook_restores_target_state(monkeypatch):
             target_state["written"] += 1  # 真实副作用：写入靶标
             return SimpleNamespace(text="pong", data={"status": "ok"})
 
-    from strike import playbook as pb_module
-
     def _build(**kw):
         calls.append(kw.get("url"))
         return _MutatingAdapter(**kw)
 
-    monkeypatch.setattr(pb_module.adapters, "build_adapter", _build)
+    monkeypatch.setattr(adapters_mod, "build_adapter", _build)
 
     def _restore() -> None:
         target_state["written"] = 0  # cleanup 钩子复原靶标状态

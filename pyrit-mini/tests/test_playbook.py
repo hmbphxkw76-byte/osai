@@ -7,6 +7,7 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
+import recon.adapters as adapters_mod
 from strike.playbook import (
     Playbook,
     PlaybookEngine,
@@ -75,9 +76,7 @@ class _FakeAdapter:
 
 def test_playbook_engine_dispatches_send(monkeypatch):
     """PlaybookEngine 通过 build_adapter 派发 send 动作（REQ-151）。"""
-    from strike import playbook as pb_module
-
-    monkeypatch.setattr(pb_module.adapters, "build_adapter", lambda **kw: _FakeAdapter())
+    monkeypatch.setattr(adapters_mod, "build_adapter", lambda **kw: _FakeAdapter())
 
     engine = PlaybookEngine(verify=False)
     pb = Playbook(
@@ -93,12 +92,11 @@ def test_playbook_engine_dispatches_send(monkeypatch):
 
 def test_playbook_engine_step_failure_isolated(monkeypatch):
     """单步失败不阻断整条 playbook（优雅降级，status=error）。"""
-    from strike import playbook as pb_module
 
     def _boom(**kw):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(pb_module.adapters, "build_adapter", _boom)
+    monkeypatch.setattr(adapters_mod, "build_adapter", _boom)
     engine = PlaybookEngine(verify=False)
     pb = Playbook(
         name="t",
