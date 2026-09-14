@@ -13,14 +13,20 @@
 
 from __future__ import annotations
 
-from assess.impact.exfil import (
+from assess.impact.canary import (
     CANARY_PREFIX,
-    OOBReceipt,
-    OOBReceiptLog,
     build_callback_url,
     extract_canaries,
     generate_canary,
+)
+from assess.impact.exfil import (
+    OOBReceipt,
+    OOBReceiptLog,
     get_receipt_log,
+)
+from assess.impact.model import (
+    decide_model_verdict,
+    model_impact_signals,
 )
 from assess.impact.verdict import (
     CONTENT_ONLY,
@@ -33,12 +39,14 @@ from assess.impact.verdict import (
 
 __all__ = [
     "CANARY_PREFIX",
-    "OOBReceipt",
-    "OOBReceiptLog",
     "build_callback_url",
     "extract_canaries",
     "generate_canary",
+    "OOBReceipt",
+    "OOBReceiptLog",
     "get_receipt_log",
+    "decide_model_verdict",
+    "model_impact_signals",
     "CONTENT_ONLY",
     "EXFIL_CONFIRMED",
     "EXFIL_SUSPECTED",
