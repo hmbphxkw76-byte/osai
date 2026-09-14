@@ -20,6 +20,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from core.adapter_registry import register_adapter
+
 # Target construction was split out (R-DELIVERY-1) into `recon/_target_factory.py`
 # to keep this module focused on probe / adaptive-orchestration logic. Re-export the
 # builders so `recon.target_router` and callers of `_target_router_helpers` keep
@@ -52,6 +54,13 @@ _playwright_handles: dict[str, Any] = {}
 def get_playwright_handles() -> dict[str, Any]:
     """Get module-level Playwright handles for cleanup. Not part of ASR data flow."""
     return _playwright_handles
+
+
+# CP-012 S5: register into the core seam so `core` (cleanup.py) can resolve
+# get_playwright_handles without importing recon (matrix forbids core -> recon).
+# This module is imported by recon.target_router at recon-package import time,
+# so registration is live before core cleanup runs (recon -> core OK).
+register_adapter("get_playwright_handles", get_playwright_handles)
 
 
 #: Default max probe count (used when adaptive probe budget not configured)

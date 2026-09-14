@@ -81,9 +81,9 @@ async def cleanup_resources(
     # Data flow: target_router._create_playwright_target -> _playwright_handles (module-level)
     # -> cleanup_resources -> browser.close() + playwright.stop()
     # Note: Playwright state stored in recon._target_router_handles module, not ctx
-    from recon._target_router_helpers import get_playwright_handles
+    from core.adapter_registry import get_adapter
 
-    handles = get_playwright_handles()
+    handles = get_adapter("get_playwright_handles")()
     try:
         if handles.get("context") is not None:
             await handles["context"].close()
@@ -129,9 +129,9 @@ async def cleanup_resources(
 
 def has_residual_resources(ctx: "PipelineContext") -> bool:
     """Check if pipeline context has residual resources needing cleanup."""
-    from recon._target_router_helpers import get_playwright_handles
+    from core.adapter_registry import get_adapter
 
-    handles = get_playwright_handles()
+    handles = get_adapter("get_playwright_handles")()
     return (
         getattr(ctx, "objective_target", None) is not None
         or getattr(ctx, "adversarial_target", None) is not None
