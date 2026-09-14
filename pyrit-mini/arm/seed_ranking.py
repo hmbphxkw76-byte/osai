@@ -17,10 +17,8 @@ Responsibilities:
     - _apply_category_diversity(): OWASP category diversity guarantee
 """
 
-import hashlib
 import json
 import logging
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -28,10 +26,16 @@ from pyrit.models import AttackSeedGroup
 
 from arm.seed_auto_expander import _compute_adaptive_ucb_c
 
+# CP-009 S3: ASR history 符号下沉 core.asr_history，经此处 re-export 保兼容
+from core.asr_history import (  # noqa: F401
+    _ASR_HISTORY_PATH,
+    _make_seed_key,
+    update_asr_history,
+)
+
 logger = logging.getLogger(__name__)
 
 _SEEDS_DIR = Path(__file__).resolve().parent.parent / "data" / "seeds"
-_ASR_HISTORY_PATH = _SEEDS_DIR / "asr_history.json"
 _ASR_PRIORS_PATH = Path(__file__).resolve().parent.parent / "config" / "asr_priors.yaml"
 
 # L5 v41: ASR priors cache - avoids 42+ redundant YAML reads per pipeline run
@@ -102,21 +106,6 @@ def _get_model_family(model_name: str) -> str | None:
     return None
 
 
-def _make_seed_key(objective: str) -> str:
-    """Generate a collision-resistant seed ASR key using SHA256.
-
-    Problem: Using ''objective[:100]'' prefix as key causes collisions when
-    different seeds share the first 100 characters.
-
-    Fix: Use the first 16 hex characters of SHA256(objective) as key,
-    reducing collision probability from ~1/100 (prefix) to ~1/2^128.
-
-    Backward compatibility: Callers that fail to find the new key should
-    fall back to the legacy ''[:100]'' prefix key for historical data migration.
-    """
-    if not objective:
-        return ""
-    return hashlib.sha256(objective.encode("utf-8")).hexdigest()[:16]
 
 
 def _rank_by_asr(
@@ -259,115 +248,8 @@ def _apply_category_diversity(
     return selected[:max_seeds]
 
 
-def _get_asr_history_path() -> Path:
-    """Get ASR history path (reads from seed_ranker's re-exported constant).
-
-    Uses seed_ranker._ASR_HISTORY_PATH if available (monkey-patch safe),
-    otherwise falls back to local _ASR_HISTORY_PATH.
-    """
-    try:
-        from arm import seed_ranker
-
-        # seed_ranker._ASR_HISTORY_PATH ? yuEUR re-export ?
-        sr_path = getattr(seed_ranker, "_ASR_HISTORY_PATH", None)
-        if sr_path is not None:
-            return sr_path
-    except Exception:
-        pass
-    return _ASR_HISTORY_PATH
 
 
-def update_asr_history(
-    technique_asr: dict[str, float],
-    *,
-    seed_asr: dict[str, float] | None = None,
-    seed_attempts: dict[str, int] | None = None,
-) -> None:
-    """X?ASR ?
-
-    X?ASR  data/seeds/asr_history.json?
-    XuEUR?
-
-    L5 v9: X?ASR , X?(UCB)?
-    [: Auer et al. (arXiv:cs/0207052) ?UCB1 EUR?
-    ?ASR XEUR?
-
-    Args:
-        technique_asr: {technique_name: asr_percentage}
-        seed_asr: {seed_objective_prefix: asr_percentage} (XEUR?
-        seed_attempts: {seed_objective_prefix: attempt_count} (XEUR?
-    """
-    asr_history_path = _get_asr_history_path()
-    seeds_dir = asr_history_path.parent
-    seeds_dir.mkdir(parents=True, exist_ok=True)
-
-    # ( threshold_history ?
-    existing_history: dict[str, Any] = {}
-    if asr_history_path.exists():
-        try:
-            existing_history = json.loads(asr_history_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, KeyError):
-            pass
-
-    # L5 v9: ?ASR (, =0.3)
-    # [: UCB1 (arXiv:cs/0207052) ?
-    existing_seed_asr: dict[str, float] = existing_history.get("seed_asr", {})
-    existing_seed_attempts: dict[str, int] = existing_history.get("seed_attempts", {})
-
-    if seed_asr:
-        alpha = 0.3  # EMA
-        for seed_key, new_asr in seed_asr.items():
-            if seed_key in existing_seed_asr:
-                existing_seed_asr[seed_key] = round(alpha * new_asr + (1 - alpha) * existing_seed_asr[seed_key], 1)
-            else:
-                existing_seed_asr[seed_key] = new_asr
-
-    if seed_attempts:
-        for seed_key, count in seed_attempts.items():
-            existing_seed_attempts[seed_key] = existing_seed_attempts.get(seed_key, 0) + count
-
-    history = {
-        "last_run": datetime.now().isoformat(),
-        "asr": technique_asr,
-        "seed_asr": existing_seed_asr,
-        "seed_attempts": existing_seed_attempts,
-        "threshold_history": existing_history.get("threshold_history", []),
-    }
-
-    # L5 v30: X threshold_history XXEURX?
-    # [: Auer et al. (arXiv:cs/0207052) ?UCB1 EUR?ASR X
-    # adaptive_threshold ?AdaptiveDualJudgeScorer X?
-    # ?L5 v21 EUREUR?SelfAskTrueFalseScorer EEUR?
-    # XX: ?save_asr_history Xyuyu ASR EUR?
-    if technique_asr:
-        from datetime import datetime as _dt
-
-        avg_asr = sum(technique_asr.values()) / len(technique_asr)
-        # EUREUR: ASR > 70% ?0.75, < 40% ?0.80, ?0.85
-        # [: Zhang et al. (arXiv:2308.07920) ?XEUR
-        current_threshold = 0.75 if avg_asr > 70.0 else 0.80 if avg_asr < 40.0 else 0.85
-
-        threshold_history = history["threshold_history"]
-        threshold_history.append(
-            {
-                "asr": round(avg_asr, 1),
-                "threshold": current_threshold,
-                "timestamp": _dt.now().isoformat(),
-            }
-        )
-        # EUR?10 ?
-        history["threshold_history"] = threshold_history[-10:]
-
-    asr_history_path.write_text(
-        json.dumps(history, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    logger.info(
-        "ASR history saved to %s (techniques=%d, seeds=%d)",
-        asr_history_path,
-        len(technique_asr),
-        len(existing_seed_asr),
-    )
 
 
 def load_asr_priors(model_name: str = "") -> dict[str, Any]:

@@ -196,9 +196,9 @@ def collect_dual_judge_stats(ctx: Any) -> dict[str, Any]:
 
 def _get_asr_history_path():
     """ASR"""
-    from arm import seed_ranker
+    from core.asr_history import _ASR_HISTORY_PATH
 
-    return seed_ranker._ASR_HISTORY_PATH
+    return _ASR_HISTORY_PATH
 
 
 def save_asr_history(
@@ -211,7 +211,7 @@ def save_asr_history(
     Academic basis: Auer et al. (arXiv:cs/0207052) - UCB1
      ASR
     """
-    from arm.seed_ranker import update_asr_history
+    from core.asr_history import update_asr_history
 
     seed_asr: dict[str, float] = {}
     seed_attempts: dict[str, int] = {}
@@ -227,7 +227,7 @@ def save_asr_history(
                 objective = getattr(result, "objective", "") or ""
                 if not objective:
                     continue
-                from arm.seed_ranking import _make_seed_key
+                from core.asr_history import _make_seed_key
 
                 prefix = _make_seed_key(objective)
                 if prefix not in seed_stats:
