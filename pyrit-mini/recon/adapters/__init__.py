@@ -49,19 +49,13 @@ def _build_mcp_rag_a2a(kind: str, *, url: str, inner: BaseAdapter) -> BaseAdapte
 
     REQ-149 的 MCPTarget/RAGTarget/A2ATarget 是统一协议的 TargetAdapter 实现，
     `build_adapter` 在此成为编排层（REQ-151 PlaybookEngine）选择它们的唯一入口（IC-2）。
+    经 `core.target_factory` 接缝取用（CP-009 S4：recon 不再静态 import strike 域，
+    `recon→strike` 矩阵 ✗；构造器由 strike 侧导入期登记，recon→core ✓）。
     """
-    if kind == "mcp":
-        from strike.targets.mcp import MCPTarget
+    from core.target_factory import build_target
 
-        return MCPTarget(adapter=inner)
-    if kind == "rag":
-        from strike.targets.rag import RAGTarget
+    return build_target(kind, inner=inner)
 
-        # RAG 检索与目标复用同一 HTTP 入口（单靶标场景）；多检索源待 REQ-150 扩展
-        return RAGTarget(adapter=inner, retrieval_adapter=inner)
-    from strike.targets.a2a import A2ATarget
-
-    return A2ATarget(adapter=inner)
 
 # 协议判据（顺序即优先级）
 _JSONRPC_PATH_HINTS: tuple[str, ...] = ("/mcp", "/rpc", "/jsonrpc", "/a2a")
@@ -158,8 +152,10 @@ def build_adapter(
     """Build the adapter matching the entry point (auth state closed inside)."""
     if kind in ("mcp", "rag", "a2a"):
         # 这些 kind 必须显式指定；内部通道按入口特征选协议（mcp 走 JSON-RPC）。
-        inner_kind = "jsonrpc" if kind == "mcp" else choose_kind(
-            is_sse=is_sse, content_type=content_type, path=path or url, hint=""
+        inner_kind = (
+            "jsonrpc"
+            if kind == "mcp"
+            else choose_kind(is_sse=is_sse, content_type=content_type, path=path or url, hint="")
         )
         inner = build_adapter(
             url=url,

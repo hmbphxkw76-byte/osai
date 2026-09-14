@@ -15,9 +15,16 @@
 
 from __future__ import annotations
 
+from core.target_factory import register_target
 from strike.targets.a2a import AGENT_CARD_PATH, DEFAULT_TASK_PATH, A2ATarget
 from strike.targets.mcp import MCPTarget
 from strike.targets.rag import RAGTarget
+
+# 跨层接缝（CP-009 S4）：把本层 Target 构造器登记进 core.target_factory，
+# 使 recon 侧经工厂取用而不静态 import strike 域（strike→core ✓）。
+register_target("mcp", lambda *, inner, **_kw: MCPTarget(adapter=inner))
+register_target("rag", lambda *, inner, **_kw: RAGTarget(adapter=inner, retrieval_adapter=inner))
+register_target("a2a", lambda *, inner, **_kw: A2ATarget(adapter=inner))
 
 __all__ = [
     "MCPTarget",

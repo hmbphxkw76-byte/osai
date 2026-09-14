@@ -51,10 +51,10 @@ _PIPE5_FIELD_WHITELIST = {
     "synergy_config",  # adaptive_executor.py 读取
     "scenario_config",  # adaptive_executor.py 读取
     # --- BL-092(c)：v4.0 目标架构预留字段，当前未消费（已显式标注，非死字段）---
-    "surface_graph",    # [未消费·预留 REQ-150] recon 产出，报告消费待波次接线
-    "playbook_state",   # [未消费·预留 REQ-151] 待 PlaybookEngine 波次
-    "impact_chains",    # [未消费·预留 REQ-152] 待影响链报告波次
-    "score_manifest",   # [未消费·预留 REQ-152] assess 产出，报告消费待波次接线
+    "surface_graph",  # [未消费·预留 REQ-150] recon 产出，报告消费待波次接线
+    "playbook_state",  # [未消费·预留 REQ-151] 待 PlaybookEngine 波次
+    "impact_chains",  # [未消费·预留 REQ-152] 待影响链报告波次
+    "score_manifest",  # [未消费·预留 REQ-152] assess 产出，报告消费待波次接线
 }
 
 # R-PIPE: 流水线模块注册检查
@@ -1050,6 +1050,9 @@ def register_extended_checks(guard_cls) -> None:
     guard_cls.check_dependency_matrix = check_dependency_matrix
     # R-MOJIBAKE: 新增行乱码防复发（BL-081 / BL-087）
     guard_cls.check_mojibake_in_diff = check_mojibake_in_diff
+    # R-COMP-2 / R-COMP-3: 组件一致性护栏（W-P3 P3-6，REQ-177 / ADR-011 / I15）
+    guard_cls.check_component_dir_consistency = check_component_dir_consistency
+    guard_cls.check_recon_only_component = check_recon_only_component
 
 
 # ===============================================================================
@@ -1322,10 +1325,11 @@ def check_readme_version_synced(self) -> None:  # type: ignore[override]
 # R-DOC-5: Gate step count must match README §2 documentation
 # ===============================================================================
 
+
 def _count_gate_steps(step_var_name: str, gate_content: str) -> int | None:
     """从 gate.py 源码中解析 COMMIT_STEPS / PUSH_STEPS 元组的元素数量。"""
     # 匹配 `COMMIT_STEPS: tuple[str, ...] = ("step1", "step2", ...)`
-    pattern = rf'{step_var_name}\s*:\s*tuple\[str,\s*\.\.\.\]\s*=\s*\(([^)]*)\)'
+    pattern = rf"{step_var_name}\s*:\s*tuple\[str,\s*\.\.\.\]\s*=\s*\(([^)]*)\)"
     m = re.search(pattern, gate_content, re.DOTALL)
     if not m:
         return None
@@ -1337,7 +1341,7 @@ def _count_gate_steps(step_var_name: str, gate_content: str) -> int | None:
 def _count_documented_steps(readme_content: str, stage: str) -> int | None:
     """从 README §2 解析文档中声称的步数（如 'commit=6 步' / '10 步'）。"""
     # 匹配 `[commit]` 段落后紧跟的 `N 步` 或 `（N 步）`
-    pattern = rf'\[{stage}\].*?(\d+)\s*步'
+    pattern = rf"\[{stage}\].*?(\d+)\s*步"
     m = re.search(pattern, readme_content, re.DOTALL)
     if m:
         return int(m.group(1))
@@ -1392,9 +1396,7 @@ def _count_code_checkers_all(root: str, modules: tuple) -> int:
         content = _read_file_safely(root, mod)
         if content:
             # 排除 check_all 聚合入口（pass-through，非独立检查逻辑）
-            total += len(
-                re.findall(r'^\s*def check_(?!all\b)\w+\s*\(', content, re.MULTILINE)
-            )
+            total += len(re.findall(r"^\s*def check_(?!all\b)\w+\s*\(", content, re.MULTILINE))
     return total
 
 
@@ -1406,12 +1408,12 @@ def _count_registry_rows(gr_content: str) -> int:
     仅统计 1F 节（从 ``### 1F.`` 到下一个 ``###`` 节）内的行。
     """
     # 截取 1F 节范围
-    section_match = re.search(r'### 1F\..*?\n(.*?)(?=\n### |\Z)', gr_content, re.DOTALL)
+    section_match = re.search(r"### 1F\..*?\n(.*?)(?=\n### |\Z)", gr_content, re.DOTALL)
     if not section_match:
         return 0
     section_content = section_match.group(1)
     # 匹配完整表格行（首列含 check_ 前缀或 R-xxx 形式，排除表头分隔线）
-    rows = re.findall(r'^\|\s*(?:check_\w+|R-\w+)\s*\|', section_content, re.MULTILINE)
+    rows = re.findall(r"^\|\s*(?:check_\w+|R-\w+)\s*\|", section_content, re.MULTILINE)
     return len(rows)
 
 
@@ -2653,9 +2655,7 @@ def check_delivery_module_docstring(self) -> None:
 
 _IMPORT_MATRIX_DOC = "docs/specs/10-ARCHITECTURE.md"
 _IMPORT_MATRIX_HEADER = "| 依赖方 ↓ 被依赖方 →"
-_IMPORT_FIRST_PARTY_TOPS = frozenset(
-    {"core", "recon", "arm", "strike", "assess", "report", "utils", "tools", "main"}
-)
+_IMPORT_FIRST_PARTY_TOPS = frozenset({"core", "recon", "arm", "strike", "assess", "report", "utils", "tools", "main"})
 
 # 矩阵脚注声明的合法例外（例外只减不增）
 _IMPORT_FOOTNOTE_EXCEPTIONS: dict[tuple[str, str], frozenset[str]] = {
@@ -2666,13 +2666,13 @@ _IMPORT_FOOTNOTE_EXCEPTIONS: dict[tuple[str, str], frozenset[str]] = {
 # 存量违例豁免（随对应收口切片删除；只减不增）。
 # 已闭环（CP-009 S2/S3/S7）：strike→assess / assess→arm / report→utils 三条条目已删除。
 # 待 REQ-151 分层重构一并消除（均为非叶节点 / 子系统，搬运会反转依赖层，故不在此 CP 强求）：
-#   - ("recon","strike")  : S4 recon→strike 靶标解析（BL-082 ②）
+#   - ("recon","strike")  : S4 recon→strike（BL-082 ②）：MCPTarget/RAGTarget/A2ATarget 已改经 core.target_factory 接缝（recon→core ✓），剩 get_shared_bridge/SessionConfig/SessionStateManager 3 符号待 REQ-151
 #   - ("core","recon")    : S5 parse_burp_request 牵引 recon 指纹子系统（非叶）
 #   - ("strike","recon")  : S6 适配器子系统（AdapterResponse/BaseAdapter/...，非叶）
 _IMPORT_DEBT_EXCEPTIONS: dict[tuple[str, str], frozenset[str]] = {
     ("recon", "strike"): frozenset(
-        {"get_shared_bridge", "SessionConfig", "SessionStateManager", "MCPTarget", "RAGTarget", "A2ATarget"}
-    ),  # S4 → REQ-151
+        {"get_shared_bridge", "SessionConfig", "SessionStateManager"}
+    ),  # S4 余 3 符号 → REQ-151
     ("core", "recon"): frozenset({"ParsedBurpRequest", "parse_burp_request", "get_playwright_handles"}),  # S5 → REQ-151
     ("strike", "recon"): frozenset(
         {
@@ -2705,9 +2705,7 @@ def _col_to_module(col: str) -> str:
 def _parse_dependency_matrix(text: str) -> dict[tuple[str, str], bool]:
     """解析 2.2 矩阵表 → `{(行前缀, 列模块): 是否允许}`；不可解析抛 ValueError。"""
     lines = text.splitlines()
-    header_idx = next(
-        (i for i, line in enumerate(lines) if line.startswith(_IMPORT_MATRIX_HEADER)), None
-    )
+    header_idx = next((i for i, line in enumerate(lines) if line.startswith(_IMPORT_MATRIX_HEADER)), None)
     if header_idx is None:
         raise ValueError("未找到矩阵表头")
     cols = [_col_to_module(c) for c in lines[header_idx].split("|")[2:-1]]
@@ -2726,9 +2724,7 @@ def _parse_dependency_matrix(text: str) -> dict[tuple[str, str], bool]:
             # 只有 `✗` 是禁止；`—` 表示不适用（不判定）；其余视为允许。
             # `—` 记为 None（不适用）：命中即不判定，且**不回退**到更一般的行
             # —— 否则具体行的"不适用"会被一般行的 `✗` 覆盖，制造误报。
-            matrix[(row_prefix, cols[idx])] = (
-                None if cell.startswith("—") else not cell.startswith("✗")
-            )
+            matrix[(row_prefix, cols[idx])] = None if cell.startswith("—") else not cell.startswith("✗")
     return matrix
 
 
@@ -2817,9 +2813,7 @@ def check_dependency_matrix(self) -> None:
                         severity=Severity.BLOCKING,
                         file=rel,
                         line=getattr(node, "lineno", 0),
-                        description=(
-                            f"跨层依赖违例：{matched_row} → {top}（`{symbol}`）不在依赖矩阵允许格内"
-                        ),
+                        description=(f"跨层依赖违例：{matched_row} → {top}（`{symbol}`）不在依赖矩阵允许格内"),
                         fix_hint=(
                             "共享件下沉 core/ 后双向引用；确属例外须登记进 "
                             "guard_extended 白名单并注明债务 ID（只减不增）"
@@ -2912,3 +2906,216 @@ def check_mojibake_in_diff(self) -> None:
                     )
                 )
                 break
+
+
+# ===============================================================================
+# R-COMP-2 / R-COMP-3: 组件一致性护栏（W-P3 P3-6，REQ-177 / ADR-011 / I15）
+# ===============================================================================
+
+
+def _component_yaml_fields(text: str) -> dict[str, str]:
+    """从组件 YAML 原始文本提取少量标量字段（id / component_key / recon_dir /
+    strike_dir / recon_only / attack_execution），避免依赖 yaml 解析。
+
+    `recon_only` 等扩展字段被 ComponentSpec 忽略（未知字段丢弃），故此处直接读
+    原文以判定侦察级标记（I15 用 `recon_only: true`，REQ-177/D-4 用
+    `attack_execution: recon_only`）。
+    """
+    fields: dict[str, str] = {}
+    pat = re.compile(r"^(recon_only|attack_execution|id|component_key|recon_dir|strike_dir)\s*:\s*(.*)$")
+    for line in text.splitlines():
+        m = pat.match(line.strip())
+        if m:
+            fields[m.group(1)] = m.group(2).strip().strip('"').strip("'")
+    return fields
+
+
+def _is_recon_only(fields: dict[str, str]) -> bool:
+    """侦察级判定：兼容 I15 的 `recon_only: true` 与 REQ-177/D-4 的
+    `attack_execution: recon_only` 两种写法。"""
+    return fields.get("recon_only") == "true" or fields.get("attack_execution") == "recon_only"
+
+
+def check_component_dir_consistency(self) -> None:  # type: ignore[override]
+    """R-COMP-2: 组件–目录一致（I15）。
+
+    每个组件 `id` 必须存在 `recon/<dir>/` 或 `strike/<dir>/` 目录；侦察级组件
+    （`recon_only: true` / `attack_execution: recon_only`）豁免该要求。
+    """
+    Severity, Violation = _get_violation_classes()
+    components_dir = self.root / "config" / "components"
+    if not components_dir.is_dir():
+        return
+    for yaml_file in sorted(components_dir.glob("*.yaml")):
+        try:
+            text = yaml_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        fields = _component_yaml_fields(text)
+        if not fields:
+            continue
+        cid = fields.get("id") or fields.get("component_key") or yaml_file.stem
+        if _is_recon_only(fields):
+            continue
+        recon_dir = fields.get("recon_dir") or cid
+        strike_dir = fields.get("strike_dir") or cid
+        has_recon = bool(recon_dir) and (self.root / "recon" / recon_dir).is_dir()
+        has_strike = bool(strike_dir) and (self.root / "strike" / strike_dir).is_dir()
+        if not has_recon and not has_strike:
+            self.violations.append(
+                Violation(
+                    rule="R-COMP-2",
+                    severity=Severity.WARNING,
+                    file=f"config/components/{yaml_file.name}",
+                    line=0,
+                    description=(
+                        f"组件 '{cid}' 既无 recon/{recon_dir}/ 也无 strike/{strike_dir}/ 目录"
+                        "（非 recon_only，违反 I15）"
+                    ),
+                    fix_hint=("为攻击级组件补充 strike/<id>/ 或 recon/<id>/ 目录，或显式声明 recon_only: true"),
+                )
+            )
+
+
+def check_recon_only_component(self) -> None:  # type: ignore[override]
+    """R-COMP-3: recon_only 组件被写入执行分支（ADR-011 / REQ-177）。
+
+    判定粒度（§8.6 D-5 三条件 AND 才 BLOCKING）：
+      1. 目标 YAML 带 recon_only 标记；
+      2. 且 diff 触及 strike/<id>/（新增/修改），或给该 YAML 增加非空的
+         strike_modules / playbooks / attack_paths；
+      3. 且变更非纯 __init__.py 导出 / 类型标注 / docstring。
+    → 明确放行：recon/<id>/ 侦察增强、labels 调整、report 章节、detect 扩充。
+    """
+    Severity, Violation = _get_violation_classes()
+
+    # 收集磁盘上 recon_only 组件 id（读当前 YAML 原文）
+    components_dir = self.root / "config" / "components"
+    recon_only_ids: set[str] = set()
+    if components_dir.is_dir():
+        for yaml_file in components_dir.glob("*.yaml"):
+            try:
+                text = yaml_file.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            fields = _component_yaml_fields(text)
+            if _is_recon_only(fields):
+                recon_only_ids.add(fields.get("id") or fields.get("component_key") or yaml_file.stem)
+    if not recon_only_ids:
+        return
+
+    try:
+        proc = subprocess.run(
+            ["git", "diff", "--cached", "--unified=0"],
+            cwd=str(self.root),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except OSError as e:
+        self.violations.append(
+            Violation(
+                rule="R-COMP-3",
+                severity=Severity.WARNING,
+                file="git",
+                line=0,
+                description=f"无法读取 staged diff（{e}）——recon_only 护栏未执行",
+                fix_hint="确认 git 可用；本检查依赖 `git diff --cached`",
+            )
+        )
+        return
+
+    if not proc.stdout:
+        return
+
+    # 按文件分段收集 added 行
+    diff_files: dict[str, list[str]] = {}
+    current: str | None = None
+    for line in proc.stdout.splitlines():
+        if line.startswith("+++ b/"):
+            current = line[6:].strip()
+            diff_files.setdefault(current, [])
+            continue
+        if current and line.startswith("+") and not line.startswith("+++"):
+            diff_files[current].append(line[1:])
+
+    # 条件 2a：diff 触及 strike/<id>/
+    for rid in sorted(recon_only_ids):
+        strike_prefix = f"strike/{rid}/"
+        struck = [f for f in diff_files if f.startswith(strike_prefix)]
+        if not struck:
+            continue
+        # 条件 3：仅新增纯 __init__.py（仅 import/导出/docstring）则放行
+        blocked = False
+        for f in struck:
+            if f.endswith("__init__.py"):
+                added = "\n".join(diff_files[f])
+                if re.search(r"^\s*(import|from)\s+\w", added, re.MULTILINE) and not re.search(
+                    r"^\s*(def|class)\s+\w", added, re.MULTILINE
+                ):
+                    continue
+            blocked = True
+            break
+        if blocked:
+            self.violations.append(
+                Violation(
+                    rule="R-COMP-3",
+                    severity=Severity.BLOCKING,
+                    file=struck[0],
+                    line=0,
+                    description=(
+                        f"向 recon_only 组件 '{rid}' 写入执行分支（strike/{rid}/），"
+                        "违反 Q4 裁决机器化（ADR-011 / REQ-177）"
+                    ),
+                    fix_hint=(f"embedding 类黑盒不可测组件不得实装 strike/{rid}/；经 rag/session 间接覆盖（REQ-177③）"),
+                )
+            )
+
+    # 条件 2b：给 recon_only 组件的 YAML 增加非空的 strike_modules/playbooks/attack_paths
+    _EXEC_FIELDS = ("strike_modules", "playbooks", "attack_paths")
+    for rid in sorted(recon_only_ids):
+        yaml_path = f"config/components/{rid}.yaml"
+        added = diff_files.get(yaml_path, [])
+        if not added:
+            continue
+        blob = "\n".join(added)
+        for field in _EXEC_FIELDS:
+            if _field_adds_nonempty_list(blob, field):
+                self.violations.append(
+                    Violation(
+                        rule="R-COMP-3",
+                        severity=Severity.BLOCKING,
+                        file=yaml_path,
+                        line=0,
+                        description=(
+                            f"向 recon_only 组件 '{rid}' 的 YAML 增加非空 {field}（执行分支），"
+                            "违反 Q4 裁决机器化（ADR-011 / REQ-177）"
+                        ),
+                        fix_hint=(f"embedding 类组件不得声明执行分支；移除 {field}，或改经 rag/session 间接覆盖"),
+                    )
+                )
+                break
+
+
+def _field_adds_nonempty_list(block: str, field: str) -> bool:
+    """判断 diff added 内容是否给 `field` 增加了非空列表项。
+
+    命中两种写法：内联 `[a, b]`（非空）或 YAML 块式下一行 `- item`。
+    """
+    lines = block.splitlines()
+    for i, ln in enumerate(lines):
+        m = re.match(rf"^\s*{field}\s*:\s*(.*)$", ln)
+        if not m:
+            continue
+        val = m.group(1).strip()
+        if val.startswith("["):
+            # 内联列表：长度 > 2 即非空（排除 "[]"）
+            return len(val) > 2
+        # 值跨行：向下找第一项 `- `（遇同名字段则停）
+        for nxt in lines[i + 1 :]:
+            if re.match(rf"^\s*{field}\s*:", nxt):
+                break
+            if re.match(r"^\s*[-\*]\s+\S", nxt):
+                return True
+    return False
