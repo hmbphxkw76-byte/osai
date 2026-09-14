@@ -53,7 +53,7 @@ class _MultiKeywordRefusalScorer(SubStringScorer):
 
     async def score_async(self, *args, **kwargs):
         """Score: refusal + short response + non-substantive detection."""
-        from assess.judge_manager import _t0_non_substantive_check_text, _t0_refusal_check_text
+        from core.t0_text_checks import _t0_non_substantive_check_text, _t0_refusal_check_text
 
         response_text = ""
         message_piece_id = None

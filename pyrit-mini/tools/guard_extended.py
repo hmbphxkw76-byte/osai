@@ -2663,15 +2663,17 @@ _IMPORT_FOOTNOTE_EXCEPTIONS: dict[tuple[str, str], frozenset[str]] = {
     ("recon", "assess"): frozenset({"validate_scoring_target_capabilities"}),  # 债务 D-04
 }
 
-# 存量违例豁免（BL-082 ①②③，由 CP-009 S2/S3/S4 收口；收口后必须删除对应条目）
+# 存量违例豁免（随对应收口切片删除；只减不增）。
+# 已闭环（CP-009 S2/S3/S7）：strike→assess / assess→arm / report→utils 三条条目已删除。
+# 待 REQ-151 分层重构一并消除（均为非叶节点 / 子系统，搬运会反转依赖层，故不在此 CP 强求）：
+#   - ("recon","strike")  : S4 recon→strike 靶标解析（BL-082 ②）
+#   - ("core","recon")    : S5 parse_burp_request 牵引 recon 指纹子系统（非叶）
+#   - ("strike","recon")  : S6 适配器子系统（AdapterResponse/BaseAdapter/...，非叶）
 _IMPORT_DEBT_EXCEPTIONS: dict[tuple[str, str], frozenset[str]] = {
-    ("strike", "assess"): frozenset({"_t0_refusal_check_text", "_t0_non_substantive_check_text"}),
     ("recon", "strike"): frozenset(
         {"get_shared_bridge", "SessionConfig", "SessionStateManager", "MCPTarget", "RAGTarget", "A2ATarget"}
-    ),
-    ("assess", "arm"): frozenset({"seed_ranker", "update_asr_history", "_make_seed_key"}),
-    # BL-090：R-IMPORT 上线首扫暴露（此前无任何检查器覆盖）
-    ("core", "recon"): frozenset({"ParsedBurpRequest", "parse_burp_request", "get_playwright_handles"}),
+    ),  # S4 → REQ-151
+    ("core", "recon"): frozenset({"ParsedBurpRequest", "parse_burp_request", "get_playwright_handles"}),  # S5 → REQ-151
     ("strike", "recon"): frozenset(
         {
             "AdapterResponse",
@@ -2683,8 +2685,7 @@ _IMPORT_DEBT_EXCEPTIONS: dict[tuple[str, str], frozenset[str]] = {
             "get_stealth_manager",
             "get_tls_verify",
         }
-    ),
-    ("report", "utils"): frozenset({"_is_success"}),
+    ),  # S6 → REQ-151
 }
 
 
