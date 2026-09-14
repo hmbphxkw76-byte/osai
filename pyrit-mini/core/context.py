@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
     from pyrit.models import AttackSeedGroup, ScenarioResult
 
-    from recon.burp_parser import ParsedBurpRequest
+    from core._burp_models import ParsedBurpRequest
 
 
 @dataclass
