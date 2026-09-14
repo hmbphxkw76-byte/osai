@@ -475,7 +475,9 @@ def build_http_target(
     # === Session-Aware Attack Framework Integration ===
     # Create SessionStateManager and wrap callback for session state tracking
     try:
-        from strike.session import SessionConfig, SessionStateManager
+        from core.adapter_registry import get_adapter
+
+        SessionConfig, SessionStateManager = get_adapter("SessionConfig"), get_adapter("SessionStateManager")
 
         session_config = SessionConfig.default_config()
         session_manager = SessionStateManager(session_config)
@@ -487,7 +489,7 @@ def build_http_target(
         # Attach session_manager to target for external access
         target._session_state_manager = session_manager  # type: ignore[attr-defined]
         logger.debug("SessionStateManager integrated into HTTPTarget callback chain")
-    except ImportError:
+    except (ImportError, KeyError):
         logger.debug("strike.session module not available, skipping session integration")
 
     logger.debug(

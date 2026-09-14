@@ -43,6 +43,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from core.adapter_registry import register_adapter
+
 logger = logging.getLogger(__name__)
 
 
@@ -148,6 +150,10 @@ def get_shared_bridge() -> Any:
     if _SHARED_BRIDGE is None:
         _SHARED_BRIDGE = create_mcpsec_bridge()
     return _SHARED_BRIDGE
+
+
+# S4 收口（CP-012）：把 strike 侧符号登记进注册表，使 recon 侧经 get_adapter 取用（recon→strike ✗ → recon→core ✓）。
+register_adapter("get_shared_bridge", get_shared_bridge)
 
 
 class MCPOrchestrator:

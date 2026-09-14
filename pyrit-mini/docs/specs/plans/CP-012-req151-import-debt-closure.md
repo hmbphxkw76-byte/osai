@@ -3,7 +3,7 @@
 > **类型**：债务登记（收口现存 DEBT：BL-082 ② / BL-090 三组 `_IMPORT_DEBT_EXCEPTIONS` 豁免）
 > **提案人 / 日期**：AI (CodeBuddy) / 2026-09-14
 > **状态**：draft → 评审中 → **approved**（2026-09-14 自动批准：用户授权"全程自动批准符合最佳实践的方案"；符合 NEG-4 / C3 / IC-2 / [sid:30-ch3] / ASR 中性）
-> 关联：BL-082 ②（recon→strike）、BL-090（core→recon / strike→recon）；前置 CP-009（S2/S3/S7 已闭环，S4/S5/S6 并入本 CP）；REQ-151（PlaybookEngine DAG —— 本 CP **仅做其前置依赖解耦**，不实现 PlaybookEngine 特性本体）
+  - ① CP-009 §5 状态 `S6` 由 `⏸→REQ-151` 改为 `✅ DONE`（CP-012 已收口）；`S4/S5` 仍 `⏸→REQ-151`；
 > 跨模型审查：按 R-CROSS-1 降级为人工审查（needs-cross-model-pending = true，单模型环境）
 
 ## 1. 动机
@@ -57,10 +57,10 @@ CP-009 已闭环 S2/S3/S7（删除 `strike→assess` / `assess→arm` / `report�
 
 | 片 | 状态 | 动作 | 涉及文件 | 前置 |
 |----|------|------|---------|------|
-| **S4** | 🟡 部分（targets 经 factory 已闭环） | `recon/adapters:54/58/62` 已改经 `core.target_factory`（commit 87780f4）；余 `_target_router_helpers:567`（`get_shared_bridge`）/ `target_builder:478`（`SessionConfig`/`SessionStateManager`）待 core 接缝；**`("recon","strike")` 由 6→3** | `recon/*` + `core/target_factory.py` | S1 接缝已建 |
+| **S4** | ✅ DONE（recon 三处经 core.adapter_registry 取用；R-IMPORT 0 违例；tests/test_target_factory.py） | `_target_router_helpers:567`（`get_shared_bridge`）/ `target_builder:478`（`SessionConfig`/`SessionStateManager`）改经 `core.adapter_registry`（recon→core ✓），strike 侧（`strike/session/__init__.py`、`strike/mcp/orchestrator.py`）导入期登记；删 `("recon","strike")` 豁免 | `recon/_target_router_helpers.py` + `recon/target_builder.py` + `strike/session/__init__.py` + `strike/mcp/orchestrator.py` | S1 接缝已建 |
 | **S5** | ⏸ mini 调查 | 定位 `ParsedBurpRequest` / `parse_burp_request` / `get_playwright_handles` 定义点，迁 `core`（或 `utils` 经 core），`recon` 侧改经 core 引用；**删 `("core","recon")` 豁免** | `core/*` + `recon/*` | 调查定义点 |
 | **S6** | ✅ DONE（adapter registry 已闭环） | `recon/adapters` 注册补全（E402 已消）+ `strike/targets/*` 模块级经 `core.adapter_registry.get_adapter` 解析注解别名（F821 已消，`strike→core ✓`，未引入 `strike→recon`）+ `AgentCard` / `get_stealth_manager` / `get_tls_verify` 经 `register_adapter` 接线（`recon/adapters/__init__.py:242-244`）；**`("strike","recon")` 豁免已删，strike→recon 0 违例** | `core/adapter_registry.py` + `recon/adapters/__init__.py` + `strike/targets/{a2a,mcp,rag}.py` + `strike/{a2a,common}/*` | S1 接缝已建 |
-| **闭环判据** | — | S6 豁免已删（剩 S4/S5 两对豁免待 REQ-151）；`tools.gate` R-IMPORT 0 违规（strike→recon 已清零）、WIP 现存 F821/E402 已消、各切片既有测试全绿 | — | — |
+| **闭环判据** | — | S6/S4 豁免已删（剩 S5 一对豁免待 REQ-151）；`tools.gate` R-IMPORT 0 违规（strike→recon / recon→strike 已清零）、WIP 现存 F821/E402 已消、各切片既有测试全绿 | — | — |
 
 ## 6. 风险与回滚
 

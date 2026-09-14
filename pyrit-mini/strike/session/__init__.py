@@ -33,6 +33,7 @@ Constitution compliance:
 """
 
 # 会话枚举攻击引擎 (ASI09)
+from core.adapter_registry import register_adapter
 from strike.session.enumerator import (
     EnumerationFinding,
     EnumerationRequestBuilder,
@@ -84,6 +85,10 @@ from strike.session.session_id_analyzer import (
     analyze_session_ids,
 )
 from strike.session.session_manager import SessionStateManager
+
+# S4 收口（CP-012）：把 strike 侧符号登记进注册表，使 recon 侧经 get_adapter 取用（recon→strike ✗ → recon→core ✓）。
+register_adapter("SessionConfig", SessionConfig)
+register_adapter("SessionStateManager", SessionStateManager)
 
 __all__ = [
     "SessionConfig",

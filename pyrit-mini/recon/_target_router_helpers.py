@@ -564,7 +564,9 @@ async def _run_background_probes(
             # Use MCPSec bridge for dynamic MCP reconnaissance
             target_url = getattr(ctx.args, "target_url", None) if hasattr(ctx, "args") else None
             if target_url:
-                from strike.mcp.orchestrator import get_shared_bridge
+                from core.adapter_registry import get_adapter
+
+                get_shared_bridge = get_adapter("get_shared_bridge")
 
                 bridge = get_shared_bridge()
                 if bridge.is_available:

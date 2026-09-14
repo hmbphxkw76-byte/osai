@@ -2666,13 +2666,10 @@ _IMPORT_FOOTNOTE_EXCEPTIONS: dict[tuple[str, str], frozenset[str]] = {
 # 存量违例豁免（随对应收口切片删除；只减不增）。
 # 已闭环（CP-009 S2/S3/S7）：strike→assess / assess→arm / report→utils 三条条目已删除。
 # 待 REQ-151 分层重构一并消除（均为非叶节点 / 子系统，搬运会反转依赖层，故不在此 CP 强求）：
-#   - ("recon","strike")  : S4 recon→strike（BL-082 ②）：MCPTarget/RAGTarget/A2ATarget 已改经 core.target_factory 接缝（recon→core ✓），剩 get_shared_bridge/SessionConfig/SessionStateManager 3 符号待 REQ-151
+#   - ("recon","strike")  : S4 ✅ 已收口（CP-012）：get_shared_bridge/SessionConfig/SessionStateManager 经 core.adapter_registry 接缝（recon→core ✓），豁免已删
 #   - ("core","recon")    : S5 parse_burp_request 牵引 recon 指纹子系统（非叶）
 #   - ("strike","recon")  : S6 ✅ 已收口（CP-012）：AgentCard/get_stealth_manager/get_tls_verify 经 core.adapter_registry 接缝（strike→core ✓），豁免已删
 _IMPORT_DEBT_EXCEPTIONS: dict[tuple[str, str], frozenset[str]] = {
-    ("recon", "strike"): frozenset(
-        {"get_shared_bridge", "SessionConfig", "SessionStateManager"}
-    ),  # S4 余 3 符号 → REQ-151
     ("core", "recon"): frozenset({"ParsedBurpRequest", "parse_burp_request", "get_playwright_handles"}),  # S5 → REQ-151
 }
 
