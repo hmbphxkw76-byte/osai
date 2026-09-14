@@ -10,7 +10,7 @@
 |----|--------|------|----------|------|
 | **S6** | strike→recon | `AgentCard` / `get_stealth_manager` / `get_tls_verify` | 经 core.adapter_registry 注册表取用（recon 登记 3 符号 / strike 9 站点改经 get_adapter） | 零裸 import + 删 `("strike","recon")` 豁免 + gate 绿 |
 | **S4** | recon→strike | `get_shared_bridge` / `SessionConfig` / `SessionStateManager` | 经 core.adapter_registry 注册表取用（strike 登记 3 符号 / recon 改经 get_adapter） | 零裸 import + 删 `("recon","strike")` 豁免 + gate 绿 |
-| **S5** | core→recon | `ParsedBurpRequest` / `parse_burp_request` / `get_playwright_handles` | 下沉 `core`（定义迁 core，recon 侧改经 core 引用 + re-export） | 零裸 import + 删 `("core","recon")` 豁免 + gate 绿 |
+| **S5** | core→recon | `ParsedBurpRequest` / `TargetFingerprint` / `parse_burp_request` / `get_playwright_handles` | 下沉 `core`（dataclass 迁 `core._burp_models` + recon re-export）；`parse_burp_request`/`get_playwright_handles` 经 `core.adapter_registry` 接缝（recon 登记 / core 取用；main 启动期引导） | ✅ 零裸 import + 删 `("core","recon")` 豁免 + gate 绿 |
 
 ## 每片验收（勾选）
 

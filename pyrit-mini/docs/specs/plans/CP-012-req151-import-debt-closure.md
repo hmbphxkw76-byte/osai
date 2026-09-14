@@ -3,7 +3,7 @@
 > **类型**：债务登记（收口现存 DEBT：BL-082 ② / BL-090 三组 `_IMPORT_DEBT_EXCEPTIONS` 豁免）
 > **提案人 / 日期**：AI (CodeBuddy) / 2026-09-14
 > **状态**：draft → 评审中 → **approved**（2026-09-14 自动批准：用户授权"全程自动批准符合最佳实践的方案"；符合 NEG-4 / C3 / IC-2 / [sid:30-ch3] / ASR 中性）
-  - ① CP-009 §5 状态 `S6` 由 `⏸→REQ-151` 改为 `✅ DONE`（CP-012 已收口）；`S4/S5` 仍 `⏸→REQ-151`；
+  - ① CP-009 §5 状态 `S6`/`S4`/`S5` 均由 `⏸→REQ-151` 改为 `✅ DONE`（CP-012 已收口：三对跨层违例全经 `core.adapter_registry` / `core._burp_models` 收口，`_IMPORT_DEBT_EXCEPTIONS` 为空）；
 > 跨模型审查：按 R-CROSS-1 降级为人工审查（needs-cross-model-pending = true，单模型环境）
 
 ## 1. 动机
@@ -44,7 +44,7 @@ CP-009 已闭环 S2/S3/S7（删除 `strike→assess` / `assess→arm` / `report�
   - R-IMPORT 已由 `check_dependency_matrix()` 覆盖，**本 CP 不新增检查器**；仅删除豁免使三对回归 BLOCKING。
   - 删前须确认三对零违例（即 WIP 接缝已接线且无裸跨层 import）——否则删豁免会立刻触发 R-IMPORT BLOCKING。
 - **同批义务**：
-  - ① CP-009 §5 状态 `S6` 由 `⏸→REQ-151` 改为 `✅ DONE`（CP-012 已收口）；`S4/S5` 仍 `⏸→REQ-151`；
+  - ① CP-009 §5 状态 `S6`/`S4`/`S5` 均由 `⏸→REQ-151` 改为 `✅ DONE`（CP-012 已收口：三对跨层违例全经 `core.adapter_registry` / `core._burp_models` 收口，`_IMPORT_DEBT_EXCEPTIONS` 为空）；
   - ② 40-GUARDRAILS 1F 登记簿若列了这 3 豁免则同步清掉；
   - ③ 新增 core 接缝文件头版本号 + `specs/README.md` 索引（D3 禁止文末版本表，版本史交 git log）。
 - **迁移 / 兼容义务**：沿用 S2/S3/S7 的 re-export 模式保 intra-module 调用兼容；`strike.targets.__init__` / `recon.adapters.__init__` 导入期注册须**幂等**且**不引入启动期循环 import**（注册置于域包导入末尾，接缝模块绝不反向 import 域）。
@@ -58,9 +58,9 @@ CP-009 已闭环 S2/S3/S7（删除 `strike→assess` / `assess→arm` / `report�
 | 片 | 状态 | 动作 | 涉及文件 | 前置 |
 |----|------|------|---------|------|
 | **S4** | ✅ DONE（recon 三处经 core.adapter_registry 取用；R-IMPORT 0 违例；tests/test_target_factory.py） | `_target_router_helpers:567`（`get_shared_bridge`）/ `target_builder:478`（`SessionConfig`/`SessionStateManager`）改经 `core.adapter_registry`（recon→core ✓），strike 侧（`strike/session/__init__.py`、`strike/mcp/orchestrator.py`）导入期登记；删 `("recon","strike")` 豁免 | `recon/_target_router_helpers.py` + `recon/target_builder.py` + `strike/session/__init__.py` + `strike/mcp/orchestrator.py` | S1 接缝已建 |
-| **S5** | ⏸ mini 调查 | 定位 `ParsedBurpRequest` / `parse_burp_request` / `get_playwright_handles` 定义点，迁 `core`（或 `utils` 经 core），`recon` 侧改经 core 引用；**删 `("core","recon")` 豁免** | `core/*` + `recon/*` | 调查定义点 |
+| **S5** | ✅ DONE（`ParsedBurpRequest`/`TargetFingerprint` 下沉 `core._burp_models`；`parse_burp_request`/`get_playwright_handles` 经 `core.adapter_registry` 接缝取用，recon→core ✓；main 启动期引导注册） | `ParsedBurpRequest`/`TargetFingerprint` 定义迁 `core._burp_models`（recon re-export 保兼容）；`parse_burp_request`/`get_playwright_handles` 由 recon 导入期登记、`core`（context/cleanup）经 `get_adapter` 取用；**删 `("core","recon")` 豁免**，`core→recon` 零裸 import | `core/_burp_models.py`(新)+`recon/_burp_models.py`+`recon/_burp_request_parsers.py`+`recon/_target_router_helpers.py`+`core/context.py`+`core/cleanup.py`+`main.py`+`tests/test_s5_burp_core.py` | S5a/b/c/d 已落地 |
 | **S6** | ✅ DONE（adapter registry 已闭环） | `recon/adapters` 注册补全（E402 已消）+ `strike/targets/*` 模块级经 `core.adapter_registry.get_adapter` 解析注解别名（F821 已消，`strike→core ✓`，未引入 `strike→recon`）+ `AgentCard` / `get_stealth_manager` / `get_tls_verify` 经 `register_adapter` 接线（`recon/adapters/__init__.py:242-244`）；**`("strike","recon")` 豁免已删，strike→recon 0 违例** | `core/adapter_registry.py` + `recon/adapters/__init__.py` + `strike/targets/{a2a,mcp,rag}.py` + `strike/{a2a,common}/*` | S1 接缝已建 |
-| **闭环判据** | — | S6/S4 豁免已删（剩 S5 一对豁免待 REQ-151）；`tools.gate` R-IMPORT 0 违规（strike→recon / recon→strike 已清零）、WIP 现存 F821/E402 已消、各切片既有测试全绿 | — | — |
+| **闭环判据** | — | S4/S5/S6 三对豁免全删（`_IMPORT_DEBT_EXCEPTIONS` 为空）；`tools.gate` R-IMPORT 0 违规（strike→recon / recon→strike / core→recon 全部清零）、全树 ruff 0 违例、各切片测试全绿（adapter_registry / target_factory / burp_core 三套） | — | — |
 
 ## 6. 风险与回滚
 
