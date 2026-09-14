@@ -1,0 +1,39 @@
+{
+  "model": "manual-mode (AI 代录，人工编排模式 / R-CROSS-1 降级条款)",
+  "reviewed_change_id": "2026-09-14-cp004-ratification",
+  "reviewed_scope": [
+    "CP-004 §9 评审结论补登（approve）— 解除 REQ-172~176 / NFR-20~24 / R-GATE-* 编码封锁",
+    "5 个存量 guard WARNING 债清理：progressive_strike.py 行数瘦身（R-SIZE/R-DELIVERY-1）、component_techniques / side_effect_cleanup 补测试（R-DELIVERY-2）、本批次规约变更过跨模型审查（R-CROSS-1）"
+  ],
+  "findings": [
+    {
+      "id": "XM-1",
+      "area": "progressive_strike.py 拆分",
+      "assessment": "将 YAML 配置加载器（_load/_parse_*）、策略映射常量、结果 dataclass 原样迁移至 strike/common/_progressive_config.py，主执行器改为导入；除导入路径外零行为差异。行数 896→约 639，低于 R-TOOLS-2 上限 850。",
+      "verdict": "accept",
+      "risk": "low"
+    },
+    {
+      "id": "XM-2",
+      "area": "新增配套测试",
+      "assessment": "tests/test_component_techniques.py 与 tests/test_side_effect_cleanup.py 以 monkeypatch 注入确定性数据，覆盖 technique↔component 索引与 I13 清理三态；不依赖全局注册表状态，可重复。",
+      "verdict": "accept",
+      "risk": "low"
+    },
+    {
+      "id": "XM-3",
+      "area": "CP-004 批准",
+      "assessment": "CP-004 §9 由项目所有者于 2026-09-14 本会话显式批准（附条件：W-P1/W-P2 为发布阻断优先项，W-P3 先裁决后实现，W-P4 迁移非新建）。REQ-172 已借 CP-002 §6 受控补登获 sanction；本批准解除其余 REQ-173~176 / NFR-20~24 编码封锁。",
+      "verdict": "accept",
+      "risk": "low"
+    },
+    {
+      "id": "XM-4",
+      "area": "治理一致性",
+      "assessment": "本批次规约变更（CP-004 §9）已配套跨模型审查记录，满足 CP-004 §7.4 与 R-CROSS-1 要求；未引入新运行时依赖（NEG-4），符合 C12 修正案通道。",
+      "verdict": "accept",
+      "risk": "low"
+    }
+  ],
+  "conclusion": "全部 finding 为 low risk / accept；变更未触碰攻击逻辑、评分口径或成功判定，对 ASR 中性。建议合入后按 CP-004 波次（W-P1→W-P5）继续推进并通过 python -m tools.gate --stage push。"
+}

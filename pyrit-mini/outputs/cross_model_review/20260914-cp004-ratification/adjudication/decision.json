@@ -1,0 +1,13 @@
+{
+  "change_id": "2026-09-14-cp004-ratification",
+  "adjudicated_by": "项目所有者（用户）/ AI 代录（人工编排模式）",
+  "adjudication_date": "2026-09-14",
+  "decision": "approved",
+  "conditions": [
+    "W-P1/W-P2 为零容忍发布阻断项，优先于任何新功能",
+    "W-P3 的 RK-P3 类裁决须先裁决再实现",
+    "W-P4 迁移遵守「迁移非新建」（IC-4），原分支删除期限登记 backlog",
+    "每波收尾必须跑 python -m tools.gate --stage push 并保持 specs/README.md 版本列同步"
+  ],
+  "summary": "跨模型审查 four findings 均为 low risk / accept。CP-004 批准生效，REQ-173~176 / NFR-20~24 / R-GATE-* 编码封锁解除；5 个存量 WARNING 债已清理。后续按 W-P1→W-P5 逐波推进。"
+}
