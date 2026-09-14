@@ -34,8 +34,6 @@ service_profile_keys: ["mcpsec_surface", "mcpsec_scan_results", "mcp_tool_invent
 seed_sets:
   - "data/seeds/mcp/"
   - "data/seeds/_attack_surface/T1_ASI02_mcp_full_surface/"
-# W0 契约字段（供 core/registry 老调用方消费）
-seeds: ["data/seeds/mcp/*", "data/seeds/_attack_surface/T1_ASI02_mcp_full_surface/*"]
 seed_suitable_for: ["mcp_tool_poisoning"]
 converter_vectors: ["mcp_tool_registration", "mcp_message_injection", "mcp_schema_poisoning"]
 # 高成功率 converter 组合（最佳实践候选集，按优先级降序）；空 -> 回退 l5_optimal（W0 零回归）
@@ -61,11 +59,8 @@ playbooks: [mcp_enum_call, mcp_schema_poison, mcp_tool_chain]
 assess:
   t0_check: "assess.component_scorers:t0_mcp_tool_poisoning_check"
   rubric: "data/scorers/component_scorers/mcp_tool_poisoning.yaml"
-# W0 契约字段：rubric 名
-scorer: mcp_tool_poisoning
 
 report_builder: "report.component_reports:_build_mcp_tool_poisoning_sections"
-report_section: "report.component_reports.mcp"
 poc_template: "report.component_poc:mcp_poc"
 
 owasp: ["ASI02", "ASI05"]

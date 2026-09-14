@@ -34,7 +34,6 @@ service_profile_keys: ["embedding_profile", "vector_db_profile"]
 
 seed_sets:
   - "data/seeds/_attack_surface/T1_LLM08_rag_full_surface/"
-seeds: []
 seed_suitable_for: ["embedding", "rag_pipeline"]
 converter_vectors: ["vector_poisoning", "embedding_inversion", "similarity_gaming"]
 # 高成功率 converter 组合（最佳实践候选集，按优先级降序）；空 -> 回退 l5_optimal（W0 零回归）
@@ -56,10 +55,8 @@ attack_paths: []
 assess:
   t0_check: "assess.component_scorers:t0_rag_pipeline_check"
   rubric: "data/scorers/component_scorers/rag_pipeline.yaml"
-scorer: rag_pipeline
 
 report_builder: "report.component_reports:_build_rag_pipeline_sections"
-report_section: "report.component_reports.rag"
 poc_template: "report.component_poc:rag_poc"
 
 owasp: ["LLM08", "ASI04"]

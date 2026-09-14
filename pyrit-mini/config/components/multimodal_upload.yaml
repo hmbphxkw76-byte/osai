@@ -34,7 +34,6 @@ service_profile_keys: ["upload_surface", "document_processing"]
 seed_sets:
   - "data/seeds/web/"
   - "data/seeds/_attack_surface/uploads/"
-seeds: ["data/seeds/web/*"]
 seed_suitable_for: ["multimodal_upload"]
 converter_vectors: ["split_document_injection", "poisoned_rag_upload", "metadata_injection"]
 # 高成功率 converter 组合（最佳实践候选集，按优先级降序）；空 -> 回退 l5_optimal（W0 零回归）
@@ -55,10 +54,8 @@ strike_modules:
 assess:
   t0_check: "assess.component_scorers:t0_multimodal_upload_check"
   rubric: "data/scorers/component_scorers/multimodal_upload.yaml"
-scorer: multimodal_upload
 
 report_builder: "report.component_reports:_build_multimodal_upload_sections"
-report_section: "report.component_reports.multimodal_upload"
 poc_template: "report.component_poc:web_poc"
 
 owasp: ["LLM01", "LLM03"]

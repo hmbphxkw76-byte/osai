@@ -36,7 +36,6 @@ service_profile_keys: ["auth_profile", "openapi_spec", "discovered_endpoints", "
 
 seed_sets:
   - "data/seeds/web/"
-seeds: ["data/seeds/web/*"]
 seed_suitable_for: ["web_api"]
 converter_vectors: ["header_injection", "request_smuggling", "auth_bypass", "rate_limit_evasion"]
 # 高成功率 converter 组合（最佳实践候选集，按优先级降序）；空 -> 回退 l5_optimal（W0 零回归）
@@ -62,10 +61,8 @@ strike_modules:
 assess:
   t0_check: "assess.component_scorers:t0_web_api_check"
   rubric: "data/scorers/component_scorers/web_api.yaml"
-scorer: web_api
 
 report_builder: "report.component_reports:_build_web_api_sections"
-report_section: "report.component_reports.web"
 poc_template: "report.component_poc:web_poc"
 
 owasp: ["API1", "API2", "API5", "LLM03"]

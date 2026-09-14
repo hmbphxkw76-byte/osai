@@ -28,7 +28,6 @@ recon_modules:
 service_profile_keys: ["supply_chain_profile"]
 
 seed_sets: []
-seeds: []
 seed_suitable_for: ["supply_chain"]
 converter_vectors: []
 
@@ -41,10 +40,8 @@ playbooks: []
 assess:
   t0_check: null
   rubric: null
-scorer: null
 
 report_builder: null
-report_section: null
 poc_template: null
 
 owasp: ["LLM03", "LLM05"]

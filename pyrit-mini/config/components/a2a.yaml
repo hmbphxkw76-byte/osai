@@ -34,7 +34,6 @@ service_profile_keys: ["a2a_inventory", "a2a_topology", "a2a_defense_profile", "
 seed_sets:
   - "data/seeds/a2a/"
   - "data/seeds/_attack_surface/T1_ASI06-09_multi_agent/"
-seeds: ["data/seeds/a2a/*", "data/seeds/_attack_surface/T1_ASI06-09_multi_agent/*"]
 seed_suitable_for: ["a2a_agent_integrity"]
 converter_vectors: ["cross_agent_injection", "agent_card_spoofing", "workflow_manipulation"]
 # 高成功率 converter 组合（最佳实践候选集，按优先级降序）；空 -> 回退 l5_optimal（W0 零回归）
@@ -60,10 +59,8 @@ playbooks: [a2a_card_spoof, a2a_workflow_hijack, a2a_cross_agent_inject]
 assess:
   t0_check: "assess.component_scorers:t0_a2a_agent_integrity_check"
   rubric: "data/scorers/component_scorers/a2a_agent_integrity.yaml"
-scorer: a2a_agent_integrity
 
 report_builder: "report.component_reports:_build_a2a_agent_integrity_sections"
-report_section: "report.component_reports.a2a"
 poc_template: "report.component_poc:a2a_poc"
 
 owasp: ["ASI06", "ASI07"]

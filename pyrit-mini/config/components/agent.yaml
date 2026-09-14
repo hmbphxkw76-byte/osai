@@ -35,7 +35,6 @@ service_profile_keys: ["agent_surface", "agent_tool_inventory", "agent_capabilit
 # 专用种子集（BL-048）：`data/seeds/_attack_surface/T1_agent_tool_use/` 下 T*_AGENT_* 工具结果注入/恶意工具/外泄语料。
 seed_sets:
   - "data/seeds/_attack_surface/T1_agent_tool_use/"
-seeds: ["data/seeds/_attack_surface/T1_agent_tool_use/*"]
 seed_suitable_for: ["agent"]
 converter_vectors: ["tool_result_injection", "rogue_tool_registration", "prompt_leak_via_tool"]
 # 高成功率 converter 组合（最佳实践候选集，按优先级降序）；空 -> 回退 l5_optimal（W0 零回归）
@@ -59,10 +58,8 @@ strike_modules:
 assess:
   t0_check: "assess.component_scorers:t0_agent_check"
   rubric: "data/scorers/component_scorers/agent.yaml"
-scorer: agent
 
 report_builder: "report.component_reports:_build_agent_sections"
-report_section: "report.agent"
 poc_template: "report.component_poc:agent_poc"
 
 owasp: ["ASI01", "ASI04", "ASI05", "LLM01"]

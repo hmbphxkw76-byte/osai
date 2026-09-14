@@ -19,7 +19,7 @@
 | **S4** | W-P5 P5-2：`git rm --cached data/seeds/asr_history.json` + 运行时产物迁 `outputs/` | 仓库卫生 | dry-run 后 `git status` clean（BL-052 已闭环，复核一致性） |
 | **S5** | W-P5 P5-1：`pyproject.toml` `include` 补 `targets*` + `[project.scripts]` 与 README §4 对齐（BL-055 已闭环，复核） | `pyproject.toml` | NFR-24 达成 |
 | **S6** | W-P5 P5-4：6 个超限文件登记 `DEBT-xxx`（不拆分，C4/NEG-1） | `10-ARCHITECTURE.md` 债务簿、`docs/backlog.md` | 债务簿只减不增成立（BL-026/BL-053 关联） |
-| **S7** | W-P5 P5-5：YAML 遗留字段清理（先迁消费者再删字段，并入 CP-010，不本波拆） | `config/components/*.yaml` | 旧字段 0 命中（BL-025/BL-050 关联） |
+| **S7** | W-P5 P5-5：YAML 遗留字段清理（已完成；消费者核对 0 裸 dict 引用，`ComponentSpec` 归一化消费 legacy 字段，12 份 YAML 去冗余 `seeds`/`scorer`/`report_section`） | `config/components/*.yaml` | 旧字段 0 命中（BL-025/BL-050 关联） |
 | — | W-P5 P5-3：`.gitignore` 乱码 — **SKIP**：E-12 已撤回，文件为合法 UTF-8（字节级校验 U+FFFD=0），改动违背最小变更 | — | 不动作 |
 
 ## W-P5 状态（交付包装）
@@ -30,7 +30,7 @@
 | P5-2 `asr_history` | ✅ 已满足（no-op） | 文件在磁盘但已 gitignore 且**未跟踪**（`git ls-files` 空 + `git check-ignore` 命中）；`git rm --cached` 无对象，运行时产物不污染工作树 |
 | P5-3 `.gitignore` | ⏭ SKIP | E-12 已撤回，文件为合法 UTF-8（U+FFFD=0），改动违背最小变更 |
 | P5-4 超限文件 DEBT | ✅ 已登记 | BL-095~BL-100 登记 E-14 六超限文件（不在本波拆分，C4/NEG-1） |
-| P5-5 遗留 YAML 字段 | ⏸ 延缓（下一谨慎切片） | `mcp.yaml` 等 `seeds`/`scorer` 标注「W0 契约字段 / 供 core/registry 老调用方消费」；须先核对 `core/registry.py` + 全量消费者零旧字段引用（C5 谨慎、呼应「不盲删」），再清理。本波不动作 |
+| P5-5 遗留 YAML 字段 | ✅ 已完成（12 份 YAML） | 核对 `core/registry.py` 仅经 `ComponentSpec` 消费 legacy 字段（`seeds→seed_sets`/`scorer→assess.rubric`/`report_section→report_builder` 归一化），无裸 dict 消费者（tools/target.py 等命中均为输出种子/报告字典，非组件 YAML）；12 份 YAML 的 `seeds`/`scorer`/`report_section` 均为 canonical 字段冗余别名，已删除（每文件 -3 行 + mcp -2 注释）。原 TASK 规划「并入 CP-010」因消费者核对已清零依赖而提前完成 |
 
 ## 每片验收（勾选）
 
@@ -39,4 +39,4 @@
 - [x] **S3** 完成：P4-5 暂缓登记 BL-094
 - [x] **W-P5 P5-1/P5-2** 已满足（无改动）
 - [x] **W-P5 P5-4** 完成：BL-095~BL-100 登记
-- [ ] **W-P5 P5-5** 遗留 YAML 字段清理：待消费者核对后作为下一谨慎切片
+- [x] **W-P5 P5-5** 已完成：12 份组件 YAML 删除冗余 legacy 字段（seeds/scorer/report_section），消费者核对无裸 dict 引用

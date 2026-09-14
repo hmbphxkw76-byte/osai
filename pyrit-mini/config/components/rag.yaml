@@ -27,7 +27,6 @@ service_profile_keys: ["rag_pipeline", "rag_kb_map", "rag_typo_fuzz"]
 seed_sets:
   - "data/seeds/rag/"
   - "data/seeds/_attack_surface/T1_LLM08_rag_full_surface/"
-seeds: ["data/seeds/rag/*", "data/seeds/_attack_surface/T1_LLM08_rag_full_surface/*"]
 seed_suitable_for: ["rag_pipeline"]
 converter_vectors: ["indirect_injection", "citation_manipulation", "context_poisoning"]
 # 高成功率 converter 组合（最佳实践候选集，按优先级降序）；空 -> 回退 l5_optimal（W0 零回归）
@@ -53,10 +52,8 @@ playbooks: [rag_poison, rag_citation_spoof]
 assess:
   t0_check: "assess.component_scorers:t0_rag_pipeline_check"
   rubric: "data/scorers/component_scorers/rag_pipeline.yaml"
-scorer: rag_pipeline
 
 report_builder: "report.component_reports:_build_rag_pipeline_sections"
-report_section: "report.component_reports.rag"
 poc_template: "report.component_poc:rag_poc"
 
 owasp: ["LLM08", "ASI04"]

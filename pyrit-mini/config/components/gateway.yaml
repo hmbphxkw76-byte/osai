@@ -29,7 +29,6 @@ service_profile_keys: ["guardrail_profile", "gateway_profile", "route_profile"]
 
 seed_sets:
   - "data/seeds/_core/"
-seeds: []
 seed_suitable_for: ["llm_gateway", "model_behavior_shift"]
 converter_vectors: ["template_escape", "guardrail_word_split", "route_manipulation"]
 
@@ -44,10 +43,8 @@ strike_modules:
 assess:
   t0_check: "assess.component_scorers:t0_model_behavior_shift_check"
   rubric: "data/scorers/component_scorers/model_behavior_shift.yaml"
-scorer: model_behavior_shift
 
 report_builder: "report.component_reports:_build_model_behavior_shift_sections"
-report_section: "report.component_reports.model"
 poc_template: "report.component_poc:model_poc"
 
 owasp: ["LLM01", "ASI01"]

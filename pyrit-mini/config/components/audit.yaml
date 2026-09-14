@@ -26,7 +26,6 @@ recon_modules:
 service_profile_keys: ["audit_profile", "observability_profile"]
 
 seed_sets: []
-seeds: []
 seed_suitable_for: ["audit_evasion"]
 converter_vectors: ["log_redaction_evasion", "trace_fragmentation"]
 
@@ -40,10 +39,8 @@ strike_modules:
 assess:
   t0_check: "assess.component_scorers:t0_model_behavior_shift_check"
   rubric: "data/scorers/component_scorers/model_behavior_shift.yaml"
-scorer: model_behavior_shift
 
 report_builder: "report.component_reports:_build_model_behavior_shift_sections"
-report_section: "report.component_reports.model"
 poc_template: "report.component_poc:model_poc"
 
 owasp: ["LLM09"]
