@@ -2950,7 +2950,7 @@ def check_component_dir_consistency(self) -> None:  # type: ignore[override]
             self.violations.append(
                 Violation(
                     rule="R-COMP-2",
-                    severity=Severity.WARNING,
+                    severity=Severity.BLOCKING,
                     file=f"config/components/{yaml_file.name}",
                     line=0,
                     description=(
@@ -2977,6 +2977,7 @@ def check_recon_only_component(self) -> None:  # type: ignore[override]
     # 收集磁盘上 recon_only 组件 id（读当前 YAML 原文）
     components_dir = self.root / "config" / "components"
     recon_only_ids: set[str] = set()
+    strike_dir_by_id: dict[str, str] = {}
     if components_dir.is_dir():
         for yaml_file in components_dir.glob("*.yaml"):
             try:
@@ -2984,8 +2985,10 @@ def check_recon_only_component(self) -> None:  # type: ignore[override]
             except OSError:
                 continue
             fields = _component_yaml_fields(text)
+            cid = fields.get("id") or fields.get("component_key") or yaml_file.stem
+            strike_dir_by_id[cid] = fields.get("strike_dir", "")
             if _is_recon_only(fields):
-                recon_only_ids.add(fields.get("id") or fields.get("component_key") or yaml_file.stem)
+                recon_only_ids.add(cid)
     if not recon_only_ids:
         return
 
@@ -3065,8 +3068,13 @@ def check_recon_only_component(self) -> None:  # type: ignore[override]
         if not added:
             continue
         blob = "\n".join(added)
+        delegated_dir = strike_dir_by_id.get(rid, "")
+        is_delegated = bool(delegated_dir) and delegated_dir != rid
         for field in _EXEC_FIELDS:
-            if _field_adds_nonempty_list(blob, field):
+            if not _field_adds_nonempty_list(blob, field):
+                continue
+            items = _exec_items_for_field(blob, field)
+            if _targets_own_namespace(items, rid):
                 self.violations.append(
                     Violation(
                         rule="R-COMP-3",
@@ -3074,13 +3082,61 @@ def check_recon_only_component(self) -> None:  # type: ignore[override]
                         file=yaml_path,
                         line=0,
                         description=(
-                            f"向 recon_only 组件 '{rid}' 的 YAML 增加非空 {field}（执行分支），"
-                            "违反 Q4 裁决机器化（ADR-011 / REQ-177）"
+                            f"向 recon_only 组件 '{rid}' 的 YAML 增加指向自身命名空间的 {field}"
+                            f"（{items[0] if items else ''}），违反 Q4 裁决机器化（ADR-011 / REQ-177）"
                         ),
-                        fix_hint=(f"embedding 类组件不得声明执行分支；移除 {field}，或改经 rag/session 间接覆盖"),
+                        fix_hint=(f"recon_only 组件不得在 strike/{rid}/ 内实装执行；改经他组件间接覆盖"),
                     )
                 )
                 break
+            if is_delegated:
+                continue
+            self.violations.append(
+                Violation(
+                    rule="R-COMP-3",
+                    severity=Severity.BLOCKING,
+                    file=yaml_path,
+                    line=0,
+                    description=(
+                        f"向 recon_only 组件 '{rid}' 的 YAML 增加非空 {field}（执行分支）且未声明委托，"
+                        "违反 Q4 裁决机器化（ADR-011 / REQ-177）"
+                    ),
+                    fix_hint=(f"移除 {field}，或声明 strike_dir 指向承接执行的他组件（如 rag/session）"),
+                )
+            )
+            break
+
+
+def _exec_items_for_field(block: str, field: str) -> list[str]:
+    """提取 diff 新增内容中给 `field` 增加的条目（内联 `[a, b]` 或块式 `- item`）。"""
+    items: list[str] = []
+    lines = block.splitlines()
+    for i, ln in enumerate(lines):
+        m = re.match(rf"^\s*{field}\s*:\s*(.*)$", ln)
+        if not m:
+            continue
+        val = m.group(1).strip()
+        if val.startswith("["):
+            inner = val.strip("[]")
+            items.extend(p.strip().strip('"').strip("'") for p in inner.split(",") if p.strip())
+            continue
+        for nxt in lines[i + 1 :]:
+            if re.match(rf"^\s*{field}\s*:", nxt):
+                break
+            m2 = re.match(r"^\s*[-\*]\s+(\S+)", nxt)
+            if m2:
+                items.append(m2.group(1).strip('"').strip("'"))
+                continue
+            if re.match(r"^\s*\S+\s*:", nxt):
+                break
+    return items
+
+
+def _targets_own_namespace(items: list[str], rid: str) -> bool:
+    """执行条目是否落回 recon_only 组件自身命名空间（`strike.<rid>.*` / `strike.<rid>`）。"""
+    if not rid:
+        return False
+    return any(it == f"strike.{rid}" or it.startswith(f"strike.{rid}.") for it in items)
 
 
 def _field_adds_nonempty_list(block: str, field: str) -> bool:

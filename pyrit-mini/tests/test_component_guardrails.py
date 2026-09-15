@@ -143,6 +143,66 @@ def test_rcomp3_no_diff_no_violation(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# R-COMP-3 委托口径（REV-32 / A 方案）：
+# recon_only 组件可把执行委托给 strike_dir 指向的他组件（REQ-177③ 间接覆盖），
+# 仅当执行分支落回自身命名空间（strike.<rid>.*）才 BLOCK。
+# ---------------------------------------------------------------------------
+
+
+def test_rcomp3_delegated_strike_dir_allows_playbooks(tmp_path):
+    """recon_only + strike_dir 指向他组件（emb -> rag）：声明 playbooks 属委托，放行。"""
+    _write_component(tmp_path, "emb.yaml", "id: emb\nrecon_only: true\nstrike_dir: rag\n")
+    diff = (
+        "diff --git a/config/components/emb.yaml b/config/components/emb.yaml\n"
+        "--- a/config/components/emb.yaml\n"
+        "+++ b/config/components/emb.yaml\n"
+        "@@ -10,3 +10,4 @@\n"
+        "+playbooks: [embedding_poison_then_retrieve]\n"
+    )
+    g = _FakeGuard(tmp_path)
+    with patch("tools.guard_extended.subprocess.run", return_value=_fake_git_diff(diff)):
+        ge.check_recon_only_component(g)
+    assert g.violations == []
+
+
+def test_rcomp3_own_namespace_module_blocking(tmp_path):
+    """虽已声明委托，但新增模块指向自身命名空间 strike.emb.* -> BLOCK。"""
+    _write_component(tmp_path, "emb.yaml", "id: emb\nrecon_only: true\nstrike_dir: rag\n")
+    diff = (
+        "diff --git a/config/components/emb.yaml b/config/components/emb.yaml\n"
+        "--- a/config/components/emb.yaml\n"
+        "+++ b/config/components/emb.yaml\n"
+        "@@ -10,3 +10,5 @@\n"
+        "+strike_modules:\n"
+        "+  - strike.emb.evil_attack\n"
+    )
+    g = _FakeGuard(tmp_path)
+    with patch("tools.guard_extended.subprocess.run", return_value=_fake_git_diff(diff)):
+        ge.check_recon_only_component(g)
+    blocking = [v for v in g.violations if v.severity == Severity.BLOCKING]
+    assert len(blocking) == 1
+    assert blocking[0].rule == "R-COMP-3"
+
+
+def test_rcomp3_undeclared_delegation_blocking(tmp_path):
+    """未声明委托（无 strike_dir）却新增 playbooks -> BLOCK。"""
+    _write_component(tmp_path, "sc.yaml", "id: sc\nrecon_only: true\n")
+    diff = (
+        "diff --git a/config/components/sc.yaml b/config/components/sc.yaml\n"
+        "--- a/config/components/sc.yaml\n"
+        "+++ b/config/components/sc.yaml\n"
+        "@@ -10,3 +10,4 @@\n"
+        "+playbooks: [sc_evil]\n"
+    )
+    g = _FakeGuard(tmp_path)
+    with patch("tools.guard_extended.subprocess.run", return_value=_fake_git_diff(diff)):
+        ge.check_recon_only_component(g)
+    blocking = [v for v in g.violations if v.severity == Severity.BLOCKING]
+    assert len(blocking) == 1
+    assert blocking[0].rule == "R-COMP-3"
+
+
+# ---------------------------------------------------------------------------
 # 纯函数单测（护栏核心判定逻辑）
 # ---------------------------------------------------------------------------
 
@@ -167,3 +227,15 @@ def test_field_adds_nonempty_list():
     assert ge._field_adds_nonempty_list("strike_modules: []", "strike_modules") is False
     assert ge._field_adds_nonempty_list("strike_modules:\n  - x\n", "strike_modules") is True
     assert ge._field_adds_nonempty_list("strike_modules:\n  # empty\n", "strike_modules") is False
+
+
+def test_exec_items_for_field():
+    assert ge._exec_items_for_field("strike_modules: [a, b]", "strike_modules") == ["a", "b"]
+    assert ge._exec_items_for_field("playbooks:\n  - x\n  - y\n", "playbooks") == ["x", "y"]
+    assert ge._exec_items_for_field("labels: [z]\n", "playbooks") == []
+
+
+def test_targets_own_namespace():
+    assert ge._targets_own_namespace(["strike.emb.evil"], "emb") is True
+    assert ge._targets_own_namespace(["strike.rag.poisoner"], "emb") is False
+    assert ge._targets_own_namespace([], "emb") is False
