@@ -84,7 +84,7 @@ def test_baselines_unavailable_isolated(monkeypatch: pytest.MonkeyPatch) -> None
     real_import = builtins.__import__
 
     def _blocked(name: str, *args, **kwargs):
-        if name == "tools._purity_baselines" or name.startswith("tools._purity_baselines."):
+        if name == "tools.audit._purity_baselines" or name.startswith("tools.audit._purity_baselines."):
             raise ImportError("blocked for test")
         return real_import(name, *args, **kwargs)
 

@@ -24,7 +24,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from tools.component_purity import (  # noqa: E402
+from tools.audit.component_purity import (  # noqa: E402
     _RECON_COMPONENT_BASELINES,
     _STRIKE_COMPONENT_BASELINES,
     ComponentPurityValidator,

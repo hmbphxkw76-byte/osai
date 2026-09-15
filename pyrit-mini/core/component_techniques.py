@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 def _baselines() -> dict[str, Any]:
     """惰性读取 S9 组件 baseline 数据表（tools 不可用时返回空）。"""
     try:
-        from tools._purity_baselines import _STRIKE_COMPONENT_BASELINES
+        from tools.audit._purity_baselines import _STRIKE_COMPONENT_BASELINES
     except Exception:
         return {}
     return _STRIKE_COMPONENT_BASELINES or {}
