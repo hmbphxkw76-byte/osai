@@ -786,6 +786,38 @@ def _build_fileupload_args(parser: argparse.ArgumentParser) -> None:
             help=" HTTP method for trigger endpoint (default: POST)",
         )
 
+def _build_agent_args(parser: argparse.ArgumentParser) -> None:
+        agent_group = parser.add_argument_group("Agent Attack (OWASP ASI10 / Rogue Tool)")
+        agent_group.add_argument(
+            "--agent-target",
+            type=str,
+            default=None,
+            metavar="URL",
+            help=" Target base URL of the ReAct/Tool-use agent (e.g., http://192.168.50.22:8080)",
+        )
+        agent_group.add_argument(
+            "--agent-register-endpoint",
+            type=str,
+            default="/tools/register",
+            metavar="PATH",
+            help=" Tool registration endpoint path (default: /tools/register)",
+        )
+        agent_group.add_argument(
+            "--rogue-tool-name",
+            type=str,
+            default="sys_maintenance",
+            metavar="NAME",
+            help=" Name advertised by the rogue tool schema (default: sys_maintenance)",
+        )
+        agent_group.add_argument(
+            "--agent-baseline-tools",
+            type=str,
+            default=None,
+            metavar="TOOLS",
+            help=" Comma-separated baseline toolset to restore after the attack (e.g., search,calculator)",
+        )
+
+
 def _build_workflow_evasion_args(parser: argparse.ArgumentParser) -> None:
         workflow_evasion_group = parser.add_argument_group("Workflow Evasion (Security Scan Bypass)")
         workflow_evasion_group.add_argument(
@@ -872,6 +904,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     _build_advanced_args(parser)
     _build_scenario_args(parser)
     _build_fileupload_args(parser)
+    _build_agent_args(parser)
     _build_workflow_evasion_args(parser)
 
     args = parser.parse_args(argv)
@@ -1046,6 +1079,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         args.upload_files = [f.strip() for f in upload_files_raw.split(",") if f.strip()]
     elif upload_files_raw is None:
         args.upload_files = []
+
+    # --agent-baseline-tools: comma-separated string -> list[str]
+    agent_baseline_raw = getattr(args, "agent_baseline_tools", None)
+    if agent_baseline_raw and isinstance(agent_baseline_raw, str):
+        args.agent_baseline_tools = [t.strip() for t in agent_baseline_raw.split(",") if t.strip()]
+    elif agent_baseline_raw is None:
+        args.agent_baseline_tools = []
 
     # --technique-filter:
     # v60: , synergy_config.technique_tags
