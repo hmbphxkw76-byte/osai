@@ -4,8 +4,8 @@
 
 测试策略：以 ``tmp_path`` 构造隔离的仓库根（``self.root``），并对 R-COMP-3
 依赖的 ``git diff --cached`` 用 ``unittest.mock.patch`` 替换 ``subprocess.run``，
-与真实仓库状态完全解耦。覆盖三态：violation / ok / exempt，含 BLOCKING 与
-WARNING 两类 severity。
+与真实仓库状态完全解耦。覆盖三态：violation / ok / exempt；REV-31 起 R-COMP-2 / R-COMP-3 均为
+BLOCKING（R-COMP-2 由 WARNING 升级，依「P3 完成起 BLOCKING」条款）。
 """
 
 from pathlib import Path
@@ -48,7 +48,8 @@ def test_rcomp2_violation_when_no_dir(tmp_path):
     assert len(g.violations) == 1
     v = g.violations[0]
     assert v.rule == "R-COMP-2"
-    assert v.severity == Severity.WARNING
+    # REV-31：R-COMP-2 由 WARNING 升级 BLOCKING（P3 完成起条款已满足）
+    assert v.severity == Severity.BLOCKING
 
 
 def test_rcomp2_ok_when_strike_dir(tmp_path):
