@@ -19,6 +19,7 @@ Constitution compliance:
     - R-S4: 测试全部 mock
 """
 
+from strike.agent.attacks import run_agent_attack
 from strike.agent.cleanup import (
     restore_agent_tools,
     unregister_rogue_tool,
@@ -37,6 +38,8 @@ from strike.agent.tool_injector import (
 )
 
 __all__ = [
+    # Attack dispatcher (I13 cleanup-wired, BL-093)
+    "run_agent_attack",
     # Tool-result injection
     "tool_result_injection",
     "build_indirect_injection_seed",
