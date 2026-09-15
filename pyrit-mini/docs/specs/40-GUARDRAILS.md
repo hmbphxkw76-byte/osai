@@ -5,7 +5,7 @@
 > **执行机制**：三层防线（静态 guard / 运行时 dry-run / git 钩子），继承 SKILL.md D2 条款并收编
 > （**SKILL.md 已明确降级为"本机可选细则"且不入库**，本体位于 `.assistant_pyrit/skills/…`，跨模型协同时不可依赖；
 > 项目级规则一律以 `specs/` 为准，见 §6 资产表与 BL-080）。
-> **版本**：v3.12（2026-09-14 REV-29：P1-6 登记 R-COMP-2~3 描述表（组件一致性护栏占位，检查器随 W-P3 落地）。REV-28：① R-DOC 红线表加 R-DOC-5（门禁步数同步）/ R-DOC-6（登记簿行数同步）两条 WARNING 机器检查；② 1F 登记簿同步加 check_gate_step_count_synced / check_guardrail_registry_count_synced 两行；③ 原 R-DOC-5（CLI 交付验收，无对应函数）从红线表移除。REV-27：护栏登记簿与代码同步 49→56 条）
+> **版本**：v3.13（2026-09-15 REV-30：1K-COMP 去除「登记占位、不产生门禁效力」表述——R-COMP-2/3 检查器随 W-P3 落地并生效；R-COMP-3 BLOCKING 已生效，单测落点 `tests/test_component_guardrails.py`（11 passed）；R-COMP-2 维持 WARNING（当前 0 违规），「P3 完成起 BLOCKING」升级另案登记。2026-09-14 REV-29：P1-6 登记 R-COMP-2~3 描述表（组件一致性护栏占位，检查器随 W-P3 落地）。REV-28：① R-DOC 红线表加 R-DOC-5（门禁步数同步）/ R-DOC-6（登记簿行数同步）两条 WARNING 机器检查；② 1F 登记簿同步加 check_gate_step_count_synced / check_guardrail_registry_count_synced 两行；③ 原 R-DOC-5（CLI 交付验收，无对应函数）从红线表移除。REV-27：护栏登记簿与代码同步 49→56 条）
 > **v3.4 摘要**（REV-21）：R-L7 顶层目录许可清单同步纳入 `targets/` —— 依 `10-ARCHITECTURE.md` 2.1「靶场层」与 REQ-156，修复检查器白名单滞后于规格的 spec-code drift。
 > **版本史**：`git log -- docs/specs/40-GUARDRAILS.md`
 
@@ -392,10 +392,10 @@ pyrit-drift --full --report
 - ⚠️ WARNING: R-GATE-3 违规 → 提示安装 `python -m tools.hooks`（无法安装时须在任务汇报 ⚠️ 栏声明）
 - 🔴 BLOCKING: R-GATE-1 阶段不等价 / R-GATE-2 存在静默降级 → **阻断 push**
 
-### 1K-COMP. 组件一致性护栏（P1-6 登记占位，W-P3 起生效）
+### 1K-COMP. 组件一致性护栏（W-P3 已落地生效）
 
 > **适用范围**：`config/components/*.yaml` 与组件目录结构的一致性。
-> **为什么需要**：组件"登记即存在"（C6），但仅登记 YAML 而无对应 `strike/<id>/` 或 `recon/<id>/` 目录会导致框架层引用悬空；`recon_only` 组件被偷偷写入执行分支则违背 Q4 裁决机器化（ADR-011）。本表在实施前为**登记占位，不产生门禁效力**（检查器随 W-P3 落地）。
+> **为什么需要**：组件"登记即存在"（C6），但仅登记 YAML 而无对应 `strike/<id>/` 或 `recon/<id>/` 目录会导致框架层引用悬空；`recon_only` 组件被偷偷写入执行分支则违背 Q4 裁决机器化（ADR-011）。**生效状态（2026-09-15）**：两个检查器已随 W-P3 落地并接入 1F 登记簿 —— `check_recon_only_component()`（R-COMP-3）**BLOCKING 已生效**；`check_component_dir_consistency()`（R-COMP-2）为 **WARNING、当前 0 违规**（「P3 完成起 BLOCKING」的升级留待另案登记，升级前须确认全组件目录齐备）。回归单测：`tests/test_component_guardrails.py`（11 passed）。
 
 | # | 红线 | 级别 | 判定特征 | 检查器 |
 |---|------|------|----------|--------|
