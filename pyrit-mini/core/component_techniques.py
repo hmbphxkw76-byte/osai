@@ -1,6 +1,6 @@
 """core/component_techniques.py — S9 组件 technique 运行时索引（REQ-151 / PlaybookEngine 接线落点）。
 
-SSOT：tools._purity_baselines._STRIKE_COMPONENT_BASELINES（S9 24 项来源）。
+SSOT：tools.audit._purity_baselines._STRIKE_COMPONENT_BASELINES（S9 24 项来源）。
 映射：
     - 组件级：component_key → registry spec.id（短名，如 mcp）
              → baselines[id].required_techniques
@@ -12,7 +12,8 @@ chain_executor / PlaybookEngine 负责。切片 A（可见性）与切片 B（�
 
 已知债务（option C 完整落地）：required_techniques 现仍由 tools 数据表提供；未来应提升进
 config/components/*.yaml + ComponentSpec（消除对 tools 的运行时依赖）。本模块用 try/except
-保证 tools / 注册表不可用时静默降级为 []，零回归、不阻断主链路。
+保证 tools / 注册表不可用时降级为 []，零回归、不阻断主链路——但降级**必须留痕**（WARNING），
+禁止静默（C9 / R-H1）。
 """
 
 from __future__ import annotations
@@ -24,10 +25,21 @@ logger = logging.getLogger(__name__)
 
 
 def _baselines() -> dict[str, Any]:
-    """惰性读取 S9 组件 baseline 数据表（tools 不可用时返回空）。"""
+    """惰性读取 S9 组件 baseline 数据表（tools 不可用时返回空）。
+
+    降级虽为保证零回归，但**必须留痕**（C9 / R-H1）：`tools/_purity_baselines` 整体迁入
+    `tools/audit/` 时，此处原本的静默 `except` 让故障以「逐 technique 路由静默退化」的
+    形式远距离暴露（表现为 `tests/common/test_attack_chain.py` 中难以归因的断言失败），
+    故降级路径补 WARNING，使故障在真正的故障点即可观测。
+    """
     try:
         from tools.audit._purity_baselines import _STRIKE_COMPONENT_BASELINES
-    except Exception:
+    except Exception as exc:  # pragma: no cover - 降级分支由单测显式注入覆盖
+        logger.warning(
+            "[component_techniques] S9 baseline 表不可用，technique 索引降级为空：%s: %s",
+            type(exc).__name__,
+            exc,
+        )
         return {}
     return _STRIKE_COMPONENT_BASELINES or {}
 
