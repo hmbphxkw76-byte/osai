@@ -68,7 +68,7 @@ neighbors: ["a2a_agent_integrity", "mcp_tool_poisoning", "model_behavior_shift",
 
 # I13：未声明 cleanup 的副作用步禁止在非 dry-run 下执行。
 # `unregister_rogue_tool` / `restore_agent_tools` 已**实装并注册**（`strike/agent/cleanup.py`，
-# 经 `preflight_cleanup` 校验）；分发器接线（agent 攻击路径调用 `run_side_effect_cleanup`）
-# 待 BL-093 闭环——agent 当前无专用攻击分发器（无 `run_agent_attack`），故真实攻击路径中
-# 清理尚未执行（I13 安全保证待 BL-093 完结）。
+# 经 `preflight_cleanup` 校验）；分发器 `run_agent_attack`（`strike/agent/attacks.py`，BL-093
+# 已闭环）在副作用步前做 preflight、步后调用 `run_side_effect_cleanup`，故真实攻击路径的
+# 清理已生效（I13 安全保证成立）。
 cleanup: [unregister_rogue_tool, restore_agent_tools]

@@ -4,10 +4,9 @@
 对应 config/components/agent.yaml `cleanup: [unregister_rogue_tool, restore_agent_tools]`。
 两个动作均**已实装并注册**（与 multimodal_upload/cleanup.py 同款 `@register_cleanup_action`）。
 
-注意（接线缺口，见 BL-093）：agent 当前无专用攻击分发器（无 `run_agent_attack`），
-故 `preflight_cleanup` / `run_side_effect_cleanup` 尚未被调用——
-动作实装完成，但「真实攻击路径中执行清理」需待 agent 分发器落地后接线。
-在接线前，非 dry-run 真实攻击的副作用清理不执行（I13 安全保证待 BL-093 闭环）。
+接线已闭环（BL-093 / CP-014）：分发器 `strike/agent/attacks.run_agent_attack` 在副作用步
+**前**调用 `preflight_cleanup`、**后**调用 `run_side_effect_cleanup`，故真实攻击路径的
+清理已生效（I13 安全保证成立）；preflight 拒绝时分发器直接 `blocked`，不执行本模块动作。
 
 动作签名：async fn(ctx, artifacts) -> dict（与 core.cleanup.register_cleanup_action 一致）。
 学术依据：OWASP ASI10 恶意工具注册的逆向清理（撤销越权工具副作用）。
