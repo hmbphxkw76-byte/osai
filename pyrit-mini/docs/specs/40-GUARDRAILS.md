@@ -5,7 +5,7 @@
 > **执行机制**：三层防线（静态 guard / 运行时 dry-run / git 钩子），继承 SKILL.md D2 条款并收编
 > （**SKILL.md 已明确降级为"本机可选细则"且不入库**，本体位于 `.assistant_pyrit/skills/…`，跨模型协同时不可依赖；
 > 项目级规则一律以 `specs/` 为准，见 §6 资产表与 BL-080）。
-> **版本**：v3.13（2026-09-15 REV-30：1K-COMP 去除「登记占位、不产生门禁效力」表述——R-COMP-2/3 检查器随 W-P3 落地并生效；R-COMP-3 BLOCKING 已生效，单测落点 `tests/test_component_guardrails.py`（11 passed）；R-COMP-2 维持 WARNING（当前 0 违规），「P3 完成起 BLOCKING」升级另案登记。2026-09-14 REV-29：P1-6 登记 R-COMP-2~3 描述表（组件一致性护栏占位，检查器随 W-P3 落地）。REV-28：① R-DOC 红线表加 R-DOC-5（门禁步数同步）/ R-DOC-6（登记簿行数同步）两条 WARNING 机器检查；② 1F 登记簿同步加 check_gate_step_count_synced / check_guardrail_registry_count_synced 两行；③ 原 R-DOC-5（CLI 交付验收，无对应函数）从红线表移除。REV-27：护栏登记簿与代码同步 49→56 条）
+> **版本**：v3.15（2026-09-15 REV-32：R-COMP-3 增「委托放行」口径——仅拦截落回自身命名空间（`strike/<id>/` 或 `strike.<id>.*`）的执行条目；`strike_dir` 指向他组件时，指向 `strike.<他组件>.*` 的 `strike_modules`/`playbooks`/`attack_paths` 属 REQ-177③ 间接覆盖，不报。REV-31：R-COMP-2 由 WARNING 升级 BLOCKING——「P3 完成起 BLOCKING」条款已满足（检查器 W-P3 已落地、升级时全组件目录齐备 0 违规、`tests/test_component_guardrails.py` 11 passed 回归）。REV-30：1K-COMP 去除「登记占位、不产生门禁效力」表述——R-COMP-2/3 检查器随 W-P3 落地并生效；R-COMP-3 BLOCKING 已生效，单测落点 `tests/test_component_guardrails.py`（11 passed）。2026-09-14 REV-29：P1-6 登记 R-COMP-2~3 描述表（组件一致性护栏占位，检查器随 W-P3 落地）。REV-28：① R-DOC 红线表加 R-DOC-5（门禁步数同步）/ R-DOC-6（登记簿行数同步）两条 WARNING 机器检查；② 1F 登记簿同步加 check_gate_step_count_synced / check_guardrail_registry_count_synced 两行；③ 原 R-DOC-5（CLI 交付验收，无对应函数）从红线表移除。REV-27：护栏登记簿与代码同步 49→56 条）
 > **v3.4 摘要**（REV-21）：R-L7 顶层目录许可清单同步纳入 `targets/` —— 依 `10-ARCHITECTURE.md` 2.1「靶场层」与 REQ-156，修复检查器白名单滞后于规格的 spec-code drift。
 > **版本史**：`git log -- docs/specs/40-GUARDRAILS.md`
 
@@ -279,7 +279,7 @@ pyrit-drift --full --report
 | check_gate_no_silent_skip | R-GATE-2 | BLOCKING | 门禁本体 |
 | check_hooks_installed | R-GATE-3 | WARNING | 门禁本体 |
 | check_checks_registered | R-GATE-4 | BLOCKING | 门禁本体 |
-| check_component_dir_consistency | R-COMP-2 | WARNING | 组件集成 |
+| check_component_dir_consistency | R-COMP-2 | BLOCKING | 组件集成 |
 | check_recon_only_component | R-COMP-3 | BLOCKING | 组件集成 |
 
 **保留注记**：
@@ -395,12 +395,12 @@ pyrit-drift --full --report
 ### 1K-COMP. 组件一致性护栏（W-P3 已落地生效）
 
 > **适用范围**：`config/components/*.yaml` 与组件目录结构的一致性。
-> **为什么需要**：组件"登记即存在"（C6），但仅登记 YAML 而无对应 `strike/<id>/` 或 `recon/<id>/` 目录会导致框架层引用悬空；`recon_only` 组件被偷偷写入执行分支则违背 Q4 裁决机器化（ADR-011）。**生效状态（2026-09-15）**：两个检查器已随 W-P3 落地并接入 1F 登记簿 —— `check_recon_only_component()`（R-COMP-3）**BLOCKING 已生效**；`check_component_dir_consistency()`（R-COMP-2）为 **WARNING、当前 0 违规**（「P3 完成起 BLOCKING」的升级留待另案登记，升级前须确认全组件目录齐备）。回归单测：`tests/test_component_guardrails.py`（11 passed）。
+> **为什么需要**：组件"登记即存在"（C6），但仅登记 YAML 而无对应 `strike/<id>/` 或 `recon/<id>/` 目录会导致框架层引用悬空；`recon_only` 组件被偷偷写入执行分支则违背 Q4 裁决机器化（ADR-011）。**生效状态（2026-09-15）**：两个检查器已随 W-P3 落地并接入 1F 登记簿 —— `check_recon_only_component()`（R-COMP-3）**BLOCKING 已生效**；`check_component_dir_consistency()`（R-COMP-2）于 REV-31 由 WARNING 升级 **BLOCKING**（「P3 完成起 BLOCKING」条款满足：升级时全组件目录齐备、0 违规）。至此两条均为 BLOCKING。回归单测：`tests/test_component_guardrails.py`（11 passed）。
 
 | # | 红线 | 级别 | 判定特征 | 检查器 |
 |---|------|------|----------|--------|
-| **R-COMP-2** | 组件–目录一致（I15） | WARNING（P3 完成起 BLOCKING） | `get_registry().names()` 存在 `id` 但既无 `strike/<id>/` 也无 `recon/<id>/`；非 `recon_only` 组件缺目录 | `check_component_dir_consistency()` |
-| **R-COMP-3** | `recon_only` 组件被写入执行分支（ADR-011） | BLOCKING | 向 `recon_only: true` 组件的 `strike/<id>/` 或执行分支写入 diff | `check_recon_only_component()` |
+| **R-COMP-2** | 组件–目录一致（I15） | BLOCKING | `get_registry().names()` 存在 `id` 但既无 `strike/<id>/` 也无 `recon/<id>/`；非 `recon_only` 组件缺目录 | `check_component_dir_consistency()` |
+| **R-COMP-3** | `recon_only` 组件被写入执行分支（ADR-011） | BLOCKING | 向 `recon_only: true` 组件写入执行分支：① diff 触及 `strike/<id>/`；② 或给该 YAML 增非空 `strike_modules`/`playbooks`/`attack_paths`。**放行委托（REV-32）**：`strike_dir` 指向他组件且条目指向 `strike.<他组件>.*` 时属 REQ-177③ 间接覆盖，不报；落回 `strike.<id>.*` 自身命名空间仍 BLOCK | `check_recon_only_component()` |
 
 **路径解析纪律（BL-070 教训）**：`pyrit-mini/` **常为仓库子目录**，真实 `.git` 在上层。
 判定钩子/仓库路径时**必须**用 `git rev-parse --git-dir` 解析，且输出须**显式按 UTF-8 解码**

@@ -46,6 +46,9 @@ converter_presets:
 preferred_attack_class: "PromptSendingAttack"
 asr_prior: 0.65
 
+# REV-32 委托口径（R-COMP-3）：以下条目均指向 strike.rag.*（他组件命名空间），
+# 且本组件 strike_dir: rag —— 属 REQ-177③「经 rag/session 间接覆盖」的委托，护栏放行；
+# 一旦改为 strike.embedding.*（落回自身命名空间）即触发 R-COMP-3 BLOCK。
 strike_modules:
   - strike.rag.vector_db_poisoner
   - strike.rag.retrieval_manipulator
