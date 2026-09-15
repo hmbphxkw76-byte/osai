@@ -31,6 +31,7 @@ from core.phases._strike_subphases import (  # noqa: E402
     _emit_native_strike_report,
     _get_default_visible_content,
     _run_advanced_attacks_phase,
+    _run_agent_attack_phase,
     _run_escalate_phase,
     _run_file_upload_phase,
     _run_stateful_chain_phase,
@@ -154,6 +155,11 @@ async def _run_strike_phase(ctx: "PipelineContext") -> None:
     # Execute file upload + trigger chain for document injection attacks
     # arXiv:2302.12173 (Greshake Indirect Injection) / arXiv:2406.04245 (PoisonedRAG)
     await _run_file_upload_phase(ctx)
+
+    # === Agent Attack Integration (OWASP ASI10 / arXiv:2307.00929) ===
+    # Rogue tool registration against ReAct/Tool-use agents; I13 cleanup is
+    # owned by the dispatcher (run_agent_attack) — see BL-093.
+    await _run_agent_attack_phase(ctx)
 
     # === plan Wave 3：有状态跨组件攻击链 ===
     # 在单组件攻击之后执行：先用 ComponentGraph 规划 DAG 链，再由状态机推进，

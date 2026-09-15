@@ -667,6 +667,67 @@ async def _run_file_upload_phase(ctx: "PipelineContext") -> None:
         logger.warning("[FileUpload] File upload phase error (non-fatal): %s", e)
 
 
+async def _run_agent_attack_phase(ctx: "PipelineContext") -> None:
+    """(4.5) AGENT ATTACK (OWASP ASI10): rogue tool registration + I13 cleanup.
+
+    Mirrors `_run_file_upload_phase` (including its dry-run early return) and
+    dispatches to `strike.agent.attacks.run_agent_attack`, which owns the I13
+    preflight / cleanup wiring (BL-093).
+
+    Data flow:
+        CLI args (--agent-target, --rogue-tool-name, --agent-baseline-tools)
+        → run_agent_attack → HTTP tool-registration endpoint → ctx.attack_results
+
+    Academic basis:
+        - Zhan et al. (arXiv:2307.00929): InjecAgent, schema-guided tool injection
+        - OWASP ASI10: Rogue Agent / malicious tool registration
+    """
+    from utils.display import print_phase
+
+    args = ctx.args
+
+    # dry-run：不产生任何副作用
+    from utils.dry_run import is_dry_run as _check_dry_run
+
+    if _check_dry_run(ctx.args):
+        return
+
+    if not getattr(args, "agent_target", None):
+        logger.debug("[Agent] No agent target - skip")
+        return
+
+    try:
+        print_phase("STRIKE", "Agent Attack (Rogue Tool Registration)...")
+
+        from strike.agent.attacks import run_agent_attack
+
+        agent_report = await run_agent_attack(ctx)
+
+        # I13：被 cleanup preflight 拒绝 → 不计入攻击结果（禁止静默放行）
+        if agent_report.get("status") == "blocked":
+            logger.warning("[Agent] Blocked by I13: %s", agent_report.get("reason", "unknown"))
+            return
+
+        if agent_report.get("status") == "success":
+            _cleanup = agent_report.get("cleanup") or {}
+            if _cleanup.get("status") == "failed":
+                logger.warning("[Agent] cleanup incomplete: %s", _cleanup.get("failed"))
+            if "agent" not in ctx.attack_results:
+                ctx.attack_results["agent"] = []
+            ctx.attack_results["agent"].append(agent_report)
+
+            logger.info(
+                "[Agent] Attack complete: target=%s, rogue_tool=%s",
+                agent_report.get("target", "unknown"),
+                agent_report.get("rogue_tool", "unknown"),
+            )
+        else:
+            logger.warning("[Agent] Attack failed: %s", agent_report.get("reason", "unknown"))
+
+    except Exception as e:
+        logger.warning("[Agent] Agent attack phase error (non-fatal): %s", e)
+
+
 def _asr_as_percent(explicit_pct: float | None, ctx: "PipelineContext") -> float:
     """把 ASR 归一到**百分比** 0–100（plan Wave 2.5 量纲唯一换算入口）。
 
