@@ -43,11 +43,11 @@
 
 | 片 | 状态 | 动作 | 涉及文件 |
 |----|------|------|---------|
-| **S1** | ⏳ | 新增 `strike/agent/attacks.py`：`run_agent_attack(ctx)`（preflight → 注册 rogue tool → orchestration_log → cleanup）；从 `__init__.py` 导出 | `strike/agent/attacks.py`(新) + `strike/agent/__init__.py` |
-| **S2** | ⏳ | 流水线接线：`_run_agent_attack_phase`（dry-run 早退）→ `strike.py` import + `await` | `core/phases/_strike_subphases.py` + `core/phases/strike.py` |
-| **S3** | ⏳ | CLI 参数：`--agent-target` / `--agent-register-endpoint` / `--rogue-tool-name` / `--agent-baseline-tools` | `core/_arg_parser.py` |
-| **S4** | ⏳ | 回归单测（`aiohttp` 全 mock，R-S4）：非 dry-run 下 preflight 放行且 cleanup 被调用；preflight 拒绝则 `blocked` 且不注册；dry-run 不产生副作用 | `tests/agent/test_attacks.py`(新) |
-| **S5** | ⏳ | 记录闭环：`docs/backlog.md` BL-093 → completed；清除 `agent.yaml` / `strike/agent/cleanup.py` 中"待 BL-093 闭环"的过时注释 | `docs/backlog.md` + `config/components/agent.yaml` + `strike/agent/cleanup.py` |
+| **S1** | ✅ DONE | 新增 `strike/agent/attacks.py`：`run_agent_attack(ctx)`（preflight → 注册 rogue tool → orchestration_log → cleanup）；从 `__init__.py` 导出 | `strike/agent/attacks.py`(新) + `strike/agent/__init__.py` |
+| **S2** | ✅ DONE | 流水线接线：`_run_agent_attack_phase`（dry-run 早退）→ `strike.py` import + `await` | `core/phases/_strike_subphases.py` + `core/phases/strike.py` |
+| **S3** | ✅ DONE | CLI 参数：`--agent-target` / `--agent-register-endpoint` / `--rogue-tool-name` / `--agent-baseline-tools` | `core/_arg_parser.py` |
+| **S4** | ✅ DONE | 回归单测（`aiohttp` 全 mock，R-S4）：非 dry-run 下 preflight 放行且 cleanup 被调用；preflight 拒绝则 `blocked` 且不注册；dry-run 不产生副作用 | `tests/agent/test_attacks.py`(新) |
+| **S5** | ✅ DONE | 记录闭环：`docs/backlog.md` BL-093 → completed；清除 `agent.yaml` / `strike/agent/cleanup.py` 中"待 BL-093 闭环"的过时注释 | `docs/backlog.md` + `config/components/agent.yaml` + `strike/agent/cleanup.py` |
 | **闭环判据** | — | `run_agent_attack` 存在且在被 I13 preflight 把关的前提下于副作用步后调用 `run_side_effect_cleanup`；agent 攻击路径经 `strike.py` 真实 reach；S4 全绿；`tools.gate` 0 BLOCKING；BL-093 closed | — |
 
 ## 6. 风险与回滚

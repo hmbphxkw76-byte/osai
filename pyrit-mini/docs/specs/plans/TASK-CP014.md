@@ -21,8 +21,8 @@
 
 ## 每片验收（勾选）
 
-- [ ] **S1** 完成：`run_agent_attack` 落地并导出
-- [ ] **S2** 完成：`strike.py` 真实接线
-- [ ] **S3** 完成：CLI 参数可用
-- [ ] **S4** 完成：`pytest tests/agent/test_attacks.py` 全绿
-- [ ] **S5** 完成：BL-093 闭环 + 过时注释清理
+- [x] **S1** 完成：`run_agent_attack` 落地并导出
+- [x] **S2** 完成：`strike.py` 真实接线
+- [x] **S3** 完成：CLI 参数可用
+- [x] **S4** 完成：`pytest tests/agent/test_attacks.py` 全绿
+- [x] **S5** 完成：BL-093 闭环 + 过时注释清理
