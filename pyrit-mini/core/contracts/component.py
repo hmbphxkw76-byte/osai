@@ -137,31 +137,6 @@ class ComponentSpec(BaseModel):
         if not self.labels:
             self.labels = [self.id or self.component_key]
 
-        # legacy detect: {signals, min_confidence}
-        if isinstance(self.detect, dict):
-            sigs = [str(s) for s in (self.detect.get("signals") or []) if s]
-            if sigs:
-                merged = list(self.detection.signals) + [
-                    s for s in sigs if s not in self.detection.signals
-                ]
-                self.detection = self.detection.model_copy(update={"signals": merged})
-            mc = self.detect.get("min_confidence")
-            if mc is not None and abs(float(self.detection.min_confidence) - 0.60) < 1e-9:
-                self.detection = self.detection.model_copy(update={"min_confidence": float(mc)})
-
-        # legacy list aliases
-        self.recon_modules = _merge(self.recon_modules, self.recon)
-        self.seed_sets = _merge(self.seed_sets, self.seeds)
-        self.converter_vectors = _merge(self.converter_vectors, self.converters)
-
-        # legacy scorer / report_section
-        if self.scorer and self.assess is None:
-            self.assess = AssessSpec(t0_check=None, rubric=self.scorer)
-        elif self.scorer and self.assess is not None and not self.assess.rubric:
-            self.assess.rubric = self.scorer
-        if self.report_section and not self.report_builder:
-            self.report_builder = self.report_section
-
         # seed_suitable_for 缺省 = 组件键自身（C-NAME-2）
         if not self.seed_suitable_for:
             self.seed_suitable_for = [self.component_key]
@@ -203,17 +178,6 @@ class ComponentSpec(BaseModel):
         if not payload.get("component_key"):
             payload["component_key"] = str(payload.get("id") or fallback_id)
         return cls.model_validate(payload)
-
-
-def _merge(primary: list[str], legacy: list[str]) -> list[str]:
-    """合并主字段与 legacy 别名字段，保持顺序且去重。"""
-    out: list[str] = []
-    seen: set[str] = set()
-    for item in [*primary, *legacy]:
-        if item and item not in seen:
-            seen.add(item)
-            out.append(item)
-    return out
 
 
 class WiringError(BaseModel):

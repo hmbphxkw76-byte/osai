@@ -22,7 +22,7 @@
 | **S2** | BL-082 S3 | asr_history 读写器下沉 `core.asr_history`（回归蓝图 I7：assess 写、arm 读） | 新增 1 + 改 2 | 中：涉及 asr_history.json 落盘口径，需跑 `--dry-run` 前后对照 |
 | **S3** | BL-090 / BL-082 S4 | `core → recon` / `strike → recon` / `report → utils` 三组根治（共享件下沉或改注册表解析） | 跨模块 | 并入 REQ-151 波次；IC-2 |
 | **S4** | BL-092 | `ctx.{surface_graph, playbook_state, impact_chains, score_manifest}` 零消费：逐字段 a/b/c 判定（接线 / 摘除 / 标注未接线） | `core/context.py` + 蓝图 4.4 总表 | ✅ **本会话已完成**（四字段统一判定 (c) 预留型标注 + 加入 R-PIPE-5 白名单；ASR 中性） |
-| **S5** | BL-025 / BL-050 | 兼容层收敛：① 消费者迁新字段 → ② 删 `component.py` merge → ③ 删 YAML 旧字段 | 3+ 模块 + 10 YAML | 中高：必须先确认零回归（`validate_wiring()` + 组件审计） |
+| **S5** | BL-025 / BL-050 | 兼容层收敛：① 消费者本就读 canonical 字段（无迁移动作）→ ② ✅ 删 `component.py` merge 逻辑（`core/contracts/component.py`，恒为 no-op）→ ③ ✅ 删 YAML legacy 别名（W-P5 P5-5 / commit e2638ce） | 3+ 模块 + 10 YAML | ✅ 本切片完成（2026-09-15）；注意 BL-025/本表字段分类与 `ComponentSpec` 实现相反——canonical=`seed_sets`/`assess`/`report_builder`，被删的 `seeds`/`scorer`/`report_section` 才是别名 |
 | **S6** | BL-081 / BL-087 | 乱码回填：6 文件按历史 rev（7f5790c / e81d5ab / 1c2c7ef / f00e041）**函数级比对**回填；2 文件（`converter_chains_text.py`、`converter_chains_document.py`）语义重写 | 8 文件（分 3 批） | 低（注释/docstring 不改语义）；每批后跑全量 |
 | **S7** | BL-026 / BL-053 | 大文件拆分：`guard_extended`(2487) / `attack_surface_mapper`(1150) / `_arg_parser`(1109) / `guard`(940) | 4 文件（逐个） | 中：拆分需保 `check_*` 注册发现机制不变 |
 | **S8** | BL-048 / BL-093 | `agent` 组件（YAML + recon/strike/assess/report 四件套 + 种子）已完整落地并注册（BL-048 ✅ completed）；I13 cleanup 动作 `unregister_rogue_tool`/`restore_agent_tools` 已实装并登记入共享 `core.side_effect_cleanup` 注册表（与 multimodal_upload 共用，避免重复基建） | 多文件 | ✅ **BL-048 completed**；BL-093（open）：agent 无 `run_agent_attack` 分发器调用 `preflight/run_side_effect_cleanup`，真实攻击路径清理执行待该分发器落地后接线 |
